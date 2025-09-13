@@ -93,13 +93,30 @@ function addBet() {
   renderBets();
 }
 
+function removeBet(index) {
+  const bets = getBets();
+  bets.splice(index, 1); // remove one bet at given index
+  saveBets(bets);
+  renderBets();
+}
+
 function renderBets() {
   const bets = getBets();
   const list = document.getElementById('list');
   list.innerHTML = '';
-  bets.forEach(bet => {
+  bets.forEach((bet, index) => {
     const li = document.createElement('li');
-    li.textContent = `${bet.name} – ${bet.score} (£${bet.amount})`;
+    li.textContent = `${bet.name} – ${bet.score} (£${bet.amount}) `;
+
+    const btn = document.createElement('button');
+    btn.textContent = '❌ Remove';
+    btn.style.marginLeft = '10px';
+    btn.style.background = '#444';
+    btn.style.color = 'white';
+    btn.style.cursor = 'pointer';
+    btn.onclick = () => removeBet(index);
+
+    li.appendChild(btn);
     list.appendChild(li);
   });
   const total = bets.reduce((sum, bet) => sum + bet.amount, 0);
@@ -107,12 +124,14 @@ function renderBets() {
 }
 
 // Init
-setupScores(10); // change number for max goals
+setupScores(10);
 renderBets();
 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').then(() => console.log('Service Worker Registered'));
 }
+</script>
+
 </script>
 </body>
 </html>
