@@ -1,0 +1,12 @@
+{
+  "name": "Arsenal Betting App",
+  "short_name": "ArsenalBet",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#EF0107",
+  "theme_color": "#EF0107",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
