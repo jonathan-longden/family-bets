@@ -1,169 +1,100 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Arsenal Betting App</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#EF0107">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Match Betting — with Rollover & Real-time Sync</title>
 <style>
-  body {
-    font-family: 'Arial', sans-serif;
-    margin:0; padding:0;
-    background: #111 url('https://upload.wikimedia.org/wikipedia/en/5/53/Arsenal_FC.svg') no-repeat center center;
-    background-size: 200px auto;
-    color: white; text-align: center;
-    min-height: 100vh; display: flex; flex-direction: column;
-  }
-  h1 { margin: 20px 0 10px; text-shadow: 2px 2px 4px black; }
-  input, select, button {
-    padding: 10px; margin: 5px; font-size: 16px;
-    border-radius: 6px; border: none;
-  }
-  input { width: 60%; }
-  button { background-color: #EF0107; color: white; font-weight: bold; cursor: pointer; }
-  button:hover { background-color: #B70005; }
-  #scoreButtons { margin: 15px 0; }
-  #scoreButtons select { font-size: 16px; padding: 8px; }
-  #betsList {
-    margin: 20px auto; background: rgba(0,0,0,0.6);
-    padding: 15px; border-radius: 10px;
-    max-width: 90%; flex-grow: 1; overflow-y: auto;
-  }
-  #betsList ul { list-style: none; padding: 0; }
-  #totalPot { margin-top: 10px; font-weight: bold; }
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:20px;background:#f7f7f8}
+.card{background:white;padding:16px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.06);max-width:900px;margin:auto}
+h1{margin:0 0 10px}
+label{display:block;margin-top:10px}
+input,select,textarea,button{padding:8px;margin-right:8px;border-radius:6px;border:1px solid #ddd}
+#list{list-style:none;padding-left:0;margin-top:12px}
+#list li{padding:8px 6px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between}
+.muted{color:#666;font-size:0.95rem}
+.inline{display:inline-block}
+.danger{background:#c0392b;color:white;border:none;padding:6px 10px;border-radius:6px;cursor:pointer}
+.primary{background:#2d9cdb;color:white;border:none;padding:8px 12px;border-radius:6px;cursor:pointer}
+.small{font-size:0.9rem;padding:6px 8px}
+textarea{width:100%;height:80px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.col{flex:1}
+.center{display:flex;gap:8px;align-items:center}
 </style>
 </head>
 <body>
-<h1>Arsenal Betting App</h1>
-<p>£2 per bet – Enter your name and pick a score!</p>
-<input type="text" id="name" placeholder="Your Name">
+<div class="card">
+<h1 id="matchInfo">Match</h1>
 
-<div id="scoreButtons">
-  <select id="homeScore"></select>
-  <span>–</span>
-  <select id="awayScore"></select>
-  <button onclick="addBet()">Place Bet</button>
+
+<div class="center">
+<div class="muted">Rollover: £<span id="rolloverDisplay">0</span></div>
+<div class="muted">Total Pot: £<span id="totalPot">0</span></div>
+<div id="status" class="muted"></div>
 </div>
 
-<div id="betsList">
-  <h2>Bets:</h2>
-  <ul id="list"></ul>
-  <div id="totalPot">Total Pot: £0</div>
+
+<hr />
+
+
+<div id="controls">
+<div class="row">
+<input id="teamHomeInput" placeholder="Home team" class="col" />
+<input id="teamAwayInput" placeholder="Away team" class="col" />
+<button id="saveTeamsBtn" class="primary small">Save Teams</button>
 </div>
 
-<script>
-const betKey = 'arsenalBets';
-const rolloverKey = 'rolloverPot';
+
+<div style="margin-top:12px" class="row">
+<input id="name" placeholder="Your name" class="col" />
 
 
-// Set teams here
-const teamHome = 'Arsenal';
-const teamAway = 'Notts Forest';
+<select id="homeScore"></select>
+<select id="awayScore"></select>
 
 
-// Base rollover amount
-const basePot = 44;
+<input id="amount" type="number" min="1" value="2" style="width:90px" />
 
 
-// Setup score dropdowns
-function setupScores(max = 10) {
-const home = document.getElementById('homeScore');
-const away = document.getElementById('awayScore');
-for (let i = 0; i <= max; i++) {
-let optH = document.createElement('option');
-optH.value = optH.textContent = i;
-home.appendChild(optH);
+<button id="addBetBtn" class="primary">Place Bet</button>
+</div>
+</div>
 
 
-let optA = document.createElement('option');
-optA.value = optA.textContent = i;
-away.appendChild(optA);
-}
-}
+<ul id="list"></ul>
 
 
-// Bets helpers
-function getBets() {
-const bets = localStorage.getItem(betKey);
-return bets ? JSON.parse(bets) : [];
-}
-function saveBets(bets) { localStorage.setItem(betKey, JSON.stringify(bets)); }
+<hr />
 
 
-// Rollover helpers
-function getRollover() {
-const saved = localStorage.getItem(rolloverKey);
-return saved ? parseInt(saved) : basePot;
-}
-function saveRollover(amount) { localStorage.setItem(rolloverKey, amount); }
+<div>
+<h3>Resolve match (admin)</h3>
+<div class="row">
+<input id="finalHome" type="number" min="0" placeholder="Final home" style="width:120px" />
+<input id="finalAway" type="number" min="0" placeholder="Final away" style="width:120px" />
+<button id="resolveBtn" class="primary">Resolve Match</button>
+<button id="clearBetsBtn" class="small">Clear Bets (no payout)</button>
+</div>
+<div id="resultLog" class="muted" style="margin-top:8px"></div>
+</div>
 
 
-function addBet() {
-const nameInput = document.getElementById('name');
-const name = nameInput.value.trim();
-if (!name) { alert('Please enter your name!'); return; }
+<hr />
 
 
-const home = document.getElementById('homeScore').value;
-const away = document.getElementById('awayScore').value;
-const score = `${home}-${away}`;
+<div>
+<h3>Realtime Sync (optional)</h3>
+<p class="muted">To enable cross-device updating, paste your Firebase config JSON below and click <b>Enable Firebase</b>. If you don't enable Firebase the page will work locally (saved to localStorage) but will not sync across devices.</p>
+<textarea id="firebaseConfigText" placeholder='Paste your firebase config JSON here (the object with apiKey, authDomain, databaseURL, projectId, etc)'></textarea>
+<div style="margin-top:8px" class="row">
+<button id="enableFirebaseBtn" class="primary small">Enable Firebase</button>
+<button id="disableFirebaseBtn" class="small">Disable Firebase</button>
+</div>
+</div>
 
 
-const bets = getBets();
-bets.push({ name, score, amount: 2 });
-saveBets(bets);
+<hr />
 
 
-nameInput.value = '';
-renderBets();
-
-
-
-}
-
-
-function removeBet(index) {
-const bets = getBets();
-bets.splice(index, 1);
-saveBets(bets);
-renderBets();
-}
-
-
-function renderBets() {
-const bets = getBets();
-const list = document.getElementById('list');
-list.innerHTML = '';
-
-
-bets.forEach((bet, index) => {
-const li = document.createElement('li');
-li.textContent = `${bet.name} – ${bet.score} (£${bet.amount}) `;
-
-
-const btn = document.createElement('button');
-btn.textContent = '❌ Remove';
-btn.style.marginLeft = '10px';
-btn.style.background = '#444';
-btn.style.color = 'white';
-btn.style.cursor = 'pointer';
-btn.onclick = () => removeBet(index);
-
-
-li.appendChild(btn);
-list.appendChild(li);
-});
-
-
-const rollover = getRollover();
-const total = bets.reduce((sum, bet) => sum + bet.amount, 0) + rollover;
-document.getElementById('totalPot').textContent = `Total Pot: £${total}`;
-}
-
-
-</script>
-
-</script>
-</body>
-</html>
+<div>
