@@ -54,82 +54,114 @@
 
 <script>
 const betKey = 'arsenalBets';
+const rolloverKey = 'rolloverPot';
+
+
+// Set teams here
+const teamHome = 'Arsenal';
+const teamAway = 'Notts Forest';
+
+
+// Base rollover amount
+const basePot = 44;
+
 
 // Setup score dropdowns
 function setupScores(max = 10) {
-  const home = document.getElementById('homeScore');
-  const away = document.getElementById('awayScore');
-  for (let i = 0; i <= max; i++) {
-    let optH = document.createElement('option');
-    optH.value = optH.textContent = i;
-    home.appendChild(optH);
+const home = document.getElementById('homeScore');
+const away = document.getElementById('awayScore');
+for (let i = 0; i <= max; i++) {
+let optH = document.createElement('option');
+optH.value = optH.textContent = i;
+home.appendChild(optH);
 
-    let optA = document.createElement('option');
-    optA.value = optA.textContent = i;
-    away.appendChild(optA);
-  }
+
+let optA = document.createElement('option');
+optA.value = optA.textContent = i;
+away.appendChild(optA);
+}
 }
 
+
+// Bets helpers
 function getBets() {
-  const bets = localStorage.getItem(betKey);
-  return bets ? JSON.parse(bets) : [];
+const bets = localStorage.getItem(betKey);
+return bets ? JSON.parse(bets) : [];
 }
 function saveBets(bets) { localStorage.setItem(betKey, JSON.stringify(bets)); }
 
+
+// Rollover helpers
+function getRollover() {
+const saved = localStorage.getItem(rolloverKey);
+return saved ? parseInt(saved) : basePot;
+}
+function saveRollover(amount) { localStorage.setItem(rolloverKey, amount); }
+
+
 function addBet() {
-  const nameInput = document.getElementById('name');
-  const name = nameInput.value.trim();
-  if (!name) { alert('Please enter your name!'); return; }
+const nameInput = document.getElementById('name');
+const name = nameInput.value.trim();
+if (!name) { alert('Please enter your name!'); return; }
 
-  const home = document.getElementById('homeScore').value;
-  const away = document.getElementById('awayScore').value;
-  const score = `${home}-${away}`;
 
-  const bets = getBets();
-  bets.push({ name, score, amount: 2 });
-  saveBets(bets);
+const home = document.getElementById('homeScore').value;
+const away = document.getElementById('awayScore').value;
+const score = `${home}-${away}`;
 
-  nameInput.value = '';
-  renderBets();
-}
 
-function removeBet(index) {
-  const bets = getBets();
-  bets.splice(index, 1); // remove one bet at given index
-  saveBets(bets);
-  renderBets();
-}
+const bets = getBets();
+bets.push({ name, score, amount: 2 });
+saveBets(bets);
 
-function renderBets() {
-  const bets = getBets();
-  const list = document.getElementById('list');
-  list.innerHTML = '';
-  bets.forEach((bet, index) => {
-    const li = document.createElement('li');
-    li.textContent = `${bet.name} – ${bet.score} (£${bet.amount}) `;
 
-    const btn = document.createElement('button');
-    btn.textContent = '❌ Remove';
-    btn.style.marginLeft = '10px';
-    btn.style.background = '#444';
-    btn.style.color = 'white';
-    btn.style.cursor = 'pointer';
-    btn.onclick = () => removeBet(index);
-
-    li.appendChild(btn);
-    list.appendChild(li);
-  });
-  const total = bets.reduce((sum, bet) => sum + bet.amount, 0);
-  document.getElementById('totalPot').textContent = `Total Pot: £${total}`;
-}
-
-// Init
-setupScores(10);
+nameInput.value = '';
 renderBets();
 
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').then(() => console.log('Service Worker Registered'));
+
+// 🔄 (Optional: Push to Firebase/Server here for real-time sync)
 }
+
+
+function removeBet(index) {
+const bets = getBets();
+bets.splice(index, 1);
+saveBets(bets);
+renderBets();
+}
+
+
+function renderBets() {
+const bets = getBets();
+const list = document.getElementById('list');
+list.innerHTML = '';
+
+
+bets.forEach((bet, index) => {
+const li = document.createElement('li');
+li.textContent = `${bet.name} – ${bet.score} (£${bet.amount}) `;
+
+
+const btn = document.createElement('button');
+btn.textContent = '❌ Remove';
+btn.style.marginLeft = '10px';
+btn.style.background = '#444';
+btn.style.color = 'white';
+btn.style.cursor = 'pointer';
+btn.onclick = () => removeBet(index);
+
+
+li.appendChild(btn);
+list.appendChild(li);
+});
+
+
+const rollover = getRollover();
+const total = bets.reduce((sum, bet) => sum + bet.amount, 0) + rollover;
+document.getElementById('totalPot').textContent = `Total Pot: £${total}`;
+}
+
+
 </script>
 
 </script>
