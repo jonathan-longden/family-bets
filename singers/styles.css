@@ -203,6 +203,34 @@ input:focus{border-color:var(--brand)}
 .tile .tile-top{position:absolute;top:6px;left:7px;right:7px;font-size:.7rem;color:rgba(255,255,255,.9);
   text-shadow:0 2px 6px rgba(0,0,0,.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+/* ── filters & saved searches ── */
+.filter-row{display:flex;gap:8px;padding-bottom:2px}
+.filter-row .chip{display:flex;align-items:center;gap:6px}
+.filter-row .chip b{background:var(--brand);color:#fff;border-radius:999px;min-width:18px;
+  height:18px;display:grid;place-items:center;font-size:.68rem}
+.saved-list{display:grid;gap:8px}
+.saved-row{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);
+  border-radius:14px;padding:10px 12px}
+.saved-open{flex:1;min-width:0;display:grid;gap:2px;text-align:left}
+.saved-open .t{font-weight:700;font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.saved-open .s{font-size:.76rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fresh-pill{flex:none;font-size:.7rem;font-weight:700;color:#fff;padding:4px 9px;border-radius:999px;
+  background:linear-gradient(120deg,var(--brand),var(--brand-2))}
+.icon-btn.sm{width:32px;height:32px}
+.icon-btn.sm .ic{width:16px;height:16px}
+
+/* ── shortlist ── */
+.shortlist-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 4px 12px}
+.btn-ghost.sm{padding:8px 14px;font-size:.82rem;border-radius:12px;white-space:nowrap;flex:none}
+.shortlist{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.shortlist-row{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:10px 12px}
+.shortlist-main{display:flex;align-items:center;gap:12px;width:100%;text-align:left}
+.shortlist-note{margin:8px 0 0;font-size:.84rem;line-height:1.4;color:var(--text);
+  background:var(--bg-soft);border-radius:10px;padding:8px 10px;overflow-wrap:anywhere}
+.shortlist-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.shortlist-actions .chip{font-size:.78rem;padding:7px 12px;text-decoration:none}
+.shortlist-actions a.chip{color:var(--gold);border-color:rgba(255,194,75,.4)}
+
 /* ── chart ── */
 .chart-tabs{display:flex;gap:8px}
 .chart-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
@@ -303,6 +331,15 @@ body.hide-tabbar #tabbar{display:none}
 .list-row:last-child{border-bottom:none}
 .set-group{display:grid;gap:10px;margin-bottom:18px}
 textarea{width:100%;min-height:90px;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px;outline:none;resize:vertical}
+
+/* ── upload progress ── */
+.upload-pill{position:fixed;left:50%;transform:translateX(-50%);z-index:290;width:min(88vw,340px);
+  top:calc(10px + var(--safe-t));background:rgba(20,20,31,.96);border:1px solid var(--line);
+  border-radius:14px;padding:10px 14px;box-shadow:0 12px 30px rgba(0,0,0,.5);animation:fadeUp .2s ease}
+.upload-row{display:flex;justify-content:space-between;align-items:center;font-size:.82rem;font-weight:600;margin-bottom:7px}
+.upload-track{height:4px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden}
+.upload-track i{display:block;height:100%;width:0;border-radius:99px;
+  background:linear-gradient(90deg,var(--brand),var(--brand-2));transition:width .25s ease}
 
 /* ── toast ── */
 .toast{position:fixed;left:50%;bottom:calc(var(--tab-h) + 120px + var(--safe-b));max-width:min(92vw,420px);text-align:center;transform:translateX(-50%);

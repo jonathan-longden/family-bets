@@ -41,17 +41,48 @@ position, and a grid of clips. Long-press one of your own tiles to delete
 it.
 
 **Scout accounts** — pick "Scout" at signup (or in Edit profile) if you're
-looking for talent rather than posting. Scouts get a Shortlist tab, and a
-shortlist is the heaviest signal in the chart score.
+looking for talent rather than posting. A shortlist is also the heaviest
+signal in the chart score, so scouts moving on someone pushes them up.
+
+## Scout tools
+
+The scout side is the part somebody would actually pay for, so it's built
+as a working surface rather than a bookmark list.
+
+- **Filters** on Discover: originals only, posted within 24h/7d/30d, and
+  based-in city, on top of the search box and genre chips. The Filters
+  chip shows how many are active.
+- **Saved searches** — name the current search and it lands at the top of
+  Discover with a **"N new"** badge counting matching clips posted since
+  you last opened it. That badge is the reason a scout comes back daily;
+  opening the search re-applies every criterion and marks it seen.
+- **Shortlist** — the Saved tab becomes a working list: singer, city,
+  song, plays and chart score per row, with **notes**, a **Get in touch**
+  button, and remove. Notes are deliberately kept in `localStorage` and
+  never written to the shared board — a scout's opinion of a singer has no
+  business syncing to anyone, least of all the singer.
+- **Export CSV** — the whole shortlist as a spreadsheet: name, handle,
+  city, genres, contact, song, original?, caption, plays, likes,
+  comments, score, date and your note. Downloads as a file, falls back to
+  the clipboard if the browser blocks it.
+- **Contact route** — singers add a booking email or link in Edit
+  profile, which shows up as *Get in touch* on shortlist rows (`mailto:`
+  or the link). If a singer hasn't added one, the row says so and points
+  at commenting instead. There's no in-app messaging: with no accounts or
+  moderation, a DM inbox would be a liability rather than a feature.
 
 ## Where the data lives
 
 - **Clip metadata** (profiles, captions, likes, comments, play counts) —
   `localStorage` under `spotlight.board`.
-- **Video files and poster frames** — IndexedDB (`spotlight` → `media`),
-  on that device only. Nothing is uploaded anywhere.
+- **Video files and poster frames** — IndexedDB (`spotlight` → `media`).
+  Nothing is uploaded anywhere until you turn on sync, and the local copy
+  stays even after upload so your own clips play instantly and offline.
 - **Your identity** — a generated id in `spotlight.me`. No password, no
   server, no account recovery.
+- **Scout notes and saved searches** — `spotlight.notes` and
+  `spotlight.searches`, deliberately outside the synced board so they stay
+  private to the device.
 
 The app seeds six demo singers and eight demo clips on first run so the
 feed, chart and search aren't empty. Demo clips have no video file, so
@@ -59,17 +90,18 @@ they render as an animated stage visual labelled "Demo clip" — everything
 else about them (likes, comments, following, ranking) works normally.
 Settings → *Reset everything on this device* clears all of it.
 
-## Optional sync between devices
+## Sync between devices
 
 Settings (cog on your profile) → *Sync across devices* takes a Firebase
-web config and mirrors the board through Realtime Database, the same
-pattern the Family Bets app uses. Everyone pasting the same config sees
-the same profiles, clips, likes and comments.
+web config and shares everything: the board through Realtime Database,
+and the video files themselves through Cloud Storage. Everyone pasting
+the same config sees the same singers, clips, likes and comments — and
+can play each other's clips.
 
 1. Create a project at https://console.firebase.google.com/ and register a
    **Web app** to get the config object.
-2. Enable **Build → Realtime Database**.
-3. Scope the rules to the path the app uses:
+2. Enable **Build → Realtime Database**, and scope its rules to the path
+   the app uses:
 
 ```json
 {
@@ -79,25 +111,70 @@ the same profiles, clips, likes and comments.
 }
 ```
 
-4. Paste the config JSON into the sync panel and turn it on.
+3. Enable **Build → Storage**, and scope its rules to the two folders the
+   app writes:
 
-Merging is per-entity: the newer `updatedAt` wins for edits, likes and
-follows union together, comments dedupe by id, and play counts take the
-maximum — so two phones editing at once don't wipe each other out.
+```json
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /clips/{clip} {
+      allow read: if true;
+      allow write: if request.resource.size < 100 * 1024 * 1024
+                   && request.resource.contentType.matches('video/.*');
+    }
+    match /posters/{poster} {
+      allow read: if true;
+      allow write: if request.resource.size < 2 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+    }
+  }
+}
+```
 
-**Video files still stay local.** Sync shares the metadata; a clip
-recorded on another phone shows "Video not stored on this device" over its
-card. Sharing the actual video needs Firebase Storage (upload the blob on
-post, store the download URL on the clip, and use it as the `<video>`
-source) — the clip record already has room for it.
+4. Paste the config JSON into the sync panel and turn it on. The config
+   must include `storageBucket` — without it you get metadata-only sync
+   and the app says so.
+
+### How it behaves
+
+- **Posting doesn't wait on the network.** The clip appears in your feed
+  immediately and uploads in the background, with a progress pill at the
+  top of the screen. `videoUrl` and `posterUrl` land on the clip record
+  when it finishes, and sync carries them to everyone else.
+- **Clips you posted before turning sync on get backfilled** — connecting
+  queues every clip of yours that has no `videoUrl` yet, oldest first. A
+  failed upload is retried the same way next time sync connects.
+- **Playback falls back**: local file first (instant, offline), then the
+  Storage URL, and only if neither exists does the card say the video
+  isn't on this device.
+- **Deleting a clip** removes the video and poster from Storage too.
+- Metadata merging is per entity: the newer `updatedAt` wins for edits,
+  likes and follows union together, comments dedupe by id, and play
+  counts take the maximum — so two phones editing at once don't wipe
+  each other out.
+
+### Cost and codec caveats
+
+- Firebase's free Spark plan gives ~5GB stored and ~1GB/day of downloads.
+  A 60-second clip is roughly 15–20MB, and remote clips stream on every
+  view without being cached locally, so a busy feed eats the daily
+  download allowance quickly. Watch the console usage tab.
+- Chrome records `webm`, iOS Safari records `mp4`. A clip stays in the
+  format it was recorded in, so a Chrome-recorded webm will not play on
+  an iPhone — that card shows "This clip will not play on this browser"
+  rather than failing silently. Transcoding server-side (or a Cloud
+  Function) is the real fix.
+- The rules above are open to anyone with the config. Fine for a demo or
+  a small group; add Firebase Auth before anything public.
 
 ## Known limits
 
-- Open rules mean anyone with the config can write. Fine for a demo or a
-  small group; add Firebase Auth before anything public.
 - No moderation, reporting or age gating — needed before real users.
-- iOS Safari records `video/mp4` where Chrome records `webm`; both play
-  back on the device that recorded them, but a webm clip won't play on
-  Safari if you later add cross-device video sharing.
-- Storage is finite: browsers cap IndexedDB (typically a few hundred MB),
-  and posting fails with a warning when it's full.
+- No accounts: identity is a generated id in this browser. Clearing site
+  data loses your profile, and there's no way to sign in on a new phone
+  as the same singer.
+- Browser storage is finite (IndexedDB is typically capped at a few
+  hundred MB); posting fails with a warning when it's full.
+- Plus the Firebase caveats above: open rules, free-tier bandwidth, and
+  the webm/mp4 split between Chrome and Safari.
