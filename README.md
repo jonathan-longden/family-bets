@@ -7,6 +7,10 @@ By default the app stores everything in the browser's local storage,
 so it only works on one device. To let everyone see the same bets and
 pot live, connect it to a free Firebase Realtime Database.
 
+> Also in this repo: **[Spotlight](singers/)** (`/singers/`) — a
+> short-video app for singers who want to get noticed. Separate PWA,
+> same no-build setup.
+
 ## Firebase setup (for cross-device sync)
 
 1. **Create a Firebase project**
