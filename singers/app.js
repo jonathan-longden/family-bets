@@ -7,6 +7,8 @@
 
 const BOARD_KEY = 'spotlight.board';
 const ME_KEY = 'spotlight.me';
+const NOTES_KEY = 'spotlight.notes';        // private to this device, never synced
+const SEARCHES_KEY = 'spotlight.searches';
 const FB_KEY = 'spotlight.firebase';
 const FB_PATH = 'spotlightBoard';
 const MAX_CLIP_MS = 60000;
@@ -667,7 +669,61 @@ $$('[data-close-sheet]').forEach(el => el.addEventListener('click', closeSheet))
 
 let genreFilter = '';
 let searchTerm = '';
+let filters = { originals: false, days: 0, city: '' };
 const posterCache = new Map();
+
+/* ── scout tools: saved searches and private notes ──
+   Both live only on this device. Notes especially: a scout's opinion of a
+   singer has no business travelling through the shared board. */
+
+function readLocal(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key)) || fallback; }
+  catch (e) { return fallback; }
+}
+
+const savedSearches = () => readLocal(SEARCHES_KEY, []);
+const setSavedSearches = list => localStorage.setItem(SEARCHES_KEY, JSON.stringify(list));
+const allNotes = () => readLocal(NOTES_KEY, {});
+const noteFor = clipId => allNotes()[clipId] || '';
+
+function setNote(clipId, text) {
+  const notes = allNotes();
+  if (text.trim()) notes[clipId] = text.trim(); else delete notes[clipId];
+  localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
+}
+
+const activeFilterCount = () =>
+  (filters.originals ? 1 : 0) + (filters.days ? 1 : 0) + (filters.city ? 1 : 0);
+
+function currentCriteria() {
+  return { q: searchTerm, genre: genreFilter, originals: filters.originals,
+    days: filters.days, city: filters.city };
+}
+
+function criteriaLabel(c) {
+  const bits = [];
+  if (c.q) bits.push(`"${c.q}"`);
+  if (c.genre) bits.push(c.genre);
+  if (c.originals) bits.push('originals');
+  if (c.city) bits.push('in ' + c.city);
+  if (c.days) bits.push('last ' + (c.days === 1 ? '24h' : c.days + 'd'));
+  return bits.join(' · ') || 'Everything';
+}
+
+/* Does this clip match a set of criteria? Shared by the grid and the
+   unseen-count badge on each saved search. */
+function matchesCriteria(c, crit) {
+  const a = artist(c.artistId) || {};
+  const q = (crit.q || '').toLowerCase().replace(/^#/, '');
+  const hay = [c.title, c.song, c.genre, (c.tags || []).join(' '), a.name, a.handle, a.city]
+    .join(' ').toLowerCase();
+  if (q && !hay.includes(q)) return false;
+  if (crit.genre && c.genre !== crit.genre && !(a.genres || []).includes(crit.genre)) return false;
+  if (crit.originals && !c.original) return false;
+  if (crit.city && !String(a.city || '').toLowerCase().includes(crit.city.toLowerCase())) return false;
+  if (crit.days && now() - c.createdAt > crit.days * 86400000) return false;
+  return true;
+}
 
 async function fillPoster(el, clipId) {
   const c = board.clips[clipId];
@@ -690,15 +746,7 @@ function tileHTML(c) {
   </button>`;
 }
 
-function matches(c) {
-  const a = artist(c.artistId) || {};
-  const q = searchTerm.toLowerCase().replace(/^#/, '');
-  const hay = [c.title, c.song, c.genre, (c.tags || []).join(' '), a.name, a.handle, a.city]
-    .join(' ').toLowerCase();
-  const okQ = !q || hay.includes(q);
-  const okG = !genreFilter || c.genre === genreFilter || (a.genres || []).includes(genreFilter);
-  return okQ && okG;
-}
+const matches = c => matchesCriteria(c, currentCriteria());
 
 function renderDiscover() {
   const chips = $('#genreChips');
@@ -727,15 +775,113 @@ function renderDiscover() {
     </button>`).join('');
   $('#risingWrap').hidden = rising.length === 0;
 
+  const narrowed = searchTerm || genreFilter || activeFilterCount();
   const results = Object.values(board.clips).filter(matches)
-    .sort((a, b) => (searchTerm || genreFilter ? clipScore(b) - clipScore(a) : b.createdAt - a.createdAt));
-  $('#gridTitle').textContent = searchTerm || genreFilter ? `Results (${results.length})` : 'Fresh clips';
+    .sort((a, b) => (narrowed ? clipScore(b) - clipScore(a) : b.createdAt - a.createdAt));
+  $('#gridTitle').textContent = narrowed ? `Results (${results.length})` : 'Fresh clips';
   $('#discoverGrid').innerHTML = results.map(tileHTML).join('');
   $('#discoverEmpty').hidden = results.length > 0;
   $$('#discoverGrid .tile').forEach(el => fillPoster(el, el.dataset.openClip));
+
+  const count = activeFilterCount();
+  const badge = $('#filterCount');
+  badge.hidden = !count;
+  badge.textContent = count;
+  $('#filterBtn').classList.toggle('selected', !!count);
+  renderSavedSearches();
+}
+
+function renderSavedSearches() {
+  const list = savedSearches();
+  $('#savedWrap').hidden = list.length === 0;
+  $('#savedList').innerHTML = list.map(s => {
+    const fresh = Object.values(board.clips)
+      .filter(c => c.createdAt > (s.seenAt || 0) && matchesCriteria(c, s)).length;
+    return `<div class="saved-row">
+      <button class="saved-open" data-open-search="${s.id}">
+        <span class="t">${esc(s.name)}</span>
+        <span class="s">${esc(criteriaLabel(s))}</span>
+      </button>
+      ${fresh ? `<span class="fresh-pill">${fresh} new</span>` : ''}
+      <button class="icon-btn ghost sm" data-del-search="${s.id}" aria-label="Delete saved search">
+        <svg class="ic"><use href="#i-trash"/></svg></button>
+    </div>`;
+  }).join('');
+
+  $$('#savedList [data-open-search]').forEach(btn => btn.onclick = () => applySavedSearch(btn.dataset.openSearch));
+  $$('#savedList [data-del-search]').forEach(btn => btn.onclick = () => {
+    setSavedSearches(savedSearches().filter(s => s.id !== btn.dataset.delSearch));
+    renderSavedSearches();
+    toast('Saved search removed');
+  });
+}
+
+function applySavedSearch(id) {
+  const list = savedSearches();
+  const s = list.find(x => x.id === id);
+  if (!s) return;
+  searchTerm = s.q || '';
+  genreFilter = s.genre || '';
+  filters = { originals: !!s.originals, days: s.days || 0, city: s.city || '' };
+  $('#searchInput').value = searchTerm;
+  $$('#genreChips .chip').forEach(c => c.classList.toggle('selected', c.dataset.genre === genreFilter));
+  s.seenAt = now();                     // everything from here on counts as seen
+  setSavedSearches(list);
+  renderDiscover();
+  $('.screen-body', $('#screen-discover')).scrollTop = 0;
+}
+
+function saveCurrentSearch() {
+  const crit = currentCriteria();
+  const suggested = criteriaLabel(crit);
+  if (suggested === 'Everything') { toast('Search or filter something first'); return; }
+  const name = prompt('Name this search', suggested);
+  if (name === null) return;
+  const list = savedSearches();
+  list.unshift({ id: uid(), name: name.trim() || suggested, ...crit, seenAt: now() });
+  setSavedSearches(list.slice(0, 12));
+  renderDiscover();
+  toast('Search saved — new matches show up here');
+}
+
+function openFilters() {
+  const draft = { ...filters };
+  openSheet({
+    title: 'Filters',
+    html: `
+      <label class="switch-row"><span>Original songs only</span>
+        <input id="fOriginals" type="checkbox" ${draft.originals ? 'checked' : ''}></label>
+      <span class="field-label">Posted within</span>
+      <div class="chips" id="fDays">
+        ${[[0, 'Any time'], [1, '24 hours'], [7, '7 days'], [30, '30 days']].map(([d, label]) =>
+      `<button type="button" class="chip ${draft.days === d ? 'selected' : ''}" data-days="${d}">${label}</button>`).join('')}
+      </div>
+      <label class="field" style="margin-top:18px"><span>Based in</span>
+        <input id="fCity" maxlength="40" value="${esc(draft.city)}" placeholder="City or country"></label>
+      <button class="btn-primary block" id="fApply">Show results</button>
+      <button class="btn-ghost block" id="fClear" style="margin-top:10px">Clear filters</button>`,
+  });
+  $('#fDays').addEventListener('click', e => {
+    const btn = e.target.closest('.chip');
+    if (!btn) return;
+    draft.days = Number(btn.dataset.days);
+    $$('#fDays .chip').forEach(c => c.classList.toggle('selected', c === btn));
+  });
+  $('#fApply').onclick = () => {
+    filters = { originals: $('#fOriginals').checked, days: draft.days, city: $('#fCity').value.trim() };
+    closeSheet();
+    renderDiscover();
+  };
+  $('#fClear').onclick = () => {
+    filters = { originals: false, days: 0, city: '' };
+    closeSheet();
+    renderDiscover();
+  };
 }
 
 $('#searchInput').addEventListener('input', e => { searchTerm = e.target.value.trim(); renderDiscover(); });
+$('#filterBtn').addEventListener('click', openFilters);
+$('#saveSearchBtn').addEventListener('click', saveCurrentSearch);
 
 /* ───────────────────────── chart ───────────────────────── */
 
@@ -811,6 +957,9 @@ function renderProfile(id) {
   const rank = Object.values(board.artists).filter(x => clipsOf(x.id).length)
     .sort((x, y) => artistScore(y) - artistScore(x)).findIndex(x => x.id === a.id) + 1;
 
+  const isScout = isMe && a.role === 'scout';
+  // A scout's home is the shortlist, not a clip grid they'll never fill.
+  if (isScout && profileTab === 'clips' && !clips.length) profileTab = 'saved';
   const shown = profileTab === 'saved' && isMe ? saved : clips;
 
   $('#profileBody').innerHTML = `
@@ -827,15 +976,21 @@ function renderProfile(id) {
         ${(a.genres || []).map(g => `<span class="pill">${esc(g)}</span>`).join('')}
       </div>
       <div class="prof-stats">
-        <div><b>${compact(clips.length)}</b><span>clips</span></div>
-        <div><b>${compact(followerCount(a))}</b><span>followers</span></div>
-        <div><b>${compact(totalLikes(a))}</b><span>likes</span></div>
-        <div><b>${compact(totalPlays(a))}</b><span>plays</span></div>
+        ${isScout
+      ? `<div><b>${compact(saved.length)}</b><span>shortlisted</span></div>
+             <div><b>${compact(savedSearches().length)}</b><span>searches</span></div>
+             <div><b>${compact(Object.values(board.artists).filter(x => iFollow(x)).length)}</b><span>following</span></div>`
+      : `<div><b>${compact(clips.length)}</b><span>clips</span></div>
+             <div><b>${compact(followerCount(a))}</b><span>followers</span></div>
+             <div><b>${compact(totalLikes(a))}</b><span>likes</span></div>
+             <div><b>${compact(totalPlays(a))}</b><span>plays</span></div>`}
       </div>
       <div class="prof-actions">
         ${isMe
       ? `<button class="btn-primary" data-edit>Edit profile</button>
-             <button class="btn-ghost" data-new-clip>New clip</button>`
+             ${isScout
+        ? '<button class="btn-ghost" data-find>Find talent</button>'
+        : '<button class="btn-ghost" data-new-clip>New clip</button>'}`
       : `<button class="${iFollow(a) ? 'btn-ghost' : 'btn-primary'}" data-follow>${iFollow(a) ? 'Following' : 'Follow'}</button>
              <button class="btn-ghost" data-share-artist>Share</button>`}
       </div>
@@ -845,10 +1000,11 @@ function renderProfile(id) {
       <button class="tab-pill ${profileTab === 'saved' ? 'selected' : ''}" data-ptab="saved">${a.role === 'scout' ? 'Shortlist' : 'Saved'}</button>
     </div>` : ''}
     <div class="prof-grid">
-      ${shown.length
-      ? `<div class="grid">${shown.map(c => tileHTML(c) + (isMe && profileTab === 'clips' && !c.demo
-        ? `<button class="pill" data-del="${c.id}" style="grid-column:span 1;display:none"></button>` : '')).join('')}</div>`
-      : `<p class="muted pad">${profileTab === 'saved' ? 'Nothing saved yet — tap the star on a clip you rate.' : (isMe ? 'No clips yet. Tap ✚ and sing something.' : 'No clips yet.')}</p>`}
+      ${isMe && profileTab === 'saved'
+      ? shortlistHTML(saved)
+      : shown.length
+        ? `<div class="grid">${shown.map(tileHTML).join('')}</div>`
+        : `<p class="muted pad">${isMe ? 'No clips yet. Tap ✚ and sing something.' : 'No clips yet.'}</p>`}
     </div>`;
 
   $$('#profileBody .tile').forEach(el => fillPoster(el, el.dataset.openClip));
@@ -859,6 +1015,7 @@ function renderProfile(id) {
   on('[data-settings]', openSettings);
   on('[data-edit]', openEditProfile);
   on('[data-new-clip]', openRecord);
+  on('[data-find]', () => show('discover'));
   on('[data-follow]', () => toggleFollow(a.id));
   on('[data-share-artist]', async () => {
     try {
@@ -868,6 +1025,7 @@ function renderProfile(id) {
     } catch (e) { /* dismissed */ }
   });
   $$('[data-ptab]', body).forEach(btn => btn.onclick = () => { profileTab = btn.dataset.ptab; renderProfile(a.id); });
+  if (isMe && profileTab === 'saved') wireShortlist(body);
 
   if (isMe && profileTab === 'clips') {
     $$('#profileBody .tile', body).forEach(tile => {
@@ -881,6 +1039,125 @@ function renderProfile(id) {
       tile.addEventListener('mouseup', cancel);
       tile.addEventListener('mouseleave', cancel);
     });
+  }
+}
+
+/* ── shortlist: the scout's working list ── */
+
+function contactHref(a) {
+  const v = String((a && a.contact) || '').trim();
+  if (!v) return null;
+  if (/^https?:\/\//i.test(v)) return v;
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'mailto:' + v;
+  return null;
+}
+
+function shortlistHTML(list) {
+  if (!list.length) {
+    return `<p class="muted pad">Nothing shortlisted yet — tap the star on a clip you rate.
+      Shortlisted singers land here with room for notes, and you can export the list as a CSV.</p>`;
+  }
+  const rows = list.map(c => {
+    const a = artist(c.artistId) || { name: 'Unknown', handle: 'unknown' };
+    const href = contactHref(a);
+    const note = noteFor(c.id);
+    return `<li class="shortlist-row">
+      <button class="shortlist-main" data-open-clip="${c.id}">
+        <span class="chart-thumb" data-poster="${c.id}" style="background:linear-gradient(160deg,hsl(${hueOf(c.id)} 60% 35%),hsl(${(hueOf(c.id) + 60) % 360} 60% 20%))"></span>
+        <span class="chart-info">
+          <span class="t">${esc(a.name)}</span>
+          <span class="s">@${esc(a.handle)}${a.city ? ' · ' + esc(a.city) : ''}</span>
+          <span class="s">${esc(c.song || c.title)}${c.original ? ' · original' : ''} · ${compact(c.plays || 0)} plays</span>
+        </span>
+        <span class="score-pill">${compact(Math.round(clipScore(c)))}</span>
+      </button>
+      ${note ? `<p class="shortlist-note">${esc(note)}</p>` : ''}
+      <div class="shortlist-actions">
+        <button class="chip" data-note="${c.id}">${note ? 'Edit note' : 'Add note'}</button>
+        ${href
+      ? `<a class="chip" href="${esc(href)}" target="_blank" rel="noopener">Get in touch</a>`
+      : `<button class="chip" data-nocontact="${c.artistId}">No contact details</button>`}
+        <button class="chip" data-unsave="${c.id}">Remove</button>
+      </div>
+    </li>`;
+  }).join('');
+
+  return `<div class="shortlist-head">
+      <span class="muted tiny">${list.length} shortlisted · notes stay on this device</span>
+      <button class="btn-ghost sm" id="exportBtn">Export CSV</button>
+    </div>
+    <ul class="shortlist">${rows}</ul>`;
+}
+
+function wireShortlist(body) {
+  $$('[data-poster]', body).forEach(el => fillPoster(el, el.dataset.poster));
+
+  $$('[data-note]', body).forEach(btn => btn.onclick = () => {
+    const id = btn.dataset.note;
+    const c = board.clips[id];
+    const a = artist(c.artistId) || {};
+    openSheet({
+      title: 'Note on ' + (a.name || 'this singer'),
+      html: `<textarea id="noteText" maxlength="600" placeholder="Why they stood out, what to follow up on…">${esc(noteFor(id))}</textarea>
+        <p class="tiny muted">Private to this device — never synced, never shown to the singer.</p>
+        <button class="btn-primary block" id="noteSave">Save note</button>`,
+    });
+    $('#noteSave').onclick = () => {
+      setNote(id, $('#noteText').value);
+      closeSheet();
+      renderProfile(meId);
+      toast('Note saved');
+    };
+  });
+
+  $$('[data-unsave]', body).forEach(btn => btn.onclick = () => {
+    toggleSave(btn.dataset.unsave);
+    renderProfile(meId);
+  });
+
+  $$('[data-nocontact]', body).forEach(btn => btn.onclick = () => {
+    const a = artist(btn.dataset.nocontact) || {};
+    toast(`@${a.handle} hasn't added contact details — leave a comment on their clip`);
+  });
+
+  const exportBtn = $('#exportBtn', body);
+  if (exportBtn) exportBtn.onclick = exportShortlist;
+}
+
+function csvCell(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function exportShortlist() {
+  const list = Object.values(board.clips).filter(c => iSaved(c))
+    .sort((a, b) => clipScore(b) - clipScore(a));
+  if (!list.length) { toast('Nothing to export yet'); return; }
+
+  const header = ['Singer', 'Handle', 'Based in', 'Genres', 'Contact', 'Song', 'Original',
+    'Caption', 'Plays', 'Likes', 'Comments', 'Score', 'Posted', 'Note'];
+  const rows = list.map(c => {
+    const a = artist(c.artistId) || {};
+    return [a.name, '@' + a.handle, a.city, (a.genres || []).join(' / '), a.contact,
+      c.song, c.original ? 'yes' : 'no', c.title, c.plays || 0, likeCount(c), commentCount(c),
+      Math.round(clipScore(c)), new Date(c.createdAt).toISOString().slice(0, 10), noteFor(c.id)];
+  });
+  const csv = [header, ...rows].map(r => r.map(csvCell).join(',')).join('\n');
+
+  try {
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `spotlight-shortlist-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    toast(`Exported ${list.length} singers`);
+  } catch (e) {
+    navigator.clipboard.writeText(csv).then(() => toast('CSV copied to clipboard'),
+      () => toast('Could not export on this browser'));
   }
 }
 
@@ -927,6 +1204,9 @@ function openEditProfile() {
       <label class="field"><span>Handle</span><div class="handle-input"><i>@</i><input id="epHandle" maxlength="20" value="${esc(a.handle)}" autocapitalize="off"></div></label>
       <label class="field"><span>Where you're based</span><input id="epCity" maxlength="40" value="${esc(a.city || '')}" placeholder="City, country"></label>
       <label class="field"><span>Bio</span><textarea id="epBio" maxlength="200" placeholder="What should a scout know in one line?">${esc(a.bio || '')}</textarea></label>
+      <label class="field"><span>Contact for work</span>
+        <input id="epContact" maxlength="120" value="${esc(a.contact || '')}" placeholder="booking@email.com or a link" autocapitalize="off">
+        <small class="tiny muted">Shown to scouts who shortlist you, so they can actually reach you.</small></label>
       <label class="switch-row"><span>I'm a scout, not a singer</span><input id="epScout" type="checkbox" ${a.role === 'scout' ? 'checked' : ''}></label>
       <span class="field-label">Genres</span>
       <div class="chips" id="epGenres">${genreChipsHTML(genres)}</div>
@@ -939,6 +1219,7 @@ function openEditProfile() {
     const handle = $('#epHandle').value.trim().replace(/[^a-z0-9._]/gi, '').toLowerCase();
     if (!name || !handle) { toast('Name and handle are required'); return; }
     Object.assign(a, { name, handle, city: $('#epCity').value.trim(), bio: $('#epBio').value.trim(),
+      contact: $('#epContact').value.trim(),
       role: $('#epScout').checked ? 'scout' : 'singer', genres, updatedAt: now() });
     saveBoard();
     closeSheet();

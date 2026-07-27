@@ -41,8 +41,35 @@ position, and a grid of clips. Long-press one of your own tiles to delete
 it.
 
 **Scout accounts** — pick "Scout" at signup (or in Edit profile) if you're
-looking for talent rather than posting. Scouts get a Shortlist tab, and a
-shortlist is the heaviest signal in the chart score.
+looking for talent rather than posting. A shortlist is also the heaviest
+signal in the chart score, so scouts moving on someone pushes them up.
+
+## Scout tools
+
+The scout side is the part somebody would actually pay for, so it's built
+as a working surface rather than a bookmark list.
+
+- **Filters** on Discover: originals only, posted within 24h/7d/30d, and
+  based-in city, on top of the search box and genre chips. The Filters
+  chip shows how many are active.
+- **Saved searches** — name the current search and it lands at the top of
+  Discover with a **"N new"** badge counting matching clips posted since
+  you last opened it. That badge is the reason a scout comes back daily;
+  opening the search re-applies every criterion and marks it seen.
+- **Shortlist** — the Saved tab becomes a working list: singer, city,
+  song, plays and chart score per row, with **notes**, a **Get in touch**
+  button, and remove. Notes are deliberately kept in `localStorage` and
+  never written to the shared board — a scout's opinion of a singer has no
+  business syncing to anyone, least of all the singer.
+- **Export CSV** — the whole shortlist as a spreadsheet: name, handle,
+  city, genres, contact, song, original?, caption, plays, likes,
+  comments, score, date and your note. Downloads as a file, falls back to
+  the clipboard if the browser blocks it.
+- **Contact route** — singers add a booking email or link in Edit
+  profile, which shows up as *Get in touch* on shortlist rows (`mailto:`
+  or the link). If a singer hasn't added one, the row says so and points
+  at commenting instead. There's no in-app messaging: with no accounts or
+  moderation, a DM inbox would be a liability rather than a feature.
 
 ## Where the data lives
 
@@ -53,6 +80,9 @@ shortlist is the heaviest signal in the chart score.
   stays even after upload so your own clips play instantly and offline.
 - **Your identity** — a generated id in `spotlight.me`. No password, no
   server, no account recovery.
+- **Scout notes and saved searches** — `spotlight.notes` and
+  `spotlight.searches`, deliberately outside the synced board so they stay
+  private to the device.
 
 The app seeds six demo singers and eight demo clips on first run so the
 feed, chart and search aren't empty. Demo clips have no video file, so

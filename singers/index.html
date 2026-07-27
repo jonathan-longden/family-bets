@@ -107,8 +107,16 @@
       <input id="searchInput" type="search" placeholder="Singers, songs, genres, #tags" autocapitalize="off" />
     </div>
     <div id="genreChips" class="chips scroll-x"></div>
+    <div class="filter-row">
+      <button id="filterBtn" class="chip">Filters<b id="filterCount" hidden></b></button>
+      <button id="saveSearchBtn" class="chip">Save this search</button>
+    </div>
   </header>
   <div class="screen-body">
+    <section id="savedWrap" class="block-section" hidden>
+      <h3 class="section-title">Saved searches</h3>
+      <div id="savedList" class="saved-list"></div>
+    </section>
     <section id="risingWrap" class="block-section">
       <h3 class="section-title">Rising this week</h3>
       <div id="rising" class="rising-row"></div>
