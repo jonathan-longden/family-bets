@@ -371,7 +371,12 @@ function renderFeed({ keepScroll = false } = {}) {
   feedObserver = new IntersectionObserver(onClipVisibility, { root: feed, threshold: [0.25, 0.7] });
   $$('.clip', feed).forEach(el => feedObserver.observe(el));
 
-  if (feedIds.length) setActiveClip(feedIds[0]);
+  // The cards are brand new DOM, so nothing is loaded yet — clearing this makes
+  // setActiveClip re-attach the media instead of short-circuiting on the id it
+  // was already showing. Without it a re-render mid-watch (a sync update, say)
+  // leaves the visible clip blank until you scroll away and back.
+  activeClipId = null;
+  if (feedIds.length && !keepScroll) setActiveClip(feedIds[0]);
 }
 
 function onClipVisibility(entries) {
@@ -403,9 +408,12 @@ async function setActiveClip(id) {
       const url = URL.createObjectURL(rec.video);
       objectUrls.set(id, url);
       video.src = url;
+    } else if (c.videoUrl) {
+      video.src = c.videoUrl;                     // streams from Firebase Storage
+      video.onerror = () => flagMissing(card,
+        'This clip will not play on this browser (recorded in another video format)');
     } else {
-      const flag = $('.missing-media', card);
-      if (flag) flag.hidden = false;
+      flagMissing(card, 'Video not stored on this device');
     }
   }
   if (video && video.src) {
@@ -426,6 +434,13 @@ async function setActiveClip(id) {
     }, 1000);
   }
   startProgress(card, c);
+}
+
+function flagMissing(card, text) {
+  const flag = $('.missing-media', card);
+  if (!flag) return;
+  flag.textContent = text;
+  flag.hidden = false;
 }
 
 function resumeActiveClip() {
@@ -659,10 +674,10 @@ async function fillPoster(el, clipId) {
   if (!c) return;
   if (posterCache.has(clipId)) { el.innerHTML = `<img src="${posterCache.get(clipId)}" alt="">`; return; }
   const rec = await mediaGet(clipId);
-  if (rec && rec.poster) {
-    const url = URL.createObjectURL(rec.poster);
+  const url = rec && rec.poster ? URL.createObjectURL(rec.poster) : c.posterUrl;
+  if (url) {
     posterCache.set(clipId, url);
-    el.innerHTML = `<img src="${url}" alt="">`;
+    el.innerHTML = `<img src="${url}" alt="" loading="lazy">`;
   }
 }
 
@@ -875,6 +890,7 @@ function confirmDelete(clipId) {
   if (!confirm(`Delete "${c.song || c.title}"? This can't be undone.`)) return;
   delete board.clips[clipId];
   mediaDelete(clipId);
+  deleteRemoteMedia(c);
   posterCache.delete(clipId);
   saveBoard();
   toast('Clip deleted');
@@ -943,8 +959,9 @@ function openSettings() {
           <span class="grow">Sync across devices<br><small class="muted">${synced ? 'Connected to Firebase' : 'Off — this device only'}</small></span></button>
       </div>
       <div class="set-group">
-        <p class="tiny muted">Clip metadata lives in this browser; video files are stored in IndexedDB on this device only.
-        Turning on sync shares profiles, captions, likes and comments — video files stay local unless you add Firebase Storage.</p>
+        <p class="tiny muted">Clip metadata lives in this browser and video files in IndexedDB on this device.
+        Turning on sync shares profiles, captions, likes and comments through Firebase, and uploads the
+        video files to Firebase Storage so other phones can play them.</p>
       </div>
       <button class="btn-danger block" id="setReset">Reset everything on this device</button>`,
   });
@@ -968,8 +985,11 @@ function openSyncPanel() {
   openSheet({
     title: 'Sync across devices',
     html: `
-      <p class="tiny muted">Paste a Firebase web config (Realtime Database enabled) to share the board between
-      phones. Everyone using the same config sees the same profiles, clips, likes and comments.</p>
+      <p class="tiny muted">Paste a Firebase web config to share everything between phones — profiles,
+      clips, likes and comments through Realtime Database, and the video files themselves through
+      Storage. Your existing clips upload in the background as soon as this connects.</p>
+      <p class="tiny muted">The config needs a <b>storageBucket</b> for video; without one you get
+      metadata sync only and clips stay on the phone that recorded them.</p>
       <label class="field"><span>Firebase config JSON</span>
         <textarea id="fbConfig" placeholder='{"apiKey":"…","databaseURL":"https://…firebaseio.com","projectId":"…"}'>${esc(saved ? JSON.stringify(JSON.parse(saved), null, 2) : '')}</textarea></label>
       <button class="btn-primary block" id="fbOn">${fbRef ? 'Reconnect' : 'Turn on sync'}</button>
@@ -1264,6 +1284,7 @@ $('#postBtn').addEventListener('click', async () => {
     createdAt: now(), updatedAt: now(),
   };
   saveBoard();
+  queueUpload(id);                                // uploads in the background if sync is on
 
   btn.disabled = false;
   btn.textContent = 'Post to Spotlight';
@@ -1285,6 +1306,7 @@ $$('[data-close-record]').forEach(b => b.addEventListener('click', () => closeRe
 /* ───────────────────────── optional Firebase sync ───────────────────────── */
 
 let fbRef = null;
+let fbStorage = null;
 let applyingRemote = false;
 
 function loadScript(src) {
@@ -1328,6 +1350,7 @@ async function connectFirebase(config) {
       toast('Loading Firebase…');
       await loadScript('https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js');
       await loadScript('https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.13.0/firebase-storage-compat.js');
     }
     if (firebase.apps.length) await firebase.app().delete();
     firebase.initializeApp(config);
@@ -1344,12 +1367,19 @@ async function connectFirebase(config) {
       if (currentScreen === 'charts') renderChart();
       if (currentScreen === 'profile') renderProfile(viewedArtistId || meId);
     });
+
+    fbStorage = null;
+    if (config.storageBucket && firebase.storage) {
+      try { fbStorage = firebase.storage(); } catch (e) { console.error(e); }
+    }
     localStorage.setItem(FB_KEY, JSON.stringify(config));
-    toast('Sync on');
+    toast(fbStorage ? 'Sync on — clips will upload' : 'Sync on (metadata only, no storageBucket)');
+    if (fbStorage) backfillUploads();
     return true;
   } catch (e) {
     console.error(e);
     fbRef = null;
+    fbStorage = null;
     toast('Could not connect — check the config and database rules');
     return false;
   }
@@ -1357,6 +1387,111 @@ async function connectFirebase(config) {
 
 function disconnectFirebase() {
   if (fbRef) { fbRef.off(); fbRef = null; }
+  fbStorage = null;
+  uploadQueue.length = 0;
+}
+
+/* ── video files in Firebase Storage ──
+   Clips upload in the background after posting so the feed never waits on a
+   network round trip. The download URLs go on the clip record, which the
+   Realtime Database sync then carries to everyone else. */
+
+const uploadQueue = [];
+let uploading = false;
+
+function extFor(type) {
+  if (!type) return 'webm';
+  if (type.includes('mp4')) return 'mp4';
+  if (type.includes('quicktime')) return 'mov';
+  return 'webm';
+}
+
+function showUploadProgress(pct) {
+  const bar = $('#uploadPill');
+  bar.hidden = false;
+  $('#uploadPct', bar).textContent = Math.round(pct) + '%';
+  $('#uploadFill', bar).style.width = clamp(pct, 0, 100) + '%';
+}
+
+function hideUploadProgress() { $('#uploadPill').hidden = true; }
+
+function queueUpload(clipId) {
+  if (!fbStorage || uploadQueue.includes(clipId)) return;
+  uploadQueue.push(clipId);
+  runUploadQueue();
+}
+
+async function runUploadQueue() {
+  if (uploading) return;
+  uploading = true;
+  while (uploadQueue.length && fbStorage) {
+    const id = uploadQueue.shift();
+    try { await uploadClipMedia(id); }
+    catch (e) {
+      console.error(e);
+      const c = board.clips[id];
+      if (c) { c.uploadError = true; c.updatedAt = now(); saveBoard(); }
+      toast('Clip upload failed — it will retry next time sync connects');
+    }
+  }
+  uploading = false;
+  hideUploadProgress();
+}
+
+function putWithProgress(ref, blob, contentType, onProgress) {
+  return new Promise((resolve, reject) => {
+    const task = ref.put(blob, { contentType: contentType || blob.type || 'application/octet-stream' });
+    task.on('state_changed',
+      snap => { if (onProgress && snap.totalBytes) onProgress(snap.bytesTransferred / snap.totalBytes * 100); },
+      reject,
+      () => ref.getDownloadURL().then(resolve, reject));
+  });
+}
+
+async function uploadClipMedia(id) {
+  const c = board.clips[id];
+  if (!fbStorage || !c || c.artistId !== meId || c.videoUrl) return;
+  const rec = await mediaGet(id);
+  if (!rec || !rec.video) return;                 // nothing local left to upload
+
+  showUploadProgress(0);
+  const ext = extFor(rec.video.type);
+  const videoUrl = await putWithProgress(
+    fbStorage.ref(`clips/${id}.${ext}`), rec.video, rec.video.type, showUploadProgress);
+
+  let posterUrl = null;
+  if (rec.poster) {
+    try {
+      posterUrl = await putWithProgress(fbStorage.ref(`posters/${id}.jpg`), rec.poster, 'image/jpeg');
+    } catch (e) { console.error(e); }             // a missing poster is survivable
+  }
+
+  const fresh = board.clips[id];
+  if (!fresh) return;                             // deleted while uploading
+  fresh.videoUrl = videoUrl;
+  fresh.videoType = rec.video.type || '';
+  if (posterUrl) fresh.posterUrl = posterUrl;
+  fresh.uploadError = false;
+  fresh.updatedAt = now();
+  saveBoard();
+  hideUploadProgress();
+  toast('Clip synced — everyone can see it now');
+}
+
+/* Clips posted before sync was switched on, or whose upload failed. */
+function backfillUploads() {
+  Object.values(board.clips)
+    .filter(c => c.artistId === meId && !c.demo && !c.videoUrl)
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .forEach(c => queueUpload(c.id));
+}
+
+async function deleteRemoteMedia(c) {
+  if (!fbStorage || !c.videoUrl) return;
+  const ext = extFor(c.videoType);
+  for (const path of [`clips/${c.id}.${ext}`, `posters/${c.id}.jpg`]) {
+    try { await fbStorage.ref(path).delete(); } catch (e) { /* already gone */ }
+  }
 }
 
 let pushTimer = null;

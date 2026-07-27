@@ -304,6 +304,15 @@ body.hide-tabbar #tabbar{display:none}
 .set-group{display:grid;gap:10px;margin-bottom:18px}
 textarea{width:100%;min-height:90px;background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px;outline:none;resize:vertical}
 
+/* ── upload progress ── */
+.upload-pill{position:fixed;left:50%;transform:translateX(-50%);z-index:290;width:min(88vw,340px);
+  top:calc(10px + var(--safe-t));background:rgba(20,20,31,.96);border:1px solid var(--line);
+  border-radius:14px;padding:10px 14px;box-shadow:0 12px 30px rgba(0,0,0,.5);animation:fadeUp .2s ease}
+.upload-row{display:flex;justify-content:space-between;align-items:center;font-size:.82rem;font-weight:600;margin-bottom:7px}
+.upload-track{height:4px;border-radius:99px;background:rgba(255,255,255,.14);overflow:hidden}
+.upload-track i{display:block;height:100%;width:0;border-radius:99px;
+  background:linear-gradient(90deg,var(--brand),var(--brand-2));transition:width .25s ease}
+
 /* ── toast ── */
 .toast{position:fixed;left:50%;bottom:calc(var(--tab-h) + 120px + var(--safe-b));max-width:min(92vw,420px);text-align:center;transform:translateX(-50%);
   z-index:300;background:rgba(20,20,31,.96);border:1px solid var(--line);border-radius:14px;
