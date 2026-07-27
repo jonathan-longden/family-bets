@@ -24,9 +24,52 @@ textarea{width:100%;height:80px}
 .row{display:flex;gap:8px;flex-wrap:wrap}
 .col{flex:1}
 .center{display:flex;gap:8px;align-items:center}
+
+#splash{
+  position:fixed; inset:0; z-index:9999;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+  background:linear-gradient(135deg,#7a0005,#EF0107 45%,#c98a1f 100%);
+  color:#fff; text-align:center;
+  transition:opacity .5s ease, visibility .5s ease;
+}
+#splash.hide{opacity:0; visibility:hidden; pointer-events:none;}
+#splash img{
+  width:112px; height:112px; border-radius:26px;
+  box-shadow:0 12px 32px rgba(0,0,0,0.35);
+  opacity:0; transform:scale(.6);
+  animation:splashPop .6s cubic-bezier(.34,1.56,.64,1) forwards, splashFloat 2.6s ease-in-out .6s infinite;
+}
+#splash h2{
+  margin:0; font-size:1.7rem; letter-spacing:.3px;
+  text-shadow:0 2px 10px rgba(0,0,0,0.35);
+  opacity:0; animation:fadeUp .6s ease .25s forwards;
+}
+#splash p{
+  margin:0; font-size:.95rem; opacity:0;
+  animation:fadeUp .6s ease .4s forwards;
+}
+#splash .spinner{
+  width:30px; height:30px; margin-top:4px;
+  border-radius:50%; border:3px solid rgba(255,255,255,.35); border-top-color:#fff;
+  opacity:0; animation:fadeUp .6s ease .55s forwards, spin .9s linear infinite;
+}
+@keyframes splashPop{from{opacity:0; transform:scale(.6)} to{opacity:1; transform:scale(1)}}
+@keyframes splashFloat{0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)}}
+@keyframes fadeUp{from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){
+  #splash img,#splash h2,#splash p,#splash .spinner{animation:none; opacity:1; transform:none}
+}
 </style>
 </head>
 <body>
+<div id="splash">
+<img src="icon-512.png" alt="Family Bets" />
+<h2>Family Bets</h2>
+<p>Loading this week's match…</p>
+<div class="spinner"></div>
+</div>
+
 <div class="card">
 <h1 id="matchInfo">Match</h1>
 
@@ -334,6 +377,14 @@ document.getElementById('disableFirebaseBtn').onclick = () => {
 
 setupScores(10);
 render();
+
+const splash = document.getElementById('splash');
+const splashStart = Date.now();
+const MIN_SPLASH_MS = 900;
+setTimeout(() => {
+  splash.classList.add('hide');
+  splash.addEventListener('transitionend', () => splash.remove(), { once: true });
+}, Math.max(0, MIN_SPLASH_MS - (Date.now() - splashStart)));
 
 const savedFirebaseConfig = localStorage.getItem(FIREBASE_CONFIG_KEY);
 if (savedFirebaseConfig) {
