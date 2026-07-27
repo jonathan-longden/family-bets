@@ -4,6 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Match Betting — with Rollover & Real-time Sync</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#EF0107" />
+<link rel="icon" href="icon-192.png" />
 <style>
 body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:20px;background:#f7f7f8}
 .card{background:white;padding:16px;border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,0.06);max-width:900px;margin:auto}
@@ -98,3 +101,256 @@ textarea{width:100%;height:80px}
 
 
 <div>
+<h3>Reset (admin)</h3>
+<p class="muted">Clears teams, bets, rollover and history. This cannot be undone.</p>
+<button id="resetAllBtn" class="danger small">Reset Everything</button>
+</div>
+
+
+</div>
+
+<script>
+const STORAGE_KEY = 'familyBetsState';
+const FIREBASE_CONFIG_KEY = 'familyBetsFirebaseConfig';
+const FIREBASE_DB_PATH = 'familyBetsState';
+
+function defaultState() {
+  return { teams: { home: '', away: '' }, bets: [], rollover: 0, history: [] };
+}
+
+function loadLocalState() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return defaultState();
+  try {
+    const parsed = JSON.parse(raw);
+    return Object.assign(defaultState(), parsed);
+  } catch (e) {
+    return defaultState();
+  }
+}
+
+function saveLocalState(state) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+let state = loadLocalState();
+let firebaseDbRef = null;
+let applyingRemoteUpdate = false;
+
+function setupScores(max) {
+  const home = document.getElementById('homeScore');
+  const away = document.getElementById('awayScore');
+  for (let i = 0; i <= max; i++) {
+    const optH = document.createElement('option');
+    optH.value = optH.textContent = i;
+    home.appendChild(optH);
+
+    const optA = document.createElement('option');
+    optA.value = optA.textContent = i;
+    away.appendChild(optA);
+  }
+}
+
+function persistState() {
+  saveLocalState(state);
+  if (firebaseDbRef && !applyingRemoteUpdate) {
+    firebaseDbRef.set(state);
+  }
+  render();
+}
+
+function render() {
+  const home = state.teams.home || 'Home';
+  const away = state.teams.away || 'Away';
+  document.getElementById('matchInfo').textContent =
+    (state.teams.home || state.teams.away) ? `${home} vs ${away}` : 'Match';
+  document.getElementById('teamHomeInput').value = state.teams.home;
+  document.getElementById('teamAwayInput').value = state.teams.away;
+
+  const list = document.getElementById('list');
+  list.innerHTML = '';
+  state.bets.forEach((bet, index) => {
+    const li = document.createElement('li');
+    const span = document.createElement('span');
+    span.textContent = `${bet.name} — ${bet.home}-${bet.away} (£${bet.amount})`;
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = 'Remove';
+    removeBtn.className = 'small';
+    removeBtn.onclick = () => {
+      state.bets.splice(index, 1);
+      persistState();
+    };
+    li.appendChild(span);
+    li.appendChild(removeBtn);
+    list.appendChild(li);
+  });
+
+  const betsTotal = state.bets.reduce((sum, bet) => sum + Number(bet.amount), 0);
+  document.getElementById('rolloverDisplay').textContent = state.rollover;
+  document.getElementById('totalPot').textContent = betsTotal + state.rollover;
+
+  const resultLog = document.getElementById('resultLog');
+  resultLog.innerHTML = state.history
+    .slice()
+    .reverse()
+    .map(entry => `<div>${entry}</div>`)
+    .join('');
+}
+
+document.getElementById('saveTeamsBtn').onclick = () => {
+  const home = document.getElementById('teamHomeInput').value.trim();
+  const away = document.getElementById('teamAwayInput').value.trim();
+  if (!home || !away) { alert('Please enter both team names.'); return; }
+  state.teams = { home, away };
+  persistState();
+};
+
+document.getElementById('addBetBtn').onclick = () => {
+  const nameInput = document.getElementById('name');
+  const name = nameInput.value.trim();
+  if (!name) { alert('Please enter your name!'); return; }
+
+  const home = document.getElementById('homeScore').value;
+  const away = document.getElementById('awayScore').value;
+  const amount = Number(document.getElementById('amount').value);
+  if (!amount || amount <= 0) { alert('Please enter a valid amount.'); return; }
+
+  state.bets.push({ name, home, away, amount });
+  nameInput.value = '';
+  persistState();
+};
+
+document.getElementById('resolveBtn').onclick = () => {
+  const finalHomeInput = document.getElementById('finalHome');
+  const finalAwayInput = document.getElementById('finalAway');
+  if (finalHomeInput.value === '' || finalAwayInput.value === '') {
+    alert('Please enter the final score.');
+    return;
+  }
+  const finalHome = String(Number(finalHomeInput.value));
+  const finalAway = String(Number(finalAwayInput.value));
+
+  const betsTotal = state.bets.reduce((sum, bet) => sum + Number(bet.amount), 0);
+  const pot = betsTotal + state.rollover;
+  const winners = state.bets.filter(bet => bet.home === finalHome && bet.away === finalAway);
+
+  const matchLabel = `${state.teams.home || 'Home'} ${finalHome}-${finalAway} ${state.teams.away || 'Away'}`;
+
+  if (winners.length > 0) {
+    const share = (pot / winners.length).toFixed(2);
+    const names = winners.map(w => w.name).join(', ');
+    state.history.push(`${matchLabel}: ${names} won £${share} each (pot £${pot}).`);
+    state.rollover = 0;
+  } else {
+    state.rollover = pot;
+    state.history.push(`${matchLabel}: no winners — £${pot} rolls over to the next match.`);
+  }
+
+  state.bets = [];
+  finalHomeInput.value = '';
+  finalAwayInput.value = '';
+  persistState();
+};
+
+document.getElementById('clearBetsBtn').onclick = () => {
+  if (state.bets.length === 0) return;
+  if (!confirm('Clear all current bets without paying out?')) return;
+  state.history.push(`Bets cleared without payout (${state.bets.length} bet(s) removed).`);
+  state.bets = [];
+  persistState();
+};
+
+document.getElementById('resetAllBtn').onclick = () => {
+  if (!confirm('Reset teams, bets, rollover and history? This cannot be undone.')) return;
+  state = defaultState();
+  persistState();
+};
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function connectFirebase(config) {
+  const statusEl = document.getElementById('status');
+  try {
+    if (typeof firebase === 'undefined') {
+      statusEl.textContent = 'Loading Firebase…';
+      await loadScript('https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js');
+    }
+    if (firebase.apps.length) {
+      firebase.app().delete();
+    }
+    firebase.initializeApp(config);
+    firebaseDbRef = firebase.database().ref(FIREBASE_DB_PATH);
+    firebaseDbRef.on('value', snapshot => {
+      const remote = snapshot.val();
+      if (remote) {
+        applyingRemoteUpdate = true;
+        state = Object.assign(defaultState(), remote);
+        saveLocalState(state);
+        render();
+        applyingRemoteUpdate = false;
+      } else {
+        firebaseDbRef.set(state);
+      }
+    });
+    localStorage.setItem(FIREBASE_CONFIG_KEY, JSON.stringify(config));
+    statusEl.textContent = 'Synced via Firebase';
+  } catch (err) {
+    statusEl.textContent = 'Firebase connection failed — using local storage only.';
+    firebaseDbRef = null;
+    console.error(err);
+  }
+}
+
+document.getElementById('enableFirebaseBtn').onclick = () => {
+  const raw = document.getElementById('firebaseConfigText').value.trim();
+  if (!raw) { alert('Paste your Firebase config JSON first.'); return; }
+  let config;
+  try {
+    config = JSON.parse(raw);
+  } catch (e) {
+    alert('That does not look like valid JSON.');
+    return;
+  }
+  connectFirebase(config);
+};
+
+document.getElementById('disableFirebaseBtn').onclick = () => {
+  if (firebaseDbRef) {
+    firebaseDbRef.off();
+    firebaseDbRef = null;
+  }
+  localStorage.removeItem(FIREBASE_CONFIG_KEY);
+  document.getElementById('status').textContent = 'Local only (not synced)';
+};
+
+setupScores(10);
+render();
+
+const savedFirebaseConfig = localStorage.getItem(FIREBASE_CONFIG_KEY);
+if (savedFirebaseConfig) {
+  try {
+    const config = JSON.parse(savedFirebaseConfig);
+    document.getElementById('firebaseConfigText').value = JSON.stringify(config, null, 2);
+    connectFirebase(config);
+  } catch (e) {
+    localStorage.removeItem(FIREBASE_CONFIG_KEY);
+  }
+} else {
+  document.getElementById('status').textContent = 'Local only (not synced)';
+}
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').then(() => console.log('Service Worker Registered'));
+}
+</script>
+</body>
+</html>
