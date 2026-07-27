@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "Spotlight — for singers",
+  "short_name": "Spotlight",
+  "description": "A short-video stage for singers. Post a clip, get heard, climb the chart.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B0B12",
+  "theme_color": "#0B0B12",
+  "categories": ["music", "social", "entertainment"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

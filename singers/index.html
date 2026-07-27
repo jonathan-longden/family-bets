@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1" />
+<title>Spotlight — for singers who want to get heard</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="description" content="A short-video stage for singers. Post a clip, get heard, climb the chart." />
+<meta name="theme-color" content="#0B0B12" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Spotlight" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><path d="M10 3a7 7 0 1 0 4.2 12.6l4.6 4.6 1.4-1.4-4.6-4.6A7 7 0 0 0 10 3m0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10h4v10zm6 0V4h4v16zm6 0v-7h4v7z"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9m0 2c-4.4 0-8 2.4-8 5.3V21h16v-1.7c0-2.9-3.6-5.3-8-5.3"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21S3.5 15.4 3.5 9.6A5.1 5.1 0 0 1 12 6.2a5.1 5.1 0 0 1 8.5 3.4C20.5 15.4 12 21 12 21"/></symbol>
+    <symbol id="i-comment" viewBox="0 0 24 24"><path d="M12 3c5 0 9 3.3 9 7.5S17 18 12 18a11 11 0 0 1-2.6-.3L4 20l1.4-3.6A7.9 7.9 0 0 1 3 10.5C3 6.3 7 3 12 3"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M14 3v4.1C8.5 7.7 5 11.4 4 18c2.2-3.4 5.3-5 10-5v4.9l7-7.4z"/></symbol>
+    <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 3 2.6 5.7 6.2.7-4.6 4.2 1.3 6.1L12 16.6 6.5 19.7l1.3-6.1L3.2 9.4l6.2-.7z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7z"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3m6-3a6 6 0 0 1-5 5.9V20h3v2H8v-2h3v-3.1A6 6 0 0 1 6 11h2a4 4 0 0 0 8 0z"/></symbol>
+    <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9h3l4-4v14l-4-4H4zm12.5-.5 1.4 1.4L16.4 12l1.5 1.5-1.4 1.4L15 13.4l-1.5 1.5-1.4-1.4 1.5-1.5-1.5-1.5 1.4-1.4L15 10.6z"/></symbol>
+    <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9h3l4-4v14l-4-4H4zm11.5-2.6A6 6 0 0 1 19 12a6 6 0 0 1-3.5 5.6l-.8-1.8A4 4 0 0 0 17 12a4 4 0 0 0-2.3-3.8z"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M15.4 4 7 12.4l8.4 8.4 1.4-1.4-7-7 7-7z"/></symbol>
+    <symbol id="i-cog" viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8m9 4-.1 1.3 2 1.6-2 3.4-2.4-.8-2.2 1.3-.4 2.5h-4l-.4-2.5-2.2-1.3-2.4.8-2-3.4 2-1.6a9 9 0 0 1 0-2.6l-2-1.6 2-3.4 2.4.8 2.2-1.3.4-2.5h4l.4 2.5 2.2 1.3 2.4-.8 2 3.4-2 1.6z"/></symbol>
+    <symbol id="i-flip" viewBox="0 0 24 24"><path d="M12 5V2L8 6l4 4V7a5 5 0 0 1 5 5h2a7 7 0 0 0-7-7m0 14v3l4-4-4-4v3a5 5 0 0 1-5-5H5a7 7 0 0 0 7 7"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M11 16V8.8L8.4 11.4 7 10l5-5 5 5-1.4 1.4L13 8.8V16zM5 18h14v2H5z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5 19 12 7 19.5z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M6 7h12l-1 14H7zm3-4h6l1 2h4v2H4V5h4z"/></symbol>
+  </defs>
+</svg>
+
+<div id="splash">
+  <div class="splash-mic"><svg class="ic"><use href="#i-mic"/></svg></div>
+  <h2>Spotlight</h2>
+  <p>Sing. Get heard.</p>
+  <div class="spinner"></div>
+</div>
+
+<!-- ───────────── onboarding ───────────── -->
+<div id="onboarding" class="overlay" hidden>
+  <div class="onboard-card">
+    <div class="onboard-brand"><svg class="ic"><use href="#i-mic"/></svg><span>Spotlight</span></div>
+    <h1>The stage for singers.</h1>
+    <p class="muted">Sixty seconds, one voice. Post a clip, climb the chart, get noticed by people who are actually listening.</p>
+
+    <label class="field">
+      <span>Your name or artist name</span>
+      <input id="obName" maxlength="30" placeholder="e.g. Maya Rivers" autocomplete="name" />
+    </label>
+    <label class="field">
+      <span>Handle</span>
+      <div class="handle-input"><i>@</i><input id="obHandle" maxlength="20" placeholder="mayarivers" autocapitalize="off" autocorrect="off" /></div>
+    </label>
+
+    <span class="field-label">I'm here to…</span>
+    <div class="role-picker">
+      <button class="role-btn selected" data-role="singer">
+        <strong>Sing</strong><small>Post clips and get heard</small>
+      </button>
+      <button class="role-btn" data-role="scout">
+        <strong>Scout</strong><small>Find and shortlist talent</small>
+      </button>
+    </div>
+
+    <span class="field-label">Genres you sing (pick a few)</span>
+    <div id="obGenres" class="chips"></div>
+
+    <button id="obStart" class="btn-primary block">Enter the room</button>
+    <p class="tiny muted">Everything stays on this device unless you turn on sync in Settings.</p>
+  </div>
+</div>
+
+<!-- ───────────── feed ───────────── -->
+<section id="screen-feed" class="screen active">
+  <header class="feed-head">
+    <button class="tab-pill" data-feed="foryou">For you</button>
+    <button class="tab-pill" data-feed="following">Following</button>
+    <button class="tab-pill" data-feed="fresh">Fresh</button>
+    <button id="muteBtn" class="icon-btn ghost" aria-label="Sound on/off"><svg class="ic"><use href="#i-mute"/></svg></button>
+  </header>
+  <div id="feed" class="feed"></div>
+  <div id="feedEmpty" class="empty" hidden>
+    <svg class="ic big"><use href="#i-mic"/></svg>
+    <h3>Nothing here yet</h3>
+    <p class="muted">Follow some singers, or record the first clip.</p>
+  </div>
+</section>
+
+<!-- ───────────── discover ───────────── -->
+<section id="screen-discover" class="screen">
+  <header class="screen-head">
+    <h2>Discover</h2>
+    <div class="search-wrap">
+      <svg class="ic"><use href="#i-search"/></svg>
+      <input id="searchInput" type="search" placeholder="Singers, songs, genres, #tags" autocapitalize="off" />
+    </div>
+    <div id="genreChips" class="chips scroll-x"></div>
+  </header>
+  <div class="screen-body">
+    <section id="risingWrap" class="block-section">
+      <h3 class="section-title">Rising this week</h3>
+      <div id="rising" class="rising-row"></div>
+    </section>
+    <section class="block-section">
+      <h3 id="gridTitle" class="section-title">Fresh clips</h3>
+      <div id="discoverGrid" class="grid"></div>
+      <p id="discoverEmpty" class="muted pad" hidden>No clips match that yet.</p>
+    </section>
+  </div>
+</section>
+
+<!-- ───────────── record ───────────── -->
+<section id="screen-record" class="screen">
+  <div id="recStage" class="rec-stage">
+    <video id="recPreview" class="rec-video" playsinline muted></video>
+    <video id="recPlayback" class="rec-video" playsinline hidden loop></video>
+    <div id="recCountdown" class="countdown" hidden>3</div>
+
+    <header class="rec-top">
+      <button class="icon-btn ghost" data-close-record aria-label="Close"><svg class="ic"><use href="#i-close"/></svg></button>
+      <div id="recTimer" class="rec-timer">0:00 / 1:00</div>
+      <button id="flipBtn" class="icon-btn ghost" aria-label="Flip camera"><svg class="ic"><use href="#i-flip"/></svg></button>
+    </header>
+
+    <div id="recHint" class="rec-hint">Camera off — you can still upload a clip below.</div>
+
+    <footer class="rec-bottom">
+      <div id="recControls" class="rec-controls">
+        <label class="icon-btn ghost upload" aria-label="Upload a video">
+          <svg class="ic"><use href="#i-upload"/></svg>
+          <input id="uploadInput" type="file" accept="video/*" hidden />
+        </label>
+        <button id="recBtn" class="rec-btn" aria-label="Record">
+          <svg class="ring" viewBox="0 0 100 100"><circle class="ring-bg" cx="50" cy="50" r="46"/><circle id="recRing" class="ring-fg" cx="50" cy="50" r="46"/></svg>
+          <span class="rec-dot"></span>
+        </button>
+        <div class="icon-btn ghost invisible"></div>
+      </div>
+      <div id="recDone" class="rec-done" hidden>
+        <button id="retakeBtn" class="btn-ghost">Retake</button>
+        <button id="nextBtn" class="btn-primary">Next</button>
+      </div>
+    </footer>
+  </div>
+
+  <div id="recDetails" class="details" hidden>
+    <header class="screen-head row-head">
+      <button class="icon-btn ghost" id="detailsBack" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button>
+      <h2>New clip</h2>
+    </header>
+    <div class="screen-body">
+      <div class="details-row">
+        <div id="detailsPoster" class="poster-thumb"></div>
+        <label class="field grow">
+          <span>Caption</span>
+          <input id="clipTitle" maxlength="80" placeholder="Verse 1 of something new…" />
+        </label>
+      </div>
+      <label class="field">
+        <span>Song</span>
+        <input id="clipSong" maxlength="60" placeholder="Song title" />
+      </label>
+      <label class="switch-row">
+        <span>This is my own original song</span>
+        <input id="clipOriginal" type="checkbox" />
+      </label>
+      <span class="field-label">Genre</span>
+      <div id="clipGenres" class="chips"></div>
+      <label class="field">
+        <span>Tags</span>
+        <input id="clipTags" maxlength="80" placeholder="acoustic, falsetto, unsigned" />
+      </label>
+      <button id="postBtn" class="btn-primary block">Post to Spotlight</button>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────── charts ───────────── -->
+<section id="screen-charts" class="screen">
+  <header class="screen-head">
+    <h2>The Chart</h2>
+    <p class="muted">Ranked by plays, likes, comments and scout shortlists over the last 7 days.</p>
+    <div class="chart-tabs">
+      <button class="tab-pill selected" data-chart="clips">Clips</button>
+      <button class="tab-pill" data-chart="artists">Singers</button>
+      <button class="tab-pill" data-chart="fresh">New talent</button>
+    </div>
+  </header>
+  <div class="screen-body">
+    <ol id="chartList" class="chart-list"></ol>
+    <p id="chartEmpty" class="muted pad" hidden>Nothing on the chart yet — be the first.</p>
+  </div>
+</section>
+
+<!-- ───────────── profile ───────────── -->
+<section id="screen-profile" class="screen">
+  <div class="screen-body no-pad">
+    <div id="profileBody"></div>
+  </div>
+</section>
+
+<nav id="tabbar">
+  <button class="tab" data-screen="feed"><svg class="ic"><use href="#i-home"/></svg><span>Feed</span></button>
+  <button class="tab" data-screen="discover"><svg class="ic"><use href="#i-search"/></svg><span>Discover</span></button>
+  <button class="tab tab-post" data-screen="record" aria-label="Record"><svg class="ic"><use href="#i-plus"/></svg></button>
+  <button class="tab" data-screen="charts"><svg class="ic"><use href="#i-chart"/></svg><span>Chart</span></button>
+  <button class="tab" data-screen="profile"><svg class="ic"><use href="#i-user"/></svg><span>You</span></button>
+</nav>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-backdrop" data-close-sheet></div>
+  <div class="sheet-card">
+    <div class="sheet-grip" data-close-sheet></div>
+    <header class="sheet-head"><h3 id="sheetTitle"></h3><button class="icon-btn ghost" data-close-sheet aria-label="Close"><svg class="ic"><use href="#i-close"/></svg></button></header>
+    <div id="sheetBody" class="sheet-body"></div>
+    <div id="sheetFoot" class="sheet-foot" hidden></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
