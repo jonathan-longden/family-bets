@@ -1,7 +1,9 @@
 {
-  "name": "Arsenal Betting App",
-  "short_name": "ArsenalBet",
+  "id": ".",
+  "name": "Family Bets",
+  "short_name": "Family Bets",
   "start_url": ".",
+  "scope": ".",
   "display": "standalone",
   "background_color": "#EF0107",
   "theme_color": "#EF0107",
