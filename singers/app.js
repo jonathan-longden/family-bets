@@ -122,7 +122,7 @@ async function mediaDelete(id) {
 
 /* ───────────────────────── board state ───────────────────────── */
 
-let board = { artists: {}, clips: {} };
+let board = { artists: {}, clips: {}, codes: {}, applications: {}, owner: null };
 let meId = localStorage.getItem(ME_KEY) || null;
 
 const me = () => (meId ? board.artists[meId] : null);
@@ -134,7 +134,11 @@ function loadBoard() {
     const raw = localStorage.getItem(BOARD_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      board = { artists: parsed.artists || {}, clips: parsed.clips || {} };
+      board = {
+        artists: parsed.artists || {}, clips: parsed.clips || {},
+        codes: parsed.codes || {}, applications: parsed.applications || {},
+        owner: parsed.owner || null,
+      };
     }
   } catch (e) { /* start fresh */ }
 }
@@ -159,6 +163,95 @@ const followerCount = a => (a.followerSeed || 0) + Object.keys(a.followers || {}
 const iLike = c => !!(meId && c.likes && c.likes[meId]);
 const iSaved = c => !!(meId && c.shortlists && c.shortlists[meId]);
 const iFollow = a => !!(meId && a && a.followers && a.followers[meId]);
+
+/* ── scout verification ──
+   Scout accounts can see singers' contact details, so they are gated. An
+   invite code you issued unlocks the account immediately; anyone else lands
+   in a review queue that the owner device approves or rejects.
+
+   Be clear-eyed about what this is: a soft gate. The board is a JSON blob in
+   the browser, so a determined person with dev tools can flip the flag on
+   their own device. It stops casual sign-ups and gives you a real audit
+   trail; it is not security. Enforcement that actually holds needs Firebase
+   Auth plus database rules, with contact details behind a path only approved
+   accounts can read. See README. */
+
+const isVerifiedScout = a => !!(a && a.role === 'scout' && a.scoutVerified);
+const iAmVerifiedScout = () => isVerifiedScout(me());
+const iAmOwner = () => !!(board.owner && meId && board.owner.artistId === meId);
+const myApplication = () => Object.values(board.applications || {})
+  .filter(x => x.artistId === meId)
+  .sort((a, b) => b.createdAt - a.createdAt)[0] || null;
+
+function normalizeCode(raw) {
+  return String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function makeCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // no I/O/0/1
+  const block = () => Array.from({ length: 4 }, () =>
+    alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
+  return `SPOT-${block()}-${block()}`;
+}
+
+function findCode(raw) {
+  const key = normalizeCode(raw);
+  if (!key) return null;
+  return Object.values(board.codes || {}).find(c => normalizeCode(c.code) === key) || null;
+}
+
+/* Returns { ok } or { error } — the single place that decides whether a code
+   can be spent, so onboarding and the later apply flow can't drift apart. */
+function redeemCode(raw, artistId) {
+  const code = findCode(raw);
+  if (!code) return { error: 'That code is not recognised' };
+  if (code.revoked) return { error: 'That code has been revoked' };
+  if (code.usedBy && code.usedBy !== artistId) return { error: 'That code has already been used' };
+  code.usedBy = artistId;
+  code.usedAt = now();
+  code.updatedAt = now();
+  return { ok: true, code };
+}
+
+function applicationFrom(fields, artistId, status) {
+  return {
+    id: uid(), artistId, status,
+    company: fields.company || '', title: fields.title || '',
+    workEmail: fields.workEmail || '', website: fields.website || '',
+    codeUsed: fields.codeUsed || '',
+    createdAt: now(), updatedAt: now(),
+  };
+}
+
+function grantScout(artist, application) {
+  artist.role = 'scout';
+  artist.scoutVerified = true;
+  artist.company = application.company || artist.company || '';
+  artist.scoutTitle = application.title || '';
+  artist.scoutSince = now();
+  artist.scoutStatus = 'approved';
+  artist.updatedAt = now();
+}
+
+function decideApplication(appId, approved, reason) {
+  const app = board.applications[appId];
+  if (!app || !iAmOwner()) return;
+  const a = artist(app.artistId);
+  app.status = approved ? 'approved' : 'rejected';
+  app.decidedAt = now();
+  app.decidedBy = meId;
+  app.reason = reason || '';
+  app.updatedAt = now();
+  if (a) {
+    if (approved) grantScout(a, app);
+    else {
+      a.scoutStatus = 'rejected';
+      a.scoutRejectReason = reason || '';
+      a.updatedAt = now();
+    }
+  }
+  saveBoard();
+}
 
 /* Chart score: attention over the last week, decayed by age. */
 function clipScore(c) {
@@ -957,7 +1050,7 @@ function renderProfile(id) {
   const rank = Object.values(board.artists).filter(x => clipsOf(x.id).length)
     .sort((x, y) => artistScore(y) - artistScore(x)).findIndex(x => x.id === a.id) + 1;
 
-  const isScout = isMe && a.role === 'scout';
+  const isScout = isMe && isVerifiedScout(a);
   // A scout's home is the shortlist, not a clip grid they'll never fill.
   if (isScout && profileTab === 'clips' && !clips.length) profileTab = 'saved';
   const shown = profileTab === 'saved' && isMe ? saved : clips;
@@ -971,7 +1064,8 @@ function renderProfile(id) {
       <div class="prof-handle">@${esc(a.handle)}${a.city ? ' · ' + esc(a.city) : ''}</div>
       ${a.bio ? `<p class="prof-bio">${esc(a.bio)}</p>` : ''}
       <div class="prof-badges">
-        ${a.role === 'scout' ? '<span class="pill">Scout</span>' : ''}
+        ${isVerifiedScout(a) ? `<span class="pill verified">✓ Verified scout${a.company ? ' · ' + esc(a.company) : ''}</span>` : ''}
+        ${isMe && a.scoutStatus === 'pending' ? '<span class="pill">Scout application pending</span>' : ''}
         ${rank && rank <= 10 ? `<span class="pill hot">#${rank} on the chart</span>` : ''}
         ${(a.genres || []).map(g => `<span class="pill">${esc(g)}</span>`).join('')}
       </div>
@@ -997,7 +1091,7 @@ function renderProfile(id) {
     </div>
     ${isMe ? `<div class="prof-tabs">
       <button class="tab-pill ${profileTab === 'clips' ? 'selected' : ''}" data-ptab="clips">Clips</button>
-      <button class="tab-pill ${profileTab === 'saved' ? 'selected' : ''}" data-ptab="saved">${a.role === 'scout' ? 'Shortlist' : 'Saved'}</button>
+      <button class="tab-pill ${profileTab === 'saved' ? 'selected' : ''}" data-ptab="saved">${isScout ? 'Shortlist' : 'Saved'}</button>
     </div>` : ''}
     <div class="prof-grid">
       ${isMe && profileTab === 'saved'
@@ -1053,6 +1147,7 @@ function contactHref(a) {
 }
 
 function shortlistHTML(list) {
+  const verified = iAmVerifiedScout();
   if (!list.length) {
     return `<p class="muted pad">Nothing shortlisted yet — tap the star on a clip you rate.
       Shortlisted singers land here with room for notes, and you can export the list as a CSV.</p>`;
@@ -1074,9 +1169,11 @@ function shortlistHTML(list) {
       ${note ? `<p class="shortlist-note">${esc(note)}</p>` : ''}
       <div class="shortlist-actions">
         <button class="chip" data-note="${c.id}">${note ? 'Edit note' : 'Add note'}</button>
-        ${href
-      ? `<a class="chip" href="${esc(href)}" target="_blank" rel="noopener">Get in touch</a>`
-      : `<button class="chip" data-nocontact="${c.artistId}">No contact details</button>`}
+        ${!verified
+      ? `<button class="chip locked" data-locked="contact">Contact locked</button>`
+      : href
+        ? `<a class="chip" href="${esc(href)}" target="_blank" rel="noopener">Get in touch</a>`
+        : `<button class="chip" data-nocontact="${c.artistId}">No contact details</button>`}
         <button class="chip" data-unsave="${c.id}">Remove</button>
       </div>
     </li>`;
@@ -1084,8 +1181,12 @@ function shortlistHTML(list) {
 
   return `<div class="shortlist-head">
       <span class="muted tiny">${list.length} shortlisted · notes stay on this device</span>
-      <button class="btn-ghost sm" id="exportBtn">Export CSV</button>
+      ${verified
+      ? '<button class="btn-ghost sm" id="exportBtn">Export CSV</button>'
+      : '<button class="btn-ghost sm locked" data-locked="export">Export locked</button>'}
     </div>
+    ${verified ? '' : `<p class="notice">Contact details and CSV export are for verified scouts.
+      <button class="chip" data-locked="apply">Apply for access</button></p>`}
     <ul class="shortlist">${rows}</ul>`;
 }
 
@@ -1122,6 +1223,12 @@ function wireShortlist(body) {
 
   const exportBtn = $('#exportBtn', body);
   if (exportBtn) exportBtn.onclick = exportShortlist;
+
+  $$('[data-locked]', body).forEach(btn => btn.onclick = () => {
+    const a = me();
+    if (a.scoutStatus === 'pending') { toast('Your scout application is still under review'); return; }
+    openScoutApplication();
+  });
 }
 
 function csvCell(v) {
@@ -1130,6 +1237,7 @@ function csvCell(v) {
 }
 
 function exportShortlist() {
+  if (!iAmVerifiedScout()) { openScoutApplication(); return; }   // contact details ride along in the CSV
   const list = Object.values(board.clips).filter(c => iSaved(c))
     .sort((a, b) => clipScore(b) - clipScore(a));
   if (!list.length) { toast('Nothing to export yet'); return; }
@@ -1194,6 +1302,68 @@ function wireGenreChips(container, selected, max = 4) {
   });
 }
 
+function scoutStatusHTML(a) {
+  if (isVerifiedScout(a)) {
+    return `<div class="notice ok">Verified scout${a.company ? ' · ' + esc(a.company) : ''}
+      <br><small>Verified ${new Date(a.scoutSince || now()).toLocaleDateString()}</small></div>`;
+  }
+  if (a.scoutStatus === 'pending') {
+    return `<div class="notice">Scout application under review. You can browse and post meanwhile —
+      contact details and export stay locked until it's approved.</div>`;
+  }
+  if (a.scoutStatus === 'rejected') {
+    return `<div class="notice warn">Scout application declined${a.scoutRejectReason ? ': ' + esc(a.scoutRejectReason) : ''}.
+      <button class="chip" id="epApply" type="button">Apply again</button></div>`;
+  }
+  return `<div class="notice">Working in the industry?
+    <button class="chip" id="epApply" type="button">Apply for scout access</button></div>`;
+}
+
+/* Same form as onboarding, for anyone who signed up as a singer first. */
+function openScoutApplication() {
+  const a = me();
+  openSheet({
+    title: 'Apply for scout access',
+    html: `
+      <p class="tiny muted">Scout accounts see singers' contact details and can export shortlists,
+      so they're verified first. An invite code unlocks it immediately; otherwise this goes to review.</p>
+      <label class="field"><span>Company or label</span>
+        <input id="saCompany" maxlength="60" value="${esc(a.company || '')}" placeholder="Parlophone, or freelance A&amp;R"></label>
+      <label class="field"><span>Your role there</span>
+        <input id="saTitle" maxlength="60" placeholder="A&amp;R, booker, vocal coach, casting"></label>
+      <label class="field"><span>Work email</span>
+        <input id="saEmail" maxlength="80" placeholder="you@label.com" autocapitalize="off"></label>
+      <label class="field"><span>Website or roster link</span>
+        <input id="saSite" maxlength="140" placeholder="label.com, LinkedIn, Companies House…" autocapitalize="off"></label>
+      <label class="field"><span>Invite code (optional)</span>
+        <input id="saCode" maxlength="24" placeholder="SPOT-XXXX-XXXX" autocapitalize="characters" autocorrect="off"></label>
+      <button class="btn-primary block" id="saSend">Submit</button>`,
+  });
+  $('#saSend').onclick = () => {
+    const fields = {
+      company: $('#saCompany').value.trim(), title: $('#saTitle').value.trim(),
+      workEmail: $('#saEmail').value.trim(), website: $('#saSite').value.trim(),
+      code: $('#saCode').value.trim(),
+    };
+    if (!fields.company || !fields.workEmail) { toast('Company and work email are required'); return; }
+    if (fields.code && !findCode(fields.code)) { toast('That invite code is not recognised'); return; }
+
+    const redeemed = fields.code ? redeemCode(fields.code, meId) : null;
+    const instant = redeemed && redeemed.ok;
+    if (fields.code && !instant) { toast(redeemed.error); return; }
+
+    const app = applicationFrom({ ...fields, codeUsed: instant ? normalizeCode(fields.code) : '' },
+      meId, instant ? 'approved' : 'pending');
+    board.applications[app.id] = app;
+    if (instant) grantScout(a, app);
+    else { a.scoutStatus = 'pending'; a.scoutRejectReason = ''; a.updatedAt = now(); }
+    saveBoard();
+    closeSheet();
+    renderProfile(meId);
+    toast(instant ? 'Verified — scout tools unlocked' : 'Application sent for review');
+  };
+}
+
 function openEditProfile() {
   const a = me();
   const genres = [...(a.genres || [])];
@@ -1207,26 +1377,157 @@ function openEditProfile() {
       <label class="field"><span>Contact for work</span>
         <input id="epContact" maxlength="120" value="${esc(a.contact || '')}" placeholder="booking@email.com or a link" autocapitalize="off">
         <small class="tiny muted">Shown to scouts who shortlist you, so they can actually reach you.</small></label>
-      <label class="switch-row"><span>I'm a scout, not a singer</span><input id="epScout" type="checkbox" ${a.role === 'scout' ? 'checked' : ''}></label>
+      ${scoutStatusHTML(a)}
       <span class="field-label">Genres</span>
       <div class="chips" id="epGenres">${genreChipsHTML(genres)}</div>
       <button class="btn-primary block" id="epSave">Save</button>`,
     onFoot: null,
   });
   wireGenreChips($('#epGenres'), genres);
+  const applyBtn = $('#epApply');
+  if (applyBtn) applyBtn.onclick = openScoutApplication;
   $('#epSave').onclick = () => {
     const name = $('#epName').value.trim();
     const handle = $('#epHandle').value.trim().replace(/[^a-z0-9._]/gi, '').toLowerCase();
     if (!name || !handle) { toast('Name and handle are required'); return; }
     Object.assign(a, { name, handle, city: $('#epCity').value.trim(), bio: $('#epBio').value.trim(),
-      contact: $('#epContact').value.trim(),
-      role: $('#epScout').checked ? 'scout' : 'singer', genres, updatedAt: now() });
+      contact: $('#epContact').value.trim(), genres, updatedAt: now() });
     saveBoard();
     closeSheet();
     renderProfile(meId);
     renderFeed({ keepScroll: true });
     toast('Profile saved');
   };
+}
+
+/* ── owner console ──
+   Ownership is claimed once, by the first device to ask, and after that only
+   that account sees the review queue. With sync on, applications from other
+   phones land here; without it, this only ever sees local ones. */
+
+const pendingCount = () => iAmOwner()
+  ? Object.values(board.applications || {}).filter(x => x.status === 'pending').length : 0;
+
+function ownerLabel() {
+  if (!board.owner) return 'Unclaimed — review scout applications';
+  if (iAmOwner()) return 'Review applications and issue invite codes';
+  const o = artist(board.owner.artistId);
+  return `Owned by ${o ? '@' + o.handle : 'another account'}`;
+}
+
+function openOwnerTools() {
+  if (!board.owner) {
+    openSheet({
+      title: 'Owner tools',
+      html: `<p class="tiny muted">Nobody has claimed this Spotlight yet. The owner reviews scout
+        applications and issues invite codes. This is one-time and can't be transferred from here —
+        claim it on the device you'll actually use to review.</p>
+        <button class="btn-primary block" id="claimBtn">Claim ownership</button>`,
+    });
+    $('#claimBtn').onclick = () => {
+      if (board.owner) { toast('Already claimed'); return; }
+      board.owner = { artistId: meId, claimedAt: now() };
+      saveBoard();
+      toast('You own this Spotlight');
+      openOwnerTools();
+    };
+    return;
+  }
+  if (!iAmOwner()) {
+    const o = artist(board.owner.artistId);
+    openSheet({ title: 'Owner tools',
+      html: `<p class="muted pad">This Spotlight is owned by ${o ? '@' + esc(o.handle) : 'another account'}.
+        Scout applications are reviewed there.</p>` });
+    return;
+  }
+  renderOwnerConsole();
+}
+
+function renderOwnerConsole() {
+  const apps = Object.values(board.applications || {}).sort((a, b) => b.createdAt - a.createdAt);
+  const pending = apps.filter(x => x.status === 'pending');
+  const decided = apps.filter(x => x.status !== 'pending').slice(0, 10);
+  const codes = Object.values(board.codes || {}).sort((a, b) => b.createdAt - a.createdAt);
+
+  const appRow = a => {
+    const who = artist(a.artistId) || { name: 'Unknown', handle: 'unknown' };
+    return `<div class="app-card">
+      <div class="app-who">${avatarHTML(who, 'sm')}
+        <div class="grow"><b>${esc(who.name)}</b><div class="tiny muted">@${esc(who.handle)} · ${ago(a.createdAt)} ago</div></div>
+        <span class="pill ${a.status === 'approved' ? 'verified' : a.status === 'rejected' ? 'warn' : ''}">${a.status}</span>
+      </div>
+      <dl class="app-facts">
+        <dt>Company</dt><dd>${esc(a.company || '—')}</dd>
+        <dt>Role</dt><dd>${esc(a.title || '—')}</dd>
+        <dt>Work email</dt><dd>${esc(a.workEmail || '—')}</dd>
+        <dt>Link</dt><dd>${a.website ? `<a href="${esc(/^https?:/i.test(a.website) ? a.website : 'https://' + a.website)}" target="_blank" rel="noopener">${esc(a.website)}</a>` : '—'}</dd>
+        ${a.codeUsed ? `<dt>Code</dt><dd>${esc(a.codeUsed)}</dd>` : ''}
+        ${a.reason ? `<dt>Reason</dt><dd>${esc(a.reason)}</dd>` : ''}
+      </dl>
+      ${a.status === 'pending' ? `<div class="app-actions">
+        <button class="btn-primary sm" data-approve="${a.id}">Approve</button>
+        <button class="btn-ghost sm" data-reject="${a.id}">Decline</button>
+      </div>` : ''}
+    </div>`;
+  };
+
+  openSheet({
+    title: 'Owner tools',
+    html: `
+      <h4 class="owner-h">Applications${pending.length ? ` · ${pending.length} waiting` : ''}</h4>
+      ${pending.length ? pending.map(appRow).join('')
+      : '<p class="tiny muted">Nothing waiting. Applications from other devices appear here when sync is on.</p>'}
+
+      <h4 class="owner-h">Invite codes</h4>
+      <button class="btn-ghost sm" id="newCode">Generate a code</button>
+      <div class="code-list">
+        ${codes.length ? codes.map(c => `<div class="code-row">
+            <div class="grow"><b class="mono">${esc(c.code)}</b>
+              <div class="tiny muted">${esc(c.label || 'unlabelled')} · ${c.revoked ? 'revoked'
+          : c.usedBy ? 'used by @' + esc((artist(c.usedBy) || {}).handle || '?') : 'unused'}</div></div>
+            <button class="chip" data-copy="${esc(c.code)}">Copy</button>
+            ${!c.usedBy && !c.revoked ? `<button class="chip" data-revoke="${esc(c.code)}">Revoke</button>` : ''}
+          </div>`).join('')
+      : '<p class="tiny muted">No codes yet. Generate one and send it to a scout you already trust.</p>'}
+      </div>
+
+      ${decided.length ? `<h4 class="owner-h">Recently decided</h4>${decided.map(appRow).join('')}` : ''}`,
+  });
+
+  $('#newCode').onclick = () => {
+    const label = prompt('Who is this code for? (e.g. "Sony A&R — Priya")', '');
+    if (label === null) return;
+    const code = makeCode();
+    board.codes[code] = { code, label: label.trim(), createdAt: now(), createdBy: meId, updatedAt: now() };
+    saveBoard();
+    renderOwnerConsole();
+    toast('Code created: ' + code);
+  };
+  $$('#sheetBody [data-approve]').forEach(b => b.onclick = () => {
+    decideApplication(b.dataset.approve, true);
+    renderOwnerConsole();
+    toast('Approved — scout tools unlocked for them');
+  });
+  $$('#sheetBody [data-reject]').forEach(b => b.onclick = () => {
+    const reason = prompt('Reason (shown to them, optional)', '');
+    if (reason === null) return;
+    decideApplication(b.dataset.reject, false, reason.trim());
+    renderOwnerConsole();
+    toast('Declined');
+  });
+  $$('#sheetBody [data-copy]').forEach(b => b.onclick = () => {
+    navigator.clipboard.writeText(b.dataset.copy)
+      .then(() => toast('Code copied'), () => toast(b.dataset.copy));
+  });
+  $$('#sheetBody [data-revoke]').forEach(b => b.onclick = () => {
+    const c = findCode(b.dataset.revoke);
+    if (!c) return;
+    c.revoked = true;
+    c.updatedAt = now();
+    saveBoard();
+    renderOwnerConsole();
+    toast('Code revoked');
+  });
 }
 
 function openSettings() {
@@ -1238,6 +1539,9 @@ function openSettings() {
         <button class="list-row" id="setEdit"><svg class="ic"><use href="#i-user"/></svg><span class="grow">Edit profile</span></button>
         <button class="list-row" id="setSync"><svg class="ic"><use href="#i-share"/></svg>
           <span class="grow">Sync across devices<br><small class="muted">${synced ? 'Connected to Firebase' : 'Off — this device only'}</small></span></button>
+        <button class="list-row" id="setOwner"><svg class="ic"><use href="#i-star"/></svg>
+          <span class="grow">Owner tools<br><small class="muted">${ownerLabel()}</small></span>
+          ${pendingCount() ? `<span class="fresh-pill">${pendingCount()}</span>` : ''}</button>
       </div>
       <div class="set-group">
         <p class="tiny muted">Clip metadata lives in this browser and video files in IndexedDB on this device.
@@ -1248,6 +1552,7 @@ function openSettings() {
   });
   $('#setEdit').onclick = openEditProfile;
   $('#setSync').onclick = openSyncPanel;
+  $('#setOwner').onclick = openOwnerTools;
   $('#setReset').onclick = async () => {
     if (!confirm('Delete your profile, clips and videos from this device?')) return;
     localStorage.removeItem(BOARD_KEY);
@@ -1602,7 +1907,23 @@ function loadScript(src) {
 
 /* Union merge: newest wins per entity, engagement maps merge, comments dedupe by id. */
 function mergeBoards(local, remote) {
-  const out = { artists: {}, clips: {} };
+  const out = { artists: {}, clips: {}, codes: {}, applications: {}, owner: null };
+
+  // Codes and applications are plain records: whichever side was written last
+  // wins, so a redemption or an approval propagates without special casing.
+  for (const kind of ['codes', 'applications']) {
+    const ids = new Set([...Object.keys(local[kind] || {}), ...Object.keys(remote[kind] || {})]);
+    for (const id of ids) {
+      const l = (local[kind] || {})[id];
+      const r = (remote[kind] || {})[id];
+      out[kind][id] = !l ? r : !r ? l : ((r.updatedAt || 0) > (l.updatedAt || 0) ? r : l);
+    }
+  }
+
+  // Ownership is claimed once; the earliest claim wins so every device agrees.
+  const owners = [local.owner, remote.owner].filter(Boolean);
+  out.owner = owners.sort((a, b) => (a.claimedAt || 0) - (b.claimedAt || 0))[0] || null;
+
   for (const kind of ['artists', 'clips']) {
     const ids = new Set([...Object.keys(local[kind] || {}), ...Object.keys(remote[kind] || {})]);
     for (const id of ids) {
@@ -1640,7 +1961,11 @@ async function connectFirebase(config) {
       const remote = snap.val();
       if (!remote) { fbRef.set(board); return; }
       applyingRemote = true;
-      board = mergeBoards(board, { artists: remote.artists || {}, clips: remote.clips || {} });
+      board = mergeBoards(board, {
+        artists: remote.artists || {}, clips: remote.clips || {},
+        codes: remote.codes || {}, applications: remote.applications || {},
+        owner: remote.owner || null,
+      });
       localStorage.setItem(BOARD_KEY, JSON.stringify(board));
       applyingRemote = false;
       if (currentScreen === 'feed') renderFeed({ keepScroll: true });
@@ -1796,6 +2121,9 @@ function startOnboarding() {
   $$('.role-btn').forEach(btn => btn.onclick = () => {
     role = btn.dataset.role;
     $$('.role-btn').forEach(b => b.classList.toggle('selected', b === btn));
+    $('#obSingerFields').hidden = role === 'scout';
+    $('#obScoutFields').hidden = role !== 'scout';
+    $('#obStart').textContent = role === 'scout' ? 'Apply for scout access' : 'Enter the room';
   });
 
   const nameEl = $('#obName');
@@ -1812,17 +2140,54 @@ function startOnboarding() {
     if (!name) { toast('What should we call you?'); nameEl.focus(); return; }
     if (!handle) { toast('Pick a handle'); handleEl.focus(); return; }
 
+    const fields = role === 'scout' ? {
+      company: $('#obCompany').value.trim(),
+      title: $('#obTitle').value.trim(),
+      workEmail: $('#obWorkEmail').value.trim(),
+      website: $('#obWebsite').value.trim(),
+      code: $('#obCode').value.trim(),
+    } : null;
+
+    if (fields) {
+      if (!fields.company || !fields.workEmail) {
+        toast('Company and work email are required for scout access');
+        return;
+      }
+      if (fields.code && !findCode(fields.code)) {
+        toast('That invite code is not recognised — leave it blank to apply instead');
+        return;
+      }
+    }
+
     meId = uid();
-    board.artists[meId] = {
-      id: meId, name, handle, role, genres, bio: '', city: '',
+    const artistRecord = {
+      id: meId, name, handle, role: 'singer', genres, bio: '', city: '', contact: '',
       followers: {}, followerSeed: 0, createdAt: now(), updatedAt: now(),
     };
+    board.artists[meId] = artistRecord;
+
+    let message = 'Welcome to the stage';
+    if (fields) {
+      const redeemed = fields.code ? redeemCode(fields.code, meId) : null;
+      const instant = redeemed && redeemed.ok;
+      const app = applicationFrom({ ...fields, codeUsed: instant ? normalizeCode(fields.code) : '' },
+        meId, instant ? 'approved' : 'pending');
+      board.applications[app.id] = app;
+      if (instant) {
+        grantScout(artistRecord, app);
+        message = 'Verified — welcome aboard';
+      } else {
+        artistRecord.scoutStatus = 'pending';
+        message = 'Application sent — you can browse while it\'s reviewed';
+      }
+    }
+
     localStorage.setItem(ME_KEY, meId);
     saveBoard();
     overlay.hidden = true;
     renderFeed();
     show('feed');
-    toast(role === 'scout' ? 'Welcome — go find someone good' : 'Welcome to the stage');
+    toast(message);
   };
 }
 
