@@ -124,7 +124,11 @@ input:focus{border-color:var(--brand)}
 .feed{flex:1;overflow-y:scroll;scroll-snap-type:y mandatory;overscroll-behavior-y:contain;scrollbar-width:none}
 .feed::-webkit-scrollbar{display:none}
 .clip{position:relative;height:100%;width:100%;scroll-snap-align:start;scroll-snap-stop:always;overflow:hidden;background:#000}
-.clip video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.clip video{position:absolute;inset:0;width:100%;height:100%;background:#000;
+  /* contain, never cover: a phone screen is far taller than any camera sensor,
+     so filling it means throwing away most of the frame — which reads as the
+     camera being zoomed in. Bars beat cropping the singer's head off. */
+  object-fit:contain}
 .clip video.mirror{transform:scaleX(-1)}
 .clip-shade{position:absolute;inset:auto 0 0 0;height:52%;background:linear-gradient(transparent,rgba(0,0,0,.82));pointer-events:none}
 
@@ -202,6 +206,15 @@ input:focus{border-color:var(--brand)}
 .tile .tile-meta .ic{width:13px;height:13px}
 .tile .tile-top{position:absolute;top:6px;left:7px;right:7px;font-size:.7rem;color:rgba(255,255,255,.9);
   text-shadow:0 2px 6px rgba(0,0,0,.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ── sign in ── */
+.auth-card{display:flex;flex-direction:column;justify-content:center;min-height:100vh}
+.auth-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;
+  background:#fff;color:#1B1B29;font-weight:700;border-radius:14px;padding:14px 20px;margin-top:12px;
+  box-shadow:0 8px 22px rgba(0,0,0,.35)}
+.auth-btn.dark{background:#000;color:#fff;border:1px solid rgba(255,255,255,.25)}
+.auth-btn .ic{width:20px;height:20px}
+.list-row.danger{color:#FF6B85}
 
 /* ── activity ── */
 #activityBtn{margin-left:auto;width:38px;height:38px;position:relative}
@@ -329,7 +342,7 @@ input:focus{border-color:var(--brand)}
 
 /* ── record ── */
 .rec-stage{position:absolute;inset:0;background:#000;display:flex;flex-direction:column}
-.rec-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.rec-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
 #recPreview{transform:scaleX(-1)}
 #recPreview.back-cam{transform:none}
 .rec-top{position:relative;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:calc(12px + var(--safe-t)) 14px 0}

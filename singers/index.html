@@ -14,6 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Spotlight" />
 <link rel="stylesheet" href="styles.css" />
+<script src="config.js"></script>
 </head>
 <body>
 
@@ -50,6 +51,29 @@
   <h2>Spotlight</h2>
   <p>Sing. Get heard.</p>
   <div class="spinner"></div>
+</div>
+
+<!-- ───────────── sign in ───────────── -->
+<div id="authGate" class="overlay" hidden>
+  <div class="onboard-card auth-card">
+    <div class="onboard-brand"><svg class="ic"><use href="#i-mic"/></svg><span>Spotlight</span></div>
+    <h1>The stage for singers.</h1>
+    <p class="muted">Sixty seconds, one voice. Sign in so your clips, followers and chart position
+      follow you to any phone.</p>
+
+    <button class="auth-btn" data-provider="google">
+      <svg class="ic" viewBox="0 0 24 24"><path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.9h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.4"/><path fill="#34A853" d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22"/><path fill="#FBBC05" d="M6.4 14c-.2-.6-.3-1.3-.3-2s.1-1.4.3-2V7.4H3.1a10 10 0 0 0 0 9.2z"/><path fill="#EA4335" d="M12 5.9c1.5 0 2.8.5 3.8 1.5l2.8-2.8A10 10 0 0 0 3.1 7.4L6.4 10c.8-2.3 3-4.1 5.6-4.1"/></svg>
+      Continue with Google
+    </button>
+    <button class="auth-btn dark" data-provider="apple">
+      <svg class="ic" viewBox="0 0 24 24"><path fill="currentColor" d="M16.4 12.7c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.2-2.8.9-3.5.9s-1.8-.8-3-.8c-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .8 1.1 1.7 2.3 2.9 2.2 1.2 0 1.6-.7 3-.7s1.8.7 3 .7 2-1.1 2.8-2.2c.9-1.2 1.2-2.4 1.2-2.5 0 0-2.4-.9-2.4-3.6M14.2 5.9c.6-.8 1-1.9.9-3-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.8-1.3"/></svg>
+      Continue with Apple
+    </button>
+
+    <p id="authError" class="notice warn" hidden></p>
+    <p class="tiny muted" style="margin-top:22px">By continuing you agree to the
+      <a href="legal.html">terms and privacy notice</a>. You must be 13 or over.</p>
+  </div>
 </div>
 
 <!-- ───────────── onboarding ───────────── -->

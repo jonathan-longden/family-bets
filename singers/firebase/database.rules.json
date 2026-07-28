@@ -1,0 +1,87 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "spotlightBoard": {
+      ".read": "auth != null",
+
+      "artists": {
+        "$uid": {
+          ".write": "auth != null && (auth.uid === $uid || root.child('spotlightOwner').val() === auth.uid)",
+          ".validate": "newData.hasChildren(['id', 'handle', 'name'])",
+          "id": { ".validate": "newData.val() === $uid" },
+          "scoutVerified": {
+            ".write": "root.child('spotlightOwner').val() === auth.uid",
+            ".validate": "newData.isBoolean()"
+          },
+          "role": {
+            ".validate": "newData.val() === 'singer' || (newData.val() === 'scout' && root.child('spotlightScouts').child($uid).exists())"
+          },
+          "contact": { ".validate": false },
+          "followers": {
+            "$follower": { ".write": "auth.uid === $follower" }
+          }
+        }
+      },
+
+      "clips": {
+        "$clipId": {
+          ".write": "auth != null && (!data.exists() ? newData.child('artistId').val() === auth.uid : (data.child('artistId').val() === auth.uid || root.child('spotlightOwner').val() === auth.uid))",
+          "artistId": { ".validate": "newData.val() === auth.uid || data.val() === auth.uid || root.child('spotlightOwner').val() === auth.uid" },
+          "likes": { "$uid": { ".write": "auth.uid === $uid" } },
+          "shortlists": { "$uid": { ".write": "auth.uid === $uid" } },
+          "plays": { ".write": "auth != null" },
+          "comments": { ".write": "auth != null" }
+        }
+      },
+
+      "applications": {
+        "$appId": {
+          ".write": "auth != null && (newData.child('artistId').val() === auth.uid || root.child('spotlightOwner').val() === auth.uid)",
+          "status": {
+            ".validate": "newData.val() === 'pending' || root.child('spotlightOwner').val() === auth.uid"
+          }
+        }
+      },
+
+      "reports": {
+        "$reportId": {
+          ".write": "auth != null && (newData.child('byId').val() === auth.uid || root.child('spotlightOwner').val() === auth.uid)"
+        }
+      },
+
+      "codes": {
+        ".write": "root.child('spotlightOwner').val() === auth.uid",
+        "$code": {
+          "usedBy": { ".write": "auth != null && !data.exists() && newData.val() === auth.uid" },
+          "usedAt": { ".write": "auth != null" }
+        }
+      },
+
+      "owner": {
+        ".write": "auth != null && !data.exists()"
+      }
+    },
+
+    "spotlightContacts": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('spotlightScouts').child(auth.uid).exists() || root.child('spotlightOwner').val() === auth.uid)",
+        ".write": "auth.uid === $uid",
+        ".validate": "newData.isString() && newData.val().length < 200"
+      }
+    },
+
+    "spotlightScouts": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "root.child('spotlightOwner').val() === auth.uid"
+      }
+    },
+
+    "spotlightOwner": {
+      ".read": "auth != null",
+      ".write": "auth != null && !data.exists()"
+    }
+  }
+}
