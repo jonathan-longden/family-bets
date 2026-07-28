@@ -164,7 +164,7 @@ async function mediaDelete(id) {
 
 /* ───────────────────────── board state ───────────────────────── */
 
-let board = { artists: {}, clips: {}, codes: {}, applications: {}, reports: {}, owner: null };
+let board = { artists: {}, clips: {}, codes: {}, applications: {}, reports: {}, deleted: {}, owner: null };
 let meId = localStorage.getItem(ME_KEY) || null;
 
 const me = () => (meId ? board.artists[meId] : null);
@@ -179,7 +179,7 @@ function loadBoard() {
       board = {
         artists: parsed.artists || {}, clips: parsed.clips || {},
         codes: parsed.codes || {}, applications: parsed.applications || {},
-        reports: parsed.reports || {}, owner: parsed.owner || null,
+        reports: parsed.reports || {}, deleted: parsed.deleted || {}, owner: parsed.owner || null,
       };
     }
   } catch (e) { /* start fresh */ }
@@ -214,6 +214,16 @@ document.addEventListener('visibilitychange', () => {
    entriesOf normalises both. */
 function entriesOf(map, fallbackAt) {
   return Object.entries(map || {}).map(([id, v]) => ({ id, at: typeof v === 'number' ? v : (fallbackAt || 0) }));
+}
+
+/* Deleting something has to survive a sync merge. The merge is a union — it
+   has to be, or two phones editing at once would erase each other — so a
+   record that is simply removed locally comes straight back from anyone who
+   still has it. A tombstone says "this was deleted at time T", and the merge
+   drops any copy older than that. */
+function tombstone(kind, id) {
+  board.deleted = board.deleted || {};
+  board.deleted[`${kind}:${id}`] = now();
 }
 
 const likeCount = c => (c.likeSeed || 0) + Object.keys(c.likes || {}).length;
@@ -294,6 +304,12 @@ function applicationFrom(fields, artistId, status) {
   };
 }
 
+function markScoutInBackend(id, on) {
+  if (!hasBackend() || !fbRef) return;
+  const ref = firebase.database().ref('spotlightScouts/' + id);
+  (on ? ref.set(true) : ref.remove()).catch(() => {});
+}
+
 function grantScout(artist, application) {
   artist.role = 'scout';
   artist.scoutVerified = true;
@@ -302,6 +318,7 @@ function grantScout(artist, application) {
   artist.scoutSince = now();
   artist.scoutStatus = 'approved';
   artist.updatedAt = now();
+  markScoutInBackend(artist.id, true);
 }
 
 function decideApplication(appId, approved, reason) {
@@ -314,11 +331,12 @@ function decideApplication(appId, approved, reason) {
   app.reason = reason || '';
   app.updatedAt = now();
   if (a) {
-    if (approved) grantScout(a, app);
+    if (approved) grantScout(a, app);   // also writes the path the rules read
     else {
       a.scoutStatus = 'rejected';
       a.scoutRejectReason = reason || '';
       a.updatedAt = now();
+      markScoutInBackend(a.id, false);
     }
   }
   saveBoard();
@@ -1421,7 +1439,7 @@ function renderProfile(id) {
 
 function contactHref(a) {
   if (!canShareContact(a)) return null;      // minors are never contactable in-app
-  const v = String((a && a.contact) || '').trim();
+  const v = String(contactOf(a && a.id) || '').trim();
   if (!v) return null;
   if (/^https?:\/\//i.test(v)) return v;
   if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return 'mailto:' + v;
@@ -1533,7 +1551,7 @@ function exportShortlist() {
     'Caption', 'Plays', 'Likes', 'Comments', 'Score', 'Posted', 'Note'];
   const rows = list.map(c => {
     const a = artist(c.artistId) || {};
-    return [a.name, '@' + a.handle, a.city, (a.genres || []).join(' / '), a.contact,
+    return [a.name, '@' + a.handle, a.city, (a.genres || []).join(' / '), contactOf(a.id),
       c.song, c.original ? 'yes' : 'no', c.title, c.plays || 0, likeCount(c), commentCount(c),
       Math.round(clipScore(c)), new Date(c.createdAt).toISOString().slice(0, 10), noteFor(c.id)];
   });
@@ -1561,6 +1579,7 @@ function confirmDelete(clipId) {
   if (!c || c.artistId !== meId) return;
   if (!confirm(`Delete "${c.song || c.title}"? This can't be undone.`)) return;
   delete board.clips[clipId];
+  tombstone('clips', clipId);
   mediaDelete(clipId);
   deleteRemoteMedia(c);
   posterCache.delete(clipId);
@@ -1670,7 +1689,7 @@ function openEditProfile() {
       ? `<div class="notice">You're under 18, so Spotlight won't hand your contact details to anyone.
            Scouts see that you're a minor and are told to go through a parent or guardian.</div>`
       : `<label class="field"><span>Contact for work</span>
-           <input id="epContact" maxlength="120" value="${esc(a.contact || '')}" placeholder="booking@email.com or a link" autocapitalize="off">
+           <input id="epContact" maxlength="120" value="${esc(contactOf(meId))}" placeholder="booking@email.com or a link" autocapitalize="off">
            <small class="tiny muted">Shown to verified scouts who shortlist you, so they can reach you.</small></label>`}
       ${scoutStatusHTML(a)}
       <span class="field-label">Genres</span>
@@ -1686,8 +1705,8 @@ function openEditProfile() {
     const handle = $('#epHandle').value.trim().replace(/[^a-z0-9._]/gi, '').toLowerCase();
     if (!name || !handle) { toast('Name and handle are required'); return; }
     Object.assign(a, { name, handle, city: $('#epCity').value.trim(), bio: $('#epBio').value.trim(),
-      contact: $('#epContact') ? $('#epContact').value.trim() : (a.contact || ''),
       genres, updatedAt: now() });
+    if ($('#epContact')) saveMyContact($('#epContact').value.trim());
     saveBoard();
     closeSheet();
     renderProfile(meId);
@@ -1848,6 +1867,7 @@ function renderOwnerConsole() {
     const c = board.clips[r.clipId];
     if (!c || !confirm(`Take down "${c.song || c.title}"? It goes for everyone.`)) return;
     delete board.clips[r.clipId];
+    tombstone('clips', r.clipId);
     mediaDelete(r.clipId);
     deleteRemoteMedia(c);
     r.status = 'actioned';
@@ -1907,12 +1927,20 @@ function openSettings() {
     html: `
       <div class="set-group">
         <button class="list-row" id="setEdit"><svg class="ic"><use href="#i-user"/></svg><span class="grow">Edit profile</span></button>
-        <button class="list-row" id="setSync"><svg class="ic"><use href="#i-share"/></svg>
-          <span class="grow">Sync across devices<br><small class="muted">${synced ? 'Connected to Firebase' : 'Off — this device only'}</small></span></button>
+        ${hasBackend() ? '' : `<button class="list-row" id="setSync"><svg class="ic"><use href="#i-share"/></svg>
+          <span class="grow">Sync across devices<br><small class="muted">${synced ? 'Connected to Firebase' : 'Off — this device only'}</small></span></button>`}
         <button class="list-row" id="setOwner"><svg class="ic"><use href="#i-star"/></svg>
           <span class="grow">Owner tools<br><small class="muted">${ownerLabel()}</small></span>
           ${pendingCount() ? `<span class="fresh-pill">${pendingCount()}</span>` : ''}</button>
       </div>
+      ${hasBackend() ? `<div class="set-group">
+        <button class="list-row" id="setExport"><svg class="ic"><use href="#i-upload"/></svg>
+          <span class="grow">Download my data<br><small class="muted">Profile, clips and notes as a file</small></span></button>
+        <button class="list-row" id="setSignOut"><svg class="ic"><use href="#i-back"/></svg>
+          <span class="grow">Sign out<br><small class="muted">${esc((authUser && authUser.email) || 'signed in')}</small></span></button>
+        <button class="list-row danger" id="setDeleteAccount"><svg class="ic"><use href="#i-trash"/></svg>
+          <span class="grow">Delete my account</span></button>
+      </div>` : ''}
       <div class="set-group">
         <a class="list-row" href="legal.html"><svg class="ic"><use href="#i-flag"/></svg>
           <span class="grow">Terms, privacy and copyright</span></a>
@@ -1927,9 +1955,16 @@ function openSettings() {
       <button class="btn-danger block" id="setReset">Reset everything on this device</button>`,
   });
   $('#setEdit').onclick = openEditProfile;
-  $('#setSync').onclick = openSyncPanel;
+  const syncBtn = $('#setSync');
+  if (syncBtn) syncBtn.onclick = openSyncPanel;
   $('#setOwner').onclick = openOwnerTools;
   $('#setBlocks').onclick = openBlockList;
+  const exportBtn = $('#setExport');
+  if (exportBtn) exportBtn.onclick = exportMyData;
+  const signOutBtn = $('#setSignOut');
+  if (signOutBtn) signOutBtn.onclick = signOutNow;
+  const deleteBtn = $('#setDeleteAccount');
+  if (deleteBtn) deleteBtn.onclick = deleteMyAccount;
   $('#setReset').onclick = async () => {
     if (!confirm('Delete your profile, clips and videos from this device?')) return;
     localStorage.removeItem(BOARD_KEY);
@@ -2397,7 +2432,14 @@ function loadScript(src) {
 
 /* Union merge: newest wins per entity, engagement maps merge, comments dedupe by id. */
 function mergeBoards(local, remote) {
-  const out = { artists: {}, clips: {}, codes: {}, applications: {}, reports: {}, owner: null };
+  const out = { artists: {}, clips: {}, codes: {}, applications: {}, reports: {}, deleted: {}, owner: null };
+
+  // Deletions first: newest tombstone wins, and it outranks any surviving copy.
+  const graves = { ...(local.deleted || {}) };
+  for (const [key, at] of Object.entries(remote.deleted || {})) {
+    if (!graves[key] || at > graves[key]) graves[key] = at;
+  }
+  out.deleted = graves;
 
   // Codes and applications are plain records: whichever side was written last
   // wins, so a redemption or an approval propagates without special casing.
@@ -2432,6 +2474,10 @@ function mergeBoards(local, remote) {
       base.plays = Math.max(l.plays || 0, r.plays || 0);
       out[kind][id] = base;
     }
+    for (const id of Object.keys(out[kind])) {
+      const at = graves[`${kind}:${id}`];
+      if (at && at >= (out[kind][id].updatedAt || 0)) delete out[kind][id];
+    }
   }
   return out;
 }
@@ -2454,7 +2500,8 @@ async function connectFirebase(config) {
       board = mergeBoards(board, {
         artists: remote.artists || {}, clips: remote.clips || {},
         codes: remote.codes || {}, applications: remote.applications || {},
-        reports: remote.reports || {}, owner: remote.owner || null,
+        reports: remote.reports || {}, deleted: remote.deleted || {},
+        owner: remote.owner || null,
       });
       localStorage.setItem(BOARD_KEY, JSON.stringify(board));
       applyingRemote = false;
@@ -2597,11 +2644,250 @@ function pushToFirebase() {
   pushTimer = setTimeout(() => { try { fbRef.set(board); } catch (e) {} }, 400);
 }
 
+/* ───────────────────────── accounts ─────────────────────────
+   Two modes, decided by config.js:
+
+   Local mode (no config) — the app behaves exactly as it always has. One
+   isolated world per device, no sign-in, identity is a generated id. Good for
+   demos and development.
+
+   Connected mode (config present) — everyone lands in the same room, identity
+   is the Firebase uid, and the security rules in firebase/ are what actually
+   enforce who can read and write what. Sign-in is required before anything
+   else, because without a stable identity a singer loses their profile the
+   moment they clear site data. */
+
+const hasBackend = () => !!(window.SPOTLIGHT_CONFIG && window.SPOTLIGHT_CONFIG.apiKey);
+let authUser = null;
+
+function providerFor(name) {
+  if (name === 'apple') {
+    const p = new firebase.auth.OAuthProvider('apple.com');
+    p.addScope('email');
+    p.addScope('name');
+    return p;
+  }
+  return new firebase.auth.GoogleAuthProvider();
+}
+
+async function signIn(providerName) {
+  const err = $('#authError');
+  err.hidden = true;
+  try {
+    const provider = providerFor(providerName);
+    // Popups are blocked or awkward in standalone PWAs and in-app browsers, so
+    // try one and fall back to a redirect rather than dead-ending.
+    try {
+      await firebase.auth().signInWithPopup(provider);
+    } catch (e) {
+      if (e && /popup|blocked|cancelled|operation-not-supported/i.test(e.code || e.message || '')) {
+        await firebase.auth().signInWithRedirect(provider);
+        return;
+      }
+      throw e;
+    }
+  } catch (e) {
+    console.error(e);
+    err.hidden = false;
+    err.textContent = e && e.code === 'auth/operation-not-allowed'
+      ? 'That sign-in method is not switched on in the Firebase console yet.'
+      : 'Could not sign in — please try again.';
+  }
+}
+
+async function signOutNow() {
+  try { await firebase.auth().signOut(); } catch (e) { /* already gone */ }
+  meId = null;
+  localStorage.removeItem(ME_KEY);
+  location.reload();
+}
+
+/* An account made before signing in existed keeps its clips: the record moves
+   to the uid and every clip it owns is repointed. Media in IndexedDB is keyed
+   by clip id, so it comes along untouched. */
+function migrateLocalAccount(uid) {
+  const localId = localStorage.getItem(ME_KEY);
+  if (!localId || localId === uid) return false;
+  const local = board.artists[localId];
+  if (!local) return false;
+  if (board.artists[uid]) return false;             // signed in before on this device
+
+  board.artists[uid] = { ...local, id: uid, updatedAt: now() };
+  delete board.artists[localId];
+  for (const c of Object.values(board.clips)) {
+    if (c.artistId === localId) { c.artistId = uid; c.updatedAt = now(); }
+  }
+  // carry across anything keyed by the old id
+  for (const c of Object.values(board.clips)) {
+    for (const map of ['likes', 'shortlists']) {
+      if (c[map] && c[map][localId] !== undefined) {
+        c[map][uid] = c[map][localId];
+        delete c[map][localId];
+      }
+    }
+    (c.comments || []).forEach(cm => { if (cm.artistId === localId) cm.artistId = uid; });
+  }
+  for (const a of Object.values(board.artists)) {
+    if (a.followers && a.followers[localId] !== undefined) {
+      a.followers[uid] = a.followers[localId];
+      delete a.followers[localId];
+    }
+  }
+  if (board.owner && board.owner.artistId === localId) board.owner.artistId = uid;
+  return true;
+}
+
+function onSignedIn(user) {
+  authUser = user;
+  const migrated = migrateLocalAccount(user.uid);
+  meId = user.uid;
+  localStorage.setItem(ME_KEY, meId);
+  $('#authGate').hidden = true;
+
+  if (!board.artists[meId]) {
+    saveBoard();
+    startOnboarding({ uid: meId, email: user.email, name: user.displayName || '' });
+    return;
+  }
+  if (migrated) toast('Signed in — your clips came with you');
+  saveBoard();
+  renderFeed();
+  show('feed');
+  requireAgeBand();
+  loadContacts();
+}
+
+function onSignedOut() {
+  authUser = null;
+  $('#authGate').hidden = false;
+  $('#onboarding').hidden = true;
+  $$('.screen').forEach(s => s.classList.remove('active'));
+  document.body.classList.add('hide-tabbar');
+}
+
+async function initAuth() {
+  firebase.auth().onAuthStateChanged(user => {
+    if (user) onSignedIn(user); else onSignedOut();
+  });
+  try { await firebase.auth().getRedirectResult(); } catch (e) { console.error(e); }
+}
+
+$$('#authGate [data-provider]').forEach(btn =>
+  btn.addEventListener('click', () => signIn(btn.dataset.provider)));
+
+/* ── contact details ──
+   Kept at their own database path rather than on the artist record, because
+   that is the only way a rule can say "verified scouts and the owner may read
+   this, nobody else". On the shared board it would be readable by anyone who
+   can read the board at all. */
+
+let contacts = {};
+let fbContactsRef = null;
+
+function loadContacts() {
+  if (!fbRef || !authUser) return;
+  fbContactsRef = firebase.database().ref('spotlightContacts');
+  fbContactsRef.on('value',
+    snap => {
+      contacts = snap.val() || {};
+      if (currentScreen === 'profile') renderProfile(viewedArtistId || meId);
+    },
+    () => { contacts = {}; });                      // permission denied: not a scout
+}
+
+function contactOf(artistId) {
+  const a = artist(artistId);
+  if (!canShareContact(a)) return '';
+  if (hasBackend()) return contacts[artistId] || '';
+  return (a && a.contact) || '';
+}
+
+function saveMyContact(value) {
+  const a = me();
+  if (!a) return;
+  if (hasBackend() && fbRef && authUser) {
+    firebase.database().ref('spotlightContacts/' + meId).set(value || null).catch(() => {});
+    contacts[meId] = value;
+  } else {
+    a.contact = value;
+  }
+}
+
+/* ── account deletion and data export ──
+   Both stores require in-app deletion once you offer accounts, and GDPR
+   requires a copy on request. */
+
+function exportMyData() {
+  const a = me();
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    profile: a,
+    contact: contactOf(meId),
+    clips: clipsOf(meId).map(c => ({ ...c, likes: undefined, shortlists: undefined })),
+    notes: allNotes(),
+    savedSearches: savedSearches(),
+    blocked: blockedIds(),
+    note: 'Video files are not included — they are on your device, and in Storage if sync is on.',
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `spotlight-my-data-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  toast('Downloaded your data');
+}
+
+async function deleteMyAccount() {
+  if (!confirm('Delete your account, your clips and everything on them? This cannot be undone.')) return;
+  if (!confirm('Last check — this is permanent. Delete everything?')) return;
+
+  const mine = clipsOf(meId);
+  for (const c of mine) {
+    delete board.clips[c.id];
+    tombstone('clips', c.id);
+    mediaDelete(c.id);
+    deleteRemoteMedia(c);
+  }
+  delete board.artists[meId];
+  tombstone('artists', meId);
+  if (hasBackend() && fbRef && authUser) {
+    try { await firebase.database().ref('spotlightContacts/' + meId).remove(); } catch (e) { /* ignore */ }
+  }
+  writeBoard();
+  pushToFirebase();
+
+  localStorage.removeItem(ME_KEY);
+  localStorage.removeItem(NOTES_KEY);
+  localStorage.removeItem(SEARCHES_KEY);
+  localStorage.removeItem(BLOCKS_KEY);
+  localStorage.removeItem(BIRTH_KEY);
+
+  if (authUser) {
+    try { await authUser.delete(); }
+    catch (e) {
+      // Firebase refuses to delete a stale session; sign out and tell them why.
+      toast('Signed out — sign in again to finish deleting');
+      await firebase.auth().signOut();
+    }
+  }
+  location.reload();
+}
+
 /* ───────────────────────── onboarding ───────────────────────── */
 
-function startOnboarding() {
+function startOnboarding(prefill = null) {
   const overlay = $('#onboarding');
   overlay.hidden = false;
+  if (prefill && prefill.name) {
+    $('#obName').value = prefill.name;
+    // Setting .value doesn't fire input events, so derive the handle here too —
+    // otherwise the name looks filled in and the form rejects an empty handle.
+    $('#obHandle').value = prefill.name.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20);
+  }
   const genres = [];
   let role = 'singer';
 
@@ -2655,7 +2941,7 @@ function startOnboarding() {
       }
     }
 
-    meId = uid();
+    meId = prefill ? prefill.uid : uid();
     const artistRecord = {
       id: meId, name, handle, role: 'singer', genres, bio: '', city: '', contact: '',
       ageBand: age >= 18 ? 'adult' : 'under18',
@@ -2683,8 +2969,10 @@ function startOnboarding() {
     localStorage.setItem(ME_KEY, meId);
     saveBoard();
     overlay.hidden = true;
+    document.body.classList.remove('hide-tabbar');
     renderFeed();
     show('feed');
+    loadContacts();
     toast(message);
   };
 }
@@ -2759,17 +3047,27 @@ function boot() {
   }
   $$('.feed-head [data-feed]').forEach(b => b.classList.toggle('selected', b.dataset.feed === feedMode));
 
-  if (!meId || !board.artists[meId]) {
+  if (hasBackend()) {
+    // Connected mode: nothing renders until we know who this is.
+    document.body.classList.add('hide-tabbar');
+    connectFirebase(window.SPOTLIGHT_CONFIG).then(ok => {
+      if (ok) initAuth();
+      else {
+        $('#authError').hidden = false;
+        $('#authError').textContent = 'Could not reach the server. Check your connection and reload.';
+        $('#authGate').hidden = false;
+      }
+    });
+  } else if (!meId || !board.artists[meId]) {
     startOnboarding();
   } else {
     renderFeed();
     show('feed');
     requireAgeBand();
-  }
-
-  const savedCfg = localStorage.getItem(FB_KEY);
-  if (savedCfg) {
-    try { connectFirebase(JSON.parse(savedCfg)); } catch (e) { localStorage.removeItem(FB_KEY); }
+    const savedCfg = localStorage.getItem(FB_KEY);
+    if (savedCfg) {
+      try { connectFirebase(JSON.parse(savedCfg)); } catch (e) { localStorage.removeItem(FB_KEY); }
+    }
   }
 
   setTimeout(() => {

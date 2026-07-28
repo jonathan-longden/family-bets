@@ -82,21 +82,27 @@ With sync on, applications from other phones arrive in the queue and
 approvals flow back out. Without sync, the owner console only ever sees
 applications made on that one device.
 
-### What this is, and isn't
+### How hard the gate is
 
-This is a **soft gate**. The board is a JSON blob in the browser, so
-someone who opens dev tools can set the flag on their own device, and
-singer contact details are already in the synced board for anyone who can
-read it. What the gate does buy you is real: it stops casual sign-ups,
-makes scout status something you grant deliberately, and leaves an audit
-trail of who applied, what they claimed, and who approved them.
+Depends which mode you're in.
 
-Enforcement that actually holds needs Firebase Auth plus database rules —
-approved scouts recorded at a path only the owner can write, and singer
-contact details moved to a path readable only by those accounts. That's a
-bigger change (everyone signs in, the app loses its no-signup character),
-which is why it isn't here yet. Don't market this as "verified scouts
-only" to singers until that exists.
+**Local mode: soft.** The board is a JSON blob in the browser, so anyone
+with dev tools can set the flag on their own device, and contact details
+sit on the shared board where any reader can see them. What it buys you is
+still real — scout status is granted deliberately, and there's an audit
+trail of who applied and who approved them — but it is not security.
+
+**Connected mode: enforced.** Approval writes `spotlightScouts/{uid}`,
+which only the owner can write, and the database rules reject
+`role: 'scout'` on any account without that entry. Contact details live at
+`spotlightContacts/{uid}`, readable only by verified scouts, the owner and
+the person themselves — a `contact` field on the artist record is rejected
+outright. Faking scout status now means getting past the rules, not
+editing localStorage.
+
+The rules are in `firebase/database.rules.json`, and their known gaps are
+listed in `firebase/README.md` — chiefly that play counts and comments are
+still writable by any signed-in user.
 
 ## Scout tools
 
@@ -125,6 +131,27 @@ as a working surface rather than a bookmark list.
   at commenting instead. There's no in-app messaging: with no accounts or
   moderation, a DM inbox would be a liability rather than a feature.
 
+## Two modes
+
+`config.js` decides which one you're in.
+
+**Local mode** (config left as `null`) — what you get out of the box. One
+isolated world per device, no sign-in, identity is a random id in the
+browser. Fine for demos; useless as a product, because a singer who
+clears their site data loses everything and nobody can see anyone else.
+
+**Connected mode** (config filled in) — a real service. Everyone lands in
+the same room, signs in with Google or Apple, and the security rules in
+`firebase/` enforce who can read and write what. Sign-in is required
+before anything renders, and an account made in local mode is migrated to
+the signed-in identity on first sign-in, clips and all.
+
+Connected mode also adds, because app stores require them: **download my
+data** (profile, clips, notes as JSON) and **delete my account** (clips,
+Storage objects, contact details and the auth user itself).
+
+See `firebase/README.md` for the ten-minute setup.
+
 ## Where the data lives
 
 - **Clip metadata** (profiles, captions, likes, comments, play counts) —
@@ -137,6 +164,13 @@ as a working surface rather than a bookmark list.
 - **Scout notes and saved searches** — `spotlight.notes` and
   `spotlight.searches`, deliberately outside the synced board so they stay
   private to the device.
+- **Contact details** — in connected mode these live at
+  `spotlightContacts/{uid}`, not on the artist record, because a field on
+  the shared board is readable by anyone who can read the board. The rules
+  let only verified scouts, the owner, and you read them.
+- **Deletions** leave a tombstone (`deleted: {"clips:abc": 1690000000}`).
+  The sync merge is a union, so without one a deleted clip or account
+  comes straight back from any device that still has a copy.
 
 The app seeds six demo singers and eight demo clips on first run so the
 feed, chart and search aren't empty. Demo clips have no video file, so
