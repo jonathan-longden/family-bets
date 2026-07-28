@@ -124,9 +124,12 @@ input:focus{border-color:var(--brand)}
 .feed{flex:1;overflow-y:scroll;scroll-snap-type:y mandatory;overscroll-behavior-y:contain;scrollbar-width:none}
 .feed::-webkit-scrollbar{display:none}
 .clip{position:relative;height:100%;width:100%;scroll-snap-align:start;scroll-snap-stop:always;overflow:hidden;background:#000}
-.clip video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.clip video{position:absolute;inset:0;width:100%;height:100%;background:#000;
+  /* contain, never cover: a phone screen is far taller than any camera sensor,
+     so filling it means throwing away most of the frame — which reads as the
+     camera being zoomed in. Bars beat cropping the singer's head off. */
+  object-fit:contain}
 .clip video.mirror{transform:scaleX(-1)}
-.clip video.fit-contain,.rec-video.fit-contain{object-fit:contain}
 .clip-shade{position:absolute;inset:auto 0 0 0;height:52%;background:linear-gradient(transparent,rgba(0,0,0,.82));pointer-events:none}
 
 /* demo visual (seeded clips without a video file) */
@@ -330,7 +333,7 @@ input:focus{border-color:var(--brand)}
 
 /* ── record ── */
 .rec-stage{position:absolute;inset:0;background:#000;display:flex;flex-direction:column}
-.rec-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+.rec-video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000}
 #recPreview{transform:scaleX(-1)}
 #recPreview.back-cam{transform:none}
 .rec-top{position:relative;z-index:3;display:flex;align-items:center;justify-content:space-between;padding:calc(12px + var(--safe-t)) 14px 0}

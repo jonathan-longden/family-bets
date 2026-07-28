@@ -510,7 +510,7 @@ function clipCardHTML(c) {
          <div class="demo-bars">${Array.from({ length: 26 }, (_, i) =>
       `<i style="animation-delay:${(i % 7) * 0.13}s;animation-duration:${0.75 + (i % 5) * 0.16}s"></i>`).join('')}</div>
        </div>`
-    : `<video playsinline loop preload="none" class="${c.mirror ? 'mirror' : ''} ${c.landscape ? 'fit-contain' : ''}"></video>
+    : `<video playsinline loop preload="none" ${c.mirror ? 'class="mirror"' : ''}></video>
        <div class="missing-media" hidden>Video not stored on this device</div>`;
 
   return `
@@ -2075,11 +2075,8 @@ async function startCamera() {
     const prev = $('#recPreview');
     prev.srcObject = stream;
     prev.classList.toggle('back-cam', facing !== 'user');
-    // A landscape frame stretched to fill a portrait screen is a huge crop, so
-    // show the whole frame instead — what you see is then what gets recorded.
     const settings = stream.getVideoTracks()[0].getSettings ? stream.getVideoTracks()[0].getSettings() : {};
     pendingLandscape = !!(settings.width && settings.height && settings.width > settings.height);
-    prev.classList.toggle('fit-contain', pendingLandscape);
     prev.play().catch(() => {});
     $('#recBtn').disabled = false;
     $('#recHint').hidden = true;
@@ -2106,8 +2103,11 @@ function startMeter(mediaStream) {
   try {
     audioCtx = new Ctx();
     // Browsers hand back a suspended context when it wasn't created directly
-    // inside a gesture — without this the meter sits at zero forever.
-    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    // inside a gesture — without this the meter sits at zero forever. Resume
+    // now, and again on the next touch in case this attempt was too early.
+    const resume = () => { if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {}); };
+    resume();
+    $('#recStage').addEventListener('pointerdown', resume);
     const source = audioCtx.createMediaStreamSource(mediaStream);
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = 1024;
@@ -2222,7 +2222,6 @@ async function preparePending(blob) {
   const pb = $('#recPlayback');
   pb.src = playbackUrl;
   pb.classList.toggle('mirror', pendingMirror);
-  pb.classList.toggle('fit-contain', pendingLandscape);
   pb.hidden = false;
   pb.muted = false;
   pb.play().catch(() => {});
