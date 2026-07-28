@@ -40,6 +40,19 @@ few days).
 position, and a grid of clips. Long-press one of your own tiles to delete
 it.
 
+**Activity** — the bell in the feed header. Likes, comments, follows and
+shortlists on your clips, newest first, with a dot when there's something
+unseen. The headline event is a **verified scout shortlisting you**, shown
+with their name and company — a singer should know when a label is
+listening. Everyone else appears by handle.
+
+**Captions** — clips can carry lyrics or a transcript, toggled with the CC
+button. For watching on mute, and for anyone who can't hear the audio.
+
+**Safety** — a report button and a per-device block on every clip that
+isn't yours. Reports go to the owner's console; blocking hides that
+singer's clips and comments from you and never leaves your device.
+
 **Scout accounts are verified** — anyone can pick "Scout" at signup, but it
 grants nothing on its own. See *Scout verification* below. A shortlist is
 also the heaviest signal in the chart score, so scouts moving on someone
@@ -209,12 +222,57 @@ service firebase.storage {
 - The rules above are open to anyone with the config. Fine for a demo or
   a small group; add Firebase Auth before anything public.
 
+## Age and safeguarding
+
+Everyone gives a birth year at signup. The year itself stays on the device;
+only a coarse band (`adult` / `under18`) goes on the shared board, because
+that's all anyone else needs.
+
+- Under 13 can't sign up at all.
+- **Under 18 accounts can't share contact details**, whatever they type —
+  scouts see "Under 18 — no direct contact" and are told to approach
+  through a parent or guardian.
+- Scout accounts require an adult birth year on top of verification.
+- Accounts created before this existed are asked once, on next launch, and
+  can't dismiss the prompt. Defaulting either way would be wrong: "adult"
+  would hand a minor's details to scouts, "under18" would silently break
+  an adult's contact route.
+
+This is age *declaration*, not age verification — a determined teenager can
+type 1990. Real verification means ID or a third-party provider, which is a
+decision about what kind of service you're running.
+
+## Discovery fairness
+
+Pure score ranking is a ratchet: clips with plays get more plays, and a clip
+with none never surfaces. For an app whose promise is *get noticed*, that
+quietly makes the promise false. Every fourth slot in the For You feed is
+reserved for an under-exposed clip (fewer than 50 plays), newest first, so a
+first-time singer is seen within the first few swipes.
+
+## Bandwidth
+
+Remote clips are cached in IndexedDB after first play, up to 24 clips, with
+the oldest evicted first. Clips you recorded yourself are never evicted.
+Without this, every view re-downloaded the whole video and a busy week would
+have burned through the Firebase free tier's daily download allowance.
+
 ## Known limits
 
-- No moderation, reporting or age gating — needed before real users.
-- No accounts: identity is a generated id in this browser. Clearing site
-  data loses your profile, and there's no way to sign in on a new phone
-  as the same singer.
+- **No accounts.** Identity is a generated id in this browser. Clearing
+  site data destroys a singer's profile, clips and followers with no
+  recovery, and there's no way to sign in on a new phone as the same
+  person. This is the single biggest remaining gap, and fixing it with
+  Firebase Auth is also what would make the scout gate real rather than
+  soft.
+- **Moderation is one person with a queue.** Reports reach the owner and
+  the owner can take a clip down, but there's no proactive scanning, no
+  appeals, and nothing stops a bad clip being visible until someone
+  reports it.
+- **Age is declared, not verified** (see above).
+- **Legal docs are drafts.** `legal.html` is a plain-English starting
+  point written by the person who built the app, not by a lawyer. Have it
+  reviewed before opening this to the public.
 - Browser storage is finite (IndexedDB is typically capped at a few
   hundred MB); posting fails with a warning when it's full.
 - Plus the Firebase caveats above: open rules, free-tier bandwidth, and

@@ -38,6 +38,10 @@
     <symbol id="i-upload" viewBox="0 0 24 24"><path d="M11 16V8.8L8.4 11.4 7 10l5-5 5 5-1.4 1.4L13 8.8V16zM5 18h14v2H5z"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5 19 12 7 19.5z"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M6 7h12l-1 14H7zm3-4h6l1 2h4v2H4V5h4z"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M12 22a2.5 2.5 0 0 0 2.5-2.5h-5A2.5 2.5 0 0 0 12 22m7-6-2-2.2V10a5 5 0 0 0-4-4.9V4a1 1 0 1 0-2 0v1.1A5 5 0 0 0 7 10v3.8L5 16v2h14z"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><path d="M12 8a2 2 0 1 1 0-4 2 2 0 0 1 0 4m0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4m0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M6 3v18H4V3zm2 1h11l-2 4 2 4H8z"/></symbol>
+    <symbol id="i-cc" viewBox="0 0 24 24"><path d="M3 5h18v14H3zm5.6 4.4a2.6 2.6 0 0 0 0 5.2c.9 0 1.7-.4 2.1-1.1l-1.2-.7a1.1 1.1 0 1 1 0-1.6l1.2-.7a2.5 2.5 0 0 0-2.1-1.1m6.8 0a2.6 2.6 0 0 0 0 5.2c.9 0 1.7-.4 2.1-1.1l-1.2-.7a1.1 1.1 0 1 1 0-1.6l1.2-.7a2.5 2.5 0 0 0-2.1-1.1"/></symbol>
   </defs>
 </svg>
 
@@ -62,6 +66,12 @@
     <label class="field">
       <span>Handle</span>
       <div class="handle-input"><i>@</i><input id="obHandle" maxlength="20" placeholder="mayarivers" autocapitalize="off" autocorrect="off" /></div>
+    </label>
+
+    <label class="field">
+      <span>Year you were born</span>
+      <input id="obBirthYear" inputmode="numeric" maxlength="4" placeholder="e.g. 2004" autocomplete="bday-year" />
+      <small class="tiny muted">Stays on this device. It sets whether contact details can be shared.</small>
     </label>
 
     <span class="field-label">I'm here to…</span>
@@ -105,6 +115,9 @@
     <button class="tab-pill" data-feed="foryou">For you</button>
     <button class="tab-pill" data-feed="following">Following</button>
     <button class="tab-pill" data-feed="fresh">Fresh</button>
+    <button id="activityBtn" class="icon-btn ghost" aria-label="Activity">
+      <svg class="ic"><use href="#i-bell"/></svg><i id="activityDot" hidden></i>
+    </button>
     <button id="muteBtn" class="icon-btn ghost" aria-label="Sound on/off"><svg class="ic"><use href="#i-mute"/></svg></button>
   </header>
   <div id="feed" class="feed"></div>
@@ -112,6 +125,19 @@
     <svg class="ic big"><use href="#i-mic"/></svg>
     <h3>Nothing here yet</h3>
     <p class="muted">Follow some singers, or record the first clip.</p>
+  </div>
+</section>
+
+<!-- ───────────── activity ───────────── -->
+<section id="screen-activity" class="screen">
+  <header class="screen-head row-head">
+    <button class="icon-btn ghost" id="activityBack" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button>
+    <h2>Activity</h2>
+  </header>
+  <div class="screen-body">
+    <div id="activityList"></div>
+    <p id="activityEmpty" class="muted pad" hidden>Nothing yet. Post a clip and this fills up when people
+      listen, like, comment — or when a scout shortlists you.</p>
   </div>
 </section>
 
@@ -161,7 +187,12 @@
 
     <div id="recHint" class="rec-hint">Camera off — you can still upload a clip below.</div>
 
+
     <footer class="rec-bottom">
+      <div id="recMeter" class="rec-meter" hidden>
+        <div class="meter-track"><i id="meterFill"></i><b class="meter-peak"></b></div>
+        <div id="meterMsg" class="meter-msg">Headphones help — they stop the backing track bleeding into your vocal.</div>
+      </div>
       <div id="recControls" class="rec-controls">
         <label class="icon-btn ghost upload" aria-label="Upload a video">
           <svg class="ic"><use href="#i-upload"/></svg>
@@ -207,6 +238,11 @@
         <span>Tags</span>
         <input id="clipTags" maxlength="80" placeholder="acoustic, falsetto, unsigned" />
       </label>
+      <label class="field">
+        <span>Lyrics or transcript (optional)</span>
+        <textarea id="clipLyrics" maxlength="600" placeholder="What you're singing — shown as captions for anyone watching on mute, or who can't hear it."></textarea>
+      </label>
+      <p id="codecWarn" class="notice warn" hidden></p>
       <button id="postBtn" class="btn-primary block">Post to Spotlight</button>
     </div>
   </div>
