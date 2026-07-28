@@ -74,8 +74,25 @@
       </button>
     </div>
 
-    <span class="field-label">Genres you sing (pick a few)</span>
-    <div id="obGenres" class="chips"></div>
+    <div id="obSingerFields">
+      <span class="field-label">Genres you sing (pick a few)</span>
+      <div id="obGenres" class="chips"></div>
+    </div>
+
+    <div id="obScoutFields" hidden>
+      <p class="notice">Scout accounts see singers' contact details, so they're verified before
+      they're switched on. Have an invite code? You're in straight away. Otherwise this goes to review.</p>
+      <label class="field"><span>Company or label</span>
+        <input id="obCompany" maxlength="60" placeholder="Parlophone, or freelance A&amp;R"></label>
+      <label class="field"><span>Your role there</span>
+        <input id="obTitle" maxlength="60" placeholder="A&amp;R, booker, vocal coach, casting"></label>
+      <label class="field"><span>Work email</span>
+        <input id="obWorkEmail" maxlength="80" placeholder="you@label.com" autocapitalize="off"></label>
+      <label class="field"><span>Website or roster link</span>
+        <input id="obWebsite" maxlength="140" placeholder="label.com, LinkedIn, Companies House…" autocapitalize="off"></label>
+      <label class="field"><span>Invite code (optional)</span>
+        <input id="obCode" maxlength="24" placeholder="SPOT-XXXX-XXXX" autocapitalize="characters" autocorrect="off"></label>
+    </div>
 
     <button id="obStart" class="btn-primary block">Enter the room</button>
     <p class="tiny muted">Everything stays on this device unless you turn on sync in Settings.</p>

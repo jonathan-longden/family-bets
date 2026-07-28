@@ -40,9 +40,50 @@ few days).
 position, and a grid of clips. Long-press one of your own tiles to delete
 it.
 
-**Scout accounts** — pick "Scout" at signup (or in Edit profile) if you're
-looking for talent rather than posting. A shortlist is also the heaviest
-signal in the chart score, so scouts moving on someone pushes them up.
+**Scout accounts are verified** — anyone can pick "Scout" at signup, but it
+grants nothing on its own. See *Scout verification* below. A shortlist is
+also the heaviest signal in the chart score, so scouts moving on someone
+pushes them up.
+
+## Scout verification
+
+Scout accounts see singers' contact details and can export them, so they
+are gated. Two ways in:
+
+- **Invite code** — a `SPOT-XXXX-XXXX` code you issued. Entered at signup
+  (or later via Edit profile → *Apply for scout access*) it unlocks the
+  account immediately, and the code is single-use and revocable.
+- **Application** — anyone without a code fills in company, role, work
+  email and a website or roster link. They get an ordinary listener
+  account marked *pending* — they can browse, follow and post, but
+  contact details and CSV export stay locked — until the owner approves.
+
+### Owner console
+
+Settings → **Owner tools**. The first device to claim ownership becomes
+the owner, and only that account sees the queue afterwards. From there you
+can approve or decline applications (a decline can carry a reason, shown
+to the applicant), and generate, copy and revoke invite codes.
+
+With sync on, applications from other phones arrive in the queue and
+approvals flow back out. Without sync, the owner console only ever sees
+applications made on that one device.
+
+### What this is, and isn't
+
+This is a **soft gate**. The board is a JSON blob in the browser, so
+someone who opens dev tools can set the flag on their own device, and
+singer contact details are already in the synced board for anyone who can
+read it. What the gate does buy you is real: it stops casual sign-ups,
+makes scout status something you grant deliberately, and leaves an audit
+trail of who applied, what they claimed, and who approved them.
+
+Enforcement that actually holds needs Firebase Auth plus database rules —
+approved scouts recorded at a path only the owner can write, and singer
+contact details moved to a path readable only by those accounts. That's a
+bigger change (everyone signs in, the app loses its no-signup character),
+which is why it isn't here yet. Don't market this as "verified scouts
+only" to singers until that exists.
 
 ## Scout tools
 
