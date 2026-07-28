@@ -510,7 +510,7 @@ function clipCardHTML(c) {
          <div class="demo-bars">${Array.from({ length: 26 }, (_, i) =>
       `<i style="animation-delay:${(i % 7) * 0.13}s;animation-duration:${0.75 + (i % 5) * 0.16}s"></i>`).join('')}</div>
        </div>`
-    : `<video playsinline loop preload="none" ${c.mirror ? 'class="mirror"' : ''}></video>
+    : `<video playsinline loop preload="none" class="${c.mirror ? 'mirror' : ''} ${c.landscape ? 'fit-contain' : ''}"></video>
        <div class="missing-media" hidden>Video not stored on this device</div>`;
 
   return `
@@ -1985,6 +1985,7 @@ let pendingBlob = null;
 let pendingPoster = null;
 let pendingDuration = 0;
 let pendingMirror = false;
+let pendingLandscape = false;
 let playbackUrl = null;
 
 function openRecord() {
@@ -2018,6 +2019,49 @@ function resetRecordUI() {
   $('#recHint').hidden = true;
 }
 
+/* Some phones hand back a track with digital zoom already applied — either a
+   leftover from the last app to use the camera, or the driver's default. If the
+   track exposes a zoom capability, wind it back to the widest setting. */
+async function resetZoom(mediaStream) {
+  try {
+    const track = mediaStream.getVideoTracks()[0];
+    if (!track || !track.getCapabilities) return;
+    const caps = track.getCapabilities();
+    const settings = track.getSettings ? track.getSettings() : {};
+    if (caps.zoom && settings.zoom > caps.zoom.min) {
+      await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] });
+    }
+  } catch (e) { /* not supported here — the constraint change above is the main fix */ }
+}
+
+/* Camera framing, the short version: asking for an *ideal* pixel size the
+   sensor can't produce (this used to request 1080x1920) makes the browser crop
+   into the middle of the frame to satisfy it — which is why the front camera
+   opened looking fully zoomed in. Minimum-only constraints let the device pick
+   one of its own native modes instead, so the field of view is whatever the
+   camera actually sees. Each attempt is looser than the last, because a strict
+   constraint that can't be met rejects outright rather than degrading. */
+const CAMERA_ATTEMPTS = [
+  facing => ({ facingMode: { ideal: facing }, width: { min: 640 }, height: { min: 480 } }),
+  facing => ({ facingMode: { ideal: facing } }),
+  () => true,
+];
+
+async function openCameraStream() {
+  const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 };
+  let lastError = null;
+  for (const build of CAMERA_ATTEMPTS) {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ video: build(facing), audio });
+    } catch (e) {
+      lastError = e;
+      // A refusal is final — no point retrying with looser video constraints.
+      if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) throw e;
+    }
+  }
+  throw lastError || new Error('no camera');
+}
+
 async function startCamera() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     $('#recHint').hidden = false;
@@ -2026,13 +2070,16 @@ async function startCamera() {
     return;
   }
   try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: facing, width: { ideal: 1080 }, height: { ideal: 1920 } },
-      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 },
-    });
+    stream = await openCameraStream();
+    await resetZoom(stream);
     const prev = $('#recPreview');
     prev.srcObject = stream;
     prev.classList.toggle('back-cam', facing !== 'user');
+    // A landscape frame stretched to fill a portrait screen is a huge crop, so
+    // show the whole frame instead — what you see is then what gets recorded.
+    const settings = stream.getVideoTracks()[0].getSettings ? stream.getVideoTracks()[0].getSettings() : {};
+    pendingLandscape = !!(settings.width && settings.height && settings.width > settings.height);
+    prev.classList.toggle('fit-contain', pendingLandscape);
     prev.play().catch(() => {});
     $('#recBtn').disabled = false;
     $('#recHint').hidden = true;
@@ -2175,6 +2222,7 @@ async function preparePending(blob) {
   const pb = $('#recPlayback');
   pb.src = playbackUrl;
   pb.classList.toggle('mirror', pendingMirror);
+  pb.classList.toggle('fit-contain', pendingLandscape);
   pb.hidden = false;
   pb.muted = false;
   pb.play().catch(() => {});
@@ -2239,6 +2287,7 @@ $('#uploadInput').addEventListener('change', async e => {
   if (!file) return;
   if (file.size > 80 * 1024 * 1024) { toast('That file is over 80MB — try a shorter clip'); return; }
   pendingMirror = false;
+  pendingLandscape = false;
   pendingDuration = 0;
   toast('Preparing clip…');
   await preparePending(file);
@@ -2307,6 +2356,7 @@ $('#postBtn').addEventListener('click', async () => {
     lyrics: $('#clipLyrics').value.trim(),
     durationMs: pendingDuration || 0,
     mirror: pendingMirror,
+    landscape: pendingLandscape,
     plays: 0, likes: {}, likeSeed: 0, shortlists: {}, shortlistSeed: 0, comments: [],
     createdAt: now(), updatedAt: now(),
   };
