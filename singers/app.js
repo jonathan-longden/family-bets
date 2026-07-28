@@ -9,6 +9,10 @@ const BOARD_KEY = 'spotlight.board';
 const ME_KEY = 'spotlight.me';
 const NOTES_KEY = 'spotlight.notes';        // private to this device, never synced
 const SEARCHES_KEY = 'spotlight.searches';
+const BLOCKS_KEY = 'spotlight.blocks';      // who you've muted — also private
+const SEEN_KEY = 'spotlight.activitySeen';
+const BIRTH_KEY = 'spotlight.birthYear';    // kept off the shared board on purpose
+const CACHE_MAX = 24;                       // remote clips kept on device (LRU)
 const FB_KEY = 'spotlight.firebase';
 const FB_PATH = 'spotlightBoard';
 const MAX_CLIP_MS = 60000;
@@ -108,6 +112,44 @@ async function mediaGet(id) {
   } catch (e) { return null; }
 }
 
+/* ── caching remote clips ──
+   Without this every view re-downloads the whole video, which burns the
+   Firebase free tier astonishingly fast. Cached copies are marked so the LRU
+   sweep can evict them; clips you recorded yourself are never touched. */
+const cachingNow = new Set();
+
+async function cacheRemoteClip(id, url) {
+  if (!url || cachingNow.has(id)) return;
+  cachingNow.add(id);
+  try {
+    const rec = await mediaGet(id);
+    if (rec && rec.video) return;                 // already here
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const blob = await res.blob();
+    if (blob.size > 60 * 1024 * 1024) return;     // don't hoard huge files
+    await mediaPut({ id, video: blob, poster: (rec && rec.poster) || null, cached: true, at: now() });
+    sweepCache();
+  } catch (e) { /* offline or CORS — playback still works from the URL */ }
+  finally { cachingNow.delete(id); }
+}
+
+async function sweepCache() {
+  try {
+    const d = await db();
+    const all = await new Promise((resolve, reject) => {
+      const tx = d.transaction('media', 'readonly');
+      const req = tx.objectStore('media').getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+    const cached = all
+      .filter(r => r.cached && !(board.clips[r.id] && board.clips[r.id].artistId === meId))
+      .sort((a, b) => (b.at || 0) - (a.at || 0));
+    for (const rec of cached.slice(CACHE_MAX)) await mediaDelete(rec.id);
+  } catch (e) { /* eviction is best effort */ }
+}
+
 async function mediaDelete(id) {
   try {
     const d = await db();
@@ -122,7 +164,7 @@ async function mediaDelete(id) {
 
 /* ───────────────────────── board state ───────────────────────── */
 
-let board = { artists: {}, clips: {}, codes: {}, applications: {}, owner: null };
+let board = { artists: {}, clips: {}, codes: {}, applications: {}, reports: {}, owner: null };
 let meId = localStorage.getItem(ME_KEY) || null;
 
 const me = () => (meId ? board.artists[meId] : null);
@@ -137,23 +179,41 @@ function loadBoard() {
       board = {
         artists: parsed.artists || {}, clips: parsed.clips || {},
         codes: parsed.codes || {}, applications: parsed.applications || {},
-        owner: parsed.owner || null,
+        reports: parsed.reports || {}, owner: parsed.owner || null,
       };
     }
   } catch (e) { /* start fresh */ }
 }
 
 let saveTimer = null;
+function writeBoard() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  try {
+    localStorage.setItem(BOARD_KEY, JSON.stringify(board));
+  } catch (e) {
+    toast('Storage is full — delete a clip to free space.');
+  }
+}
+
 function saveBoard({ sync = true } = {}) {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      localStorage.setItem(BOARD_KEY, JSON.stringify(board));
-    } catch (e) {
-      toast('Storage is full — delete a clip to free space.');
-    }
-  }, 120);
+  saveTimer = setTimeout(writeBoard, 120);
   if (sync) pushToFirebase();
+}
+
+// Writes are debounced, so flush before the page goes away — otherwise closing
+// the app straight after an action silently loses it.
+window.addEventListener('pagehide', () => { if (saveTimer) writeBoard(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && saveTimer) writeBoard();
+});
+
+/* Engagement maps hold a timestamp per person ({id: 1690000000000}) so the
+   activity feed can say when something happened. Older records stored `true`;
+   entriesOf normalises both. */
+function entriesOf(map, fallbackAt) {
+  return Object.entries(map || {}).map(([id, v]) => ({ id, at: typeof v === 'number' ? v : (fallbackAt || 0) }));
 }
 
 const likeCount = c => (c.likeSeed || 0) + Object.keys(c.likes || {}).length;
@@ -175,6 +235,17 @@ const iFollow = a => !!(meId && a && a.followers && a.followers[meId]);
    trail; it is not security. Enforcement that actually holds needs Firebase
    Auth plus database rules, with contact details behind a path only approved
    accounts can read. See README. */
+
+/* ── age ──
+   The birth year itself stays on the device; only a coarse band goes on the
+   board, because that is all anyone else needs to know. Minors' contact
+   details are never surfaced to scouts, whatever the singer types in. */
+const MIN_AGE = 13;
+const birthYear = () => Number(localStorage.getItem(BIRTH_KEY) || 0);
+const ageFromYear = y => (y ? new Date().getFullYear() - y : null);
+const myAge = () => ageFromYear(birthYear());
+const isMinor = a => !!(a && a.ageBand === 'under18');
+const canShareContact = a => !!(a && a.ageBand === 'adult');
 
 const isVerifiedScout = a => !!(a && a.role === 'scout' && a.scoutVerified);
 const iAmVerifiedScout = () => isVerifiedScout(me());
@@ -321,7 +392,7 @@ function seedBoard() {
     const id = 'demo-' + p.handle;
     board.artists[id] = {
       id, handle: p.handle, name: p.name, bio: p.bio, city: p.city,
-      genres: p.genres, role: 'singer', demo: true,
+      genres: p.genres, role: 'singer', demo: true, ageBand: 'adult',
       followers: {}, followerSeed: p.followerSeed,
       createdAt: now() - (30 - i * 3) * day, updatedAt: now(),
     };
@@ -364,6 +435,7 @@ function show(screen, opts = {}) {
   document.body.classList.toggle('hide-tabbar', false);
 
   if (screen === 'feed') resumeActiveClip(); else pauseAllClips();
+  if (screen === 'activity') renderActivity();
   if (screen === 'discover') renderDiscover();
   if (screen === 'charts') renderChart();
   if (screen === 'profile') renderProfile(opts.artistId || meId);
@@ -385,18 +457,44 @@ const playedThisSession = new Set();
 let feedObserver = null;
 
 function feedList() {
-  const all = Object.values(board.clips);
+  const all = Object.values(board.clips).filter(c => !isBlocked(c.artistId));
   if (feedMode === 'following') {
     const followed = Object.values(board.artists).filter(a => iFollow(a)).map(a => a.id);
     return all.filter(c => followed.includes(c.artistId) || c.artistId === meId)
       .sort((a, b) => b.createdAt - a.createdAt);
   }
   if (feedMode === 'fresh') return all.sort((a, b) => b.createdAt - a.createdAt);
+
   // "For you": score-ranked, with a nudge for clips you haven't seen this session.
-  return all.sort((a, b) => {
+  const ranked = all.slice().sort((a, b) => {
     const bump = c => (playedThisSession.has(c.id) ? 0.55 : 1);
     return clipScore(b) * bump(b) - clipScore(a) * bump(a);
   });
+  return withFreshRotation(ranked);
+}
+
+/* Pure score ranking is a ratchet: clips with plays get more plays, and a clip
+   with none never surfaces. For an app whose whole promise is getting noticed,
+   that quietly makes the promise false — so every fourth slot is reserved for
+   an under-exposed clip, newest first. */
+const UNDEREXPOSED_PLAYS = 50;
+function withFreshRotation(ranked) {
+  const fresh = ranked
+    .filter(c => (c.plays || 0) < UNDEREXPOSED_PLAYS && !playedThisSession.has(c.id))
+    .sort((a, b) => b.createdAt - a.createdAt);
+  if (!fresh.length) return ranked;
+
+  const freshIds = new Set(fresh.map(c => c.id));
+  const rest = ranked.filter(c => !freshIds.has(c.id));
+  const out = [];
+  let f = 0, r = 0;
+  while (f < fresh.length || r < rest.length) {
+    // slot 3 of every 4 goes to a newcomer, when there is one left
+    if (out.length % 4 === 3 && f < fresh.length) out.push(fresh[f++]);
+    else if (r < rest.length) out.push(rest[r++]);
+    else out.push(fresh[f++]);
+  }
+  return out;
 }
 
 function clipCardHTML(c) {
@@ -445,7 +543,10 @@ function clipCardHTML(c) {
           <svg class="ic"><use href="#i-star"/></svg><span data-count="save">${compact(shortlistCount(c))}</span>
         </button>
         <button data-act="share"><svg class="ic"><use href="#i-share"/></svg><span>Share</span></button>
+        <button data-act="more" aria-label="More"><svg class="ic"><use href="#i-more"/></svg><span>More</span></button>
       </div>
+      ${c.lyrics ? `<button class="icon-btn ghost cc-toggle" data-act="cc" aria-label="Captions"><svg class="ic"><use href="#i-cc"/></svg></button>
+        <div class="captions" hidden>${esc(c.lyrics)}</div>` : ''}
       <div class="clip-progress"></div>
     </article>`;
 }
@@ -472,6 +573,7 @@ function renderFeed({ keepScroll = false } = {}) {
   // leaves the visible clip blank until you scroll away and back.
   activeClipId = null;
   if (feedIds.length && !keepScroll) setActiveClip(feedIds[0]);
+  refreshActivityDot();
 }
 
 function onClipVisibility(entries) {
@@ -507,6 +609,7 @@ async function setActiveClip(id) {
       video.src = c.videoUrl;                     // streams from Firebase Storage
       video.onerror = () => flagMissing(card,
         'This clip will not play on this browser (recorded in another video format)');
+      cacheRemoteClip(id, c.videoUrl);            // so the next view costs nothing
     } else {
       flagMissing(card, 'Video not stored on this device');
     }
@@ -573,7 +676,7 @@ function toggleLike(id, { force = false } = {}) {
   c.likes = c.likes || {};
   const already = !!c.likes[meId];
   if (already && force) return;
-  if (already) delete c.likes[meId]; else c.likes[meId] = true;
+  if (already) delete c.likes[meId]; else c.likes[meId] = now();
   c.updatedAt = now();
   saveBoard();
   const card = $(`.clip[data-clip="${id}"]`);
@@ -589,7 +692,7 @@ function toggleSave(id) {
   if (!c) return;
   c.shortlists = c.shortlists || {};
   if (c.shortlists[meId]) delete c.shortlists[meId];
-  else { c.shortlists[meId] = true; toast(me() && me().role === 'scout' ? 'Shortlisted' : 'Saved to your list'); }
+  else { c.shortlists[meId] = now(); toast(me() && me().role === 'scout' ? 'Shortlisted' : 'Saved to your list'); }
   c.updatedAt = now();
   saveBoard();
   const card = $(`.clip[data-clip="${id}"]`);
@@ -605,7 +708,7 @@ function toggleFollow(artistId) {
   if (!a || artistId === meId) return;
   a.followers = a.followers || {};
   if (a.followers[meId]) delete a.followers[meId];
-  else { a.followers[meId] = true; toast('Following @' + a.handle); }
+  else { a.followers[meId] = now(); toast('Following @' + a.handle); }
   a.updatedAt = now();
   saveBoard();
   $$(`.clip[data-clip] `).forEach(card => {
@@ -654,6 +757,11 @@ $('#feed').addEventListener('click', e => {
     if (act === 'save') toggleSave(id);
     if (act === 'comment') openComments(id);
     if (act === 'share') shareClip(id);
+    if (act === 'more') openClipMenu(id);
+    if (act === 'cc') {
+      const cap = $('.captions', card);
+      if (cap) cap.hidden = !cap.hidden;
+    }
     if (act === 'artist') {
       const c = board.clips[id];
       if (e.target.closest('.follow-dot')) toggleFollow(c.artistId);
@@ -690,6 +798,9 @@ $$('.feed-head [data-feed]').forEach(btn => btn.addEventListener('click', () => 
   renderFeed();
 }));
 
+$('#activityBtn').addEventListener('click', () => show('activity'));
+$('#activityBack').addEventListener('click', () => show('feed'));
+
 $('#muteBtn').addEventListener('click', () => {
   muted = !muted;
   $$('#feed video').forEach(v => { v.muted = muted; });
@@ -704,7 +815,8 @@ function openComments(clipId) {
   const c = board.clips[clipId];
   if (!c) return;
   const render = () => {
-    const list = (c.comments || []).slice().sort((x, y) => x.at - y.at);
+    const list = (c.comments || []).filter(cm => !isBlocked(cm.artistId))
+      .slice().sort((x, y) => x.at - y.at);
     $('#sheetBody').innerHTML = list.length
       ? list.map(cm => {
         const a = artist(cm.artistId) || { name: 'Someone', handle: 'someone', id: cm.artistId };
@@ -744,8 +856,10 @@ function openComments(clipId) {
 
 /* ───────────────────────── sheets ───────────────────────── */
 
-function openSheet({ title, html, render, foot, onFoot }) {
+function openSheet({ title, html, render, foot, onFoot, sticky }) {
   const sheet = $('#sheet');
+  sheet.dataset.sticky = sticky ? '1' : '';
+  $('.sheet-head .icon-btn', sheet).hidden = !!sticky;
   $('#sheetTitle').textContent = title || '';
   if (render) render(); else $('#sheetBody').innerHTML = html || '';
   const footEl = $('#sheetFoot');
@@ -755,8 +869,175 @@ function openSheet({ title, html, render, foot, onFoot }) {
   if (onFoot) onFoot();
 }
 
-function closeSheet() { $('#sheet').hidden = true; }
+function closeSheet() {
+  const sheet = $('#sheet');
+  if (sheet.dataset.sticky) return;      // e.g. the age check, which must be answered
+  sheet.hidden = true;
+}
 $$('[data-close-sheet]').forEach(el => el.addEventListener('click', closeSheet));
+
+/* ───────────────────────── activity ─────────────────────────
+   There is no event log — events are derived from the board on demand, which
+   means they survive sync merges for free. The headline event is a verified
+   scout shortlisting you: that is the whole promise of the app, and until now
+   a singer had no way of knowing it had happened. */
+
+const activitySeenAt = () => Number(localStorage.getItem(SEEN_KEY) || 0);
+const markActivitySeen = () => localStorage.setItem(SEEN_KEY, String(now()));
+
+function activityEvents() {
+  if (!meId) return [];
+  const events = [];
+  const mine = clipsOf(meId);
+
+  for (const c of mine) {
+    for (const { id, at } of entriesOf(c.likes, c.createdAt)) {
+      if (id !== meId) events.push({ type: 'like', at, byId: id, clipId: c.id });
+    }
+    for (const { id, at } of entriesOf(c.shortlists, c.createdAt)) {
+      if (id === meId) continue;
+      const by = artist(id);
+      events.push({ type: isVerifiedScout(by) ? 'scout' : 'save', at, byId: id, clipId: c.id });
+    }
+    for (const cm of c.comments || []) {
+      if (cm.artistId !== meId) events.push({ type: 'comment', at: cm.at, byId: cm.artistId, clipId: c.id, text: cm.text });
+    }
+  }
+  const meArtist = me();
+  if (meArtist) {
+    for (const { id, at } of entriesOf(meArtist.followers, meArtist.createdAt)) {
+      if (id !== meId) events.push({ type: 'follow', at, byId: id });
+    }
+  }
+  return events
+    .filter(e => e.at && !isBlocked(e.byId))
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 60);
+}
+
+const unseenActivity = () => activityEvents().filter(e => e.at > activitySeenAt()).length;
+
+function refreshActivityDot() {
+  const dot = $('#activityDot');
+  if (dot) dot.hidden = unseenActivity() === 0;
+}
+
+const ACT_COPY = {
+  scout: e => `<b>A verified scout</b> shortlisted your clip`,
+  save: () => `<b>Someone</b> saved your clip`,
+  like: () => `<b>Someone</b> liked your clip`,
+  comment: e => `<b>Someone</b> commented: “${esc(String(e.text).slice(0, 90))}”`,
+  follow: () => `<b>Someone</b> started following you`,
+};
+
+function renderActivity() {
+  const events = activityEvents();
+  const seen = activitySeenAt();
+  const list = $('#activityList');
+  $('#activityEmpty').hidden = events.length > 0;
+
+  list.innerHTML = events.map(e => {
+    const by = artist(e.byId);
+    // Scouts are named — a singer should know which company is interested.
+    // Everyone else stays anonymous unless they already follow you publicly.
+    const who = e.type === 'scout' && by
+      ? `<b>${esc(by.name)}</b>${by.company ? ` · ${esc(by.company)}` : ''} <span class="pill verified">✓ scout</span> shortlisted your clip`
+      : by ? ACT_COPY[e.type](e).replace('<b>Someone</b>', `<b>@${esc(by.handle)}</b>`) : ACT_COPY[e.type](e);
+    const c = e.clipId ? board.clips[e.clipId] : null;
+    const icon = { scout: 'i-star', save: 'i-star', like: 'i-heart', comment: 'i-comment', follow: 'i-user' }[e.type];
+    return `<button class="act-row ${e.at > seen ? 'unseen' : ''}" ${e.clipId ? `data-open-clip="${e.clipId}"` : `data-open-artist="${e.byId}"`}>
+      <span class="act-icon ${e.type}"><svg class="ic"><use href="#${icon}"/></svg></span>
+      <span class="act-body"><span class="t">${who}</span>
+        <span class="s">${ago(e.at)} ago${c ? ' · ' + esc(c.song || c.title) : ''}</span></span>
+      ${c ? `<span class="act-thumb" data-poster="${c.id}" style="background:linear-gradient(160deg,hsl(${hueOf(c.id)} 60% 35%),hsl(${(hueOf(c.id) + 60) % 360} 60% 20%))"></span>` : ''}
+    </button>`;
+  }).join('');
+
+  $$('#activityList [data-poster]').forEach(el => fillPoster(el, el.dataset.poster));
+  markActivitySeen();
+  refreshActivityDot();
+}
+
+/* ───────────────────────── blocking & reports ─────────────────────────
+   Blocking is personal, so it stays on the device. Reports go to the owner,
+   so they ride the shared board. */
+
+const blockedIds = () => readLocal(BLOCKS_KEY, []);
+const isBlocked = id => blockedIds().includes(id);
+
+function toggleBlock(artistId) {
+  const list = blockedIds();
+  const i = list.indexOf(artistId);
+  if (i >= 0) list.splice(i, 1); else list.push(artistId);
+  localStorage.setItem(BLOCKS_KEY, JSON.stringify(list));
+  const a = artist(artistId) || {};
+  toast(i >= 0 ? `Unblocked @${a.handle}` : `Blocked @${a.handle} — you won't see them again`);
+  renderFeed();
+}
+
+const REPORT_REASONS = [
+  'Not a singing performance',
+  'Sexual or explicit content',
+  'Hate, harassment or bullying',
+  'Someone under 13, or a child in distress',
+  'Copyright — this is my recording',
+  'Something else',
+];
+
+function openClipMenu(clipId) {
+  const c = board.clips[clipId];
+  if (!c) return;
+  const a = artist(c.artistId) || { handle: 'unknown' };
+  const mine = c.artistId === meId;
+  openSheet({
+    title: 'Clip options',
+    html: `
+      <button class="list-row" data-menu="share"><svg class="ic"><use href="#i-share"/></svg><span class="grow">Share this clip</span></button>
+      ${mine ? '' : `
+      <button class="list-row" data-menu="report"><svg class="ic"><use href="#i-flag"/></svg><span class="grow">Report this clip</span></button>
+      <button class="list-row" data-menu="block"><svg class="ic"><use href="#i-close"/></svg>
+        <span class="grow">${isBlocked(c.artistId) ? 'Unblock' : 'Block'} @${esc(a.handle)}</span></button>`}
+      ${mine ? `<button class="list-row" data-menu="delete"><svg class="ic"><use href="#i-trash"/></svg><span class="grow">Delete this clip</span></button>` : ''}`,
+  });
+  $$('#sheetBody [data-menu]').forEach(btn => btn.onclick = () => {
+    const act = btn.dataset.menu;
+    if (act === 'share') { closeSheet(); shareClip(clipId); }
+    if (act === 'block') { closeSheet(); toggleBlock(c.artistId); }
+    if (act === 'delete') { closeSheet(); confirmDelete(clipId); }
+    if (act === 'report') openReport(clipId);
+  });
+}
+
+function openReport(clipId) {
+  openSheet({
+    title: 'Report clip',
+    html: `<p class="tiny muted">Reports go to whoever runs this Spotlight. Anything involving a child's
+      safety should also go to your local authorities — this button is not an emergency service.</p>
+      <div class="chips" id="reportReasons">${REPORT_REASONS.map((r, i) =>
+      `<button type="button" class="chip" data-reason="${i}">${esc(r)}</button>`).join('')}</div>
+      <label class="field" style="margin-top:16px"><span>Anything else we should know?</span>
+        <textarea id="reportNote" maxlength="400" placeholder="Optional"></textarea></label>
+      <button class="btn-primary block" id="reportSend">Send report</button>`,
+  });
+  let reason = '';
+  $('#reportReasons').addEventListener('click', e => {
+    const btn = e.target.closest('.chip');
+    if (!btn) return;
+    reason = REPORT_REASONS[Number(btn.dataset.reason)];
+    $$('#reportReasons .chip').forEach(c => c.classList.toggle('selected', c === btn));
+  });
+  $('#reportSend').onclick = () => {
+    if (!reason) { toast('Pick a reason'); return; }
+    const id = uid();
+    board.reports[id] = {
+      id, clipId, byId: meId, reason, note: $('#reportNote').value.trim(),
+      status: 'open', createdAt: now(), updatedAt: now(),
+    };
+    saveBoard();
+    closeSheet();
+    toast('Reported — thank you');
+  };
+}
 
 /* ───────────────────────── discover ───────────────────────── */
 
@@ -1139,6 +1420,7 @@ function renderProfile(id) {
 /* ── shortlist: the scout's working list ── */
 
 function contactHref(a) {
+  if (!canShareContact(a)) return null;      // minors are never contactable in-app
   const v = String((a && a.contact) || '').trim();
   if (!v) return null;
   if (/^https?:\/\//i.test(v)) return v;
@@ -1171,9 +1453,11 @@ function shortlistHTML(list) {
         <button class="chip" data-note="${c.id}">${note ? 'Edit note' : 'Add note'}</button>
         ${!verified
       ? `<button class="chip locked" data-locked="contact">Contact locked</button>`
-      : href
-        ? `<a class="chip" href="${esc(href)}" target="_blank" rel="noopener">Get in touch</a>`
-        : `<button class="chip" data-nocontact="${c.artistId}">No contact details</button>`}
+      : isMinor(a)
+        ? `<button class="chip locked" data-minor="1">Under 18 — no direct contact</button>`
+        : href
+          ? `<a class="chip" href="${esc(href)}" target="_blank" rel="noopener">Get in touch</a>`
+          : `<button class="chip" data-nocontact="${c.artistId}">No contact details</button>`}
         <button class="chip" data-unsave="${c.id}">Remove</button>
       </div>
     </li>`;
@@ -1215,6 +1499,9 @@ function wireShortlist(body) {
     toggleSave(btn.dataset.unsave);
     renderProfile(meId);
   });
+
+  $$('[data-minor]', body).forEach(btn => btn.onclick = () =>
+    toast('This singer is under 18 — approach through a parent or guardian, not the app'));
 
   $$('[data-nocontact]', body).forEach(btn => btn.onclick = () => {
     const a = artist(btn.dataset.nocontact) || {};
@@ -1322,6 +1609,11 @@ function scoutStatusHTML(a) {
 /* Same form as onboarding, for anyone who signed up as a singer first. */
 function openScoutApplication() {
   const a = me();
+  if (!canShareContact(a)) {
+    openSheet({ title: 'Scout access',
+      html: `<p class="muted pad">Scout accounts are for adults working in the industry.</p>` });
+    return;
+  }
   openSheet({
     title: 'Apply for scout access',
     html: `
@@ -1374,9 +1666,12 @@ function openEditProfile() {
       <label class="field"><span>Handle</span><div class="handle-input"><i>@</i><input id="epHandle" maxlength="20" value="${esc(a.handle)}" autocapitalize="off"></div></label>
       <label class="field"><span>Where you're based</span><input id="epCity" maxlength="40" value="${esc(a.city || '')}" placeholder="City, country"></label>
       <label class="field"><span>Bio</span><textarea id="epBio" maxlength="200" placeholder="What should a scout know in one line?">${esc(a.bio || '')}</textarea></label>
-      <label class="field"><span>Contact for work</span>
-        <input id="epContact" maxlength="120" value="${esc(a.contact || '')}" placeholder="booking@email.com or a link" autocapitalize="off">
-        <small class="tiny muted">Shown to scouts who shortlist you, so they can actually reach you.</small></label>
+      ${isMinor(a)
+      ? `<div class="notice">You're under 18, so Spotlight won't hand your contact details to anyone.
+           Scouts see that you're a minor and are told to go through a parent or guardian.</div>`
+      : `<label class="field"><span>Contact for work</span>
+           <input id="epContact" maxlength="120" value="${esc(a.contact || '')}" placeholder="booking@email.com or a link" autocapitalize="off">
+           <small class="tiny muted">Shown to verified scouts who shortlist you, so they can reach you.</small></label>`}
       ${scoutStatusHTML(a)}
       <span class="field-label">Genres</span>
       <div class="chips" id="epGenres">${genreChipsHTML(genres)}</div>
@@ -1391,7 +1686,8 @@ function openEditProfile() {
     const handle = $('#epHandle').value.trim().replace(/[^a-z0-9._]/gi, '').toLowerCase();
     if (!name || !handle) { toast('Name and handle are required'); return; }
     Object.assign(a, { name, handle, city: $('#epCity').value.trim(), bio: $('#epBio').value.trim(),
-      contact: $('#epContact').value.trim(), genres, updatedAt: now() });
+      contact: $('#epContact') ? $('#epContact').value.trim() : (a.contact || ''),
+      genres, updatedAt: now() });
     saveBoard();
     closeSheet();
     renderProfile(meId);
@@ -1406,11 +1702,13 @@ function openEditProfile() {
    phones land here; without it, this only ever sees local ones. */
 
 const pendingCount = () => iAmOwner()
-  ? Object.values(board.applications || {}).filter(x => x.status === 'pending').length : 0;
+  ? Object.values(board.applications || {}).filter(x => x.status === 'pending').length
+    + Object.values(board.reports || {}).filter(x => x.status === 'open').length
+  : 0;
 
 function ownerLabel() {
   if (!board.owner) return 'Unclaimed — review scout applications';
-  if (iAmOwner()) return 'Review applications and issue invite codes';
+  if (iAmOwner()) return 'Review reports and applications, issue invite codes';
   const o = artist(board.owner.artistId);
   return `Owned by ${o ? '@' + o.handle : 'another account'}`;
 }
@@ -1471,9 +1769,34 @@ function renderOwnerConsole() {
     </div>`;
   };
 
+  const openReports = Object.values(board.reports || {})
+    .filter(r => r.status === 'open').sort((a, b) => b.createdAt - a.createdAt);
+
+  const reportRow = r => {
+    const c = board.clips[r.clipId];
+    const who = c ? artist(c.artistId) : null;
+    return `<div class="app-card">
+      <div class="app-who">
+        <div class="grow"><b>${esc(r.reason)}</b>
+          <div class="tiny muted">${c ? 'on “' + esc(c.song || c.title) + '”' : 'clip already gone'}
+            ${who ? ' by @' + esc(who.handle) : ''} · ${ago(r.createdAt)} ago</div></div>
+      </div>
+      ${r.note ? `<p class="shortlist-note">${esc(r.note)}</p>` : ''}
+      <div class="app-actions">
+        ${c ? `<button class="btn-primary sm" data-view-report="${r.id}">Watch clip</button>
+               <button class="btn-danger sm" data-takedown="${r.id}">Take down</button>` : ''}
+        <button class="btn-ghost sm" data-dismiss="${r.id}">Dismiss</button>
+      </div>
+    </div>`;
+  };
+
   openSheet({
     title: 'Owner tools',
     html: `
+      <h4 class="owner-h">Reports${openReports.length ? ` · ${openReports.length} open` : ''}</h4>
+      ${openReports.length ? openReports.map(reportRow).join('')
+      : '<p class="tiny muted">No open reports.</p>'}
+
       <h4 class="owner-h">Applications${pending.length ? ` · ${pending.length} waiting` : ''}</h4>
       ${pending.length ? pending.map(appRow).join('')
       : '<p class="tiny muted">Nothing waiting. Applications from other devices appear here when sync is on.</p>'}
@@ -1515,6 +1838,34 @@ function renderOwnerConsole() {
     renderOwnerConsole();
     toast('Declined');
   });
+  $$('#sheetBody [data-view-report]').forEach(b => b.onclick = () => {
+    const r = board.reports[b.dataset.viewReport];
+    closeSheet();
+    openClipInFeed(r.clipId);
+  });
+  $$('#sheetBody [data-takedown]').forEach(b => b.onclick = () => {
+    const r = board.reports[b.dataset.takedown];
+    const c = board.clips[r.clipId];
+    if (!c || !confirm(`Take down "${c.song || c.title}"? It goes for everyone.`)) return;
+    delete board.clips[r.clipId];
+    mediaDelete(r.clipId);
+    deleteRemoteMedia(c);
+    r.status = 'actioned';
+    r.decidedAt = now();
+    r.updatedAt = now();
+    saveBoard();
+    renderOwnerConsole();
+    renderFeed();
+    toast('Clip taken down');
+  });
+  $$('#sheetBody [data-dismiss]').forEach(b => b.onclick = () => {
+    const r = board.reports[b.dataset.dismiss];
+    r.status = 'dismissed';
+    r.decidedAt = now();
+    r.updatedAt = now();
+    saveBoard();
+    renderOwnerConsole();
+  });
   $$('#sheetBody [data-copy]').forEach(b => b.onclick = () => {
     navigator.clipboard.writeText(b.dataset.copy)
       .then(() => toast('Code copied'), () => toast(b.dataset.copy));
@@ -1527,6 +1878,25 @@ function renderOwnerConsole() {
     saveBoard();
     renderOwnerConsole();
     toast('Code revoked');
+  });
+}
+
+function openBlockList() {
+  const ids = blockedIds();
+  openSheet({
+    title: 'Blocked accounts',
+    html: ids.length
+      ? ids.map(id => {
+        const a = artist(id) || { name: 'Unknown', handle: 'unknown', id };
+        return `<div class="list-row">${avatarHTML(a, 'sm')}
+          <span class="grow">${esc(a.name)}<br><small class="muted">@${esc(a.handle)}</small></span>
+          <button class="chip" data-unblock="${id}">Unblock</button></div>`;
+      }).join('')
+      : '<p class="muted pad">Nobody blocked. Blocking hides someone\'s clips and comments from you, and stays on this device.</p>',
+  });
+  $$('#sheetBody [data-unblock]').forEach(b => b.onclick = () => {
+    toggleBlock(b.dataset.unblock);
+    openBlockList();
   });
 }
 
@@ -1544,6 +1914,12 @@ function openSettings() {
           ${pendingCount() ? `<span class="fresh-pill">${pendingCount()}</span>` : ''}</button>
       </div>
       <div class="set-group">
+        <a class="list-row" href="legal.html"><svg class="ic"><use href="#i-flag"/></svg>
+          <span class="grow">Terms, privacy and copyright</span></a>
+        <button class="list-row" id="setBlocks"><svg class="ic"><use href="#i-close"/></svg>
+          <span class="grow">Blocked accounts<br><small class="muted">${blockedIds().length} blocked</small></span></button>
+      </div>
+      <div class="set-group">
         <p class="tiny muted">Clip metadata lives in this browser and video files in IndexedDB on this device.
         Turning on sync shares profiles, captions, likes and comments through Firebase, and uploads the
         video files to Firebase Storage so other phones can play them.</p>
@@ -1553,6 +1929,7 @@ function openSettings() {
   $('#setEdit').onclick = openEditProfile;
   $('#setSync').onclick = openSyncPanel;
   $('#setOwner').onclick = openOwnerTools;
+  $('#setBlocks').onclick = openBlockList;
   $('#setReset').onclick = async () => {
     if (!confirm('Delete your profile, clips and videos from this device?')) return;
     localStorage.removeItem(BOARD_KEY);
@@ -1659,6 +2036,7 @@ async function startCamera() {
     prev.play().catch(() => {});
     $('#recBtn').disabled = false;
     $('#recHint').hidden = true;
+    startMeter(stream);
   } catch (e) {
     $('#recHint').hidden = false;
     $('#recHint').textContent = 'Camera or mic blocked. Allow access in your browser settings, or upload a clip with the button below.';
@@ -1666,7 +2044,63 @@ async function startCamera() {
   }
 }
 
+/* ── input level meter ──
+   Singers overdrive phone mics constantly and only find out afterwards. A live
+   meter plus a clipping warning fixes more clips than any UI polish could. */
+let audioCtx = null;
+let meterRaf = null;
+let clippedAt = 0;
+
+function startMeter(mediaStream) {
+  stopMeter();
+  if (!mediaStream || !mediaStream.getAudioTracks().length) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  try {
+    audioCtx = new Ctx();
+    // Browsers hand back a suspended context when it wasn't created directly
+    // inside a gesture — without this the meter sits at zero forever.
+    if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    const source = audioCtx.createMediaStreamSource(mediaStream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    source.connect(analyser);
+    const buf = new Float32Array(analyser.fftSize);
+    const fill = $('#meterFill');
+    const msg = $('#meterMsg');
+    $('#recMeter').hidden = false;
+
+    const tick = () => {
+      analyser.getFloatTimeDomainData(buf);
+      let peak = 0;
+      for (let i = 0; i < buf.length; i++) peak = Math.max(peak, Math.abs(buf[i]));
+      fill.style.width = clamp(peak * 130, 0, 100) + '%';
+      const hot = peak > 0.92;
+      fill.classList.toggle('hot', hot);
+      if (hot) clippedAt = now();
+      const recentlyHot = now() - clippedAt < 1500;
+      msg.classList.toggle('warn', recentlyHot);
+      msg.textContent = recentlyHot
+        ? 'Too loud — back off the mic a little, it will distort'
+        : peak < 0.02
+          ? 'No signal yet — check the mic is allowed'
+          : 'Headphones help — they stop the backing track bleeding into your vocal.';
+      meterRaf = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch (e) { /* meter is a nicety, never block recording for it */ }
+}
+
+function stopMeter() {
+  if (meterRaf) cancelAnimationFrame(meterRaf);
+  meterRaf = null;
+  if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+  const m = $('#recMeter');
+  if (m) m.hidden = true;
+}
+
 function stopCamera() {
+  stopMeter();
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
   const prev = $('#recPreview');
   prev.srcObject = null;
@@ -1817,7 +2251,13 @@ $('#nextBtn').addEventListener('click', () => {
   $('#clipTitle').value = '';
   $('#clipSong').value = '';
   $('#clipTags').value = '';
+  $('#clipLyrics').value = '';
   $('#clipOriginal').checked = false;
+  const warn = $('#codecWarn');
+  const webm = pendingBlob && /webm/i.test(pendingBlob.type || '');
+  warn.hidden = !webm;
+  if (webm) warn.textContent = 'Heads up: this browser recorded WebM. Everyone here can watch it, '
+    + 'but iPhones cannot play WebM — enable transcoding (see functions/README) if your audience is on iOS.';
   $('#clipGenres').innerHTML = genreChipsHTML(genres);
   $('#clipGenres').dataset.picked = genres[0];
   $('#detailsPoster').innerHTML = pendingPoster
@@ -1864,6 +2304,7 @@ $('#postBtn').addEventListener('click', async () => {
     original: $('#clipOriginal').checked,
     genre: $('#clipGenres').dataset.picked || 'Pop',
     tags: $('#clipTags').value.split(/[,\s]+/).map(t => t.replace(/^#/, '').trim()).filter(Boolean).slice(0, 6),
+    lyrics: $('#clipLyrics').value.trim(),
     durationMs: pendingDuration || 0,
     mirror: pendingMirror,
     plays: 0, likes: {}, likeSeed: 0, shortlists: {}, shortlistSeed: 0, comments: [],
@@ -1907,11 +2348,11 @@ function loadScript(src) {
 
 /* Union merge: newest wins per entity, engagement maps merge, comments dedupe by id. */
 function mergeBoards(local, remote) {
-  const out = { artists: {}, clips: {}, codes: {}, applications: {}, owner: null };
+  const out = { artists: {}, clips: {}, codes: {}, applications: {}, reports: {}, owner: null };
 
   // Codes and applications are plain records: whichever side was written last
   // wins, so a redemption or an approval propagates without special casing.
-  for (const kind of ['codes', 'applications']) {
+  for (const kind of ['codes', 'applications', 'reports']) {
     const ids = new Set([...Object.keys(local[kind] || {}), ...Object.keys(remote[kind] || {})]);
     for (const id of ids) {
       const l = (local[kind] || {})[id];
@@ -1964,7 +2405,7 @@ async function connectFirebase(config) {
       board = mergeBoards(board, {
         artists: remote.artists || {}, clips: remote.clips || {},
         codes: remote.codes || {}, applications: remote.applications || {},
-        owner: remote.owner || null,
+        reports: remote.reports || {}, owner: remote.owner || null,
       });
       localStorage.setItem(BOARD_KEY, JSON.stringify(board));
       applyingRemote = false;
@@ -2140,6 +2581,12 @@ function startOnboarding() {
     if (!name) { toast('What should we call you?'); nameEl.focus(); return; }
     if (!handle) { toast('Pick a handle'); handleEl.focus(); return; }
 
+    const year = Number($('#obBirthYear').value.trim());
+    const age = ageFromYear(year);
+    if (!year || age === null || age < 0 || age > 120) { toast('Enter the year you were born'); return; }
+    if (age < MIN_AGE) { toast(`You need to be ${MIN_AGE} or older to use Spotlight`); return; }
+    if (role === 'scout' && age < 18) { toast('Scout accounts are for adults working in the industry'); return; }
+
     const fields = role === 'scout' ? {
       company: $('#obCompany').value.trim(),
       title: $('#obTitle').value.trim(),
@@ -2162,8 +2609,10 @@ function startOnboarding() {
     meId = uid();
     const artistRecord = {
       id: meId, name, handle, role: 'singer', genres, bio: '', city: '', contact: '',
+      ageBand: age >= 18 ? 'adult' : 'under18',
       followers: {}, followerSeed: 0, createdAt: now(), updatedAt: now(),
     };
+    localStorage.setItem(BIRTH_KEY, String(year));
     board.artists[meId] = artistRecord;
 
     let message = 'Welcome to the stage';
@@ -2211,6 +2660,48 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) pauseAllClips(); else resumeActiveClip();
 });
 
+/* Accounts made before the age check existed have no band. Defaulting either
+   way is wrong — "adult" would hand a minor's contact details to scouts,
+   "under18" would silently break an adult's — so ask once, and don't take no
+   for an answer. */
+function requireAgeBand() {
+  const a = me();
+  if (!a || a.ageBand) return;
+  const known = myAge();
+  if (known !== null && known >= MIN_AGE) {          // birth year already on this device
+    a.ageBand = known >= 18 ? 'adult' : 'under18';
+    a.updatedAt = now();
+    saveBoard();
+    return;
+  }
+  openSheet({
+    sticky: true,
+    title: 'One quick thing',
+    html: `<p class="tiny muted">Spotlight now asks everyone's age, so it knows whether contact details
+      can be shared with scouts. Your birth year stays on this device.</p>
+      <label class="field"><span>Year you were born</span>
+        <input id="ageYear" inputmode="numeric" maxlength="4" placeholder="e.g. 2004"></label>
+      <button class="btn-primary block" id="ageSave">Save</button>`,
+  });
+  $('#ageSave').onclick = () => {
+    const year = Number($('#ageYear').value.trim());
+    const age = ageFromYear(year);
+    if (!year || age === null || age < 0 || age > 120) { toast('Enter the year you were born'); return; }
+    if (age < MIN_AGE) { toast(`Spotlight is for ${MIN_AGE} and over`); return; }
+    localStorage.setItem(BIRTH_KEY, String(year));
+    a.ageBand = age >= 18 ? 'adult' : 'under18';
+    if (a.ageBand === 'under18' && a.role === 'scout') {   // can't be both
+      a.role = 'singer';
+      a.scoutVerified = false;
+    }
+    a.updatedAt = now();
+    saveBoard();
+    $('#sheet').dataset.sticky = '';
+    closeSheet();
+    renderFeed();
+  };
+}
+
 function boot() {
   loadBoard();
   if (!Object.keys(board.clips).length && !Object.keys(board.artists).length) {
@@ -2224,6 +2715,7 @@ function boot() {
   } else {
     renderFeed();
     show('feed');
+    requireAgeBand();
   }
 
   const savedCfg = localStorage.getItem(FB_KEY);

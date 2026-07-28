@@ -203,6 +203,42 @@ input:focus{border-color:var(--brand)}
 .tile .tile-top{position:absolute;top:6px;left:7px;right:7px;font-size:.7rem;color:rgba(255,255,255,.9);
   text-shadow:0 2px 6px rgba(0,0,0,.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
+/* ── activity ── */
+#activityBtn{margin-left:auto;width:38px;height:38px;position:relative}
+#activityBtn .ic{width:20px;height:20px}
+#activityBtn i{position:absolute;top:6px;right:7px;width:9px;height:9px;border-radius:50%;
+  background:var(--brand-2);border:1.5px solid var(--bg)}
+.feed-head #muteBtn{margin-left:0}
+.act-row{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid rgba(255,255,255,.06);width:100%;text-align:left}
+.act-row.unseen{background:linear-gradient(90deg,rgba(178,59,255,.10),transparent);border-radius:12px;padding-left:10px}
+.act-body{flex:1;min-width:0}
+.act-body .t{font-size:.9rem;line-height:1.4}
+.act-body .t b{font-weight:700}
+.act-body .s{font-size:.76rem;color:var(--muted);margin-top:2px}
+.act-icon{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--card)}
+.act-icon .ic{width:17px;height:17px}
+.act-icon.like{color:#FF3D6E}.act-icon.star{color:var(--gold)}.act-icon.comment{color:#7DC4FF}
+.act-icon.follow{color:var(--ok)}.act-icon.scout{background:linear-gradient(120deg,var(--brand),var(--brand-2));color:#fff}
+.act-thumb{width:36px;height:50px;border-radius:8px;overflow:hidden;flex:none;background:var(--bg-soft)}
+.act-thumb img{width:100%;height:100%;object-fit:cover}
+.act-group{margin:18px 0 8px;font-size:.76rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+
+/* ── captions & clip menu ── */
+.cc-toggle{position:absolute;right:12px;z-index:6;bottom:calc(var(--tab-h) + 300px + var(--safe-b))}
+.captions{position:absolute;left:12px;right:78px;bottom:calc(var(--tab-h) + 130px + var(--safe-b));z-index:3;
+  background:rgba(0,0,0,.62);border-radius:12px;padding:10px 12px;font-size:.9rem;line-height:1.4;
+  max-height:32vh;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+
+/* ── record level meter ── */
+.rec-meter{position:relative;z-index:3;margin:0 auto 16px;padding:12px 14px;width:100%;max-width:340px;
+  background:rgba(0,0,0,.55);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:14px}
+.meter-track{position:relative;height:6px;border-radius:99px;background:rgba(255,255,255,.16);overflow:hidden}
+.meter-track i{display:block;height:100%;width:0;border-radius:99px;background:var(--ok);transition:width .08s linear}
+.meter-track i.hot{background:#FF3D5A}
+.meter-track .meter-peak{position:absolute;top:0;bottom:0;left:88%;width:2px;background:rgba(255,255,255,.5)}
+.meter-msg{margin-top:8px;font-size:.76rem;color:#D6D3E8;text-align:center;line-height:1.35}
+.meter-msg.warn{color:#FF8FA0}
+
 /* ── notices, verification & owner console ── */
 .notice{background:var(--bg-soft);border:1px solid var(--line);border-radius:14px;
   padding:12px 14px;font-size:.84rem;line-height:1.45;margin:0 0 14px;color:var(--muted)}
