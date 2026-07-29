@@ -42,6 +42,7 @@
     <symbol id="i-bell" viewBox="0 0 24 24"><path d="M12 22a2.5 2.5 0 0 0 2.5-2.5h-5A2.5 2.5 0 0 0 12 22m7-6-2-2.2V10a5 5 0 0 0-4-4.9V4a1 1 0 1 0-2 0v1.1A5 5 0 0 0 7 10v3.8L5 16v2h14z"/></symbol>
     <symbol id="i-more" viewBox="0 0 24 24"><path d="M12 8a2 2 0 1 1 0-4 2 2 0 0 1 0 4m0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4m0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4"/></symbol>
     <symbol id="i-flag" viewBox="0 0 24 24"><path d="M6 3v18H4V3zm2 1h11l-2 4 2 4H8z"/></symbol>
+    <symbol id="i-collab" viewBox="0 0 24 24"><path d="M8.5 11a3 3 0 1 0 0-6 3 3 0 0 0 0 6m7 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6M2 20v-1.4C2 16 5 14.5 8.5 14.5S15 16 15 18.6V20zm15.5 0v-1.4c0-1.6-.8-2.9-2-3.7 3 .2 5.5 1.6 5.5 3.7V20z"/></symbol>
     <symbol id="i-cc" viewBox="0 0 24 24"><path d="M3 5h18v14H3zm5.6 4.4a2.6 2.6 0 0 0 0 5.2c.9 0 1.7-.4 2.1-1.1l-1.2-.7a1.1 1.1 0 1 1 0-1.6l1.2-.7a2.5 2.5 0 0 0-2.1-1.1m6.8 0a2.6 2.6 0 0 0 0 5.2c.9 0 1.7-.4 2.1-1.1l-1.2-.7a1.1 1.1 0 1 1 0-1.6l1.2-.7a2.5 2.5 0 0 0-2.1-1.1"/></symbol>
   </defs>
 </svg>
@@ -273,6 +274,25 @@
 </section>
 
 <!-- ───────────── charts ───────────── -->
+<!-- ───────────── collabs ───────────── -->
+<section id="screen-collabs" class="screen">
+  <header class="screen-head">
+    <h2>Collabs</h2>
+    <p class="muted">Say what you're looking for. Someone here can probably sing it.</p>
+    <div class="chips scroll-x" id="needChips"></div>
+    <div class="filter-row">
+      <button id="newCalloutBtn" class="chip selected">Post a callout</button>
+      <button id="mineCalloutsBtn" class="chip">Mine</button>
+      <button id="closedCalloutsBtn" class="chip">Show filled</button>
+    </div>
+  </header>
+  <div class="screen-body">
+    <div id="calloutList" class="callout-list"></div>
+    <p id="calloutEmpty" class="muted pad" hidden>Nothing open right now. Post the first one — say what you
+      need and who you are, and people can reply with a clip.</p>
+  </div>
+</section>
+
 <section id="screen-charts" class="screen">
   <header class="screen-head">
     <h2>The Chart</h2>
@@ -300,6 +320,7 @@
   <button class="tab" data-screen="feed"><svg class="ic"><use href="#i-home"/></svg><span>Feed</span></button>
   <button class="tab" data-screen="discover"><svg class="ic"><use href="#i-search"/></svg><span>Discover</span></button>
   <button class="tab tab-post" data-screen="record" aria-label="Record"><svg class="ic"><use href="#i-plus"/></svg></button>
+  <button class="tab" data-screen="collabs"><svg class="ic"><use href="#i-collab"/></svg><span>Collabs</span></button>
   <button class="tab" data-screen="charts"><svg class="ic"><use href="#i-chart"/></svg><span>Chart</span></button>
   <button class="tab" data-screen="profile"><svg class="ic"><use href="#i-user"/></svg><span>You</span></button>
 </nav>

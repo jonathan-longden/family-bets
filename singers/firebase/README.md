@@ -57,6 +57,9 @@ write what.
   your own uid; editing or deleting is you or the owner. Likes and shortlists
   are per-uid keys writable only by that uid, so nobody can stuff someone
   else's numbers.
+- **Callouts belong to whoever posted them**, and a reply belongs to whoever
+  wrote it — the callout's owner and the app owner can also remove a reply,
+  so a singer can clear something unpleasant off their own post.
 - **Applications can be filed by anyone but only decided by the owner** —
   `status` is only writable as `pending` unless you're the owner.
 - **Invite codes are owner-created**, and `usedBy` can only be written once, by

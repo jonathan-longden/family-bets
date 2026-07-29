@@ -164,7 +164,7 @@ async function mediaDelete(id) {
 
 /* ───────────────────────── board state ───────────────────────── */
 
-let board = { artists: {}, clips: {}, codes: {}, applications: {}, reports: {}, deleted: {}, owner: null };
+let board = { artists: {}, clips: {}, codes: {}, applications: {}, reports: {}, callouts: {}, deleted: {}, owner: null };
 let meId = localStorage.getItem(ME_KEY) || null;
 
 const me = () => (meId ? board.artists[meId] : null);
@@ -179,7 +179,8 @@ function loadBoard() {
       board = {
         artists: parsed.artists || {}, clips: parsed.clips || {},
         codes: parsed.codes || {}, applications: parsed.applications || {},
-        reports: parsed.reports || {}, deleted: parsed.deleted || {}, owner: parsed.owner || null,
+        reports: parsed.reports || {}, callouts: parsed.callouts || {},
+        deleted: parsed.deleted || {}, owner: parsed.owner || null,
       };
     }
   } catch (e) { /* start fresh */ }
@@ -455,6 +456,7 @@ function show(screen, opts = {}) {
   if (screen === 'feed') resumeActiveClip(); else pauseAllClips();
   if (screen === 'activity') renderActivity();
   if (screen === 'discover') renderDiscover();
+  if (screen === 'collabs') renderCollabs();
   if (screen === 'charts') renderChart();
   if (screen === 'profile') renderProfile(opts.artistId || meId);
 }
@@ -921,6 +923,12 @@ function activityEvents() {
       if (cm.artistId !== meId) events.push({ type: 'comment', at: cm.at, byId: cm.artistId, clipId: c.id, text: cm.text });
     }
   }
+  for (const c of Object.values(board.callouts || {})) {
+    if (c.artistId !== meId) continue;
+    for (const r of Object.values(c.replies || {})) {
+      if (r.artistId !== meId) events.push({ type: 'collab', at: r.at, byId: r.artistId, calloutId: c.id, text: r.message });
+    }
+  }
   const meArtist = me();
   if (meArtist) {
     for (const { id, at } of entriesOf(meArtist.followers, meArtist.createdAt)) {
@@ -946,6 +954,7 @@ const ACT_COPY = {
   like: () => `<b>Someone</b> liked your clip`,
   comment: e => `<b>Someone</b> commented: “${esc(String(e.text).slice(0, 90))}”`,
   follow: () => `<b>Someone</b> started following you`,
+  collab: e => `<b>Someone</b> replied to your callout: “${esc(String(e.text).slice(0, 70))}”`,
 };
 
 function renderActivity() {
@@ -962,8 +971,11 @@ function renderActivity() {
       ? `<b>${esc(by.name)}</b>${by.company ? ` · ${esc(by.company)}` : ''} <span class="pill verified">✓ scout</span> shortlisted your clip`
       : by ? ACT_COPY[e.type](e).replace('<b>Someone</b>', `<b>@${esc(by.handle)}</b>`) : ACT_COPY[e.type](e);
     const c = e.clipId ? board.clips[e.clipId] : null;
-    const icon = { scout: 'i-star', save: 'i-star', like: 'i-heart', comment: 'i-comment', follow: 'i-user' }[e.type];
-    return `<button class="act-row ${e.at > seen ? 'unseen' : ''}" ${e.clipId ? `data-open-clip="${e.clipId}"` : `data-open-artist="${e.byId}"`}>
+    const icon = { scout: 'i-star', save: 'i-star', like: 'i-heart', comment: 'i-comment',
+      follow: 'i-user', collab: 'i-collab' }[e.type];
+    const target = e.clipId ? `data-open-clip="${e.clipId}"`
+      : e.calloutId ? `data-open-callout="${e.calloutId}"` : `data-open-artist="${e.byId}"`;
+    return `<button class="act-row ${e.at > seen ? 'unseen' : ''}" ${target}>
       <span class="act-icon ${e.type}"><svg class="ic"><use href="#${icon}"/></svg></span>
       <span class="act-body"><span class="t">${who}</span>
         <span class="s">${ago(e.at)} ago${c ? ' · ' + esc(c.song || c.title) : ''}</span></span>
@@ -1274,6 +1286,214 @@ function openFilters() {
 $('#searchInput').addEventListener('input', e => { searchTerm = e.target.value.trim(); renderDiscover(); });
 $('#filterBtn').addEventListener('click', openFilters);
 $('#saveSearchBtn').addEventListener('click', saveCurrentSearch);
+
+/* ───────────────────────── collabs ─────────────────────────
+   A callout is someone saying what they need — a rapper for verse two, a
+   harmony, a producer. Replies are public and carry an optional clip, so the
+   conversation stays in the open rather than in a DM inbox nobody moderates. */
+
+const NEEDS = ['Rapper', 'Harmony', 'Duet partner', 'Producer', 'Songwriter',
+  'Guitarist', 'Pianist', 'Backing vocals', 'Beat', 'Band'];
+
+let needFilter = '';
+let showMineOnly = false;
+let showFilled = false;
+
+const calloutList = () => Object.values(board.callouts || {})
+  .filter(c => !isBlocked(c.artistId))
+  .filter(c => (showFilled ? true : c.status !== 'filled'))
+  .filter(c => (showMineOnly ? c.artistId === meId : true))
+  .filter(c => (needFilter ? (c.needs || []).includes(needFilter) : true))
+  .sort((a, b) => b.createdAt - a.createdAt);
+
+const replyList = c => Object.values(c.replies || {})
+  .filter(r => !isBlocked(r.artistId))
+  .sort((a, b) => a.at - b.at);
+
+function renderCollabs() {
+  const chips = $('#needChips');
+  if (!chips.dataset.built) {
+    chips.innerHTML = ['All', ...NEEDS].map(n =>
+      `<button class="chip ${n === 'All' ? 'selected' : ''}" data-need="${n === 'All' ? '' : n}">${n}</button>`).join('');
+    chips.dataset.built = '1';
+    chips.addEventListener('click', e => {
+      const btn = e.target.closest('.chip');
+      if (!btn) return;
+      needFilter = btn.dataset.need;
+      $$('.chip', chips).forEach(c => c.classList.toggle('selected', c === btn));
+      renderCollabs();
+    });
+  }
+  $('#mineCalloutsBtn').classList.toggle('selected', showMineOnly);
+  $('#closedCalloutsBtn').classList.toggle('selected', showFilled);
+
+  const list = calloutList();
+  $('#calloutEmpty').hidden = list.length > 0;
+  $('#calloutList').innerHTML = list.map(c => {
+    const a = artist(c.artistId) || { name: 'Unknown', handle: 'unknown' };
+    const replies = replyList(c);
+    const mine = c.artistId === meId;
+    const clip = c.clipId ? board.clips[c.clipId] : null;
+    return `<article class="callout ${c.status === 'filled' ? 'filled' : ''}">
+      <header class="callout-head">
+        <button class="callout-who" data-open-artist="${c.artistId}">
+          ${avatarHTML(a, 'sm')}
+          <span><b>${esc(a.name)}</b><small class="muted">@${esc(a.handle)}${a.city ? ' · ' + esc(a.city) : ''} · ${ago(c.createdAt)} ago</small></span>
+        </button>
+        ${c.status === 'filled' ? '<span class="pill">Filled</span>' : ''}
+      </header>
+      <div class="needs">${(c.needs || []).map(n => `<span class="need-pill">${esc(n)}</span>`).join('')}
+        ${c.genre ? `<span class="need-pill soft">${esc(c.genre)}</span>` : ''}</div>
+      <p class="callout-text">${esc(c.title)}</p>
+      ${c.details ? `<p class="callout-details">${esc(c.details)}</p>` : ''}
+      ${clip ? `<button class="callout-clip" data-open-clip="${clip.id}">
+          <svg class="ic"><use href="#i-play"/></svg><span>${esc(clip.song || clip.title)}</span></button>` : ''}
+      <footer class="callout-foot">
+        <button class="chip" data-replies="${c.id}">${replies.length ? `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'}` : 'Reply'}</button>
+        ${mine ? `<button class="chip" data-toggle-filled="${c.id}">${c.status === 'filled' ? 'Reopen' : 'Mark filled'}</button>
+                  <button class="chip" data-del-callout="${c.id}">Delete</button>` : ''}
+      </footer>
+    </article>`;
+  }).join('');
+
+  $$('#calloutList [data-replies]').forEach(b => b.onclick = () => openCalloutReplies(b.dataset.replies));
+  $$('#calloutList [data-toggle-filled]').forEach(b => b.onclick = () => {
+    const c = board.callouts[b.dataset.toggleFilled];
+    c.status = c.status === 'filled' ? 'open' : 'filled';
+    c.updatedAt = now();
+    saveBoard();
+    renderCollabs();
+    toast(c.status === 'filled' ? 'Marked as filled' : 'Reopened');
+  });
+  $$('#calloutList [data-del-callout]').forEach(b => b.onclick = () => {
+    if (!confirm('Delete this callout?')) return;
+    delete board.callouts[b.dataset.delCallout];
+    tombstone('callouts', b.dataset.delCallout);
+    saveBoard();
+    renderCollabs();
+  });
+}
+
+function myClipOptions(selected) {
+  const mine = clipsOf(meId).filter(c => !c.demo).sort((a, b) => b.createdAt - a.createdAt);
+  return `<option value="">No clip</option>` + mine.map(c =>
+    `<option value="${c.id}" ${c.id === selected ? 'selected' : ''}>${esc(c.song || c.title)}</option>`).join('');
+}
+
+function openNewCallout() {
+  const a = me();
+  const needs = [];
+  openSheet({
+    title: 'Post a callout',
+    html: `
+      <span class="field-label">What are you looking for?</span>
+      <div class="chips" id="coNeeds">${NEEDS.map(n =>
+      `<button type="button" class="chip" data-n="${esc(n)}">${esc(n)}</button>`).join('')}</div>
+      <label class="field" style="margin-top:18px"><span>In one line</span>
+        <input id="coTitle" maxlength="90" placeholder="Need a rapper for verse 2 of a soul track"></label>
+      <label class="field"><span>Any detail</span>
+        <textarea id="coDetails" maxlength="400" placeholder="Tempo, key, what you've got so far, what you're after."></textarea></label>
+      <label class="field"><span>Genre</span>
+        <select id="coGenre">${GENRES.map(g =>
+      `<option ${a && (a.genres || [])[0] === g ? 'selected' : ''}>${g}</option>`).join('')}</select></label>
+      <label class="field"><span>Attach one of your clips</span>
+        <select id="coClip">${myClipOptions('')}</select></label>
+      <button class="btn-primary block" id="coPost">Post callout</button>`,
+  });
+  $('#coNeeds').addEventListener('click', e => {
+    const btn = e.target.closest('.chip');
+    if (!btn) return;
+    const n = btn.dataset.n;
+    const i = needs.indexOf(n);
+    if (i >= 0) needs.splice(i, 1);
+    else if (needs.length < 3) needs.push(n);
+    else { toast('Pick up to 3'); return; }
+    btn.classList.toggle('selected', needs.includes(n));
+  });
+  $('#coPost').onclick = () => {
+    const title = $('#coTitle').value.trim();
+    if (!needs.length) { toast('Pick what you need'); return; }
+    if (!title) { toast("Say what you're after in one line"); return; }
+    const id = uid();
+    board.callouts[id] = {
+      id, artistId: meId, needs, title,
+      details: $('#coDetails').value.trim(),
+      genre: $('#coGenre').value,
+      clipId: $('#coClip').value || '',
+      status: 'open', replies: {},
+      createdAt: now(), updatedAt: now(),
+    };
+    saveBoard();
+    closeSheet();
+    showMineOnly = false;
+    renderCollabs();
+    show('collabs');
+    toast('Posted — replies show up here');
+  };
+}
+
+function openCalloutReplies(calloutId) {
+  const c = board.callouts[calloutId];
+  if (!c) return;
+  const owner = artist(c.artistId) || { handle: 'unknown' };
+
+  const render = () => {
+    const replies = replyList(c);
+    $('#sheetBody').innerHTML = `
+      <p class="tiny muted">Replying to @${esc(owner.handle)} — “${esc(c.title)}”. Replies are public,
+      like comments.</p>
+      ${replies.length ? replies.map(r => {
+      const a = artist(r.artistId) || { name: 'Someone', handle: 'someone', id: r.artistId };
+      const clip = r.clipId ? board.clips[r.clipId] : null;
+      return `<div class="comment">${avatarHTML(a, 'sm')}
+          <div class="body">
+            <div class="who">@${esc(a.handle)} · ${ago(r.at)}</div>
+            <div class="txt">${esc(r.message)}</div>
+            ${clip ? `<button class="callout-clip small" data-open-clip="${clip.id}">
+              <svg class="ic"><use href="#i-play"/></svg><span>${esc(clip.song || clip.title)}</span></button>` : ''}
+          </div></div>`;
+    }).join('') : '<p class="muted pad">No replies yet. Be the first.</p>'}`;
+  };
+
+  openSheet({
+    title: 'Replies',
+    render,
+    foot: `<input id="replyText" placeholder="I could do this — here's my voice…" maxlength="300" />
+           <button id="replySend" class="btn-primary">Send</button>`,
+    onFoot: () => {
+      const send = () => {
+        const input = $('#replyText');
+        const message = input.value.trim();
+        if (!message) return;
+        c.replies = c.replies || {};
+        const id = uid();
+        c.replies[id] = { id, artistId: meId, message, clipId: $('#replyClip') ? $('#replyClip').value : '', at: now() };
+        c.updatedAt = now();
+        input.value = '';
+        saveBoard();
+        render();
+        renderCollabs();
+        refreshActivityDot();
+      };
+      $('#replySend').onclick = send;
+      $('#replyText').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+    },
+  });
+
+  // let them attach a clip to the reply, if they have any
+  if (clipsOf(meId).some(x => !x.demo)) {
+    const foot = $('#sheetFoot');
+    const pick = document.createElement('select');
+    pick.id = 'replyClip';
+    pick.className = 'reply-clip';
+    pick.innerHTML = myClipOptions('');
+    foot.insertBefore(pick, foot.firstChild);
+  }
+}
+
+$('#newCalloutBtn').addEventListener('click', openNewCallout);
+$('#mineCalloutsBtn').addEventListener('click', () => { showMineOnly = !showMineOnly; renderCollabs(); });
+$('#closedCalloutsBtn').addEventListener('click', () => { showFilled = !showFilled; renderCollabs(); });
 
 /* ───────────────────────── chart ───────────────────────── */
 
@@ -2432,7 +2652,7 @@ function loadScript(src) {
 
 /* Union merge: newest wins per entity, engagement maps merge, comments dedupe by id. */
 function mergeBoards(local, remote) {
-  const out = { artists: {}, clips: {}, codes: {}, applications: {}, reports: {}, deleted: {}, owner: null };
+  const out = { artists: {}, clips: {}, codes: {}, applications: {}, reports: {}, callouts: {}, deleted: {}, owner: null };
 
   // Deletions first: newest tombstone wins, and it outranks any surviving copy.
   const graves = { ...(local.deleted || {}) };
@@ -2456,7 +2676,7 @@ function mergeBoards(local, remote) {
   const owners = [local.owner, remote.owner].filter(Boolean);
   out.owner = owners.sort((a, b) => (a.claimedAt || 0) - (b.claimedAt || 0))[0] || null;
 
-  for (const kind of ['artists', 'clips']) {
+  for (const kind of ['artists', 'clips', 'callouts']) {
     const ids = new Set([...Object.keys(local[kind] || {}), ...Object.keys(remote[kind] || {})]);
     for (const id of ids) {
       const l = (local[kind] || {})[id];
@@ -2468,6 +2688,7 @@ function mergeBoards(local, remote) {
       base.shortlists = { ...(l.shortlists || {}), ...(r.shortlists || {}) };
       base.followers = { ...(l.followers || {}), ...(r.followers || {}) };
       const seen = new Set();
+      base.replies = { ...(l.replies || {}), ...(r.replies || {}) };
       base.comments = [...(l.comments || []), ...(r.comments || [])]
         .filter(c => c && !seen.has(c.id) && seen.add(c.id))
         .sort((a, b) => a.at - b.at);
@@ -2500,14 +2721,15 @@ async function connectFirebase(config) {
       board = mergeBoards(board, {
         artists: remote.artists || {}, clips: remote.clips || {},
         codes: remote.codes || {}, applications: remote.applications || {},
-        reports: remote.reports || {}, deleted: remote.deleted || {},
-        owner: remote.owner || null,
+        reports: remote.reports || {}, callouts: remote.callouts || {},
+        deleted: remote.deleted || {}, owner: remote.owner || null,
       });
       localStorage.setItem(BOARD_KEY, JSON.stringify(board));
       applyingRemote = false;
       if (currentScreen === 'feed') renderFeed({ keepScroll: true });
       if (currentScreen === 'discover') renderDiscover();
       if (currentScreen === 'charts') renderChart();
+      if (currentScreen === 'collabs') renderCollabs();
       if (currentScreen === 'profile') renderProfile(viewedArtistId || meId);
     });
 
@@ -2983,7 +3205,9 @@ document.addEventListener('click', e => {
   const artistBtn = e.target.closest('[data-open-artist]');
   if (artistBtn) { openArtist(artistBtn.dataset.openArtist); closeSheet(); return; }
   const clipBtn = e.target.closest('[data-open-clip]');
-  if (clipBtn) { openClipInFeed(clipBtn.dataset.openClip); closeSheet(); }
+  if (clipBtn) { openClipInFeed(clipBtn.dataset.openClip); closeSheet(); return; }
+  const calloutBtn = e.target.closest('[data-open-callout]');
+  if (calloutBtn) { show('collabs'); openCalloutReplies(calloutBtn.dataset.openCallout); }
 });
 
 $$('#tabbar .tab').forEach(tab => tab.addEventListener('click', () => {

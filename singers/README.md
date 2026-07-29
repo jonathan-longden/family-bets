@@ -53,6 +53,17 @@ button. For watching on mute, and for anyone who can't hear the audio.
 isn't yours. Reports go to the owner's console; blocking hides that
 singer's clips and comments from you and never leaves your device.
 
+**Collabs** — a board where singers post what they're looking for: a rapper
+for verse two, a harmony, a producer, a duet partner. Pick up to three
+things you need, add the detail (tempo, key, what you've got so far), and
+optionally attach one of your own clips so people can hear the track.
+Anyone can reply publicly, with a clip of their own attached. Filter by
+what's wanted, see only yours, mark a callout filled when someone lands.
+
+Replies are public on purpose. A private inbox aimed at singers, many of
+them teenagers, is a moderation problem I'd rather not create — and a
+reply people can see tends to be a better reply.
+
 **Scout accounts are verified** — anyone can pick "Scout" at signup, but it
 grants nothing on its own. See *Scout verification* below. A shortlist is
 also the heaviest signal in the chart score, so scouts moving on someone

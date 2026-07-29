@@ -303,6 +303,36 @@ input:focus{border-color:var(--brand)}
 .shortlist-actions .chip{font-size:.78rem;padding:7px 12px;text-decoration:none}
 .shortlist-actions a.chip{color:var(--gold);border-color:rgba(255,194,75,.4)}
 
+/* ── collabs ── */
+.callout-list{display:grid;gap:12px}
+.callout{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:14px}
+.callout.filled{opacity:.62}
+.callout-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.callout-who{display:flex;align-items:center;gap:10px;text-align:left;min-width:0}
+.callout-who span{display:grid;min-width:0}
+.callout-who b{font-size:.9rem}
+.callout-who small{font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.needs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.need-pill{font-size:.72rem;font-weight:700;padding:4px 10px;border-radius:999px;color:#fff;
+  background:linear-gradient(120deg,var(--brand),var(--brand-2))}
+.need-pill.soft{background:none;border:1px solid var(--line);color:var(--muted);font-weight:600}
+.callout-text{margin:0;font-size:.96rem;line-height:1.4;font-weight:600}
+.callout-details{margin:6px 0 0;font-size:.86rem;line-height:1.45;color:var(--muted);overflow-wrap:anywhere}
+.callout-clip{display:inline-flex;align-items:center;gap:8px;margin-top:10px;background:var(--bg-soft);
+  border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:.82rem;font-weight:600;max-width:100%}
+.callout-clip .ic{width:14px;height:14px;color:var(--brand-2)}
+.callout-clip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.callout-clip.small{padding:6px 10px;font-size:.78rem;margin-top:6px}
+.callout-foot{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.reply-clip{flex:none;max-width:38%;background:var(--bg);border:1px solid var(--line);
+  border-radius:12px;padding:10px 8px;font-size:.8rem}
+select{background:var(--bg-soft);border:1px solid var(--line);border-radius:14px;padding:13px 14px;
+  width:100%;outline:none;-webkit-appearance:none;appearance:none}
+
+/* six tabs need a little more room than five */
+#tabbar .tab{padding:6px 8px}
+#tabbar .tab span{font-size:.62rem}
+
 /* ── chart ── */
 .chart-tabs{display:flex;gap:8px}
 .chart-list{list-style:none;margin:0;padding:0;display:grid;gap:10px}
