@@ -3305,4 +3305,15 @@ boot();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+
+  /* The shell is served cache-first, so the launch that installs a new worker
+     still shows the old files — you had to close and reopen twice to see an
+     update. When a new worker takes control, reload once (and only once) so a
+     single launch is enough. */
+  let reloadedForUpdate = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (reloadedForUpdate) return;
+    reloadedForUpdate = true;
+    location.reload();
+  });
 }
