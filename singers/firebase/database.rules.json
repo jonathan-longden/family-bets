@@ -36,6 +36,17 @@
         }
       },
 
+      "callouts": {
+        "$calloutId": {
+          ".write": "auth != null && (!data.exists() ? newData.child('artistId').val() === auth.uid : (data.child('artistId').val() === auth.uid || root.child('spotlightOwner').val() === auth.uid))",
+          "replies": {
+            "$replyId": {
+              ".write": "auth != null && (!data.exists() ? newData.child('artistId').val() === auth.uid : (data.child('artistId').val() === auth.uid || root.child('spotlightBoard').child('callouts').child($calloutId).child('artistId').val() === auth.uid || root.child('spotlightOwner').val() === auth.uid))"
+            }
+          }
+        }
+      },
+
       "applications": {
         "$appId": {
           ".write": "auth != null && (newData.child('artistId').val() === auth.uid || root.child('spotlightOwner').val() === auth.uid)",
