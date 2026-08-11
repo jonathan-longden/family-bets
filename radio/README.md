@@ -19,9 +19,13 @@ keeps them rolling.
 - **Fully offline.** Music is copied into the browser's own storage
   (IndexedDB) and the app itself is cached by a service worker. After the
   first visit it works in flight mode, in a tunnel, on a plane.
-- **Sorts itself out.** It reads the ID3 tags in your files (title, artist,
-  genre) and falls back to the filename and folder name. Anything it can't
-  place shows up under "Which station?" for a one-tap decision.
+- **Sorts itself out.** It reads the tags inside your files — ID3 in MP3s,
+  MP4 tags in the M4A/AAC files an iTunes library is made of — and falls
+  back to the filename and folder name. Anything it can't place shows up
+  under "Which station?" for a one-tap decision.
+- **Keeps a folder in sync.** On a computer, point it at your music folder
+  once and it re-reads that folder every time you open it, importing
+  anything new. See the limits below.
 - **Lock screen controls.** Play, pause and skip from the lock screen or
   headphones, with artwork.
 - **Sleep timer.** 15 minutes to 2 hours, or just to the end of this track.
@@ -39,6 +43,33 @@ Open the app and use **Add music**:
 
 MP3, M4A, AAC, OGG, Opus, WAV and FLAC all work, as far as the browser
 supports them. Files never leave the device — there's no server involved.
+
+### Keeping a folder in sync
+
+**Keep a folder in sync** goes further than a one-off import: pick your
+music folder once and Nonstop re-reads it on every launch, importing
+anything you've added since and sorting it by genre. It only opens files it
+hasn't seen, so a large library doesn't get re-read from disk each time.
+
+This needs the File System Access API, which means **Chrome or Edge on a
+computer**. Safari and Firefox don't have it, and neither does any browser
+on iOS or Android — the button explains itself and the ordinary "Choose a
+folder" import is there instead. Chrome remembers the permission for an
+installed app; otherwise it asks once per visit, and Nonstop shows an
+"Allow access" button rather than nagging.
+
+Tracks are still copied into the app's own storage, so the stations keep
+playing when the folder isn't reachable — an unplugged external drive, or
+a phone with no connection.
+
+### What a web app can't reach
+
+No browser can read your **Apple Music or Spotify library**, and neither
+can this one. Streaming apps store their music encrypted, and their
+catalogues are licensed for playback inside those apps only. The same goes
+for the iOS Music library: Safari has no access to it. Nonstop plays files
+you can see in a file browser — purchased downloads, CD rips, Bandcamp
+files, anything DRM-free.
 
 Nonstop plays music you already have the right to play. It doesn't search
 for, stream or download anything on its own.

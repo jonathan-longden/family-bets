@@ -62,11 +62,13 @@ let dbPromise = null;
 function db() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1);
+    const req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = () => {
       const d = req.result;
       if (!d.objectStoreNames.contains('tracks')) d.createObjectStore('tracks', { keyPath: 'id' });
       if (!d.objectStoreNames.contains('audio')) d.createObjectStore('audio', { keyPath: 'id' });
+      // v2: somewhere to keep the folder handle between visits
+      if (!d.objectStoreNames.contains('prefs')) d.createObjectStore('prefs');
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -91,6 +93,9 @@ const store = {
   putAudio: (id, blob) => tx('audio', 'readwrite', s => s.put({ id, blob })),
   getAudio: id => tx('audio', 'readonly', s => s.get(id)).then(r => r && r.blob),
   delAudio: id => tx('audio', 'readwrite', s => s.delete(id)),
+  getPref: key => tx('prefs', 'readonly', s => s.get(key)),
+  setPref: (key, value) => tx('prefs', 'readwrite', s => s.put(value, key)),
+  delPref: key => tx('prefs', 'readwrite', s => s.delete(key)),
 };
 
 /* ───────────────────────── working out the station ───────────────────────── */
@@ -102,10 +107,19 @@ const COUNTRY_WORDS = ['country', 'bluegrass', 'honky', 'honkytonk', 'nashville'
   'western', 'outlaw', 'twang', 'hillbilly', 'alt-country', 'appalachian', 'banjo', 'steel guitar',
   'redneck', 'rodeo', 'cowboy', 'texas', 'tennessee', 'grand ole opry'];
 
+/* Whole words only. Matching on bare substrings finds "irie" inside "Prairie
+   Dogs" and "ska" inside "Alaska", which is how a bluegrass band ends up on
+   the reggae station. */
+const wordsRe = words => new RegExp(
+  '(^|[^a-z0-9])(' + words.map(w => w.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') +
+  ')([^a-z0-9]|$)', 'i');
+
+const REGGAE_RE = wordsRe(REGGAE_WORDS);
+const COUNTRY_RE = wordsRe(COUNTRY_WORDS);
+
 function guessStation(...bits) {
   const hay = bits.filter(Boolean).join(' ').toLowerCase();
-  const hit = words => words.some(w => hay.includes(w));
-  const r = hit(REGGAE_WORDS), c = hit(COUNTRY_WORDS);
+  const r = REGGAE_RE.test(hay), c = COUNTRY_RE.test(hay);
   if (r && !c) return 'reggae';
   if (c && !r) return 'country';
   return null;                       // ambiguous or unknown — the listener decides
@@ -126,6 +140,71 @@ function decodeText(bytes, encoding) {
     return new TextDecoder('iso-8859-1').decode(bytes);
   } catch {
     return '';
+  }
+}
+
+/* An iTunes-style library is full of .m4a files, which carry their tags in MP4
+   boxes rather than ID3 frames. Without this, every purchased track would land
+   in the "needs a station" pile. */
+async function readMp4Tags(file) {
+  const NAMES = { '\xA9nam': 'title', '\xA9ART': 'artist', '\xA9alb': 'album', '\xA9gen': 'genre', aART: 'artist' };
+  const str = (view, at, n) => {
+    let s = '';
+    for (let i = 0; i < n; i++) s += String.fromCharCode(view.getUint8(at + i));
+    return s;
+  };
+
+  try {
+    // walk the top-level boxes to find "moov" without reading the whole file
+    const headSize = 16;
+    let offset = 0, moov = null;
+    for (let guard = 0; guard < 24 && !moov; guard++) {
+      const head = await file.slice(offset, offset + headSize).arrayBuffer();
+      if (head.byteLength < 8) break;
+      const hv = new DataView(head);
+      let size = hv.getUint32(0);
+      const type = str(hv, 4, 4);
+      if (size === 1) size = Number(hv.getBigUint64(8));           // 64-bit box
+      if (size < 8) break;
+      if (type === 'moov') moov = { at: offset, size: Math.min(size, 8 << 20) };
+      offset += size;
+    }
+    if (!moov) return {};
+
+    const buf = await file.slice(moov.at, moov.at + moov.size).arrayBuffer();
+    const v = new DataView(buf);
+    const out = {};
+
+    // depth-first walk for udta > meta > ilst, then read the ilst entries
+    const walk = (start, end, path) => {
+      let p = start;
+      while (p + 8 <= end) {
+        let size = v.getUint32(p);
+        const type = str(v, p + 4, 4);
+        if (size === 1 || size < 8 || p + size > end) return;
+        let inner = p + 8;
+        if (type === 'meta') inner += 4;                            // version + flags
+        if (['moov', 'udta', 'meta', 'ilst'].includes(type)) {
+          walk(inner, p + size, path.concat(type));
+        } else if (path[path.length - 1] === 'ilst') {
+          const field = NAMES[type];
+          if (field && !out[field]) {
+            // each entry holds a "data" box: 8 header + 4 flags + 4 reserved
+            const dataAt = p + 8;
+            if (str(v, dataAt + 4, 4) === 'data') {
+              const payload = new Uint8Array(buf, dataAt + 16, Math.max(0, v.getUint32(dataAt) - 16));
+              const text = new TextDecoder('utf-8').decode(payload).replace(/\0+$/g, '').trim();
+              if (text) out[field] = text;
+            }
+          }
+        }
+        p += size;
+      }
+    };
+    walk(0, buf.byteLength, []);
+    return out;
+  } catch {
+    return {};
   }
 }
 
@@ -162,6 +241,10 @@ async function readId3(file) {
     return {};
   }
 }
+
+const MP4_RE = /\.(m4a|m4b|mp4|aac)$/i;
+const readTags = file =>
+  (MP4_RE.test(file.name) || /mp4|m4a/.test(file.type)) ? readMp4Tags(file) : readId3(file);
 
 function fromFilename(name) {
   const base = name.replace(/\.[a-z0-9]+$/i, '').replace(/_/g, ' ').trim();
@@ -598,21 +681,30 @@ function importStatus(html) {
   box.innerHTML = html;
 }
 
-async function addFiles(fileList) {
-  const files = [...fileList].filter(isAudio);
-  if (!files.length) { toast('No audio files in that lot'); return; }
+/* Accepts plain files or {file, path} pairs, so a folder scan can say where
+   each one came from — the folder name is a decent hint about the genre. */
+async function addFiles(fileList, { quiet = false } = {}) {
+  const files = [...fileList]
+    .map(x => (x && x.file) ? x : { file: x, path: (x && x.webkitRelativePath) || '' })
+    .filter(x => x.file && isAudio(x.file));
+  if (!files.length) {
+    if (!quiet) toast('No audio files in that lot');
+    return { added: 0, skipped: 0, failed: 0 };
+  }
   await askToPersist();
 
   let added = 0, skipped = 0, failed = 0, unsorted = 0;
   for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    importStatus(`Saving <b>${esc(f.name)}</b> — ${i + 1} of ${files.length}` +
-      `<div class="bar"><i style="width:${Math.round((i / files.length) * 100)}%"></i></div>`);
-    await new Promise(r => setTimeout(r, 0));         // let the bar paint
+    const { file: f, path } = files[i];
+    if (!quiet) {
+      importStatus(`Saving <b>${esc(f.name)}</b> — ${i + 1} of ${files.length}` +
+        `<div class="bar"><i style="width:${Math.round((i / files.length) * 100)}%"></i></div>`);
+      await new Promise(r => setTimeout(r, 0));       // let the bar paint
+    }
 
     if (lib.some(t => t.file === f.name && t.size === f.size)) { skipped++; continue; }
     try {
-      const track = await buildTrack(f);
+      const track = await buildTrack(f, path);
       await store.putAudio(track.id, f);
       await store.putTrack(track);
       lib.push(track);
@@ -628,23 +720,26 @@ async function addFiles(fileList) {
     }
   }
 
-  const bits = [`${added} added`];
-  if (skipped) bits.push(`${skipped} already here`);
-  if (failed) bits.push(`${failed} wouldn't save`);
-  if (added) importStatus(`<b>${bits.join(' · ')}</b>` +
-    (unsorted ? ` — ${unsorted} ${unsorted === 1 ? 'needs' : 'need'} a station picking below.` : ' — ready to play.'));
-  else if (!failed) importStatus(`<b>${bits.join(' · ')}</b>`);
+  if (!quiet) {
+    const bits = [`${added} added`];
+    if (skipped) bits.push(`${skipped} already here`);
+    if (failed) bits.push(`${failed} wouldn't save`);
+    if (added) importStatus(`<b>${bits.join(' · ')}</b>` +
+      (unsorted ? ` — ${unsorted} ${unsorted === 1 ? 'needs' : 'need'} a station picking below.` : ' — ready to play.'));
+    else if (!failed) importStatus(`<b>${bits.join(' · ')}</b>`);
+  }
 
   rebuildQueue();
   render();
   refreshStorage();
   if (added && !current && pool().length) next();     // first import: start the station
+  return { added, skipped, failed, unsorted };
 }
 
-async function buildTrack(file) {
-  const tags = await readId3(file);
+async function buildTrack(file, relativePath = '') {
+  const tags = await readTags(file);
   const guessFromName = fromFilename(file.name);
-  const path = file.webkitRelativePath || '';
+  const path = relativePath || file.webkitRelativePath || '';
   return {
     id: uid(),
     title: tags.title || guessFromName.title || file.name,
@@ -655,6 +750,135 @@ async function buildTrack(file) {
     type: file.type || '',
     added: Date.now(),
   };
+}
+
+/* ───────────────────────── the watched folder ─────────────────────────
+   Where the browser allows it, you point Nonstop at your music folder once
+   and it re-reads that folder on every launch, picking up anything new.
+   Files are still copied into the app's own storage, so playback keeps
+   working when the folder isn't reachable — an external drive, say. */
+
+const FOLDER_KEY = 'musicFolder';
+const canWatchFolder = () => typeof window.showDirectoryPicker === 'function';
+let folderHandle = null;
+let scanning = false;
+
+async function walkFolder(dir, prefix = '', out = [], depth = 0) {
+  if (depth > 6) return out;                            // deep enough for any library
+  for await (const entry of dir.values()) {
+    const path = prefix ? prefix + '/' + entry.name : entry.name;
+    if (entry.kind === 'directory') await walkFolder(entry, path, out, depth + 1);
+    else if (AUDIO_RE.test(entry.name)) out.push({ handle: entry, path });
+  }
+  return out;
+}
+
+async function scanFolder({ quiet = false } = {}) {
+  if (!folderHandle || scanning) return;
+  scanning = true;
+  renderFolder();
+  try {
+    if (!quiet) importStatus('Reading your music folder…');
+    const found = await walkFolder(folderHandle);
+
+    // only open the files that aren't already saved — a big library shouldn't
+    // be re-read from disk every launch
+    const known = new Set(lib.map(t => t.file + ' ' + t.size));
+    const fresh = [];
+    for (const { handle, path } of found) {
+      let file;
+      try { file = await handle.getFile(); } catch { continue; }
+      if (known.has(file.name + ' ' + file.size)) continue;
+      fresh.push({ file, path });
+    }
+
+    if (!fresh.length) {
+      if (!quiet) importStatus(`<b>Nothing new</b> — all ${found.length} track${found.length === 1 ? '' : 's'} in that folder are already here.`);
+      return;
+    }
+    const res = await addFiles(fresh, { quiet });
+    if (quiet && res.added) toast(`Picked up ${res.added} new track${res.added === 1 ? '' : 's'} from your folder`);
+  } catch (err) {
+    if (!quiet) importStatus(`<b>Couldn't read that folder.</b> ${esc(err && err.message || '')}`);
+  } finally {
+    scanning = false;
+    renderFolder();
+  }
+}
+
+async function linkFolder() {
+  if (!canWatchFolder()) return;
+  let handle;
+  try {
+    handle = await window.showDirectoryPicker({ id: 'nonstop-music', mode: 'read' });
+  } catch {
+    return;                                             // the picker was dismissed
+  }
+  folderHandle = handle;
+  try { await store.setPref(FOLDER_KEY, handle); } catch { /* not storable — this session only */ }
+  renderFolder();
+  scanFolder();
+}
+
+async function unlinkFolder() {
+  folderHandle = null;
+  await store.delPref(FOLDER_KEY).catch(() => {});
+  renderFolder();
+  toast('Folder unlinked — the music already saved stays put');
+}
+
+/* Re-attaches last visit's folder. Chrome remembers the grant for installed
+   apps; otherwise it needs one tap to re-allow, which can't be done for you. */
+async function restoreFolder() {
+  if (!canWatchFolder()) return renderFolder();
+  let handle;
+  try { handle = await store.getPref(FOLDER_KEY); } catch { return renderFolder(); }
+  if (!handle) return renderFolder();
+  folderHandle = handle;
+  renderFolder();
+  try {
+    const state = await handle.queryPermission({ mode: 'read' });
+    if (state === 'granted') scanFolder({ quiet: true });
+    else renderFolder(state);
+  } catch {
+    renderFolder();
+  }
+}
+
+async function reconnectFolder() {
+  if (!folderHandle) return;
+  try {
+    const state = await folderHandle.requestPermission({ mode: 'read' });
+    if (state === 'granted') scanFolder();
+    else renderFolder(state);
+  } catch { renderFolder(); }
+}
+
+function renderFolder(permission = 'granted') {
+  const box = $('#folderSync');
+  if (!box) return;
+  if (!canWatchFolder()) {
+    box.innerHTML = `<p class="hint">This browser can't keep a folder linked. ` +
+      `On a computer, Chrome or Edge can — everywhere else, "Choose a folder" above imports the lot in one go.</p>`;
+    return;
+  }
+  if (!folderHandle) {
+    box.innerHTML = `<button class="btn ghost" data-folder="link">Keep a folder in sync</button>
+      <p class="hint">Pick your music folder once. Every time you open Nonstop it checks that folder and brings in anything new, sorted by genre.</p>`;
+    return;
+  }
+  const name = esc(folderHandle.name || 'your folder');
+  if (permission !== 'granted') {
+    box.innerHTML = `<p class="hint">Linked to <b>${name}</b>, but this browser needs you to allow it again.</p>
+      <button class="btn" data-folder="reconnect">Allow access to ${name}</button>
+      <button class="btn ghost" data-folder="unlink">Unlink</button>`;
+    return;
+  }
+  box.innerHTML = `<p class="hint">Watching <b>${name}</b>${scanning ? ' — reading it now…' : ''}</p>
+    <div class="add-btns">
+      <button class="btn ghost" data-folder="scan" ${scanning ? 'disabled' : ''}>Check for new music</button>
+      <button class="btn ghost" data-folder="unlink">Unlink</button>
+    </div>`;
 }
 
 async function addFromUrl(url, station) {
@@ -891,6 +1115,16 @@ $('#pickFolder').addEventListener('click', () => $('#folderInput').click());
 $('#fileInput').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
 $('#folderInput').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
 
+$('#folderSync').addEventListener('click', e => {
+  const btn = e.target.closest('[data-folder]');
+  if (!btn) return;
+  const what = btn.dataset.folder;
+  if (what === 'link') linkFolder();
+  else if (what === 'scan') scanFolder();
+  else if (what === 'unlink') unlinkFolder();
+  else if (what === 'reconnect') reconnectFolder();
+});
+
 const drop = $('#drop');
 ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => {
   e.preventDefault(); drop.classList.add('hot');
@@ -989,6 +1223,7 @@ document.addEventListener('keydown', e => {
   render();
   renderSleep();
   refreshStorage();
+  restoreFolder();
 })();
 
 if ('serviceWorker' in navigator) {
