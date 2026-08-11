@@ -1,7 +1,8 @@
 # Nonstop
 
-Two stations that never stop — **Reggae** and **Country** — playing from
-your own phone with no signal, no data and no account.
+Stations that never stop — **Reggae**, **Country**, and **Random** for
+everything else — playing from your own phone with no signal, no data and
+no account.
 
 Nonstop is a player, not a streaming service: it doesn't come with any
 music. You load it with tracks you already own (or ones you're allowed to
@@ -10,7 +11,8 @@ keeps them rolling.
 
 ## What it does
 
-- **Three stations.** Reggae, Country, or Both for one long road trip.
+- **Four stations.** Reggae, Country, Random for every other genre you
+  own, and Everything for the whole lot shuffled together.
 - **Never stops.** When a track ends the next one is already lined up. The
   queue refills itself forever, and shuffle plays through the whole station
   before it starts repeating.
@@ -21,8 +23,9 @@ keeps them rolling.
   first visit it works in flight mode, in a tunnel, on a plane.
 - **Sorts itself out.** It reads the tags inside your files — ID3 in MP3s,
   MP4 tags in the M4A/AAC files an iTunes library is made of — and falls
-  back to the filename and folder name. Anything it can't place shows up
-  under "Which station?" for a one-tap decision.
+  back to the filename and folder name. Whatever isn't reggae or country
+  lands on Random, so everything you add plays straight away. Move any
+  track between stations from **Your music**.
 - **Keeps a folder in sync.** On a computer, point it at your music folder
   once and it re-reads that folder every time you open it, importing
   anything new. See the limits below.
@@ -84,9 +87,14 @@ In order, it looks at:
 
 Words like _dub, roots, dancehall, riddim, ska_ send it to Reggae;
 _bluegrass, honky-tonk, outlaw, americana, nashville_ send it to Country.
-When there's no clue either way — or clues for both — the track waits in
-the "Which station?" panel until you tap **Reggae** or **Country**. You can
-move any track between stations later from **Your music**.
+Matching is on whole words, so "Prairie Dogs" isn't reggae on account of
+"irie" and "Alaska" isn't on account of "ska".
+
+Anything with no clue either way — or clues for both — goes to **Random**,
+which is where the rest of your music lives: soul, rock, jazz, whatever
+else you own. Nothing sits unplayable waiting to be filed. To move a
+track, tap **Reggae**, **Country** or **Random** on its row in
+**Your music**.
 
 ## Keeping it on your phone
 
