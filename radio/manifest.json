@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "Nonstop — reggae & country",
+  "short_name": "Nonstop",
+  "description": "Two stations that never stop: reggae and country, playing straight from your own device with no signal needed.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#12100C",
+  "theme_color": "#12100C",
+  "categories": ["music", "entertainment"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
