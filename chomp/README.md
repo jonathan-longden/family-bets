@@ -44,6 +44,25 @@ the chase is starting. A power pellet turns the loose ones blue and worth
 200, 400, 800 and 1600 in a single burst; eat one and its eyes hurry back
 to the house to be reborn.
 
+## Difficulty
+
+Level 1 is deliberately gentle and every level tightens the screws, until
+the ramp levels off around level 10. What changes:
+
+| | Level 1 | Level 10+ |
+| --- | --- | --- |
+| Ghost speed, relative to yours | 80% | 99% |
+| Blue ghost speed | 52% | 72% |
+| Power pellet lasts | 9s | 2s |
+| Last ghost leaves the house after | ~20s | ~5s |
+| Scattering to corners (safe) | 11s | 4s |
+| Hunting you | 15s | 26s |
+
+Your own speed barely moves — it's the gap between you and them that
+closes. On level 1 you can simply outrun anything; by level 10 you can't
+shake a ghost without a dash or a well-taken corner, and Blinky finds an
+extra gear once the maze is nearly clear.
+
 ## Controls
 
 | | |

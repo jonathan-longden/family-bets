@@ -98,9 +98,24 @@
   // -------------------------------------------------------------- tuneables
 
   const BASE_SPEED = 9.4;        // player tiles per second at level 1
-  const GHOST_SPEED = 8.5;
-  const FRIGHT_SPEED = 5.4;
   const EYES_SPEED = 17;
+
+  /* Difficulty ramp -------------------------------------------------------
+     Level 1 is gentle and every level tightens the screws until the ramp
+     plateaus at DIFFICULTY_PEAK. Ghost speeds are expressed as a fraction of
+     the player's speed rather than an absolute, so the gap between you and
+     them is the thing that actually changes — scaling both by the same factor
+     (as this used to) leaves the chase feeling identical at every level. */
+  const DIFFICULTY_PEAK = 10;
+  const PLAYER_PACE = [1, 1.12];        // your own speed barely moves
+  const GHOST_PACE = [0.80, 0.99];      // ...theirs closes right up on you
+  const FRIGHT_PACE = [0.52, 0.72];     // blue ghosts, easy to run down early
+  const FRIGHT_SECONDS = [9, 2];        // how long a power pellet lasts
+  const RELEASE_PACE = [1.8, 0.45];     // how long ghosts loiter in the house
+  const REVIVE_PACE = [1.6, 0.5];       // ...and again after being eaten
+  const SCATTER_PACE = [1.6, 0.6];      // early levels get long safe scatters
+  const CHASE_PACE = [0.75, 1.3];       // ...and short hunts
+  const ELROY_PACE = [0.02, 0.12];      // Blinky's end-of-maze speed-up
   const DASH_TIME = 0.32;
   const DASH_COOL = 4.5;
   const DASH_BOOST = 2.05;
@@ -448,7 +463,7 @@
       g.state = g.spec.startOutside ? 'active' : 'house';
       g.frightened = false;
       g.exitPhase = null;
-      g.releaseAt = g.spec.release;
+      g.releaseAt = g.spec.release * ramp(RELEASE_PACE);
       g.eyesTimer = 0;
     });
 
@@ -533,12 +548,22 @@
 
   // ---------------------------------------------------------------- update
 
-  function levelSpeed() {
-    return Math.min(1.32, 1 + (game.level - 1) * 0.05);
+  /** 0 on level 1, 1 once the ramp has peaked. */
+  function difficulty() {
+    return clamp((game.level - 1) / (DIFFICULTY_PEAK - 1), 0, 1);
+  }
+
+  /** Read one of the [easy, hard] ramp pairs at the current level. */
+  function ramp([easy, hard]) {
+    return easy + (hard - easy) * difficulty();
+  }
+
+  function playerSpeed() {
+    return BASE_SPEED * ramp(PLAYER_PACE);
   }
 
   function frightDuration() {
-    return Math.max(1.6, 7.2 - (game.level - 1) * 0.6);
+    return ramp(FRIGHT_SECONDS);
   }
 
   function currentMode() {
@@ -569,13 +594,17 @@
   }
 
   function ghostSpeed(g) {
-    const lvl = levelSpeed();
     if (g.state === 'eyes' || g.state === 'entering') return EYES_SPEED;
-    if (g.frightened) return FRIGHT_SPEED * lvl;
-    let s = GHOST_SPEED * lvl;
+
+    const pace = playerSpeed();
+    if (g.frightened) return pace * ramp(FRIGHT_PACE);
+
+    let s = pace * ramp(GHOST_PACE);
     if (g.id === 'blinky') {
-      if (game.pelletsLeft < 10) s *= 1.14;
-      else if (game.pelletsLeft < 24) s *= 1.07;
+      // Blinky finds another gear as the maze empties, harder on later levels
+      const elroy = ramp(ELROY_PACE);
+      if (game.pelletsLeft < 10) s *= 1 + elroy;
+      else if (game.pelletsLeft < 24) s *= 1 + elroy * 0.5;
     }
     if (cellY(g) === TUNNEL_ROW) {
       const c = cellX(g);
@@ -667,7 +696,7 @@
         if (moveTowards(g, g.spec.home.x, HOUSE_MID.y, step)) {
           g.state = 'house';
           g.frightened = false;
-          g.releaseAt = game.elapsed + 0.8;
+          g.releaseAt = game.elapsed + ramp(REVIVE_PACE);
           g.bob = 0;
         }
         break;
@@ -768,7 +797,7 @@
       }
     }
 
-    let speed = BASE_SPEED * levelSpeed();
+    let speed = playerSpeed();
     if (player.dashTime > 0) {
       speed *= DASH_BOOST;
       player.dashTime -= dt;
@@ -843,8 +872,9 @@
       return;   // mode clock pauses while the ghosts are running scared
     }
     const plan = MODE_PLAN[Math.min(game.modeIndex, MODE_PLAN.length - 1)];
+    const planTime = plan.time * ramp(plan.mode === 'scatter' ? SCATTER_PACE : CHASE_PACE);
     game.modeTimer += dt;
-    if (game.modeTimer >= plan.time) {
+    if (game.modeTimer >= planTime) {
       game.modeTimer = 0;
       game.modeIndex++;
       reverseGhosts();
@@ -1302,8 +1332,11 @@
     drawPopups(g);
 
     if (game.phase === 'ready') {
+      const hint = game.level === 1 ? 'Chain your pellets'
+        : difficulty() >= 1 ? 'Ghosts at full pelt'
+          : 'The ghosts are quicker now';
       drawBanner(g, game.phaseTimer > 1.1 ? `Level ${game.level}` : 'Ready!',
-        game.phaseTimer > 1.1 ? 'Chain your pellets' : null);
+        game.phaseTimer > 1.1 ? hint : null);
     } else if (game.phase === 'clear') {
       drawBanner(g, 'Maze cleared', `Level ${game.level + 1} coming up`);
     } else if (game.phase === 'dying') {
