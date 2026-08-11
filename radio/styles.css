@@ -234,6 +234,10 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 .btn:active { transform: scale(.98); }
 .btn[disabled] { opacity: .5; pointer-events: none; }
 
+.folder-sync { margin-top: 12px; }
+.folder-sync .hint { margin: 0 0 8px; }
+.folder-sync .add-btns { justify-content: flex-start; }
+
 .import-status {
   margin-top: 12px; font-size: 13px; color: var(--ink-dim);
   background: var(--card); border-radius: 12px; padding: 10px 12px;
