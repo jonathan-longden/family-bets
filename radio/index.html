@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Nonstop — reggae &amp; country, offline</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="description" content="Two stations that never stop: reggae and country, playing straight from your phone with no signal needed." />
+<meta name="theme-color" content="#12100C" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Nonstop" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5 19 12 7 19.5z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 4h4v16H7zm6 0h4v16h-4z"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M5 5l9 7-9 7zm11 0h3v14h-3z"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path d="M19 5v14l-9-7zM5 5h3v14H5z"/></symbol>
+    <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M17 4l4 3.5-4 3.5V9h-2.1l-2 2.9-1.3-1.7L13.8 7H17zM3 7h4.3l6.6 9.5H17V14l4 3.5-4 3.5v-2.5h-4.2L6.2 9H3zm0 8h4l1.6-2.3 1.3 1.7L7.6 17H3z"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7z"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M6 7h12l-1 14H7zm3-4h6l1 2h4v2H4V5h4z"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15.2A8.5 8.5 0 0 1 8.8 4 8.5 8.5 0 1 0 20 15.2"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z"/></symbol>
+    <symbol id="i-disc" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 6.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.6 13.4a4 4 0 0 1 0-5.7l2.8-2.8a4 4 0 0 1 5.7 5.7l-1.4 1.4-1.4-1.4 1.4-1.4a2 2 0 0 0-2.8-2.8L12 9.1a2 2 0 0 0 0 2.8zm2.8-2.8a4 4 0 0 1 0 5.7l-2.8 2.8a4 4 0 0 1-5.7-5.7l1.4-1.4 1.4 1.4-1.4 1.4a2 2 0 0 0 2.8 2.8l2.9-2.7a2 2 0 0 0 0-2.8z"/></symbol>
+  </defs>
+</svg>
+
+<header class="top">
+  <div class="brand">
+    <span class="logo"><svg class="ic"><use href="#i-disc"/></svg></span>
+    <span>Nonstop</span>
+  </div>
+  <button id="sleepBtn" class="icon-btn" title="Sleep timer" aria-label="Sleep timer">
+    <svg class="ic"><use href="#i-moon"/></svg>
+  </button>
+</header>
+
+<nav class="stations" id="stations" aria-label="Stations">
+  <button class="station" data-station="reggae"><b>Reggae</b><span>roots, dub, dancehall</span></button>
+  <button class="station" data-station="country"><b>Country</b><span>honky-tonk to outlaw</span></button>
+  <button class="station" data-station="both"><b>Both</b><span>one long road trip</span></button>
+</nav>
+
+<main>
+  <!-- ───────────── now playing ───────────── -->
+  <section class="player" id="player">
+    <div class="art" id="art"><svg class="ic art-disc"><use href="#i-disc"/></svg></div>
+    <div class="meta">
+      <div class="title" id="npTitle">Nothing playing yet</div>
+      <div class="artist" id="npArtist">Add some music to start the station</div>
+    </div>
+
+    <div class="seek">
+      <input id="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek" />
+      <div class="times"><span id="tNow">0:00</span><span id="tEnd">0:00</span></div>
+    </div>
+
+    <div class="controls">
+      <button id="prevBtn" class="icon-btn" aria-label="Previous"><svg class="ic"><use href="#i-prev"/></svg></button>
+      <button id="playBtn" class="play-btn" aria-label="Play"><svg class="ic"><use href="#i-play"/></svg></button>
+      <button id="nextBtn" class="icon-btn" aria-label="Next"><svg class="ic"><use href="#i-next"/></svg></button>
+    </div>
+
+    <div class="toggles">
+      <button id="shuffleBtn" class="chip on"><svg class="ic"><use href="#i-shuffle"/></svg> Shuffle</button>
+      <button id="fadeBtn" class="chip on">Crossfade</button>
+      <span class="chip flat" id="sleepChip" hidden></span>
+    </div>
+  </section>
+
+  <!-- ───────────── up next ───────────── -->
+  <section class="panel" id="queuePanel">
+    <h2><svg class="ic"><use href="#i-list"/></svg> Up next</h2>
+    <ol class="queue" id="queue"></ol>
+  </section>
+
+  <!-- ───────────── needs sorting ───────────── -->
+  <section class="panel sort-panel" id="sortPanel" hidden>
+    <h2>Which station?</h2>
+    <p class="hint">These tracks are waiting for a home. Tap a station and they join the rotation.</p>
+    <ul class="tracks" id="sortList"></ul>
+  </section>
+
+  <!-- ───────────── library ───────────── -->
+  <section class="panel">
+    <h2>Your music <span class="count" id="libCount"></span></h2>
+    <div class="lib-filter" id="libFilter">
+      <button class="chip on" data-filter="all">All</button>
+      <button class="chip" data-filter="reggae">Reggae</button>
+      <button class="chip" data-filter="country">Country</button>
+    </div>
+    <ul class="tracks" id="library"></ul>
+    <p class="empty" id="libEmpty">Nothing saved yet. Add music below — it's stored on this device, so it plays with the phone in flight mode.</p>
+  </section>
+
+  <!-- ───────────── add music ───────────── -->
+  <section class="panel add" id="addPanel">
+    <h2><svg class="ic"><use href="#i-plus"/></svg> Add music</h2>
+    <div class="drop" id="drop">
+      <p><b>Drop audio files here</b></p>
+      <p class="hint">or pick them from your device — everything is copied into the app so it keeps working offline.</p>
+      <div class="add-btns">
+        <button class="btn" id="pickFiles">Choose files</button>
+        <button class="btn ghost" id="pickFolder">Choose a folder</button>
+        <button class="btn ghost" id="pickUrl"><svg class="ic"><use href="#i-link"/></svg> From a link</button>
+      </div>
+      <input id="fileInput" type="file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.opus,.wav,.flac" multiple hidden />
+      <input id="folderInput" type="file" accept="audio/*" multiple webkitdirectory hidden />
+    </div>
+    <div id="importStatus" class="import-status" hidden></div>
+    <p class="hint storage" id="storage"></p>
+  </section>
+
+  <footer class="foot">
+    <p>Nonstop plays music you already own. Files stay on this device — nothing is uploaded anywhere.</p>
+    <p><button class="linkish" id="installHint">How do I keep this on my home screen?</button></p>
+  </footer>
+</main>
+
+<!-- ───────────── sleep timer sheet ───────────── -->
+<div class="overlay" id="sleepSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Sleep timer</h3>
+      <button class="icon-btn" data-close aria-label="Close"><svg class="ic"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="sleep-opts">
+      <button class="btn ghost" data-sleep="15">15 min</button>
+      <button class="btn ghost" data-sleep="30">30 min</button>
+      <button class="btn ghost" data-sleep="45">45 min</button>
+      <button class="btn ghost" data-sleep="60">1 hour</button>
+      <button class="btn ghost" data-sleep="120">2 hours</button>
+      <button class="btn ghost" data-sleep="end">End of track</button>
+    </div>
+    <button class="btn wide" data-sleep="off">Turn timer off</button>
+  </div>
+</div>
+
+<!-- ───────────── add from link sheet ───────────── -->
+<div class="overlay" id="urlSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Add from a link</h3>
+      <button class="icon-btn" data-close aria-label="Close"><svg class="ic"><use href="#i-close"/></svg></button>
+    </div>
+    <p class="hint">Paste a direct link to an audio file you're allowed to download. It gets saved onto this device so it plays offline afterwards.</p>
+    <input id="urlInput" type="url" inputmode="url" placeholder="https://example.com/track.mp3" />
+    <div class="row">
+      <select id="urlStation">
+        <option value="">Work it out for me</option>
+        <option value="reggae">Reggae</option>
+        <option value="country">Country</option>
+      </select>
+      <button class="btn" id="urlGo">Save</button>
+    </div>
+    <p class="err" id="urlErr" hidden></p>
+  </div>
+</div>
+
+<div class="overlay" id="installSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Keep it on your phone</h3>
+      <button class="icon-btn" data-close aria-label="Close"><svg class="ic"><use href="#i-close"/></svg></button>
+    </div>
+    <p class="hint"><b>iPhone:</b> tap the Share button in Safari, then <b>Add to Home Screen</b>.</p>
+    <p class="hint"><b>Android:</b> tap the browser menu, then <b>Install app</b> or <b>Add to Home Screen</b>.</p>
+    <p class="hint">After that it opens like a normal app and the stations keep playing with no signal.</p>
+    <button class="btn wide" id="installNow" hidden>Install now</button>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
