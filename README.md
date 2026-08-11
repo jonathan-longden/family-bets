@@ -14,8 +14,10 @@ pot live, connect it to a free Firebase Realtime Database.
 > - **[Nonstop](radio/)** (`/radio/`) — nonstop reggae, country and
 >   everything-else stations built from your own music, playing with no
 >   signal at all.
+> - **[Neon Chomp](chomp/)** (`/chomp/`) — a modern maze chase: dash,
+>   chain your pellets and outsmart four ghosts. Plays offline.
 >
-> Both are separate PWAs with the same no-build setup.
+> All three are separate PWAs with the same no-build setup.
 
 ## Firebase setup (for cross-device sync)
 
