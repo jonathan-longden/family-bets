@@ -47,7 +47,8 @@
 <nav class="stations" id="stations" aria-label="Stations">
   <button class="station" data-station="reggae"><b>Reggae</b><span>roots, dub, dancehall</span></button>
   <button class="station" data-station="country"><b>Country</b><span>honky-tonk to outlaw</span></button>
-  <button class="station" data-station="both"><b>Both</b><span>one long road trip</span></button>
+  <button class="station" data-station="random"><b>Random</b><span>every other genre</span></button>
+  <button class="station" data-station="all"><b>Everything</b><span>the whole lot, shuffled</span></button>
 </nav>
 
 <main>
@@ -83,13 +84,6 @@
     <ol class="queue" id="queue"></ol>
   </section>
 
-  <!-- ───────────── needs sorting ───────────── -->
-  <section class="panel sort-panel" id="sortPanel" hidden>
-    <h2>Which station?</h2>
-    <p class="hint">These tracks are waiting for a home. Tap a station and they join the rotation.</p>
-    <ul class="tracks" id="sortList"></ul>
-  </section>
-
   <!-- ───────────── library ───────────── -->
   <section class="panel">
     <h2>Your music <span class="count" id="libCount"></span></h2>
@@ -97,6 +91,7 @@
       <button class="chip on" data-filter="all">All</button>
       <button class="chip" data-filter="reggae">Reggae</button>
       <button class="chip" data-filter="country">Country</button>
+      <button class="chip" data-filter="random">Random</button>
     </div>
     <ul class="tracks" id="library"></ul>
     <p class="empty" id="libEmpty">Nothing saved yet. Add music below — it's stored on this device, so it plays with the phone in flight mode.</p>
@@ -160,6 +155,7 @@
         <option value="">Work it out for me</option>
         <option value="reggae">Reggae</option>
         <option value="country">Country</option>
+        <option value="random">Random</option>
       </select>
       <button class="btn" id="urlGo">Save</button>
     </div>

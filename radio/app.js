@@ -1,4 +1,5 @@
-/* Nonstop — two stations (reggae + country) that keep playing with no signal.
+/* Nonstop — stations (reggae, country, and random for the rest) that keep
+   playing with no signal.
    Music files live in IndexedDB on the device, track details live alongside
    them, and the app shell is cached by the service worker. No build step,
    no bundler, no server. */
@@ -18,8 +19,12 @@ const RECENT_MEMORY = 0.4;       // fraction of a station kept out of the reshuf
 const STATIONS = {
   reggae: { name: 'Reggae', colour: '#3FA96B' },
   country: { name: 'Country', colour: '#E08A3C' },
-  both: { name: 'Reggae & Country', colour: '#F2C230' },
+  random: { name: 'Random', colour: '#9B7BE0' },
+  all: { name: 'Everything', colour: '#F2C230' },
 };
+
+// the three a track can belong to — "all" is a way of listening, not a home
+const PLAYABLE = ['reggae', 'country', 'random'];
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
@@ -122,7 +127,7 @@ function guessStation(...bits) {
   const r = REGGAE_RE.test(hay), c = COUNTRY_RE.test(hay);
   if (r && !c) return 'reggae';
   if (c && !r) return 'country';
-  return null;                       // ambiguous or unknown — the listener decides
+  return 'random';                   // everything else, and anything claiming both
 }
 
 /* ───────────────────────── reading the file's own tags ─────────────────────────
@@ -144,8 +149,8 @@ function decodeText(bytes, encoding) {
 }
 
 /* An iTunes-style library is full of .m4a files, which carry their tags in MP4
-   boxes rather than ID3 frames. Without this, every purchased track would land
-   in the "needs a station" pile. */
+   boxes rather than ID3 frames. Without this, every purchased track would fall
+   back to its filename and land on Random. */
 async function readMp4Tags(file) {
   const NAMES = { '\xA9nam': 'title', '\xA9ART': 'artist', '\xA9alb': 'album', '\xA9gen': 'genre', aART: 'artist' };
   const str = (view, at, n) => {
@@ -257,9 +262,10 @@ function fromFilename(name) {
 /* ───────────────────────── app state ───────────────────────── */
 
 const settings = Object.assign(
-  { station: 'both', shuffle: true, crossfade: true, filter: 'all' },
+  { station: 'all', shuffle: true, crossfade: true, filter: 'all' },
   JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
 );
+if (settings.station === 'both') settings.station = 'all';   // renamed when Random arrived
 const saveSettings = () => localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 
 let lib = [];              // track metadata, newest last
@@ -272,7 +278,7 @@ let sleep = { mode: null, until: 0 };
 const byId = id => lib.find(t => t.id === id);
 
 function pool(station = settings.station) {
-  if (station === 'both') return lib.filter(t => t.station === 'reggae' || t.station === 'country');
+  if (station === 'all') return lib.filter(t => PLAYABLE.includes(t.station));
   return lib.filter(t => t.station === station);
 }
 
@@ -527,11 +533,7 @@ function stopAll() {
 
 function emptyMessage() {
   if (!lib.length) return 'Add a few tracks first — then this never stops';
-  if (!pool().length) {
-    const unsorted = lib.filter(t => !t.station).length;
-    if (unsorted) return 'Give those tracks a station and the music starts';
-    return 'Nothing on this station yet';
-  }
+  if (!pool().length) return 'Nothing on this station yet — try Everything';
   return '';
 }
 
@@ -587,7 +589,7 @@ function artworkFor(track) {
   const hue = hueOf(track.id);
   const grad = g.createLinearGradient(0, 0, size, size);
   grad.addColorStop(0, `hsl(${hue} 55% 34%)`);
-  grad.addColorStop(1, track.station === 'country' ? '#B4632A' : '#2A7A4E');
+  grad.addColorStop(1, (STATIONS[track.station] || STATIONS.random).colour);
   g.fillStyle = grad;
   g.fillRect(0, 0, size, size);
   g.fillStyle = 'rgba(255,255,255,.14)';
@@ -608,7 +610,7 @@ function updateMediaSession() {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: current.title || 'Unknown track',
       artist: current.artist || 'Unknown artist',
-      album: 'Nonstop · ' + (STATIONS[settings.station] || STATIONS.both).name,
+      album: 'Nonstop · ' + (STATIONS[settings.station] || STATIONS.all).name,
       artwork: [{ src: artworkFor(current), sizes: '512x512', type: 'image/png' }],
     });
   } catch { /* older browsers */ }
@@ -693,7 +695,8 @@ async function addFiles(fileList, { quiet = false } = {}) {
   }
   await askToPersist();
 
-  let added = 0, skipped = 0, failed = 0, unsorted = 0;
+  let added = 0, skipped = 0, failed = 0;
+  const landed = { reggae: 0, country: 0, random: 0 };
   for (let i = 0; i < files.length; i++) {
     const { file: f, path } = files[i];
     if (!quiet) {
@@ -709,7 +712,7 @@ async function addFiles(fileList, { quiet = false } = {}) {
       await store.putTrack(track);
       lib.push(track);
       added++;
-      if (!track.station) unsorted++;
+      landed[track.station] = (landed[track.station] || 0) + 1;
     } catch (err) {
       failed++;
       if (err && /quota/i.test(err.name + ' ' + err.message)) {
@@ -724,8 +727,9 @@ async function addFiles(fileList, { quiet = false } = {}) {
     const bits = [`${added} added`];
     if (skipped) bits.push(`${skipped} already here`);
     if (failed) bits.push(`${failed} wouldn't save`);
-    if (added) importStatus(`<b>${bits.join(' · ')}</b>` +
-      (unsorted ? ` — ${unsorted} ${unsorted === 1 ? 'needs' : 'need'} a station picking below.` : ' — ready to play.'));
+    const where = PLAYABLE.filter(id => landed[id])
+      .map(id => `${landed[id]} ${STATIONS[id].name.toLowerCase()}`).join(' · ');
+    if (added) importStatus(`<b>${bits.join(' · ')}</b>${where ? ' — ' + where : ''}`);
     else if (!failed) importStatus(`<b>${bits.join(' · ')}</b>`);
   }
 
@@ -733,7 +737,7 @@ async function addFiles(fileList, { quiet = false } = {}) {
   render();
   refreshStorage();
   if (added && !current && pool().length) next();     // first import: start the station
-  return { added, skipped, failed, unsorted };
+  return { added, skipped, failed, landed };
 }
 
 async function buildTrack(file, relativePath = '') {
@@ -783,12 +787,12 @@ async function scanFolder({ quiet = false } = {}) {
 
     // only open the files that aren't already saved — a big library shouldn't
     // be re-read from disk every launch
-    const known = new Set(lib.map(t => t.file + ' ' + t.size));
+    const known = new Set(lib.map(t => t.file + '\u0000' + t.size));
     const fresh = [];
     for (const { handle, path } of found) {
       let file;
       try { file = await handle.getFile(); } catch { continue; }
-      if (known.has(file.name + ' ' + file.size)) continue;
+      if (known.has(file.name + '\u0000' + file.size)) continue;
       fresh.push({ file, path });
     }
 
@@ -938,7 +942,8 @@ async function removeTrack(id) {
 function setStation(id, station) {
   const t = byId(id);
   if (!t) return;
-  t.station = t.station === station ? null : station;
+  if (t.station === station) return;    // already there — never leave it stationless
+  t.station = station;
   store.putTrack(t).catch(() => {});
   rebuildQueue();
   render();
@@ -965,7 +970,7 @@ async function refreshStorage() {
 function render() {
   $$('.station').forEach(b => b.classList.toggle('on', b.dataset.station === settings.station));
   document.documentElement.style.setProperty('--accent',
-    (STATIONS[settings.station] || STATIONS.both).colour);
+    (STATIONS[settings.station] || STATIONS.all).colour);
 
   $('#playBtn').innerHTML = `<svg class="ic"><use href="#i-${playing ? 'pause' : 'play'}"/></svg>`;
   $('#playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
@@ -977,7 +982,7 @@ function render() {
   if (current) {
     const hue = hueOf(current.id);
     art.innerHTML = `<div class="label" style="background:linear-gradient(140deg,hsl(${hue} 60% 55%),${
-      current.station === 'country' ? '#E08A3C' : '#3FA96B'})">${
+      (STATIONS[current.station] || STATIONS.random).colour})">${
       esc((current.title || '?').trim()[0].toUpperCase())}</div>`;
     $('#npTitle').textContent = current.title || current.file;
     $('#npArtist').textContent = [current.artist, (STATIONS[current.station] || {}).name]
@@ -986,14 +991,13 @@ function render() {
     art.innerHTML = '<svg class="ic art-disc"><use href="#i-disc"/></svg>';
     $('#npTitle').textContent = lib.length ? 'Ready when you are' : 'Nothing playing yet';
     $('#npArtist').textContent = lib.length
-      ? (emptyMessage() || 'Press play for nonstop ' + (STATIONS[settings.station] || STATIONS.both).name.toLowerCase())
+      ? (emptyMessage() || 'Press play for nonstop ' + (STATIONS[settings.station] || STATIONS.all).name.toLowerCase())
       : 'Add some music to start the station';
     $('#seek').value = '0';
     $('#tNow').textContent = $('#tEnd').textContent = '0:00';
   }
 
   renderQueue();
-  renderSort();
   renderLibrary();
 }
 
@@ -1009,7 +1013,10 @@ function renderQueue() {
     </li>`).join('');
 }
 
-function trackRow(t, { sorting = false } = {}) {
+function trackRow(t) {
+  const button = (id, label) =>
+    `<button class="mini ${id} ${t.station === id ? 'on' : ''}" data-act="${id}" ` +
+    `title="Move to ${label}" aria-label="Move to ${label}">${label}</button>`;
   return `
     <li data-id="${t.id}">
       <span class="dot ${t.station || ''}"></span>
@@ -1017,16 +1024,11 @@ function trackRow(t, { sorting = false } = {}) {
         <b>${esc(t.title || t.file)}</b>
         <span>${esc(t.artist || 'Unknown artist')}${t.size ? ' · ' + mb(t.size) : ''}</span>
       </span>
-      <button class="mini reggae ${t.station === 'reggae' ? 'on' : ''}" data-act="reggae">Reggae</button>
-      <button class="mini country ${t.station === 'country' ? 'on' : ''}" data-act="country">Country</button>
-      ${sorting ? '' : '<button class="mini danger" data-act="del" aria-label="Remove"><svg class="ic"><use href="#i-trash"/></svg></button>'}
+      <span class="row-actions">
+        ${button('reggae', 'Reggae')}${button('country', 'Country')}${button('random', 'Random')}
+        <button class="mini danger" data-act="del" aria-label="Remove"><svg class="ic"><use href="#i-trash"/></svg></button>
+      </span>
     </li>`;
-}
-
-function renderSort() {
-  const unsorted = lib.filter(t => !t.station);
-  $('#sortPanel').hidden = !unsorted.length;
-  $('#sortList').innerHTML = unsorted.map(t => trackRow(t, { sorting: true })).join('');
 }
 
 function renderLibrary() {
@@ -1036,8 +1038,9 @@ function renderLibrary() {
       || (a.title || '').localeCompare(b.title || ''));
   $('#library').innerHTML = list.map(t => trackRow(t)).join('');
   $('#libEmpty').hidden = !!lib.length;
+  const count = id => lib.filter(t => t.station === id).length;
   $('#libCount').textContent = lib.length
-    ? `${lib.filter(t => t.station === 'reggae').length} reggae · ${lib.filter(t => t.station === 'country').length} country`
+    ? `${count('reggae')} reggae · ${count('country')} country · ${count('random')} random`
     : '';
   $$('#libFilter .chip').forEach(b => b.classList.toggle('on', b.dataset.filter === filter));
 }
@@ -1053,8 +1056,8 @@ $('#stations').addEventListener('click', e => {
   render();
   // a station switch means that station's music, right now
   if (!pool().length) { stopAll(); toast(emptyMessage()); render(); return; }
-  const stillFits = current && (settings.station === 'both'
-    ? current.station : current.station === settings.station);
+  const stillFits = current && (settings.station === 'all'
+    ? PLAYABLE.includes(current.station) : current.station === settings.station);
   if (!stillFits) next({ fade: settings.crossfade && playing });
 });
 
@@ -1101,13 +1104,11 @@ function onTrackListClick(e) {
   else if (what === 'play') {
     const t = byId(id);
     if (!t) return;
-    if (!t.station) return toast('Pick a station for this one first');
     queue = queue.filter(x => x !== id);
     playTrack(t, { fade: settings.crossfade && playing });
   } else setStation(id, what);
 }
 $('#library').addEventListener('click', onTrackListClick);
-$('#sortList').addEventListener('click', onTrackListClick);
 
 /* adding music */
 $('#pickFiles').addEventListener('click', () => $('#fileInput').click());
@@ -1218,6 +1219,16 @@ document.addEventListener('keydown', e => {
     lib = (await store.allTracks()).sort((a, b) => a.added - b.added);
   } catch {
     toast("This browser wouldn't open the music store — try leaving private mode");
+  }
+
+  // tracks saved before Random existed sat unplayable in the sorting pile
+  const stranded = lib.filter(t => !PLAYABLE.includes(t.station));
+  if (stranded.length) {
+    for (const t of stranded) {
+      t.station = 'random';
+      await store.putTrack(t).catch(() => {});
+    }
+    toast(`${stranded.length} unsorted track${stranded.length === 1 ? '' : 's'} moved to Random`);
   }
   rebuildQueue();
   render();

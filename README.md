@@ -11,8 +11,9 @@ pot live, connect it to a free Firebase Realtime Database.
 >
 > - **[Spotlight](singers/)** (`/singers/`) — a short-video app for
 >   singers who want to get noticed.
-> - **[Nonstop](radio/)** (`/radio/`) — nonstop reggae and country
->   stations built from your own music, playing with no signal at all.
+> - **[Nonstop](radio/)** (`/radio/`) — nonstop reggae, country and
+>   everything-else stations built from your own music, playing with no
+>   signal at all.
 >
 > Both are separate PWAs with the same no-build setup.
 

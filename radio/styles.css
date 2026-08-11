@@ -11,6 +11,7 @@
   --reggae: #3FA96B;
   --reggae-2: #F2C230;
   --country: #E08A3C;
+  --random: #9B7BE0;
   --hot: #D8452F;
   --accent: var(--reggae-2);
   --radius: 16px;
@@ -65,9 +66,13 @@ main { max-width: 620px; margin: 0 auto; padding: 0 16px; }
 
 /* ───────────── stations ───────────── */
 
+/* two-up on a phone, four across once there's room */
 .stations {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
   max-width: 620px; margin: 0 auto 14px; padding: 0 16px;
+}
+@media (min-width: 520px) {
+  .stations { grid-template-columns: repeat(4, 1fr); }
 }
 
 .station {
@@ -171,8 +176,6 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 .hint { font-size: 13px; color: var(--ink-dim); margin: 0 0 10px; }
 .empty { font-size: 14px; color: var(--ink-dim); margin: 4px 0 0; }
 
-.sort-panel { border-color: rgba(242,194,48,.4); }
-
 /* ───────────── track lists ───────────── */
 
 .queue, .tracks { list-style: none; margin: 0; padding: 0; }
@@ -188,18 +191,25 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 .queue .who span { color: var(--ink-dim); font-size: 12px; }
 .queue .who b, .queue .who span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* Three station buttons plus a delete don't fit beside a title on a phone,
+   so the actions drop to their own line until there's room for one row. */
 .tracks li {
   display: flex; align-items: center; gap: 10px; padding: 9px 2px;
-  border-bottom: 1px solid rgba(255,255,255,.05);
+  border-bottom: 1px solid rgba(255,255,255,.05); flex-wrap: wrap;
 }
 .tracks li:last-child { border-bottom: 0; }
-.tracks .who { min-width: 0; flex: 1; cursor: pointer; }
-.tracks .who b { display: block; font-size: 14px; font-weight: 600; }
+.tracks .who { min-width: 0; flex: 1 1 150px; cursor: pointer; }
+.row-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.tracks .who b {
+  display: block; font-size: 14px; font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .tracks .who span { display: block; color: var(--ink-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: #4A4136; }
 .dot.reggae { background: var(--reggae); }
 .dot.country { background: var(--country); }
+.dot.random { background: var(--random); }
 
 .mini {
   appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
@@ -208,6 +218,7 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 }
 .mini.reggae.on { background: var(--reggae); border-color: transparent; color: #0C1A11; }
 .mini.country.on { background: var(--country); border-color: transparent; color: #1A0F05; }
+.mini.random.on { background: var(--random); border-color: transparent; color: #100B1F; }
 .mini.danger { color: var(--hot); border-color: transparent; padding: 5px 6px; }
 .mini .ic { width: 16px; height: 16px; }
 
