@@ -1,7 +1,8 @@
 name: Deploy to GitHub Pages
 
-# Publishes the repo as-is: Family Bets at the root, Spotlight at /singers/
-# and Nonstop at /radio/. Nothing is built — these are static files.
+# Publishes the repo as-is: Family Bets at the root, Spotlight at /singers/,
+# Nonstop at /radio/, Neon Chomp at /chomp/ and Tuner at /iptv/. Nothing is
+# built — these are static files.
 
 on:
   push:
