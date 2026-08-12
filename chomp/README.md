@@ -1,8 +1,8 @@
 # Neon Chomp
 
 A modern take on the maze chase everyone already knows how to play:
-clear the pellets, dodge four ghosts, and get out of a squeeze with a
-dash. No downloads, no account, no signal needed.
+clear the pellets and dodge four ghosts. No downloads, no account, no
+signal needed.
 
 It's the classic 28×31 maze — 240 pellets, four power pellets, the side
 tunnel, the ghost house — rendered as glowing neon and with a couple of
@@ -10,21 +10,18 @@ modern habits bolted on.
 
 ## What's different from the original
 
-- **Dash.** A short burst of speed on a cooldown (Space, or the dash
-  button on a phone). It's the difference between a dead end and an
-  escape, and it's the only reason a pincer isn't automatically fatal.
 - **Pellet chains.** Eat pellets back to back and a chain builds; the
   longer you keep it alive, the more each pellet is worth, up to ×5.
   Stopping to think costs you the multiplier, so the game rewards
   committing to a route.
-- **A maze that reacts.** Screen shake, particle bursts, after-images
-  behind a dash, and a colour scheme that shifts hue every level.
+- **A maze that reacts.** Screen shake, particle bursts, and a colour
+  scheme that shifts hue every level.
 - **Synthesised sound.** Every effect — the pellet blip, the siren that
   tracks how much of the maze is left, the death slide — is generated with
   WebAudio at runtime. There are no audio files to download.
-- **Built for a phone too.** Swipe anywhere on the board to turn, tap to
-  dash, or use the on-screen pad. The board scales to whatever room the
-  screen has.
+- **Built for a phone too.** Swipe anywhere on the board to turn, or use
+  the on-screen pad — its keys are spaced apart so a thumb can't catch two
+  at once. The board scales to whatever room the screen has.
 
 ## The ghosts
 
@@ -51,7 +48,7 @@ the ramp levels off around level 10. What changes:
 
 | | Level 1 | Level 10+ |
 | --- | --- | --- |
-| Ghost speed, relative to yours | 80% | 99% |
+| Ghost speed, relative to yours | 80% | 94% |
 | Blue ghost speed | 52% | 72% |
 | Power pellet lasts | 9s | 2s |
 | Last ghost leaves the house after | ~20s | ~5s |
@@ -59,8 +56,8 @@ the ramp levels off around level 10. What changes:
 | Hunting you | 15s | 26s |
 
 Your own speed barely moves — it's the gap between you and them that
-closes. On level 1 you can simply outrun anything; by level 10 you can't
-shake a ghost without a dash or a well-taken corner, and Blinky finds an
+closes. On level 1 you can simply outrun anything; by level 10 you only
+stay ahead by taking corners better than they do, and Blinky finds an
 extra gear once the maze is nearly clear.
 
 ## Controls
@@ -68,7 +65,6 @@ extra gear once the maze is nearly clear.
 | | |
 | --- | --- |
 | Move | Arrow keys, WASD, swipe, or the on-screen pad |
-| Dash | Space, tap the board, or the dash button |
 | Pause | P or Esc |
 | Mute | M, or the sound button |
 

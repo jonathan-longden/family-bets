@@ -108,7 +108,7 @@
      (as this used to) leaves the chase feeling identical at every level. */
   const DIFFICULTY_PEAK = 10;
   const PLAYER_PACE = [1, 1.12];        // your own speed barely moves
-  const GHOST_PACE = [0.80, 0.99];      // ...theirs closes right up on you
+  const GHOST_PACE = [0.80, 0.94];      // ...theirs closes right up on you
   const FRIGHT_PACE = [0.52, 0.72];     // blue ghosts, easy to run down early
   const FRIGHT_SECONDS = [9, 2];        // how long a power pellet lasts
   const RELEASE_PACE = [1.8, 0.45];     // how long ghosts loiter in the house
@@ -116,9 +116,6 @@
   const SCATTER_PACE = [1.6, 0.6];      // early levels get long safe scatters
   const CHASE_PACE = [0.75, 1.3];       // ...and short hunts
   const ELROY_PACE = [0.02, 0.12];      // Blinky's end-of-maze speed-up
-  const DASH_TIME = 0.32;
-  const DASH_COOL = 4.5;
-  const DASH_BOOST = 2.05;
   const CHAIN_WINDOW = 1.35;     // seconds to keep a pellet chain alive
   const CHAIN_STEP = 8;          // pellets per extra multiplier
   const CHAIN_MAX = 5;
@@ -296,7 +293,6 @@
         [523, 659, 784, 1046].forEach((f, i) =>
           tone({ freq: f, dur: 0.1, type: 'triangle', vol: 0.24, delay: i * 0.06 }));
       },
-      dash() { noise({ dur: 0.28, vol: 0.2, freq: 700 }); },
       death() {
         tone({ freq: 640, to: 70, dur: 1.1, type: 'sawtooth', vol: 0.28 });
         tone({ freq: 320, to: 40, dur: 1.2, type: 'square', vol: 0.16, delay: 0.06 });
@@ -367,9 +363,6 @@
   const livesEl = $('lives');
   const chainFill = $('chainFill');
   const chainMult = $('chainMult');
-  const dashFill = $('dashFill');
-  const dashMeter = $('dashMeter');
-  const dashBtn = $('dashBtn');
   const pauseBtn = $('pauseBtn');
   const muteBtn = $('muteBtn');
   const flashEl = $('flash');
@@ -405,8 +398,7 @@
     kind: 'player',
     x: PLAYER_HOME.x, y: PLAYER_HOME.y,
     dir: 'left', want: null, blocked: false,
-    mouth: 0, dashTime: 0, dashCool: 0, trail: [],
-    deathT: 0,
+    mouth: 0, deathT: 0,
   };
 
   const ghosts = GHOST_SPECS.map((spec) => ({
@@ -451,10 +443,7 @@
     player.want = null;
     player.blocked = false;
     player.mouth = 0;
-    player.dashTime = 0;
-    player.dashCool = 0;
     player.deathT = 0;
-    player.trail.length = 0;
 
     ghosts.forEach((g) => {
       g.x = g.spec.start.x;
@@ -521,7 +510,7 @@
       text: `You scored ${game.score.toLocaleString()} on level ${game.level}.` +
         (game.score >= game.best ? ' A new best!' : ` Best: ${game.best.toLocaleString()}.`),
       button: 'Play again',
-      hint: 'Arrows / WASD to move · Space to dash · P to pause',
+      hint: 'Arrows / WASD to move · P to pause',
       action: startGame,
     });
     syncHud(true);
@@ -797,18 +786,9 @@
       }
     }
 
-    let speed = playerSpeed();
-    if (player.dashTime > 0) {
-      speed *= DASH_BOOST;
-      player.dashTime -= dt;
-      player.trail.push({ x: player.x, y: player.y, life: 0.28 });
-    } else if (player.dashCool > 0) {
-      player.dashCool = Math.max(0, player.dashCool - dt);
-    }
-
     if (!player.blocked) {
-      advance(player, speed * dt, playerAtCentre);
-      player.mouth += dt * (player.dashTime > 0 ? 22 : 13);
+      advance(player, playerSpeed() * dt, playerAtCentre);
+      player.mouth += dt * 13;
     }
 
     // pellets are eaten from whichever tile the mouth is over
@@ -829,15 +809,6 @@
         game.fruit = null;
       }
     }
-  }
-
-  function tryDash() {
-    if (game.phase !== 'play' || game.paused) return;
-    if (player.dashTime > 0 || player.dashCool > 0) return;
-    player.dashTime = DASH_TIME;
-    player.dashCool = DASH_COOL + DASH_TIME;
-    Sound.dash();
-    burst(player.x, player.y, '#35e7ff', 14, 4);
   }
 
   function checkCollisions() {
@@ -970,10 +941,6 @@
     for (let i = popups.length - 1; i >= 0; i--) {
       popups[i].life -= dt;
       if (popups[i].life <= 0) popups.splice(i, 1);
-    }
-    for (let i = player.trail.length - 1; i >= 0; i--) {
-      player.trail[i].life -= dt;
-      if (player.trail[i].life <= 0) player.trail.splice(i, 1);
     }
   }
 
@@ -1128,18 +1095,6 @@
     const py = player.y * TILE + TILE / 2;
     const radius = TILE * 0.46;
 
-    // dash after-images
-    for (const t of player.trail) {
-      const a = t.life / 0.28;
-      g.save();
-      g.globalAlpha = a * 0.35;
-      g.fillStyle = '#35e7ff';
-      g.beginPath();
-      g.arc(t.x * TILE + TILE / 2, t.y * TILE + TILE / 2, radius * a, 0, Math.PI * 2);
-      g.fill();
-      g.restore();
-    }
-
     if (dying && player.deathT > 1.5) return;
 
     let mouth;
@@ -1160,8 +1115,8 @@
 
     g.save();
     if (dying) g.globalAlpha = clamp(1 - player.deathT / 1.7, 0, 1);
-    g.shadowColor = player.dashTime > 0 ? '#35e7ff' : '#ffb43c';
-    g.shadowBlur = player.dashTime > 0 ? 22 : 14;
+    g.shadowColor = '#ffb43c';
+    g.shadowBlur = 14;
     g.fillStyle = grad;
     g.beginPath();
     g.moveTo(px, py);
@@ -1380,15 +1335,6 @@
       chainMult.textContent = `x${mult}`;
       hudCache.mult = mult;
     }
-
-    const ready = player.dashCool <= 0 && player.dashTime <= 0;
-    const dashPct = ready ? 1 : 1 - player.dashCool / (DASH_COOL + DASH_TIME);
-    dashFill.style.transform = `scaleX(${dashPct.toFixed(3)})`;
-    if (hudCache.dashReady !== ready) {
-      dashMeter.classList.toggle('ready', ready);
-      dashBtn.disabled = !ready;
-      hudCache.dashReady = ready;
-    }
   }
 
   function showOverlay({ title, text, button, hint, action }) {
@@ -1471,7 +1417,6 @@
       e.preventDefault();
       Sound.unlock();
       if (game.phase === 'menu' || game.phase === 'over') panelBtn.click();
-      else tryDash();
     } else if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') {
       e.preventDefault();
       togglePause();
@@ -1498,7 +1443,7 @@
     const dy = t.clientY - touchStart.y;
     const dist = Math.hypot(dx, dy);
     if (dist < 24) {
-      if (performance.now() - touchStart.t < 300) tryDash();
+      // a tap isn't a swipe; ignore it rather than guessing at a direction
     } else if (Math.abs(dx) > Math.abs(dy)) {
       setWant(dx > 0 ? 'right' : 'left');
     } else {
@@ -1517,7 +1462,6 @@
     btn.addEventListener('mousedown', fire);
   });
 
-  dashBtn.addEventListener('click', () => { Sound.unlock(); tryDash(); });
   pauseBtn.addEventListener('click', () => togglePause());
 
   function setMuteLabel(muted) {
@@ -1610,9 +1554,9 @@
   syncHud(true);
   showOverlay({
     title: 'Neon Chomp',
-    text: 'Clear every pellet, chain them for a bigger multiplier, and dash out of trouble.',
+    text: 'Clear every pellet and chain them for a bigger multiplier. Tight corners lose ghosts.',
     button: 'Play',
-    hint: 'Arrows / WASD to move · Space to dash · P to pause',
+    hint: 'Arrows / WASD to move · P to pause',
     action: startGame,
   });
   requestAnimationFrame(frame);
