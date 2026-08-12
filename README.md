@@ -15,7 +15,7 @@ pot live, connect it to a free Firebase Realtime Database.
 >   everything-else stations built from your own music, playing with no
 >   signal at all.
 > - **[Neon Chomp](chomp/)** (`/chomp/`) — a springer spaniel loose in a
->   neon maze: fetch the bones, dodge four cats. Plays offline.
+>   neon maze: fetch the balls, dodge four cats. Plays offline.
 > - **[Tuner](iptv/)** (`/iptv/`) — a private IPTV player for the M3U
 >   playlist you already have, with a TV guide and favourites.
 >
