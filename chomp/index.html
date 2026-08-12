@@ -18,7 +18,7 @@
 
   <header class="hud">
     <div class="hud-cell">
-      <span class="hud-label">Score</span>
+      <span class="hud-label">Score <b class="chain-chip" id="chainMult">x1</b></span>
       <span class="hud-value" id="score">0</span>
     </div>
     <div class="hud-cell">
@@ -33,14 +33,8 @@
       <span class="hud-label">Lives</span>
       <span class="lives" id="lives" aria-label="lives remaining"></span>
     </div>
+    <div class="chain-line"><div class="chain-line-fill" id="chainFill"></div></div>
   </header>
-
-  <div class="meters">
-    <div class="meter meter--chain" id="chainMeter">
-      <div class="meter-fill" id="chainFill"></div>
-      <span class="meter-text"><b id="chainMult">x1</b> chain</span>
-    </div>
-  </div>
 
   <main class="stage-host" id="stageHost">
     <div class="stage" id="stage">
@@ -59,17 +53,19 @@
     </div>
   </main>
 
-  <div class="toolbar">
-    <button class="btn btn--ghost" id="pauseBtn" type="button" aria-label="Pause">Pause</button>
-    <button class="btn btn--ghost" id="muteBtn" type="button" aria-pressed="false" aria-label="Mute sound">Sound on</button>
-  </div>
+  <div class="controls" id="controls">
+    <div class="toolbar">
+      <button class="btn btn--ghost" id="pauseBtn" type="button" aria-label="Pause">Pause</button>
+      <button class="btn btn--ghost" id="muteBtn" type="button" aria-pressed="false" aria-label="Mute sound">Sound on</button>
+    </div>
 
-  <div class="touch-controls" id="touchControls">
-    <div class="dpad">
-      <button class="dbtn dbtn--up" data-dir="up" type="button" aria-label="Move up"></button>
-      <button class="dbtn dbtn--left" data-dir="left" type="button" aria-label="Move left"></button>
-      <button class="dbtn dbtn--right" data-dir="right" type="button" aria-label="Move right"></button>
-      <button class="dbtn dbtn--down" data-dir="down" type="button" aria-label="Move down"></button>
+    <div class="touch-controls" id="touchControls">
+      <div class="dpad">
+        <button class="dbtn dbtn--up" data-dir="up" type="button" aria-label="Move up"></button>
+        <button class="dbtn dbtn--left" data-dir="left" type="button" aria-label="Move left"></button>
+        <button class="dbtn dbtn--right" data-dir="right" type="button" aria-label="Move right"></button>
+        <button class="dbtn dbtn--down" data-dir="down" type="button" aria-label="Move down"></button>
+      </div>
     </div>
   </div>
 

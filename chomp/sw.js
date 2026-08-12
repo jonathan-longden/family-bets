@@ -1,4 +1,4 @@
-const CACHE_NAME = 'neon-chomp-v2';
+const CACHE_NAME = 'neon-chomp-v3';
 const FILES_TO_CACHE = [
   './',
   './index.html',

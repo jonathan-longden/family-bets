@@ -1490,12 +1490,11 @@
 
     // Measure the chrome under the board rather than guessing at it, so the
     // maze grows into whatever room the phone actually has.
-    const toolbar = document.querySelector('.toolbar');
-    const pad = document.getElementById('touchControls');
-    const padH = getComputedStyle(pad).display === 'none' ? 0 : pad.offsetHeight;
-    const appPad = parseFloat(getComputedStyle(document.querySelector('.app')).paddingBottom) || 12;
-    const gaps = 10 * (padH ? 3 : 2);
-    const availH = window.innerHeight - top - toolbar.offsetHeight - padH - gaps - appPad;
+    const appStyle = getComputedStyle(document.querySelector('.app'));
+    const controls = document.getElementById('controls');
+    const gap = parseFloat(appStyle.rowGap) || 8;
+    const appPad = parseFloat(appStyle.paddingBottom) || 10;
+    const availH = window.innerHeight - top - controls.offsetHeight - gap - appPad;
     const scale = clamp(Math.min(availW / W, availH / H), 0.42, 1.35);
 
     stage.style.width = `${Math.round(W * scale)}px`;
