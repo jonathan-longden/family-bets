@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Neon Chomp",
   "short_name": "Chomp",
-  "description": "A modern maze chase: chain your pellets and outsmart four ghosts. Plays offline.",
+  "description": "A springer spaniel loose in a neon maze: fetch the bones, dodge four cats. Plays offline.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

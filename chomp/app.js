@@ -121,14 +121,15 @@
   const CHAIN_MAX = 5;
   const EXTRA_LIFE_AT = 10000;
   const GHOST_POINTS = [200, 400, 800, 1600];
+  // treats dropped by the ghost house, worth more as the levels climb
   const FRUIT = [
-    { icon: '🍒', points: 100 },
-    { icon: '🍓', points: 300 },
-    { icon: '🍊', points: 500 },
-    { icon: '🍎', points: 700 },
-    { icon: '🍈', points: 1000 },
-    { icon: '🍇', points: 2000 },
-    { icon: '🍌', points: 3000 },
+    { icon: '🍖', points: 100 },
+    { icon: '🍗', points: 300 },
+    { icon: '🥓', points: 500 },
+    { icon: '🥩', points: 700 },
+    { icon: '🧀', points: 1000 },
+    { icon: '🍪', points: 2000 },
+    { icon: '🥎', points: 3000 },
     { icon: '⭐', points: 5000 },
   ];
   const MODE_PLAN = [
@@ -1044,30 +1045,102 @@
     mazeArt = cv;
   }
 
+  const TAU = Math.PI * 2;
+
+  const DOG = {
+    coat: '#fdf4e6',
+    shade: '#e6d5bd',
+    liver: '#a15c2f',
+    liverDark: '#77401d',
+    nose: '#1d1620',
+    tongue: '#ff7f96',
+  };
+
+  /** Bones lie along their corridor: flat in horizontal runs, upright in vertical ones. */
+  const boneUpright = tiles.map((row, r) => row.map((_, c) =>
+    !(tileAt(c, r - 1) !== PATH && tileAt(c, r + 1) !== PATH)));
+
+  const BONE_BOX = 12;        // logical box the bone sprite is drawn into
+  let boneArt = null;
+
+  /**
+   * Pre-render the bone once per orientation — there are 240 on the board and
+   * re-tracing that path (with its glow) every frame is far too much work.
+   */
+  function buildBoneArt() {
+    boneArt = [false, true].map((upright) => {
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = Math.max(1, Math.round(BONE_BOX * artScale));
+      const g = cv.getContext('2d');
+      g.setTransform(artScale, 0, 0, artScale, 0, 0);
+      g.translate(BONE_BOX / 2, BONE_BOX / 2);
+      if (upright) g.rotate(Math.PI / 2);
+
+      const shaft = 2.3;
+      const knob = 1.05;
+      g.beginPath();
+      for (const side of [-1, 1]) {
+        for (const up of [-1, 1]) {
+          const cx = side * shaft;
+          const cy = up * knob * 0.55;
+          g.moveTo(cx + knob, cy);
+          g.arc(cx, cy, knob, 0, TAU);
+        }
+      }
+      g.rect(-shaft, -0.8, shaft * 2, 1.6);
+      g.shadowColor = 'rgba(255, 214, 150, 0.85)';
+      g.shadowBlur = 3;
+      g.fillStyle = '#f7efdb';
+      g.fill();
+      return cv;
+    });
+  }
+
   function drawPellets(g) {
-    const pulse = 0.5 + 0.5 * Math.sin(game.time * 5.5);
-    g.save();
-    g.fillStyle = '#ffe9bd';
+    if (!boneArt) buildBoneArt();
+    const half = BONE_BOX / 2;
     for (let r = 0; r < ROWS; r++) {
       const row = game.pellets[r];
       for (let c = 0; c < COLS; c++) {
         if (row[c] !== PELLET) continue;
-        g.fillRect(c * TILE + TILE / 2 - 1.4, r * TILE + TILE / 2 - 1.4, 2.8, 2.8);
+        g.drawImage(boneArt[boneUpright[r][c] ? 1 : 0],
+          c * TILE + TILE / 2 - half, r * TILE + TILE / 2 - half, BONE_BOX, BONE_BOX);
       }
     }
-    g.fillStyle = '#bfe6ff';
-    g.shadowColor = '#7ec8ff';
-    g.shadowBlur = 10 + pulse * 8;
+
+    // power-ups are tennis balls
+    const pulse = 0.5 + 0.5 * Math.sin(game.time * 5.5);
+    g.save();
     for (let r = 0; r < ROWS; r++) {
       const row = game.pellets[r];
       for (let c = 0; c < COLS; c++) {
         if (row[c] !== POWER) continue;
-        g.beginPath();
-        g.arc(c * TILE + TILE / 2, r * TILE + TILE / 2, 3.4 + pulse * 1.6, 0, Math.PI * 2);
-        g.fill();
+        drawTennisBall(g, c * TILE + TILE / 2, r * TILE + TILE / 2, 3.6 + pulse * 1.2, pulse);
       }
     }
     g.restore();
+  }
+
+  function drawTennisBall(g, cx, cy, r, pulse) {
+    const grad = g.createRadialGradient(cx - r * 0.35, cy - r * 0.4, r * 0.1, cx, cy, r);
+    grad.addColorStop(0, '#f4ffa6');
+    grad.addColorStop(0.6, '#cce63f');
+    grad.addColorStop(1, '#8fb018');
+    g.fillStyle = grad;
+    g.shadowColor = '#dcf655';
+    g.shadowBlur = 8 + pulse * 9;
+    g.beginPath();
+    g.arc(cx, cy, r, 0, TAU);
+    g.fill();
+    g.shadowBlur = 0;
+    g.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+    g.lineWidth = Math.max(0.55, r * 0.16);
+    g.beginPath();
+    for (const sd of [-1, 1]) {
+      g.moveTo(cx + sd * r * 0.78, cy - r * 0.62);
+      g.quadraticCurveTo(cx + sd * r * 0.1, cy, cx + sd * r * 0.78, cy + r * 0.62);
+    }
+    g.stroke();
   }
 
   function drawFruit(g) {
@@ -1083,119 +1156,251 @@
     g.font = '17px serif';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.shadowColor = '#ff8ad4';
+    g.shadowColor = '#ffb168';
     g.shadowBlur = 14;
     g.fillText(f.spec.icon, 0, 0);
     g.restore();
   }
 
+  /** The player is a springer spaniel, drawn in profile facing its heading. */
   function drawPlayer(g) {
     const dying = game.phase === 'dying';
-    const px = player.x * TILE + TILE / 2;
-    const py = player.y * TILE + TILE / 2;
-    const radius = TILE * 0.46;
+    if (dying && player.deathT > 1.6) return;
 
-    if (dying && player.deathT > 1.5) return;
-
+    const R = TILE * 0.48;
     let mouth;
-    if (dying) {
-      mouth = clamp(player.deathT / 1.5, 0, 1) * Math.PI;
-    } else if (game.phase === 'ready') {
-      mouth = 0.28 * Math.PI;
-    } else {
-      mouth = (0.06 + 0.5 * (1 - Math.abs(Math.sin(player.mouth)))) * 0.62 * Math.PI;
-      if (player.blocked) mouth = 0.12 * Math.PI;
-    }
-
-    const angle = ANGLE[player.dir];
-    const grad = g.createRadialGradient(px - radius * 0.3, py - radius * 0.4, 1, px, py, radius);
-    grad.addColorStop(0, '#fff6c9');
-    grad.addColorStop(0.55, '#ffd23f');
-    grad.addColorStop(1, '#ffa62b');
+    if (game.phase === 'ready') mouth = 0.26 * Math.PI;
+    else if (player.blocked) mouth = 0.1 * Math.PI;
+    else mouth = (0.06 + 0.5 * (1 - Math.abs(Math.sin(player.mouth)))) * 0.55 * Math.PI;
 
     g.save();
-    if (dying) g.globalAlpha = clamp(1 - player.deathT / 1.7, 0, 1);
-    g.shadowColor = '#ffb43c';
-    g.shadowBlur = 14;
-    g.fillStyle = grad;
+    g.translate(player.x * TILE + TILE / 2, player.y * TILE + TILE / 2);
+    g.rotate(ANGLE[player.dir]);
+    // a plain rotation would hang the ears off the wrong side going left
+    if (player.dir === 'left') g.scale(1, -1);
+    if (dying) {
+      const t = clamp(player.deathT / 1.6, 0, 1);
+      g.globalAlpha = 1 - t;
+      g.rotate(t * Math.PI * 1.6);
+      g.scale(1 - t * 0.55, 1 - t * 0.55);
+      mouth = 0.34 * Math.PI * (1 - t) + 0.04;
+    }
+
+    const flap = player.blocked || dying ? 0 : Math.sin(player.mouth * 0.8) * 0.2;
+
+    // head, with the chomp cut straight out of it
+    const coat = g.createRadialGradient(-R * 0.2, -R * 0.3, R * 0.1, 0, 0, R);
+    coat.addColorStop(0, '#fffcf4');
+    coat.addColorStop(0.7, DOG.coat);
+    coat.addColorStop(1, DOG.shade);
+    g.shadowColor = 'rgba(255, 190, 120, 0.75)';
+    g.shadowBlur = 12;
+    g.fillStyle = coat;
     g.beginPath();
-    g.moveTo(px, py);
-    g.arc(px, py, radius, angle + mouth, angle - mouth + Math.PI * 2);
+    g.moveTo(0, 0);
+    g.arc(0, 0, R, mouth, -mouth + TAU);
     g.closePath();
     g.fill();
+    g.shadowBlur = 0;
+
+    // liver cap over the crown only — the muzzle stays cream so the face reads
+    g.save();
+    g.clip();
+    g.fillStyle = DOG.liver;
+    g.beginPath();
+    g.ellipse(-R * 0.5, -R * 0.62, R * 0.85, R * 0.55, 0.3, 0, TAU);
+    g.fill();
+    g.restore();
+
+    // near ear, hanging off the back of the head
+    const ear = g.createLinearGradient(-R * 0.7, 0, -R * 0.2, R);
+    ear.addColorStop(0, DOG.liver);
+    ear.addColorStop(1, DOG.liverDark);
+    g.fillStyle = ear;
+    g.beginPath();
+    g.ellipse(-R * 0.52, R * 0.34, R * 0.32, R * 0.62, 0.3 + flap, 0, TAU);
+    g.fill();
+    g.strokeStyle = 'rgba(255, 236, 210, 0.35)';
+    g.lineWidth = 0.6;
+    g.stroke();
+
+    // eye, sitting on the cream of the cheek
+    g.fillStyle = '#20161d';
+    g.beginPath();
+    g.arc(R * 0.24, -R * 0.22, R * 0.15, 0, TAU);
+    g.fill();
+    g.fillStyle = 'rgba(255,255,255,0.95)';
+    g.beginPath();
+    g.arc(R * 0.29, -R * 0.28, R * 0.055, 0, TAU);
+    g.fill();
+
+    // nose, riding the tip of the upper jaw
+    g.fillStyle = DOG.nose;
+    g.beginPath();
+    g.ellipse(Math.cos(-mouth) * R * 0.88, Math.sin(-mouth) * R * 0.88, R * 0.15, R * 0.12,
+      -mouth, 0, TAU);
+    g.fill();
+
+    // tongue, only worth drawing when the mouth is properly open
+    if (mouth > 0.16) {
+      g.fillStyle = DOG.tongue;
+      g.beginPath();
+      g.moveTo(R * 0.1, R * 0.05);
+      g.quadraticCurveTo(R * 0.75, R * 0.2, R * 0.5, Math.sin(mouth) * R * 0.72);
+      g.quadraticCurveTo(R * 0.3, Math.sin(mouth) * R * 0.5, R * 0.1, R * 0.05);
+      g.fill();
+    }
+
     g.restore();
   }
 
-  function ghostBody(g, x, y, r) {
-    g.beginPath();
-    g.arc(x, y - r * 0.08, r, Math.PI, 0);
-    g.lineTo(x + r, y + r * 0.8);
-    const humps = 3;
-    const w = (2 * r) / humps;
-    for (let i = 0; i < humps; i++) {
-      const x0 = x + r - i * w;
-      g.quadraticCurveTo(x0 - w * 0.5, y + r * 0.8 + (i % 2 === 0 ? r * 0.42 : -r * 0.18), x0 - w, y + r * 0.8);
-    }
-    g.closePath();
-  }
-
-  function drawGhost(g, gh) {
+  /** The chasers are cats. Ghost naming is kept in the logic — it is the AI. */
+  function drawCat(g, gh) {
     const x = gh.x * TILE + TILE / 2;
     const y = gh.y * TILE + TILE / 2;
     const r = TILE * 0.46;
     const eyesOnly = gh.state === 'eyes' || gh.state === 'entering';
+    const scared = gh.frightened && !eyesOnly;
     const flashing = gh.frightened && game.frightTimer < 2 && Math.floor(game.frightTimer * 6) % 2 === 0;
+    const body = gh.frightened ? (flashing ? '#ffffff' : '#3550ff') : gh.spec.color;
+    const glow = gh.frightened ? (flashing ? '#ffffff' : '#6f86ff') : gh.spec.glow;
+    const d = DIRS[gh.dir] || DIRS.left;
 
     g.save();
+    g.translate(x, y);
+
     if (!eyesOnly) {
-      const body = gh.frightened ? (flashing ? '#ffffff' : '#3550ff') : gh.spec.color;
-      const glow = gh.frightened ? (flashing ? '#ffffff' : '#6f86ff') : gh.spec.glow;
-      const grad = g.createLinearGradient(x, y - r, x, y + r);
-      grad.addColorStop(0, glow);
-      grad.addColorStop(0.45, body);
-      grad.addColorStop(1, body);
+      // tail, flicking out behind
+      const side = d.x !== 0 ? -d.x : 1;
+      const wig = Math.sin(game.time * 7 + gh.bob) * 0.3;
+      g.strokeStyle = body;
+      g.lineWidth = r * 0.28;
+      g.lineCap = 'round';
       g.shadowColor = glow;
-      g.shadowBlur = 12;
+      g.shadowBlur = 8;
+      g.beginPath();
+      g.moveTo(side * r * 0.6, r * 0.55);
+      g.quadraticCurveTo(side * r * 1.6, r * (0.4 + wig), side * r * 1.2, -r * (0.3 - wig));
+      g.stroke();
+
+      // ears — pinned back flat when the cat is scared of you
+      const earLift = scared ? 0.35 : 1;
+      g.fillStyle = body;
+      for (const sd of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(sd * r * 0.24, -r * 0.55);
+        g.lineTo(sd * r * (0.5 + (1 - earLift) * 0.5), -r * (0.5 + 0.78 * earLift));
+        g.lineTo(sd * r * 0.92, -r * 0.5);
+        g.closePath();
+        g.fill();
+      }
+
+      // body
+      const grad = g.createLinearGradient(0, -r, 0, r);
+      grad.addColorStop(0, glow);
+      grad.addColorStop(0.5, body);
+      grad.addColorStop(1, body);
       g.fillStyle = grad;
-      ghostBody(g, x, y, r);
+      g.beginPath();
+      g.moveTo(-r, r * 0.82);
+      g.lineTo(-r, -r * 0.08);
+      g.arc(0, -r * 0.08, r, Math.PI, 0);
+      g.lineTo(r, r * 0.82);
+      g.quadraticCurveTo(0, r * 1.16, -r, r * 0.82);
+      g.closePath();
       g.fill();
       g.shadowBlur = 0;
+
+      // inner ears
+      g.fillStyle = flashing ? 'rgba(255,120,160,0.8)' : 'rgba(255, 190, 214, 0.65)';
+      for (const sd of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(sd * r * 0.38, -r * 0.56);
+        g.lineTo(sd * r * (0.52 + (1 - earLift) * 0.34), -r * (0.5 + 0.55 * earLift));
+        g.lineTo(sd * r * 0.76, -r * 0.52);
+        g.closePath();
+        g.fill();
+      }
+
+      // paws
+      g.fillStyle = 'rgba(255,255,255,0.28)';
+      for (const sd of [-1, 1]) {
+        g.beginPath();
+        g.ellipse(sd * r * 0.45, r * 0.86, r * 0.26, r * 0.16, 0, 0, TAU);
+        g.fill();
+      }
     }
 
-    if (gh.frightened && !eyesOnly) {
-      // scared face
-      g.fillStyle = flashing ? '#ff3b5c' : '#bcd0ff';
-      g.beginPath();
-      g.arc(x - r * 0.34, y - r * 0.12, r * 0.15, 0, Math.PI * 2);
-      g.arc(x + r * 0.34, y - r * 0.12, r * 0.15, 0, Math.PI * 2);
-      g.fill();
+    // eyes: slitted normally, saucer-wide when scared
+    const ex = d.x * r * 0.16;
+    const ey = d.y * r * 0.16;
+    g.fillStyle = '#fffdf4';
+    if (eyesOnly) { g.shadowColor = '#bfe6ff'; g.shadowBlur = 10; }
+    g.beginPath();
+    g.ellipse(-r * 0.33 + ex * 0.5, -r * 0.12 + ey * 0.5, r * 0.27, r * 0.31, 0, 0, TAU);
+    g.ellipse(r * 0.33 + ex * 0.5, -r * 0.12 + ey * 0.5, r * 0.27, r * 0.31, 0, 0, TAU);
+    g.fill();
+    g.shadowBlur = 0;
+
+    g.fillStyle = scared ? (flashing ? '#ff3b5c' : '#1b1f52') : '#16142c';
+    g.beginPath();
+    if (scared) {
+      g.ellipse(-r * 0.33, -r * 0.12, r * 0.17, r * 0.19, 0, 0, TAU);
+      g.ellipse(r * 0.33, -r * 0.12, r * 0.17, r * 0.19, 0, 0, TAU);
+    } else {
+      g.ellipse(-r * 0.33 + ex, -r * 0.12 + ey, r * 0.085, r * 0.23, 0, 0, TAU);
+      g.ellipse(r * 0.33 + ex, -r * 0.12 + ey, r * 0.085, r * 0.23, 0, 0, TAU);
+    }
+    g.fill();
+
+    if (eyesOnly) {
+      // ghost-cat ears so the eyes still read as a cat on its way home
+      g.strokeStyle = 'rgba(191, 230, 255, 0.75)';
+      g.lineWidth = 1.1;
+      for (const sd of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(sd * r * 0.2, -r * 0.42);
+        g.lineTo(sd * r * 0.44, -r * 0.78);
+        g.lineTo(sd * r * 0.66, -r * 0.4);
+        g.stroke();
+      }
+      g.restore();
+      return;
+    }
+
+    // nose and whiskers
+    g.fillStyle = scared ? '#bcd0ff' : '#2a1c2e';
+    g.beginPath();
+    g.moveTo(0, r * 0.3);
+    g.lineTo(-r * 0.13, r * 0.15);
+    g.lineTo(r * 0.13, r * 0.15);
+    g.closePath();
+    g.fill();
+
+    if (scared) {
       g.strokeStyle = flashing ? '#ff3b5c' : '#bcd0ff';
-      g.lineWidth = 1.4;
+      g.lineWidth = 1.3;
       g.beginPath();
-      const zy = y + r * 0.42;
+      const zy = r * 0.62;
       for (let i = 0; i <= 6; i++) {
-        const zx = x - r * 0.6 + (i * r * 1.2) / 6;
+        const zx = -r * 0.55 + (i * r * 1.1) / 6;
         if (i === 0) g.moveTo(zx, zy);
-        else g.lineTo(zx, zy + (i % 2 ? -r * 0.16 : r * 0.16));
+        else g.lineTo(zx, zy + (i % 2 ? -r * 0.14 : r * 0.14));
       }
       g.stroke();
     } else {
-      const d = DIRS[gh.dir] || DIRS.left;
-      const ex = d.x * r * 0.18;
-      const ey = d.y * r * 0.2;
-      g.fillStyle = '#ffffff';
-      if (eyesOnly) { g.shadowColor = '#9fd6ff'; g.shadowBlur = 10; }
+      g.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+      g.lineWidth = 0.7;
       g.beginPath();
-      g.ellipse(x - r * 0.32 + ex * 0.5, y - r * 0.14 + ey * 0.5, r * 0.28, r * 0.34, 0, 0, Math.PI * 2);
-      g.ellipse(x + r * 0.32 + ex * 0.5, y - r * 0.14 + ey * 0.5, r * 0.28, r * 0.34, 0, 0, Math.PI * 2);
-      g.fill();
-      g.shadowBlur = 0;
-      g.fillStyle = '#1a1f4a';
-      g.beginPath();
-      g.arc(x - r * 0.32 + ex, y - r * 0.14 + ey, r * 0.15, 0, Math.PI * 2);
-      g.arc(x + r * 0.32 + ex, y - r * 0.14 + ey, r * 0.15, 0, Math.PI * 2);
-      g.fill();
+      for (const sd of [-1, 1]) {
+        g.moveTo(sd * r * 0.18, r * 0.26);
+        g.lineTo(sd * r * 0.98, r * 0.1);
+        g.moveTo(sd * r * 0.18, r * 0.32);
+        g.lineTo(sd * r * 0.98, r * 0.46);
+      }
+      g.stroke();
     }
+
     g.restore();
   }
 
@@ -1280,16 +1485,16 @@
     if (game.phase !== 'clear') {
       ghosts.forEach((gh) => {
         if (game.phase === 'dying' && gh.state !== 'eyes') return;
-        drawGhost(g, gh);
+        drawCat(g, gh);
       });
     }
     if (game.phase !== 'clear') drawPlayer(g);
     drawPopups(g);
 
     if (game.phase === 'ready') {
-      const hint = game.level === 1 ? 'Chain your pellets'
-        : difficulty() >= 1 ? 'Ghosts at full pelt'
-          : 'The ghosts are quicker now';
+      const hint = game.level === 1 ? 'Chain your bones'
+        : difficulty() >= 1 ? 'Cats at full pelt'
+          : 'The cats are quicker now';
       drawBanner(g, game.phaseTimer > 1.1 ? `Level ${game.level}` : 'Ready!',
         game.phaseTimer > 1.1 ? hint : null);
     } else if (game.phase === 'clear') {
@@ -1361,7 +1566,7 @@
       Sound.stopSiren();
       showOverlay({
         title: 'Paused',
-        text: 'Take your time. The ghosts are holding their breath.',
+        text: 'Take your time. The cats are holding their breath.',
         button: 'Resume',
         hint: 'P or Esc also resumes',
         action: () => togglePause(false),
@@ -1553,7 +1758,7 @@
   syncHud(true);
   showOverlay({
     title: 'Neon Chomp',
-    text: 'Clear every pellet and chain them for a bigger multiplier. Tight corners lose ghosts.',
+    text: 'Fetch every bone and chain them for a bigger multiplier. Tight corners lose the cats.',
     button: 'Play',
     hint: 'Arrows / WASD to move · P to pause',
     action: startGame,
