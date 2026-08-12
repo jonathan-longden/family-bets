@@ -35,19 +35,20 @@ body {
   min-height: 100%;
   max-width: 560px;
   margin: 0 auto;
-  padding: max(10px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  padding: max(8px, env(safe-area-inset-top)) 8px max(10px, env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 /* ------------------------------------------------------------------ hud */
 
 .hud {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
-  padding: 10px 12px;
+  padding: 8px 12px 9px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: linear-gradient(180deg, rgba(24, 32, 74, 0.75), rgba(10, 13, 32, 0.75));
@@ -70,7 +71,7 @@ body {
 
 .hud-value {
   font-variant-numeric: tabular-nums;
-  font-size: 20px;
+  font-size: 19px;
   font-weight: 700;
   line-height: 1.1;
   color: var(--yellow);
@@ -84,6 +85,37 @@ body {
 }
 
 .hud-value.bump { transform: scale(1.18); }
+
+.chain-chip {
+  display: inline-block;
+  margin-left: 3px;
+  padding: 0 4px;
+  border-radius: 999px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: #ffd9f6;
+  background: rgba(255, 79, 216, 0.22);
+}
+
+.chain-line {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 4px;
+  height: 3px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(120, 140, 255, 0.12);
+}
+
+.chain-line-fill {
+  height: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
+  border-radius: 999px;
+  background: linear-gradient(90deg, #2a6bff, var(--pink));
+  transition: transform 0.08s linear;
+}
 
 .lives {
   display: flex;
@@ -100,47 +132,6 @@ body {
   box-shadow: 0 0 10px rgba(255, 210, 63, 0.6);
   clip-path: polygon(50% 50%, 100% 24%, 100% 0, 0 0, 0 100%, 100% 100%, 100% 76%);
 }
-
-/* --------------------------------------------------------------- meters */
-
-.meters {
-  display: grid;
-  gap: 8px;
-}
-
-.meter {
-  position: relative;
-  height: 22px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: rgba(10, 13, 32, 0.7);
-  overflow: hidden;
-}
-
-.meter-fill {
-  position: absolute;
-  inset: 0;
-  transform-origin: left center;
-  transform: scaleX(0);
-  transition: transform 0.08s linear;
-}
-
-.meter--chain .meter-fill { background: linear-gradient(90deg, #2a6bff, var(--pink)); }
-
-.meter-text {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  font-size: 11px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #fff;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
-}
-
-.meter-text b { margin-right: 6px; font-variant-numeric: tabular-nums; }
 
 /* ---------------------------------------------------------------- stage */
 
@@ -274,6 +265,13 @@ body {
 
 .btn--ghost { font-size: 13px; padding: 9px 16px; color: #c6cdf5; }
 
+.controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
 .toolbar {
   display: flex;
   gap: 8px;
@@ -340,6 +338,16 @@ body {
 @media (pointer: coarse) {
   .touch-controls { display: flex; }
   .notes { display: none; }
+  /* pad on the left, buttons stacked in the slack beside it: one row of
+     chrome under the board instead of two */
+  .controls {
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 22px;   /* clearance so reaching for "right" can't catch Pause */
+  }
+  .toolbar { order: 2; flex-direction: column; flex-wrap: nowrap; }
+  .toolbar .btn { padding: 10px 14px; }
   /* the board is taller than it is wide, so on a phone the width binds first:
      centre the column instead of leaving all the slack under the controls */
   .app { justify-content: safe center; }
