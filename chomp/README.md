@@ -1,20 +1,24 @@
 # Neon Chomp
 
 A modern take on the maze chase everyone already knows how to play,
-except you're a springer spaniel: fetch every bone in the maze without
+except you're a springer spaniel: fetch every ball in the maze without
 being caught by the four cats. No downloads, no account, no signal
 needed.
 
-Underneath it's the classic 28×31 maze — 240 bones, four tennis balls,
-the side tunnel, the cat basket in the middle — rendered as glowing neon
+Underneath it's the classic 28×31 maze — 240 tennis balls, four squeaky
+balls, the side tunnel, the cat basket in the middle — rendered as glowing neon
 and with a couple of modern habits bolted on.
 
 ## What's different from the original
 
-- **Bone chains.** Fetch bones back to back and a chain builds; the
-  longer you keep it alive, the more each bone is worth, up to ×5.
+- **Fetch chains.** Bring in balls back to back and a chain builds; the
+  longer you keep it alive, the more each ball is worth, up to ×5.
   Stopping to think costs you the multiplier, so the game rewards
   committing to a route.
+- **A dog that actually runs.** The spaniel is a side-on sprite with a
+  four-leg gait, a swinging ear, a wagging tail and a jaw that works as it
+  goes. Running up or down leans it into the climb rather than standing it
+  on end.
 - **A maze that reacts.** Screen shake, particle bursts, and a colour
   scheme that shifts hue every level.
 - **Synthesised sound.** Every effect — the pickup blip, the siren that
@@ -38,7 +42,7 @@ what makes the maze readable once you know it:
 
 They alternate between scattering to their corners and hunting you, and
 they all turn on their heel when the mood changes — the classic tell that
-the chase is starting. A tennis ball sends the loose ones scattering, ears
+the chase is starting. A squeaky ball sends the loose ones scattering, ears
 flat and worth 200, 400, 800 and 1600 in a single burst; catch one and its
 eyes hurry back to the basket to be reborn.
 
@@ -51,7 +55,7 @@ the ramp levels off around level 10. What changes:
 | --- | --- | --- |
 | Cat speed, relative to yours | 80% | 94% |
 | Scared cat speed | 52% | 72% |
-| Tennis ball lasts | 9s | 2s |
+| Squeaky ball lasts | 9s | 2s |
 | Last cat leaves the basket after | ~20s | ~5s |
 | Scattering to corners (safe) | 11s | 4s |
 | Hunting you | 15s | 26s |
@@ -71,10 +75,10 @@ extra gear once the maze is nearly clear.
 
 ## Scoring
 
-- Bone: 10 × chain multiplier
-- Tennis ball: 50 × chain multiplier
-- Cats: 200 → 400 → 800 → 1600 within one tennis ball
-- Treats (appear twice a level below the cat basket): 100 up to 5000 as
+- Tennis ball: 10 × chain multiplier
+- Squeaky ball: 50 × chain multiplier
+- Cats: 200 → 400 → 800 → 1600 within one squeaky ball
+- Bones (appear twice a level below the cat basket): 100 up to 5000 as
   the levels climb
 - An extra life every 10,000 points
 

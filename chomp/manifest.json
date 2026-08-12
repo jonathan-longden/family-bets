@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Neon Chomp",
   "short_name": "Chomp",
-  "description": "A springer spaniel loose in a neon maze: fetch the bones, dodge four cats. Plays offline.",
+  "description": "A springer spaniel loose in a neon maze: fetch the balls, dodge four cats. Plays offline.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

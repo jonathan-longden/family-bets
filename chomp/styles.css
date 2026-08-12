@@ -352,16 +352,24 @@ body {
 @media (pointer: coarse) {
   .touch-controls { display: flex; }
   .notes { display: none; }
-  /* pad on the left, buttons stacked in the slack beside it: one row of
-     chrome under the board instead of two */
+  /* one row of chrome under the board: the pad dead centre, with the two
+     buttons pushed out into the bottom corners. minmax(0, 1fr) keeps the
+     side columns exactly equal so the pad stays centred whatever the
+     buttons are labelled. */
   .controls {
-    flex-direction: row;
-    justify-content: center;
-    align-items: center;
-    gap: 22px;   /* clearance so reaching for "right" can't catch Pause */
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: end;
+    gap: 6px;
   }
-  .toolbar { order: 2; flex-direction: column; flex-wrap: nowrap; }
-  .toolbar .btn { padding: 10px 14px; }
+  .toolbar { display: contents; }
+  /* all three share row 1 explicitly — the buttons come first in the DOM, so
+     auto-placement would otherwise push the pad down onto a second row */
+  .touch-controls { grid-area: 1 / 2; }
+  #pauseBtn { grid-area: 1 / 1; justify-self: start; }
+  #muteBtn { grid-area: 1 / 3; justify-self: end; }
+  /* sized for the longest label ("Sound off") without crowding the pad */
+  .toolbar .btn { font-size: 10px; padding: 9px 9px; white-space: nowrap; }
   /* the board is taller than it is wide, so on a phone the width binds first:
      centre the column instead of leaving all the slack under the controls */
   .app { justify-content: safe center; }
