@@ -16,8 +16,10 @@ pot live, connect it to a free Firebase Realtime Database.
 >   signal at all.
 > - **[Neon Chomp](chomp/)** (`/chomp/`) — a modern maze chase: chain
 >   your pellets and outsmart four ghosts. Plays offline.
+> - **[Tuner](iptv/)** (`/iptv/`) — a private IPTV player for the M3U
+>   playlist you already have, with a TV guide and favourites.
 >
-> All three are separate PWAs with the same no-build setup.
+> All four are separate PWAs with the same no-build setup.
 
 ## Firebase setup (for cross-device sync)
 
