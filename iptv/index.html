@@ -35,14 +35,22 @@
     <symbol id="i-mute" viewBox="0 0 24 24"><path d="M4 9h3.2L12 5v14l-4.8-4H4zm12.3.3 1.4-1.4 1.8 1.8 1.8-1.8 1.4 1.4L20.9 11l1.8 1.8-1.4 1.4-1.8-1.8-1.8 1.8-1.4-1.4L18.1 11z"/></symbol>
     <symbol id="i-clock" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16m-1 3v6l5 2.5.8-1.7L13 11.8V7z"/></symbol>
     <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 6h16v2H4zm0 5h16v2H4zm0 5h16v2H4z"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M11.4 4.6 12.8 6 7.8 11H21v2H7.8l5 5-1.4 1.4L4 12z"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><path d="M4 4h7v7H4zm9 0h7v7h-7zM4 13h7v7H4zm9 0h7v7h-7z"/></symbol>
+    <symbol id="i-guide" viewBox="0 0 24 24"><path d="M3 4h18v16H3zm2 2v12h5V6zm7 0v3h7V6zm0 5v3h7v-3zm0 5v2h7v-2z"/></symbol>
+    <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></symbol>
   </defs>
 </svg>
 
 <header class="top">
+  <button id="backBtn" class="icon-btn" aria-label="Back to home" hidden>
+    <svg class="ic"><use href="#i-back"/></svg>
+  </button>
   <div class="brand">
     <span class="logo"><svg class="ic"><use href="#i-tv"/></svg></span>
     <span>Tuner</span>
   </div>
+  <div class="clock" id="clock"></div>
   <div class="top-actions">
     <button id="playlistBtn" class="chip flat" title="Playlists">
       <span id="playlistName">No playlist</span>
@@ -53,7 +61,54 @@
   </div>
 </header>
 
-<main>
+<!-- ───────────── home ───────────── -->
+<section class="home" id="home">
+  <!-- the backdrop is drawn, not photographed: nothing to download, and it
+       stays in the app's own colours -->
+  <svg class="scene" viewBox="0 0 400 300" preserveAspectRatio="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#0A0E20"/>
+        <stop offset="55%" stop-color="#191B44"/>
+        <stop offset="100%" stop-color="#3A2A63"/>
+      </linearGradient>
+      <radialGradient id="sun" cx="50%" cy="100%" r="60%">
+        <stop offset="0%" stop-color="#4CE0FF" stop-opacity=".75"/>
+        <stop offset="55%" stop-color="#8B5CF6" stop-opacity=".26"/>
+        <stop offset="100%" stop-color="#8B5CF6" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="400" height="300" fill="url(#sky)"/>
+    <!-- glow only: the band is stretched to fit, and a disc would stretch with
+         it into something that reads as an object rather than light -->
+    <circle cx="200" cy="178" r="165" fill="url(#sun)"/>
+    <path d="M0 168 60 120l50 38 40-26 65 50 55-40 60 34 70-36V300H0z" fill="#232A5E" opacity=".85"/>
+    <path d="M0 212 70 176l50 30 50-20 60 34 70-30 60 26 40-12V300H0z" fill="#161C42"/>
+    <path d="M0 252 80 232l70 16 70-12 90 18 90-10V300H0z" fill="#080C1E"/>
+  </svg>
+
+  <div class="home-inner">
+    <div class="home-head">
+      <div class="big-clock" id="bigClock"></div>
+      <div class="home-date" id="homeDate"></div>
+    </div>
+
+    <nav class="tiles" id="tiles" aria-label="Sections"></nav>
+
+    <button class="playing-pill" id="playingPill" hidden>
+      <span class="pulse"></span>
+      <span class="pill-text" id="pillText"></span>
+    </button>
+
+    <div class="home-foot">
+      <div><span class="dim">Playlist</span> <b id="homePlaylist">None yet</b></div>
+      <div><span class="dim">Channels</span> <b id="homeCount">0</b></div>
+      <div><span class="dim">Guide</span> <b id="homeGuide">Off</b></div>
+    </div>
+  </div>
+</section>
+
+<main id="watch" hidden>
   <!-- ───────────── player ───────────── -->
   <section class="stage" id="stage">
     <div class="screen" id="screen">
@@ -103,6 +158,11 @@
     </div>
 
     <div class="groups" id="groups"></div>
+
+    <div class="banner" id="guideHint" hidden>
+      <span>No TV guide loaded, so there's nothing to show here yet.</span>
+      <button class="btn ghost small" id="guideHintBtn">Add a guide link</button>
+    </div>
 
     <ul class="channels" id="channels"></ul>
     <div id="more" class="more" hidden></div>

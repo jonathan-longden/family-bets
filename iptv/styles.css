@@ -50,7 +50,7 @@ main { max-width: 760px; margin: 0 auto; padding: 0 14px; }
   max-width: 760px; margin: 0 auto;
 }
 
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: .3px; font-size: 19px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; letter-spacing: .3px; font-size: 19px; cursor: pointer; }
 
 .logo {
   width: 34px; height: 34px; border-radius: 11px;
@@ -60,6 +60,107 @@ main { max-width: 760px; margin: 0 auto; padding: 0 14px; }
 }
 
 .top-actions { display: flex; align-items: center; gap: 6px; min-width: 0; }
+
+.clock { font-size: 14px; font-weight: 700; letter-spacing: .5px; color: var(--ink-dim); margin-left: auto; }
+body.at-home .clock { display: none; }          /* the home screen has its own */
+@media (max-width: 400px) { .clock { display: none; } }
+
+/* ───────────── home ───────────── */
+
+.home {
+  position: relative; overflow: hidden;
+  min-height: calc(100vh - 64px);
+  min-height: calc(100dvh - 64px);
+  display: flex; flex-direction: column;
+}
+
+/* a horizon along the bottom, not a backdrop behind everything — the tiles
+   need a quiet ground to sit on */
+.scene {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  width: 100%; height: min(42vh, 300px); z-index: 0;
+}
+.home::after {
+  content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(180deg, var(--bg) 0%, rgba(8,11,24,.78) 26%, rgba(8,11,24,.12) 55%, rgba(8,11,24,.2) 100%);
+}
+
+.home-inner {
+  position: relative; z-index: 2; flex: 1;
+  width: 100%; max-width: 760px; margin: 0 auto; padding: 6px 14px 18px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+.home-head { text-align: center; padding: 6px 0 0; }
+.big-clock {
+  font-size: 44px; font-weight: 300; letter-spacing: 1px; line-height: 1;
+  text-shadow: 0 4px 24px rgba(0,0,0,.55);
+}
+.home-date { margin-top: 6px; font-size: 13px; color: var(--ink-dim); letter-spacing: .4px; }
+
+/* three across at every width: the hero spans the row, the other six fill two
+   rows exactly, so nothing is left stranded on a line of its own */
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+
+.tile.hero {
+  grid-column: 1 / -1;
+  flex-direction: row; align-items: center; justify-content: flex-start;
+  gap: 14px; text-align: left; padding: 14px 16px;
+}
+.tile.hero .ring { width: 52px; height: 52px; }
+.tile.hero .ring .ic { width: 27px; height: 27px; }
+.tile.hero b { font-size: 16px; }
+.tile.hero small { font-size: 12px; }
+.tile.hero .hero-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+.tile {
+  appearance: none; cursor: pointer; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 14px 6px 12px; border-radius: 18px;
+  background: rgba(20,25,53,.55); border: 1px solid rgba(35,43,84,.9);
+  color: var(--ink); backdrop-filter: blur(8px);
+  transition: transform .12s, border-color .15s, background .15s;
+}
+.tile:active { transform: scale(.96); }
+.tile:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tile .ring {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: grid; place-items: center; flex: none;
+  background: linear-gradient(135deg, rgba(76,224,255,.18), rgba(139,92,246,.22));
+  border: 1px solid rgba(76,224,255,.28); color: var(--accent);
+}
+.tile .ring .ic { width: 24px; height: 24px; }
+.tile b { font-size: 12.5px; font-weight: 600; letter-spacing: .2px; }
+.tile small { font-size: 10.5px; color: var(--ink-dim); line-height: 1.25; }
+
+.tile.primary { background: linear-gradient(135deg, rgba(76,224,255,.20), rgba(139,92,246,.28)); border-color: var(--accent); }
+.tile.primary .ring { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #06080F; border-color: transparent; }
+.tile[disabled] { opacity: .38; cursor: default; }
+.tile[disabled]:active { transform: none; }
+
+.playing-pill {
+  appearance: none; cursor: pointer; align-self: center;
+  display: flex; align-items: center; gap: 9px; max-width: 100%;
+  background: rgba(20,25,53,.75); border: 1px solid var(--line); color: var(--ink);
+  border-radius: 999px; padding: 8px 15px; font-size: 13px; backdrop-filter: blur(8px);
+}
+.playing-pill .pill-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pulse {
+  width: 8px; height: 8px; border-radius: 50%; background: var(--live); flex: none;
+  box-shadow: 0 0 0 0 rgba(52,211,153,.6); animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  70% { box-shadow: 0 0 0 7px rgba(52,211,153,0); }
+  100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+}
+
+.home-foot {
+  margin-top: auto;                 /* sits on the horizon, not mid-air */
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 20px;
+  padding-top: 14px; font-size: 12.5px;
+}
+.home-foot .dim { color: var(--ink-dim); }
+.home-foot b { color: var(--accent); font-weight: 600; }
 
 .icon-btn {
   appearance: none; border: 0; background: transparent; color: var(--ink);
@@ -216,7 +317,20 @@ main { max-width: 760px; margin: 0 auto; padding: 0 14px; }
 .ch-text { flex: 1; min-width: 0; }
 .ch-name { font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-sub { font-size: 12px; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 1px; }
-.ch-sub .now { color: var(--live); }
+.ch-sub.now { color: var(--live); }
+
+/* guide mode gives each row what's on after this, and how far through it is */
+.ch-next { font-size: 11.5px; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; opacity: .8; }
+.ch-bar { height: 3px; border-radius: 2px; background: var(--line); margin-top: 6px; overflow: hidden; }
+.ch-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.channels.guide li { padding: 11px 6px; }
+
+.banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; margin: 10px 0 2px; padding: 10px 12px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px;
+  font-size: 13px; color: var(--ink-dim);
+}
 
 .more { text-align: center; padding: 12px; color: var(--ink-dim); font-size: 13px; }
 
