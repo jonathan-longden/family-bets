@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#05060f">
-<meta name="description" content="Neon Chomp — a modern take on the classic maze chase. Dash, chain your pellets and outsmart four ghosts. Plays offline.">
+<meta name="description" content="Neon Chomp — a modern take on the classic maze chase. Chain your pellets and outsmart four ghosts. Plays offline.">
 <title>Neon Chomp</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -40,10 +40,6 @@
       <div class="meter-fill" id="chainFill"></div>
       <span class="meter-text"><b id="chainMult">x1</b> chain</span>
     </div>
-    <div class="meter meter--dash" id="dashMeter">
-      <div class="meter-fill" id="dashFill"></div>
-      <span class="meter-text">dash</span>
-    </div>
   </div>
 
   <main class="stage-host" id="stageHost">
@@ -53,9 +49,9 @@
       <div class="overlay" id="overlay" hidden>
         <div class="panel" id="panel">
           <h1 class="panel-title" id="panelTitle">Neon Chomp</h1>
-          <p class="panel-text" id="panelText">Eat every pellet. Dodge four ghosts. Dash when it gets close.</p>
+          <p class="panel-text" id="panelText">Eat every pellet. Dodge four ghosts. Take your corners tight.</p>
           <button class="btn btn--primary" id="panelBtn" type="button">Play</button>
-          <p class="panel-hint" id="panelHint">Arrows / WASD to move &middot; Space to dash &middot; P to pause</p>
+          <p class="panel-hint" id="panelHint">Arrows / WASD to move &middot; P to pause</p>
         </div>
       </div>
 
@@ -68,22 +64,20 @@
     <button class="btn btn--ghost" id="muteBtn" type="button" aria-pressed="false" aria-label="Mute sound">Sound on</button>
   </div>
 
-  <div class="touch-controls" id="touchControls" aria-hidden="true">
+  <div class="touch-controls" id="touchControls">
     <div class="dpad">
       <button class="dbtn dbtn--up" data-dir="up" type="button" aria-label="Move up"></button>
       <button class="dbtn dbtn--left" data-dir="left" type="button" aria-label="Move left"></button>
       <button class="dbtn dbtn--right" data-dir="right" type="button" aria-label="Move right"></button>
       <button class="dbtn dbtn--down" data-dir="down" type="button" aria-label="Move down"></button>
     </div>
-    <button class="dash-btn" id="dashBtn" type="button" aria-label="Dash">DASH</button>
   </div>
 
   <section class="notes">
     <h2>How to play</h2>
     <ul>
-      <li><b>Move</b> with the arrow keys, WASD, a swipe, or the on-screen pad.</li>
-      <li><b>Dash</b> (Space or the dash button) for a short burst of speed &mdash;
-        it recharges in a few seconds and is the cleanest way out of a pincer.</li>
+      <li><b>Move</b> with the arrow keys, WASD, a swipe, or the on-screen pad.
+        Line up your turns early &mdash; a buffered turn fires the moment the gap opens.</li>
       <li><b>Chain</b> pellets by eating them back to back. Keep the chain alive
         and every pellet is worth up to five times as much.</li>
       <li><b>Power pellets</b> in the corners turn the ghosts blue. Eating them in

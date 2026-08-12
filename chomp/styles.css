@@ -105,7 +105,6 @@ body {
 
 .meters {
   display: grid;
-  grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
@@ -127,9 +126,6 @@ body {
 }
 
 .meter--chain .meter-fill { background: linear-gradient(90deg, #2a6bff, var(--pink)); }
-.meter--dash .meter-fill { background: linear-gradient(90deg, #0d6f7d, var(--cyan)); }
-
-.meter--dash.ready .meter-fill { box-shadow: 0 0 16px rgba(53, 231, 255, 0.65); }
 
 .meter-text {
   position: relative;
@@ -290,24 +286,29 @@ body {
 .touch-controls {
   display: none;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  justify-content: center;
   padding: 4px 6px 0;
 }
 
+/* A spaced 3x3 grid: the keys sit apart from each other so a thumb can't
+   catch two at once, with the centre cell left empty. */
 .dpad {
-  position: relative;
-  width: 132px;
-  height: 132px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 14px;
+  /* the vh cap keeps short phones from spending all their height on the pad */
+  width: min(212px, 62vw, 27vh);
+  aspect-ratio: 1;
   flex: none;
 }
 
 .dbtn {
-  position: absolute;
-  width: 44px;
-  height: 44px;
+  position: relative;
+  width: 100%;
+  height: 100%;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 16px;
   background: rgba(20, 26, 60, 0.9);
   cursor: pointer;
 }
@@ -319,38 +320,22 @@ body {
   margin: auto;
   width: 0;
   height: 0;
-  border: 7px solid transparent;
+  border: 9px solid transparent;
 }
 
-.dbtn--up { top: 0; left: 44px; }
-.dbtn--up::after { border-bottom-color: var(--ink); margin-top: 12px; }
-.dbtn--down { bottom: 0; left: 44px; }
-.dbtn--down::after { border-top-color: var(--ink); margin-bottom: 12px; }
-.dbtn--left { left: 0; top: 44px; }
-.dbtn--left::after { border-right-color: var(--ink); margin-left: 12px; }
-.dbtn--right { right: 0; top: 44px; }
-.dbtn--right::after { border-left-color: var(--ink); margin-right: 12px; }
+.dbtn--up { grid-area: 1 / 2; }
+.dbtn--up::after { border-bottom-color: var(--ink); margin-top: 30%; }
+.dbtn--down { grid-area: 3 / 2; }
+.dbtn--down::after { border-top-color: var(--ink); margin-bottom: 30%; }
+.dbtn--left { grid-area: 2 / 1; }
+.dbtn--left::after { border-right-color: var(--ink); margin-left: 30%; }
+.dbtn--right { grid-area: 2 / 3; }
+.dbtn--right::after { border-left-color: var(--ink); margin-right: 30%; }
 
-.dbtn:active { background: rgba(53, 231, 255, 0.25); }
-
-.dash-btn {
-  flex: none;
-  width: 96px;
-  height: 96px;
-  border-radius: 50%;
-  border: 1px solid rgba(53, 231, 255, 0.5);
-  background: radial-gradient(circle at 50% 35%, rgba(53, 231, 255, 0.35), rgba(12, 20, 48, 0.95));
-  color: var(--cyan);
-  font: inherit;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  font-size: 13px;
-  cursor: pointer;
-  box-shadow: 0 0 24px rgba(53, 231, 255, 0.25);
+.dbtn:active {
+  background: rgba(53, 231, 255, 0.25);
+  border-color: rgba(53, 231, 255, 0.55);
 }
-
-.dash-btn:disabled { opacity: 0.35; box-shadow: none; }
-.dash-btn:active:not(:disabled) { transform: scale(0.94); }
 
 @media (pointer: coarse) {
   .touch-controls { display: flex; }
