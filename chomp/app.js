@@ -400,7 +400,7 @@
     kind: 'player',
     x: PLAYER_HOME.x, y: PLAYER_HOME.y,
     dir: 'left', want: null, blocked: false,
-    mouth: 0, deathT: 0,
+    gait: 0, face: -1, deathT: 0,
   };
 
   const ghosts = GHOST_SPECS.map((spec) => ({
@@ -444,7 +444,8 @@
     player.dir = 'left';
     player.want = null;
     player.blocked = false;
-    player.mouth = 0;
+    player.gait = 0;
+    player.face = -1;
     player.deathT = 0;
 
     ghosts.forEach((g) => {
@@ -790,7 +791,7 @@
 
     if (!player.blocked) {
       advance(player, playerSpeed() * dt, playerAtCentre);
-      player.mouth += dt * 13;
+      player.gait += dt * 13;
     }
 
     // pellets are eaten from whichever tile the mouth is over
@@ -1054,6 +1055,7 @@
     coat: '#5b3423',
     coatLit: '#7d4a30',
     ear: '#42241a',
+    legFar: '#3c2419',
     earLit: '#5a3122',
     white: '#f7f0e6',
     whiteShade: '#dccebc',
@@ -1179,128 +1181,182 @@
     g.restore();
   }
 
-  /** The player is a springer spaniel, drawn in profile facing its heading. */
+  /**
+   * The player is a springer spaniel in side view, legs cycling as it runs.
+   *
+   * A side view can't be rotated to face up or down without the dog standing
+   * on end, so it keeps the last horizontal facing and leans into the climb
+   * or descent instead.
+   */
   function drawPlayer(g) {
     const dying = game.phase === 'dying';
-    if (dying && player.deathT > 1.6) return;
+    if (dying && player.deathT > 1.7) return;
 
-    const R = TILE * 0.62;
-    let mouth;
-    if (game.phase === 'ready') mouth = 0.24 * Math.PI;
-    else if (player.blocked) mouth = 0.09 * Math.PI;
-    else mouth = (0.06 + 0.5 * (1 - Math.abs(Math.sin(player.mouth)))) * 0.5 * Math.PI;
+    const T = TILE;
+    const L = T * 1.02;          // body length, nose and tail on top of it
+    const H = T * 0.24;          // body half-depth
+    const headR = T * 0.3;
+
+    if (player.dir === 'left') player.face = -1;
+    else if (player.dir === 'right') player.face = 1;
+    const face = player.face;
+
+    const running = !player.blocked && !dying;
+    const gait = player.gait;
+    const bob = running ? Math.sin(gait * 2) * T * 0.04 : 0;
+    const stride = running ? T * 0.2 : 0;
+    const lift = running ? T * 0.17 : 0;
+    const jaw = player.blocked ? 0.1 : 0.5 + 0.5 * Math.sin(gait);
 
     g.save();
-    g.translate(player.x * TILE + TILE / 2, player.y * TILE + TILE / 2);
-    g.rotate(ANGLE[player.dir]);
-    // a plain rotation would hang the ears off the wrong side going left
-    if (player.dir === 'left') g.scale(1, -1);
+    g.translate(player.x * T + T / 2, player.y * T + T / 2 + bob);
+    // 1.08 puts nose-to-tail just inside the clear space between wall outlines
+    g.scale(face * 1.08, 1.08);
+    g.rotate(player.dir === 'up' ? -0.2 : player.dir === 'down' ? 0.2 : 0);
     if (dying) {
-      const t = clamp(player.deathT / 1.6, 0, 1);
-      g.globalAlpha = 1 - t;
-      g.rotate(t * Math.PI * 1.6);
-      g.scale(1 - t * 0.55, 1 - t * 0.55);
-      mouth = 0.3 * Math.PI * (1 - t) + 0.04;
+      const t = clamp(player.deathT / 1.7, 0, 1);
+      g.globalAlpha = 1 - t * 0.85;
+      g.rotate(t * Math.PI);           // flops onto its back
     }
 
-    const flap = player.blocked || dying ? 0 : Math.sin(player.mouth * 0.8) * 0.16;
+    g.lineCap = 'round';
+    g.lineJoin = 'round';
 
-    // far ear, just visible over the crown
-    g.fillStyle = DOG.ear;
-    g.beginPath();
-    g.ellipse(-R * 0.3, -R * 0.44, R * 0.26, R * 0.4, -0.5 - flap * 0.5, 0, TAU);
-    g.fill();
+    const drawLeg = (hipX, phase, colour, width) => {
+      const px = hipX + Math.cos(phase) * stride;
+      const py = H + T * 0.32 - Math.max(0, Math.sin(phase)) * lift;
+      g.strokeStyle = colour;
+      g.lineWidth = width;
+      g.beginPath();
+      g.moveTo(hipX, H * 0.4);
+      g.quadraticCurveTo(hipX + Math.cos(phase) * stride * 0.35, H + T * 0.16, px, py);
+      g.stroke();
+    };
 
-    // head, with the chomp cut straight out of it
-    const coat = g.createRadialGradient(-R * 0.1, -R * 0.35, R * 0.1, 0, 0, R);
-    coat.addColorStop(0, DOG.coatLit);
-    coat.addColorStop(0.75, DOG.coat);
-    coat.addColorStop(1, '#43261a');
-    g.shadowColor = 'rgba(255, 176, 110, 0.55)';
-    g.shadowBlur = 12;
-    g.fillStyle = coat;
+    // ---- behind the body: tail and the far pair of legs
+    const wag = running ? Math.sin(gait * 1.7) * 0.55 : Math.sin(game.time * 3) * 0.3;
+    g.strokeStyle = DOG.coat;
+    g.lineWidth = T * 0.12;
     g.beginPath();
-    g.moveTo(0, 0);
-    g.arc(0, 0, R, mouth, -mouth + TAU);
-    g.closePath();
+    g.moveTo(-L * 0.46, -H * 0.4);
+    g.quadraticCurveTo(-L * 0.8, -T * (0.1 + wag * 0.14), -L * 0.66, -T * (0.42 + wag * 0.1));
+    g.stroke();
+
+    drawLeg(-L * 0.3, Math.PI, DOG.legFar, T * 0.11);
+    drawLeg(L * 0.26, 0, DOG.legFar, T * 0.11);
+
+    // ---- body
+    g.shadowColor = 'rgba(255, 176, 110, 0.5)';
+    g.shadowBlur = 10;
+    g.fillStyle = DOG.white;
+    g.beginPath();
+    g.ellipse(0, 0, L * 0.5, H * 1.55, 0, 0, TAU);
     g.fill();
     g.shadowBlur = 0;
 
-    // white chin and muzzle, kept inside the head outline. It sits mostly
-    // below the mouth line so the chomp takes a bite out of it rather than
-    // slicing a square off the middle of the face.
+    // liver patches over the rump and shoulder, kept inside the body
     g.save();
     g.clip();
-    const white = g.createLinearGradient(R * 0.2, 0, R * 0.9, R * 0.9);
-    white.addColorStop(0, DOG.white);
-    white.addColorStop(1, DOG.whiteShade);
-    g.fillStyle = white;
+    g.fillStyle = DOG.coat;
     g.beginPath();
-    g.ellipse(R * 0.44, R * 0.52, R * 0.5, R * 0.34, 0.22, 0, TAU);
+    g.ellipse(-L * 0.34, -H * 0.5, L * 0.3, H * 1.7, 0.1, 0, TAU);
     g.fill();
-    g.beginPath();   // a lick of white up towards the nose
-    g.ellipse(R * 0.66, R * 0.12, R * 0.26, R * 0.2, 0.4, 0, TAU);
+    g.beginPath();
+    g.ellipse(L * 0.26, -H * 0.7, L * 0.22, H * 1.5, -0.1, 0, TAU);
     g.fill();
-    // ticking, where the white meets the brown
     g.fillStyle = 'rgba(86, 50, 33, 0.5)';
-    for (const [fx, fy, fr] of [[0.16, 0.62, 0.05], [0.42, 0.74, 0.042], [0.66, 0.6, 0.036]]) {
+    for (const [fx, fy] of [[-0.02, 0.5], [0.1, 0.8], [-0.18, 0.85]]) {
       g.beginPath();
-      g.arc(R * fx, R * fy, R * fr, 0, TAU);
+      g.arc(L * fx, H * fy * 1.5, T * 0.035, 0, TAU);
       g.fill();
     }
-    // leather collar, following the curve of the neck
-    g.strokeStyle = DOG.collar;
-    g.lineWidth = R * 0.2;
-    g.beginPath();
-    g.arc(0, 0, R * 0.86, Math.PI * 0.62, Math.PI * 1.38);
-    g.stroke();
-    g.fillStyle = '#ffd58a';
-    g.beginPath();
-    g.arc(-R * 0.86, 0, R * 0.07, 0, TAU);
-    g.fill();
     g.restore();
 
-    // near ear, long and heavy down the side of the face
-    const ear = g.createLinearGradient(-R * 0.6, 0, -R * 0.1, R);
+    // ---- in front of the body: near pair of legs
+    drawLeg(-L * 0.24, 0, DOG.coat, T * 0.12);
+    drawLeg(L * 0.32, Math.PI, DOG.coat, T * 0.12);
+
+    // ---- neck and head
+    const hx = L * 0.44;
+    const hy = -H * 1.5;
+    g.fillStyle = DOG.coat;
+    g.beginPath();
+    g.moveTo(L * 0.16, -H * 1.2);
+    g.quadraticCurveTo(L * 0.36, -H * 2.2, hx + headR * 0.3, hy);
+    g.lineTo(hx + headR * 0.2, hy + headR * 0.9);
+    g.quadraticCurveTo(L * 0.3, H * 0.6, L * 0.12, H * 0.9);
+    g.closePath();
+    g.fill();
+
+    const coat = g.createRadialGradient(hx - headR * 0.3, hy - headR * 0.4, headR * 0.1,
+      hx, hy, headR * 1.2);
+    coat.addColorStop(0, DOG.coatLit);
+    coat.addColorStop(1, DOG.coat);
+    g.fillStyle = coat;
+    g.beginPath();
+    g.arc(hx, hy, headR, 0, TAU);
+    g.fill();
+
+    // muzzle, white like the photo, with the jaw hinged under it
+    const nx = hx + headR * 0.92;
+    const ny = hy + headR * 0.28;
+    g.fillStyle = DOG.white;
+    g.beginPath();
+    g.ellipse(hx + headR * 0.62, ny, headR * 0.52, headR * 0.34, 0.08, 0, TAU);
+    g.fill();
+
+    if (jaw > 0.25) {
+      g.fillStyle = '#3a1c22';
+      g.beginPath();
+      g.moveTo(hx + headR * 0.25, ny + headR * 0.05);
+      g.lineTo(nx, ny + headR * 0.12);
+      g.lineTo(hx + headR * 0.4, ny + headR * (0.2 + jaw * 0.55));
+      g.closePath();
+      g.fill();
+      g.fillStyle = DOG.tongue;
+      g.beginPath();
+      g.ellipse(hx + headR * 0.55, ny + headR * (0.18 + jaw * 0.3), headR * 0.22,
+        headR * 0.12, 0.2, 0, TAU);
+      g.fill();
+    }
+
+    g.fillStyle = DOG.nose;
+    g.beginPath();
+    g.ellipse(nx, ny - headR * 0.16, headR * 0.17, headR * 0.14, 0.2, 0, TAU);
+    g.fill();
+
+    // long ear, swinging with the stride
+    const flap = running ? Math.sin(gait) * 0.24 : 0;
+    const ear = g.createLinearGradient(hx - headR * 0.4, hy, hx, hy + headR * 1.8);
     ear.addColorStop(0, DOG.earLit);
     ear.addColorStop(1, DOG.ear);
     g.fillStyle = ear;
     g.beginPath();
-    g.ellipse(-R * 0.34, R * 0.5, R * 0.34, R * 0.72, 0.26 + flap, 0, TAU);
+    g.ellipse(hx - headR * 0.34, hy + headR * 0.72, headR * 0.42, headR * 0.92,
+      0.2 + flap, 0, TAU);
     g.fill();
-    g.strokeStyle = 'rgba(255, 208, 168, 0.28)';
-    g.lineWidth = 0.6;
-    g.stroke();
 
-    // eye, pale like the photo, sitting on the brown of the cheek
+    // eye
     g.fillStyle = '#241611';
     g.beginPath();
-    g.arc(R * 0.28, -R * 0.24, R * 0.15, 0, TAU);
+    g.arc(hx + headR * 0.3, hy - headR * 0.12, headR * 0.19, 0, TAU);
     g.fill();
-    g.fillStyle = '#b9c9d6';
+    g.fillStyle = '#c3d2dd';
     g.beginPath();
-    g.arc(R * 0.29, -R * 0.245, R * 0.085, 0, TAU);
+    g.arc(hx + headR * 0.32, hy - headR * 0.13, headR * 0.1, 0, TAU);
     g.fill();
     g.fillStyle = '#1a1013';
     g.beginPath();
-    g.arc(R * 0.3, -R * 0.24, R * 0.045, 0, TAU);
+    g.arc(hx + headR * 0.34, hy - headR * 0.12, headR * 0.055, 0, TAU);
     g.fill();
 
-    // nose, riding the tip of the upper jaw
-    g.fillStyle = DOG.nose;
+    // collar where the neck meets the chest
+    g.strokeStyle = DOG.collar;
+    g.lineWidth = T * 0.09;
     g.beginPath();
-    g.ellipse(Math.cos(-mouth) * R * 0.87, Math.sin(-mouth) * R * 0.87, R * 0.16, R * 0.13,
-      -mouth, 0, TAU);
-    g.fill();
-
-    if (mouth > 0.16) {
-      g.fillStyle = DOG.tongue;
-      g.beginPath();
-      g.moveTo(R * 0.12, R * 0.06);
-      g.quadraticCurveTo(R * 0.72, R * 0.22, R * 0.48, Math.sin(mouth) * R * 0.7);
-      g.quadraticCurveTo(R * 0.3, Math.sin(mouth) * R * 0.48, R * 0.12, R * 0.06);
-      g.fill();
-    }
+    g.moveTo(L * 0.2, -H * 1.25);
+    g.lineTo(L * 0.34, -H * 0.1);
+    g.stroke();
 
     g.restore();
   }

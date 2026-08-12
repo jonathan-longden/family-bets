@@ -15,6 +15,10 @@ and with a couple of modern habits bolted on.
   longer you keep it alive, the more each ball is worth, up to ×5.
   Stopping to think costs you the multiplier, so the game rewards
   committing to a route.
+- **A dog that actually runs.** The spaniel is a side-on sprite with a
+  four-leg gait, a swinging ear, a wagging tail and a jaw that works as it
+  goes. Running up or down leans it into the climb rather than standing it
+  on end.
 - **A maze that reacts.** Screen shake, particle bursts, and a colour
   scheme that shifts hue every level.
 - **Synthesised sound.** Every effect — the pickup blip, the siren that
