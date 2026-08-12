@@ -529,6 +529,29 @@ function makeRow(ch) {
   if (info.live) sub.classList.add('now');
   text.append(name, sub);
 
+  // with no guide loaded at all there's nothing to add — saying "no guide"
+  // on every row of a thousand is noise, and the banner says it once
+  if (guideMode && epg.index.size) {
+    const guide = epgFor(ch);
+    const next = document.createElement('div');
+    next.className = 'ch-next';
+    next.textContent = guide && guide.next
+      ? `Then ${hhmm(guide.next.start)} ${guide.next.title}`
+      : guide ? `Until ${hhmm(guide.now.stop)}` : 'Not in the guide';
+    text.appendChild(next);
+
+    if (guide) {
+      const bar = document.createElement('div');
+      bar.className = 'ch-bar';
+      const fill = document.createElement('i');
+      const { now } = guide;
+      fill.style.width =
+        (clamp((Date.now() - now.start) / Math.max(1, now.stop - now.start), 0, 1) * 100).toFixed(1) + '%';
+      bar.appendChild(fill);
+      text.appendChild(bar);
+    }
+  }
+
   const star = document.createElement('button');
   star.className = 'icon-btn star small' + (isFav(ch) ? ' on' : '');
   star.setAttribute('aria-label', 'Favourite');
@@ -935,6 +958,7 @@ async function adopt({ name, source, text }) {
   await activate(record.id);
   renderPlaylists();
   if (settings.epgUrl) loadEpg().catch(() => {});
+  goWatch();               // a playlist you just added is one you want to see
   return record;
 }
 
@@ -1001,7 +1025,125 @@ async function activate(id) {
       if (settings.autoplay) playChannel(last);
     }
   }
+
+  if (currentView === 'home') refreshHome();
 }
+
+/* ───────────────────────── home ─────────────────────────
+   A launcher rather than a wall of channels: the clock, a handful of ways in,
+   and what's loaded. Every tile goes somewhere real — there is no Movies or
+   Recordings here because Tuner doesn't do those. */
+
+let currentView = 'home';
+let guideMode = false;
+
+const TILES = [
+  { key: 'live', icon: 'i-tv', label: 'Live TV', sub: 'Every channel', needsChannels: true },
+  { key: 'guide', icon: 'i-guide', label: 'TV Guide', sub: 'Now & next', needsChannels: true },
+  { key: 'fav', icon: 'i-star', label: 'Favourites', sub: 'Your starred', needsChannels: true },
+  { key: 'recent', icon: 'i-clock', label: 'Recents', sub: 'Last watched', needsChannels: true },
+  { key: 'search', icon: 'i-search', label: 'Search', sub: 'Find a channel', needsChannels: true },
+  { key: 'playlists', icon: 'i-grid', label: 'Playlists', sub: 'Add or switch' },
+  { key: 'settings', icon: 'i-cog', label: 'Settings', sub: 'Guide & more' },
+];
+
+function showView(v) {
+  currentView = v;
+  $('#home').hidden = v !== 'home';
+  $('#watch').hidden = v !== 'watch';
+  $('#backBtn').hidden = v === 'home';
+  document.body.classList.toggle('at-home', v === 'home');
+  if (v === 'home') refreshHome();
+  window.scrollTo(0, 0);
+}
+
+function goWatch({ mode = 'live', filter = 'all' } = {}) {
+  guideMode = mode === 'guide';
+  group = filter;
+  $('#channels').classList.toggle('guide', guideMode);
+  $('#guideHint').hidden = !(guideMode && !epg.index.size);
+  showView('watch');
+  buildGroups();
+  applyFilter();
+}
+
+function renderTiles() {
+  const box = $('#tiles');
+  box.innerHTML = '';
+  const bare = channels.length === 0;
+
+  // with no playlist, the only tile that does anything goes first — no sense
+  // leading with five you can't press
+  const order = bare
+    ? [TILES.find(t => t.key === 'playlists'), ...TILES.filter(t => t.key !== 'playlists')]
+    : TILES;
+
+  for (const tile of order) {
+    const b = document.createElement('button');
+    const primary = bare && tile.key === 'playlists';
+    // whichever tile is the thing to do next gets the top row to itself
+    const hero = bare ? primary : tile.key === 'live';
+    b.className = 'tile' + (primary ? ' primary' : '') + (hero ? ' hero' : '');
+    b.disabled = bare && tile.needsChannels;
+    b.innerHTML = `<span class="ring"><svg class="ic"><use href="#${tile.icon}"/></svg></span>`;
+
+    const label = document.createElement('b');
+    label.textContent = primary ? 'Add your playlist' : tile.label;
+    const sub = document.createElement('small');
+    sub.textContent = primary ? 'A link, a file, or your provider login'
+      : hero ? `${channels.length.toLocaleString()} channels ready` : tile.sub;
+
+    if (hero) {
+      const wrap = document.createElement('span');
+      wrap.className = 'hero-text';
+      wrap.append(label, sub);
+      b.appendChild(wrap);
+    } else {
+      b.append(label, sub);
+    }
+
+    b.onclick = () => {
+      switch (tile.key) {
+        case 'live': goWatch(); break;
+        case 'guide': goWatch({ mode: 'guide' }); break;
+        case 'fav': goWatch({ filter: 'fav' }); break;
+        case 'recent': goWatch({ filter: 'recent' }); break;
+        case 'search': goWatch(); $('#search').focus(); break;
+        case 'playlists': openPlaylistSheet(); break;
+        case 'settings': openSettingsSheet(); break;
+      }
+    };
+    box.appendChild(b);
+  }
+}
+
+function refreshHome() {
+  const p = playlists.find(x => x.id === settings.activeId);
+  $('#homePlaylist').textContent = p ? p.name : 'None yet';
+  $('#homeCount').textContent = channels.length.toLocaleString();
+  $('#homeGuide').textContent = epg.index.size ? `${epg.index.size.toLocaleString()} channels` : 'Off';
+
+  const pill = $('#playingPill');
+  pill.hidden = !current;
+  if (current) $('#pillText').textContent = `Watching ${current.name}`;
+
+  renderTiles();
+}
+
+function tick() {
+  const now = new Date();
+  const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  $('#clock').textContent = time;
+  $('#bigClock').textContent = time;
+  $('#homeDate').textContent = now.toLocaleDateString([], {
+    weekday: 'long', day: 'numeric', month: 'long',
+  });
+}
+
+$('#guideHintBtn').onclick = () => openSettingsSheet();
+$('#backBtn').onclick = () => showView('home');
+$('#playingPill').onclick = () => showView('watch');
+$('.brand').onclick = () => showView('home');
 
 /* ───────────────────────── sheets ───────────────────────── */
 
@@ -1116,7 +1258,7 @@ $('#playlistBtn').onclick = openPlaylistSheet;
 $('#emptyAdd').onclick = openPlaylistSheet;
 $('#installHint').onclick = () => openSheet('#installSheet');
 
-$('#settingsBtn').onclick = () => {
+const openSettingsSheet = () => {
   $('#epgUrl').value = settings.epgUrl || '';
   $('#optResume').checked = settings.resume;
   $('#optAutoplay').checked = settings.autoplay;
@@ -1125,6 +1267,7 @@ $('#settingsBtn').onclick = () => {
     : settings.epgUrl ? 'Guide not loaded yet.' : 'No guide link set.';
   openSheet('#settingsSheet');
 };
+$('#settingsBtn').onclick = openSettingsSheet;
 
 $('#epgSave').onclick = async () => {
   settings.epgUrl = $('#epgUrl').value.trim();
@@ -1154,6 +1297,7 @@ $('#wipeBtn').onclick = async () => {
   await activate(null);
   renderPlaylists();
   closeSheets();
+  showView('home');
   toast('Everything cleared');
 };
 
@@ -1275,6 +1419,8 @@ $('#installNow').onclick = async () => {
 
 async function start() {
   moreObserver.observe($('#more'));
+  tick();
+  setInterval(tick, 15000);
 
   video.volume = settings.volume;
   video.muted = settings.muted;
@@ -1286,6 +1432,10 @@ async function start() {
   const active = playlists.find(p => p.id === settings.activeId) || playlists[0];
   await activate(active ? active.id : null);
   renderPlaylists();
+
+  // a set left on a channel comes back on that channel; otherwise, home
+  if (current) goWatch();
+  else showView('home');
 
   if (settings.epgUrl) loadEpg().catch(() => {});
   setInterval(refreshEpgUi, 30000);

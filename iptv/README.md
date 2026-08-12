@@ -8,6 +8,26 @@ Tuner is a **player, not a service**. It comes with no channels, no
 directory and nothing to sign up to. It carries whatever your provider (or
 your own server) gives you, and everything it knows stays on the device.
 
+## The home screen
+
+Tuner opens on a home screen rather than a wall of channels: the clock and
+date, **Live TV** across the top, then TV Guide, Favourites, Recents,
+Search, Playlists and Settings, with what's loaded along the bottom. The
+backdrop is drawn in the app's own colours — no photograph to download.
+
+Every tile goes somewhere real. There's no Movies, Series, Catch Up or
+Recording here, because Tuner doesn't do those and a tile that opens
+nothing is worse than no tile. With no playlist loaded yet, the only one
+that does anything leads and the rest are greyed out.
+
+**TV Guide** is Live TV with the guide brought forward: what's on now, what
+follows it, and how far through it is on every row. It needs an XMLTV link
+(see below) and says so if there isn't one.
+
+Leave a channel playing, go home, and a pill at the bottom shows what's
+still on — tap it to go back to the picture. Turn the app off on a channel
+and it comes back on that channel, like a television.
+
 ## Something to watch straight away
 
 The playlist sheet has a **Free to watch** row: UK, Ireland, USA, Canada,
