@@ -8,6 +8,19 @@ Tuner is a **player, not a service**. It comes with no channels, no
 directory and nothing to sign up to. It carries whatever your provider (or
 your own server) gives you, and everything it knows stays on the device.
 
+## Something to watch straight away
+
+The playlist sheet has a **Free to watch** row: UK, Ireland, USA, Canada,
+Australia and New Zealand. These are channels their broadcasters publish
+openly — no subscription and nothing to sign in to — catalogued by the
+[iptv-org](https://github.com/iptv-org/iptv) project and fetched from there
+when you tap one. Handy for trying the app out before pointing it at your
+own playlist, and they sit alongside it afterwards.
+
+They're a mixed bag by nature: some are geo-blocked, some are part-time,
+and a public stream can go off air without warning. The list is refreshable
+like any other, so **Refresh** picks up whatever has changed.
+
 ## Getting your playlist in
 
 Tap the playlist button in the top bar. There are four ways in:

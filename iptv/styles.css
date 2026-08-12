@@ -259,6 +259,7 @@ textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, m
 
 .hint { color: var(--ink-dim); font-size: 13px; margin: 6px 0 0; }
 .hint code { background: var(--bg-2); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+.hint a { color: var(--accent); }
 .err { color: var(--hot); font-size: 13px; margin: 8px 0 0; }
 
 .linkish {
@@ -304,6 +305,9 @@ textarea { resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, m
 .playlists .pl-text { flex: 1; min-width: 0; }
 .playlists .pl-name { font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .playlists .pl-sub { font-size: 12px; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.free { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+.free .chip { max-width: none; }
 
 .tabs { display: flex; gap: 6px; margin-top: 14px; }
 .tab {
