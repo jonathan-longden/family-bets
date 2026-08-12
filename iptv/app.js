@@ -11,7 +11,16 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 
 const SETTINGS_KEY = 'tuner.settings';
-const HLS_CDN = 'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js';
+/* Tried in order. One CDN is one thing standing between a phone and every
+   HLS channel it has — networks block them, they have outages, and some
+   countries can't reach all of them. Different companies, so they don't
+   fail together: jsDelivr, then unpkg, then Cloudflare's cdnjs (which wants
+   an exact version where the others take a range). */
+const HLS_CDNS = [
+  'https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js',
+  'https://unpkg.com/hls.js@1/dist/hls.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.6.18/hls.min.js',
+];
 const RENDER_STEP = 60;        // rows added per scroll-in, playlists run to thousands
 const OPEN_TIMEOUT = 14000;    // how long a channel gets before it's called dead
 const EPG_MAX_AGE = 6 * 3600e3;
@@ -576,16 +585,33 @@ function toggleFav(ch) {
 
 let hlsLib = null;
 
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.onload = () => window.Hls ? resolve(window.Hls) : reject(new Error(`${src} loaded but left no Hls`));
+    s.onerror = () => reject(new Error(`${src} could not be downloaded`));
+    document.head.appendChild(s);
+  });
+}
+
+/* Each CDN gets a go before the next one. A failed <script> stays in the
+   head harmlessly; only window.Hls decides whether it worked. */
 function loadHlsLib() {
   if (hlsLib) return hlsLib;
-  hlsLib = new Promise((resolve, reject) => {
-    if (window.Hls) return resolve(window.Hls);
-    const s = document.createElement('script');
-    s.src = HLS_CDN;
-    s.onload = () => window.Hls ? resolve(window.Hls) : reject(new Error('hls.js did not load'));
-    s.onerror = () => reject(new Error('hls.js could not be downloaded'));
-    document.head.appendChild(s);
-  }).catch(err => { hlsLib = null; throw err; });
+  hlsLib = (async () => {
+    if (window.Hls) return window.Hls;
+    let last;
+    for (const src of HLS_CDNS) {
+      try {
+        return await loadScript(src);
+      } catch (err) {
+        last = err;
+      }
+    }
+    throw last || new Error('hls.js could not be downloaded');
+  })().catch(err => { hlsLib = null; throw err; });
   return hlsLib;
 }
 
@@ -624,6 +650,11 @@ function showIdle() {
   $('#screenIdle').hidden = false;
 }
 
+/* Set when an attempt failed because there was no player to play it with,
+   rather than because the stream was bad — a different thing to tell
+   somebody, and a different thing for them to do about it. */
+let noPlayer = '';
+
 /* Resolves true once the stream is actually producing pictures. */
 function attach(src, token) {
   return new Promise(resolve => {
@@ -653,7 +684,7 @@ function attach(src, token) {
 
     loadHlsLib().then(Hls => {
       if (token !== playToken) return finish(false);
-      if (!Hls.isSupported()) return finish(false);
+      if (!Hls.isSupported()) { noPlayer = 'unsupported'; return finish(false); }
 
       hls = new Hls({
         enableWorker: true,
@@ -677,7 +708,7 @@ function attach(src, token) {
       });
       hls.loadSource(src);
       hls.attachMedia(video);
-    }).catch(() => finish(false));
+    }).catch(() => { noPlayer = 'download'; finish(false); });
   });
 }
 
@@ -692,6 +723,7 @@ async function playChannel(ch) {
   rememberRecent(ch);
   settings.lastKey = norm(ch.name);
   save();
+  noPlayer = '';
 
   if (!httpish(ch.url)) {
     screenMsg("That channel's address isn't something a browser can open (only http and https streams work here).");
@@ -713,12 +745,22 @@ async function playChannel(ch) {
   }
 
   if (token !== playToken) return;
-  screenMsg(
-    navigator.onLine
-      ? `${ch.name} didn't come through. The stream may be down, or your provider may not allow playback in a browser.`
-      : "You're offline — channels need a connection.",
-    { retry: true }
-  );
+
+  if (!navigator.onLine) {
+    screenMsg("You're offline — channels need a connection.", { retry: true });
+  } else if (noPlayer === 'download') {
+    screenMsg(
+      'The part that plays these streams (hls.js) could not be downloaded from any of the three CDNs it is offered from. Something on this network is blocking them — a content blocker, a work or school filter, or a VPN.',
+      { retry: true }
+    );
+  } else if (noPlayer === 'unsupported') {
+    screenMsg('This browser cannot play HLS streams. Chrome, Edge, Firefox or Safari can.');
+  } else {
+    screenMsg(
+      `${ch.name} didn't come through. The stream may be down, or your provider may not allow playback in a browser.`,
+      { retry: true }
+    );
+  }
 }
 
 function rememberRecent(ch) {

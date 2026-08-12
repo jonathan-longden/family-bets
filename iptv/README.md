@@ -75,8 +75,12 @@ Keyboard: `Space` play/pause · `↑` `↓` channel · `f` fullscreen · `m` mut
 This is the honest part, and it's worth reading before blaming the app.
 
 - **HLS (`.m3u8`) works.** Safari plays it natively; everywhere else Tuner
-  loads [hls.js](https://github.com/video-dev/hls.js) from a CDN the first
-  time you open a channel. That covers most modern IPTV.
+  loads [hls.js](https://github.com/video-dev/hls.js) the first time you
+  open a channel, trying jsDelivr, then unpkg, then cdnjs — three separate
+  companies, so a blocked or broken one doesn't take every HLS channel with
+  it. After that the browser caches it. If all three are unreachable, the
+  app says so plainly rather than blaming the channel; a content blocker,
+  a work or school filter, or a VPN is the usual reason.
 - **Raw MPEG-TS usually doesn't.** No browser can play a bare `.ts`
   stream. Xtream links ending in a number (`…/user/pass/12345`) are TS by
   default, so Tuner tries the same address with `.m3u8` on the end first —
