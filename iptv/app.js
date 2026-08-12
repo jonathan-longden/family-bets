@@ -19,6 +19,20 @@ const RECENT_MAX = 30;
 
 const norm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
+/* Free-to-air channels their broadcasters publish openly, catalogued by
+   iptv-org. Served from raw.githubusercontent.com, which sends CORS headers,
+   so the browser is allowed to read them — that isn't true of most provider
+   playlists. Nothing here needs a subscription. */
+const FREE_BASE = 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/';
+const FREE_LISTS = [
+  { code: 'uk', label: 'UK' },
+  { code: 'ie', label: 'Ireland' },
+  { code: 'us', label: 'USA' },
+  { code: 'ca', label: 'Canada' },
+  { code: 'au', label: 'Australia' },
+  { code: 'nz', label: 'New Zealand' },
+];
+
 function plural(n, one, many) {
   return `${n.toLocaleString()} ${n === 1 ? one : many}`;
 }
@@ -791,7 +805,7 @@ function renderPlaylists() {
   if (!playlists.length) {
     const li = document.createElement('li');
     li.style.cursor = 'default';
-    li.innerHTML = '<div class="pl-text"><div class="pl-sub">Nothing added yet — use the tabs below.</div></div>';
+    li.innerHTML = '<div class="pl-text"><div class="pl-sub">Nothing added yet — try a free list, or add your own below.</div></div>';
     ul.appendChild(li);
     return;
   }
@@ -869,6 +883,51 @@ function renderPlaylists() {
 
 async function reloadPlaylists() {
   playlists = (await store.allPlaylists()).sort((a, b) => a.addedAt - b.addedAt);
+}
+
+/* Everything that adds a playlist ends the same way: store it, make it the
+   one on screen, and pick up its guide. */
+async function adopt({ name, source, text }) {
+  const record = await importPlaylist({ name, source, text });
+  await reloadPlaylists();
+  await activate(record.id);
+  renderPlaylists();
+  if (settings.epgUrl) loadEpg().catch(() => {});
+  return record;
+}
+
+function renderFreeLists() {
+  const box = $('#freeLists');
+  if (box.childElementCount) return;
+
+  for (const list of FREE_LISTS) {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = list.label;
+    b.onclick = async () => {
+      const err = $('#addErr');
+      err.hidden = true;
+      b.disabled = true;
+      const label = b.textContent;
+      b.textContent = 'Loading…';
+      try {
+        const record = await adopt({
+          name: `${list.label} — free to air`,
+          source: { type: 'url', url: FREE_BASE + list.code + '.m3u' },
+          text: await fetchText(FREE_BASE + list.code + '.m3u'),
+        });
+        closeSheets();
+        toast(`${record.name} — ${plural(record.count, 'channel', 'channels')}`);
+      } catch (e) {
+        err.textContent = fetchAdvice(e);
+        err.hidden = false;
+      } finally {
+        b.disabled = false;
+        b.textContent = label;
+      }
+    };
+    box.appendChild(b);
+  }
 }
 
 async function activate(id) {
@@ -982,15 +1041,11 @@ $('#addGo').onclick = async () => {
       source = { type: 'text' };
     }
 
-    const record = await importPlaylist({
+    const record = await adopt({
       name: $('#addName').value.trim() || fallbackName,
       source,
       text,
     });
-
-    await reloadPlaylists();
-    await activate(record.id);
-    renderPlaylists();
 
     $('#addUrl').value = '';
     $('#addText').value = '';
@@ -1002,7 +1057,6 @@ $('#addGo').onclick = async () => {
 
     closeSheets();
     toast(`${record.name} — ${plural(record.count, 'channel', 'channels')}`);
-    if (settings.epgUrl) loadEpg().catch(() => {});
   } catch (e) {
     fail(String(e.message || e));
   } finally {
@@ -1011,8 +1065,13 @@ $('#addGo').onclick = async () => {
   }
 };
 
-$('#playlistBtn').onclick = () => { renderPlaylists(); openSheet('#playlistSheet'); };
-$('#emptyAdd').onclick = () => { renderPlaylists(); openSheet('#playlistSheet'); };
+const openPlaylistSheet = () => {
+  renderPlaylists();
+  renderFreeLists();
+  openSheet('#playlistSheet');
+};
+$('#playlistBtn').onclick = openPlaylistSheet;
+$('#emptyAdd').onclick = openPlaylistSheet;
 $('#installHint').onclick = () => openSheet('#installSheet');
 
 $('#settingsBtn').onclick = () => {
