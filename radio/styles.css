@@ -266,6 +266,66 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
   color: var(--accent); font: inherit; text-decoration: underline;
 }
 
+/* ───────────── phone held sideways ─────────────
+   A short, wide screen can't take the portrait column: the player alone would
+   fill it and the queue would be somewhere off the bottom. So the player takes
+   a fixed pane on the left and everything else scrolls beside it, with the
+   record and buttons shrunk to fit the height that's left. */
+
+@media (orientation: landscape) and (max-height: 620px) {
+  body {
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  }
+
+  .top { flex: none; padding-top: 8px; padding-bottom: 6px; max-width: none; }
+  .stations { flex: none; max-width: none; margin-bottom: 8px; grid-template-columns: repeat(4, 1fr); }
+  .station b { font-size: 13px; }
+  .station span { display: none; }
+
+  main {
+    flex: 1 1 auto; min-height: 0; max-width: none;
+    display: grid; grid-template-columns: minmax(230px, 34%) 1fr; gap: 14px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+  }
+
+  .player { margin: 0; overflow-y: auto; padding: 12px; border-radius: 18px; }
+  .stack { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .stack .panel:first-child { margin-top: 0; }
+
+  /* a record that fits the room that's left */
+  .art { width: 96px; height: 96px; margin: 0 auto 10px; }
+  .art-disc { width: 36px; height: 36px; }
+  .meta { min-height: 0; }
+  .title { font-size: 16px; }
+  .artist { font-size: 12px; }
+  .seek { margin: 8px 2px 2px; }
+  .controls { gap: 20px; margin: 4px 0 8px; }
+  .controls .ic { width: 24px; height: 24px; }
+  .play-btn { width: 54px; height: 54px; }
+  .play-btn .ic { width: 26px; height: 26px; }
+  .toggles .chip { padding: 6px 10px; font-size: 12px; }
+}
+
+/* Shorter still — most phones on their side. Everything down to the play
+   button has to fit without scrolling the player pane. */
+@media (orientation: landscape) and (max-height: 440px) {
+  .player { padding: 10px; }
+  .art { width: 62px; height: 62px; margin-bottom: 6px; }
+  .art .label { font-size: 15px; }
+  .art-disc { width: 26px; height: 26px; }
+  .title { font-size: 15px; }
+  .seek { margin: 6px 2px 0; }
+  .times { font-size: 11px; }
+  .controls { gap: 18px; margin: 2px 0 6px; }
+  .play-btn { width: 48px; height: 48px; }
+  .play-btn .ic { width: 22px; height: 22px; }
+  .controls .ic { width: 22px; height: 22px; }
+}
+
 /* ───────────── sheets ───────────── */
 
 .overlay {
@@ -277,6 +337,8 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
   border: 1px solid var(--line); border-bottom: 0;
   border-radius: 20px 20px 0 0; padding: 16px 16px max(20px, env(safe-area-inset-bottom));
   animation: rise .18s ease-out;
+  /* a sideways phone has very little height — let the sheet scroll itself */
+  max-height: 88dvh; overflow-y: auto;
 }
 @keyframes rise { from { transform: translateY(14px); opacity: .6; } }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
