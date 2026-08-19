@@ -56,6 +56,9 @@ download), and it keeps them rolling.
   connection, unlike everything else here.
 - **Podcasts.** Search for a show, subscribe, and pick an episode. Episodes
   can be seeked, skip in 30-second jumps, and remember where you got to.
+- **Backup.** Save everything that isn't the music itself — playlists,
+  saved stations, subscriptions, loudness readings — to a small file you
+  keep, and restore it later or on another device.
 
 ## Getting music in
 
@@ -173,6 +176,39 @@ episodes that can be refused. If a show you follow won't load, its feed
 address can still be added by hand under **Add a show by its feed
 address**, though the same restriction applies.
 
+## Backup
+
+Everything you've built up in Tunage — your playlists, the stations you
+saved, the shows you subscribed to, how far into each episode you got —
+lives in this browser and nowhere else. There's no account and no server,
+which is the point, but it also means clearing site data takes the lot.
+**Backup**, near the bottom of the page, is the insurance.
+
+**Save a backup file** writes a small `.json` file to your downloads,
+named for the day. **Restore from a file** reads one back in.
+
+The backup deliberately does *not* contain your audio — that would be
+hundreds of megabytes, and you already have the originals. It's a list of
+what you'd otherwise have to rebuild by hand, usually a few kilobytes.
+
+Because it holds no audio, restoring works in two steps: add your music
+back first (**Add music**, same as ever), then restore the backup. Playlist
+entries are stored by filename and size rather than by internal id, so
+they re-attach to the files themselves — which is what makes a backup
+survive a wipe, or move to a different phone, at all. If some files aren't
+there yet, the rest is restored and Tunage tells you how many entries it
+couldn't place; add those files and restore the same file again to pick
+them up.
+
+Restoring merges rather than overwrites. Playlists with the same name are
+combined instead of duplicated, stations and shows you already have are
+left alone, and episode positions keep whichever is further along. So
+restoring the same file twice does nothing the second time, and a backup
+from an old phone can be folded into a device already in use.
+
+Loudness readings ride along too, so a restored library doesn't have to
+re-measure everything it already knew.
+
 ## Files a browser can't play
 
 Browsers don't all support the same formats — Safari won't decode FLAC, for
@@ -224,7 +260,8 @@ Two things worth knowing about browser storage:
 - The app asks the browser to make its storage **persistent** the first
   time you add music, so it isn't cleared automatically.
 - Clearing site data (or deleting the app on iOS) removes the saved music
-  and your playlists. The tracks are copies — your originals are untouched.
+  and your playlists. The tracks are copies — your originals are untouched,
+  and a backup file brings the playlists back once you've re-added them.
 
 ## Running it
 
