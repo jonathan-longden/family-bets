@@ -99,61 +99,167 @@ main { max-width: 620px; margin: 0 auto; padding: 0 16px; }
   padding: 18px 18px 16px; text-align: center;
 }
 
-/* ───────────── the two decks ─────────────
-   One record playing, one cued up next, and a crossfader that slides across
-   as the music hands over. The platter handles the flip animation and the
-   vinyl inside it does the spinning, so the two never fight. */
+/* ───────────── the decks ─────────────
+   A pair of turntables: platter and slipmat, a tonearm that tracks along the
+   groove as the track plays, a pitch fader and a power lamp, with a mixer
+   between them carrying the crossfader and a level meter per deck. */
 
 .decks {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-  margin: 2px 0 14px; perspective: 800px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  margin: 2px 0 10px; perspective: 900px;
 }
 
-.deck { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.deck { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; }
+
+.turntable {
+  position: relative; width: 100%; aspect-ratio: 1 / 1.06;
+  border-radius: 12px;
+  background: linear-gradient(155deg, #3A362F 0%, #22201B 42%, #191712 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.10),
+    inset 0 -1px 0 rgba(0,0,0,.5),
+    0 6px 18px rgba(0,0,0,.45);
+  padding: 7%;
+  transition: box-shadow .25s;
+}
+.deck.live .turntable {
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.14),
+    inset 0 -1px 0 rgba(0,0,0,.5),
+    0 8px 22px rgba(0,0,0,.55),
+    0 0 0 1px rgba(242,194,48,.30);
+}
+
+/* ── platter ── */
 
 .platter {
-  width: 100%; max-width: 132px; aspect-ratio: 1; transform-style: preserve-3d;
+  position: relative; width: 86%; aspect-ratio: 1; margin: 0;
+  border-radius: 50%; transform-style: preserve-3d;
+  background: radial-gradient(circle at 50% 50%, #4A443A 0 96%, #2C2822 100%);
+  box-shadow: 0 3px 8px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.06);
 }
 
 .vinyl {
-  width: 100%; height: 100%; border-radius: 50%; position: relative;
-  display: grid; place-items: center;
-  background: radial-gradient(circle at 50% 50%, #2A241C 0 26%, #17140F 26.5% 100%);
-  box-shadow: 0 10px 26px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.05);
-  opacity: .55; transition: opacity .25s, box-shadow .25s;
+  position: absolute; inset: 3%;
+  border-radius: 50%; display: grid; place-items: center;
+  background:
+    repeating-radial-gradient(circle, rgba(255,255,255,.035) 0 1px, transparent 1px 3px),
+    radial-gradient(circle at 50% 50%, #1A1712 0 30%, #0E0C0A 30.5% 100%);
+  box-shadow: inset 0 0 14px rgba(0,0,0,.9), 0 1px 3px rgba(0,0,0,.6);
+  /* dim the cued deck with brightness rather than opacity, so the record
+     stays black instead of letting the platter grey through */
+  filter: brightness(.6); transition: filter .25s;
 }
+/* the sheen that sweeps round as the record turns */
 .vinyl::after {
   content: ''; position: absolute; inset: 0; border-radius: 50%;
-  background: repeating-radial-gradient(circle, transparent 0 3px, rgba(255,255,255,.04) 3px 4px);
+  background: conic-gradient(from 210deg, transparent 0 38%, rgba(255,255,255,.055) 46%, transparent 54% 100%);
 }
-.deck.live .vinyl { opacity: 1; box-shadow: 0 12px 34px rgba(0,0,0,.6), 0 0 0 1px rgba(242,194,48,.35); }
+.deck.live .vinyl { filter: none; }
 
 .label {
   position: relative; z-index: 1;
-  width: 40%; height: 40%; border-radius: 50%;
+  width: 38%; height: 38%; border-radius: 50%;
   display: grid; place-items: center;
-  font-size: 20px; font-weight: 800; color: #12100C;
+  font-size: 17px; font-weight: 800; color: #12100C;
   background: #2A241C;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.5);
 }
 .label::after {
-  content: ''; position: absolute; width: 7%; height: 7%; min-width: 4px; min-height: 4px;
-  border-radius: 50%; background: #12100C;
+  content: ''; position: absolute; width: 8%; height: 8%; min-width: 3px; min-height: 3px;
+  border-radius: 50%; background: #0B0A08; box-shadow: 0 0 0 1px rgba(255,255,255,.18);
 }
 
-.vinyl.spinning { animation: spin 3.4s linear infinite; }
+/* strobe dots round the rim, like the pitch markings on a real platter */
+.strobe {
+  position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  background: repeating-conic-gradient(from 0deg,
+    rgba(255,255,255,.30) 0 1.1deg, transparent 1.1deg 6deg);
+  -webkit-mask-image: radial-gradient(circle, transparent 0 92%, #000 93% 100%);
+  mask-image: radial-gradient(circle, transparent 0 92%, #000 93% 100%);
+  opacity: .35;
+}
+.deck.live .strobe { opacity: .8; }
+
+.vinyl.spinning { animation: spin 2.6s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* a record dropped onto the platter */
 @keyframes drop-on {
-  0%   { transform: translateY(-38%) rotateX(78deg) scale(.82); opacity: 0; }
-  55%  { transform: translateY(0) rotateX(-10deg) scale(1.03); opacity: 1; }
+  0%   { transform: translateY(-34%) rotateX(74deg) scale(.84); opacity: 0; }
+  55%  { transform: translateY(0) rotateX(-9deg) scale(1.03); opacity: 1; }
   100% { transform: none; opacity: 1; }
 }
 .platter.flip { animation: drop-on .6s cubic-bezier(.2,.75,.3,1); }
 
 @media (prefers-reduced-motion: reduce) {
-  .vinyl.spinning { animation: none; }
-  .platter.flip { animation: none; }
+  .vinyl.spinning, .platter.flip { animation: none; }
+}
+
+/* ── tonearm ──
+   Pivoted at the back-right corner, clear of the platter, with the headshell
+   swinging in over the record. Geometry roughly follows a real arm: at rest
+   it sits up on the arm rest, drops to the outer groove to play, and tracks
+   in towards the spindle as the track goes on. */
+
+.tonearm { position: absolute; inset: 0; pointer-events: none; }
+.tonearm::before {                       /* pivot housing */
+  content: ''; position: absolute; right: 3%; top: 4%;
+  width: 13%; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #CFC8B8, #6E685C 70%, #4A453C);
+  box-shadow: 0 2px 4px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.35);
+}
+.arm {
+  position: absolute; right: 8%; top: 9%;
+  width: 50%; height: 4%; min-height: 3px;
+  transform-origin: right center;
+  transform: rotate(var(--arm, 6deg));
+  transition: transform 1s linear;
+  background: linear-gradient(90deg, #EDE7DA 0 18%, #A9A193 60%, #7C7669);
+  border-radius: 3px;
+  box-shadow: 0 2px 3px rgba(0,0,0,.6);
+}
+.arm::before {                           /* counterweight, behind the pivot */
+  content: ''; position: absolute; right: -14%; top: -70%;
+  width: 14%; height: 240%; border-radius: 3px;
+  background: linear-gradient(180deg, #9A9284, #5C574C);
+  box-shadow: 0 1px 2px rgba(0,0,0,.6);
+}
+.arm::after {                            /* headshell over the record */
+  content: ''; position: absolute; left: -3%; top: -95%;
+  width: 20%; height: 290%; border-radius: 2px;
+  background: linear-gradient(160deg, #E8E2D4, #7A7466);
+  box-shadow: 0 2px 3px rgba(0,0,0,.55);
+}
+
+/* ── pitch fader and power lamp ── */
+
+.pitch {
+  position: absolute; right: 7%; bottom: 8%;
+  width: 9%; height: 26%; border-radius: 3px;
+  background: #14120E; box-shadow: inset 0 1px 3px rgba(0,0,0,.9);
+}
+.pitch::after {                          /* centre detent line */
+  content: ''; position: absolute; left: -35%; right: -35%; top: 50%;
+  height: 1px; background: rgba(255,255,255,.16);
+}
+.pitch-knob {
+  position: absolute; left: -30%; right: -30%; top: 44%;
+  height: 16%; min-height: 5px; border-radius: 2px;
+  background: linear-gradient(180deg, #CFC8B8, #746E62);
+  box-shadow: 0 1px 2px rgba(0,0,0,.6);
+  transition: top .6s ease;
+}
+.deck.live .pitch-knob { top: 30%; }
+
+.power {
+  position: absolute; left: 8%; bottom: 9%;
+  width: 12%; aspect-ratio: 1; border-radius: 50%;
+  background: #241F19; box-shadow: inset 0 1px 2px rgba(0,0,0,.8);
+}
+.deck.live .power {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent), inset 0 1px 2px rgba(0,0,0,.3);
 }
 
 .deck-tag {
@@ -166,25 +272,52 @@ main { max-width: 620px; margin: 0 auto; padding: 0 16px; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* ───────────── crossfader ───────────── */
+/* ───────────── the mixer ───────────── */
+
+.mixer {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin: 0 auto 12px; max-width: 300px;
+}
+
+.meter {
+  width: 11px; height: 38px; border-radius: 3px; flex: none;
+  border: 1px solid rgba(255,255,255,.07);
+  background: #14120E; box-shadow: inset 0 1px 3px rgba(0,0,0,.9);
+  display: flex; align-items: flex-end; overflow: hidden;
+}
+.meter i {
+  display: block; width: 100%; height: 0;
+  background: linear-gradient(0deg, var(--reggae) 0%, var(--reggae-2) 62%, var(--hot) 100%);
+  transition: height .08s linear;
+}
+body:not(.metered) .meter { display: none; }
 
 .fader {
-  position: relative; height: 30px; margin: 0 auto 12px; max-width: 240px;
-  border-radius: 999px; background: #17140F; border: 1px solid var(--line);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 14px; overflow: hidden;
+  position: relative; flex: 1; height: 38px; max-width: 210px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #2A2620, #1A1712);
+  border: 1px solid #100E0B;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 2px 6px rgba(0,0,0,.4);
+  padding: 0 9px;
+}
+.fader-slot {
+  position: absolute; left: 8px; right: 8px; top: 50%; height: 5px;
+  margin-top: -2.5px; border-radius: 3px;
+  background: #0C0B09; box-shadow: inset 0 1px 2px rgba(0,0,0,.9);
 }
 .fader-knob {
-  position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 4px);
-  border-radius: 999px; background: linear-gradient(150deg, var(--reggae-2), var(--country));
-  box-shadow: 0 3px 10px rgba(0,0,0,.4);
+  position: absolute; top: 4px; bottom: 4px; left: 4px; width: 34px;
+  border-radius: 5px;
+  background: linear-gradient(180deg, #DDD6C6 0%, #9A9284 48%, #6B6559 52%, #B4AC9C 100%);
+  box-shadow: 0 2px 5px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.5);
   transition: left var(--fader-time, .45s) cubic-bezier(.4,.1,.3,1);
 }
-.fader[data-side="b"] .fader-knob { left: calc(50% + 1px); }
-.fader-end {
-  position: relative; z-index: 1; font-size: 11px; font-weight: 700;
-  color: var(--ink); mix-blend-mode: difference;
+.fader-knob::after {
+  content: ''; position: absolute; left: 45%; top: 12%; bottom: 12%;
+  width: 2px; background: rgba(0,0,0,.35); border-radius: 1px;
 }
+.fader[data-side="b"] .fader-knob { left: calc(100% - 38px); }
+.fader-end { display: none; }
 
 .meta { min-height: 52px; }
 .title { font-size: 19px; font-weight: 700; }
@@ -377,11 +510,18 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
   .stack .panel:first-child { margin-top: 0; }
 
   /* a record that fits the room that's left */
-  .decks { gap: 8px; margin: 0 0 8px; }
-  .platter { max-width: 74px; }
-  .label { font-size: 14px; }
+  /* the decks are square, so capping their width is what caps their height —
+     without this the controls drop off the bottom of a sideways phone */
+  .decks { gap: 8px; margin: 0 auto 6px; max-width: 186px; }
+  .turntable { padding: 5%; border-radius: 9px; }
+  .label { font-size: 11px; }
   .deck-track { display: none; }
-  .fader { height: 24px; margin-bottom: 8px; max-width: 180px; }
+  .deck-tag { font-size: 9px; }
+  .mixer { margin-bottom: 6px; max-width: 186px; gap: 7px; }
+  .fader { height: 26px; }
+  .fader-knob { width: 28px; }
+  .fader[data-side="b"] .fader-knob { left: calc(100% - 32px); }
+  .meter { height: 26px; width: 8px; }
   .meta { min-height: 0; }
   .title { font-size: 16px; }
   .artist { font-size: 12px; }
@@ -397,10 +537,16 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
    button has to fit without scrolling the player pane. */
 @media (orientation: landscape) and (max-height: 440px) {
   .player { padding: 10px; }
-  .platter { max-width: 56px; }
-  .label { font-size: 12px; }
-  .deck-tag { font-size: 9px; }
-  .fader { height: 20px; margin-bottom: 6px; }
+  /* barely any height left: the lit lamp and the bright record already say
+     which deck is live, so the captions go */
+  .decks { max-width: 122px; gap: 6px; margin-bottom: 4px; }
+  .label { font-size: 8px; }
+  .deck-tag { display: none; }
+  .mixer { margin-bottom: 4px; max-width: 130px; gap: 5px; }
+  .fader { height: 20px; }
+  .fader-knob { width: 22px; }
+  .fader[data-side="b"] .fader-knob { left: calc(100% - 26px); }
+  .meter { height: 20px; width: 6px; }
   .title { font-size: 15px; }
   .seek { margin: 6px 2px 0; }
   .times { font-size: 11px; }
