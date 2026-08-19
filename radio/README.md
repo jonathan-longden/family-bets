@@ -1,34 +1,37 @@
 # Nonstop
 
-Stations that never stop — **Reggae**, **Country**, and **Random** for
-everything else — playing from your own phone with no signal, no data and
-no account.
+Your own music, playing without stopping and without a signal. Everything
+you add lands in one pool called **Tunage**, and you can carve playlists
+out of it.
 
 Nonstop is a player, not a streaming service: it doesn't come with any
 music. You load it with tracks you already own (or ones you're allowed to
-download), it works out which station each one belongs to, and then it
-keeps them rolling.
+download), and it keeps them rolling.
 
 ## What it does
 
-- **Four stations.** Reggae, Country, Random for every other genre you
-  own, and Everything for the whole lot shuffled together.
+- **Tunage.** One pool holding everything you've added. Press play and it
+  runs.
+- **Playlists.** Make as many as you like, add any track to any number of
+  them, and tap a playlist to make it the thing that's playing. Playlists
+  hold references, so removing a track from one — or deleting the playlist
+  outright — never touches the music itself.
 - **Never stops.** When a track ends the next one is already lined up. The
-  queue refills itself forever, and shuffle plays through the whole station
+  queue refills itself forever, and shuffle plays through everything once
   before it starts repeating.
 - **Crossfades.** Tracks blend into each other (up to six seconds) instead
   of stopping dead. Turn it off for straight cuts. Short tracks always cut.
 - **Fully offline.** Music is copied into the browser's own storage
   (IndexedDB) and the app itself is cached by a service worker. After the
   first visit it works in flight mode, in a tunnel, on a plane.
-- **Sorts itself out.** It reads the tags inside your files — ID3 in MP3s,
-  MP4 tags in the M4A/AAC files an iTunes library is made of — and falls
-  back to the filename and folder name. Whatever isn't reggae or country
-  lands on Random, so everything you add plays straight away. Move any
-  track between stations from **Your music**.
+- **Names things properly.** It reads the tags inside your files — ID3 in
+  MP3s, MP4 tags in the M4A/AAC files an iTunes library is made of — and
+  falls back to the filename when there aren't any.
 - **Keeps a folder in sync.** On a computer, point it at your music folder
   once and it re-reads that folder every time you open it, importing
   anything new. See the limits below.
+- **Turns with the phone.** Sideways, the player takes a pane on the left
+  and the lists scroll beside it.
 - **Lock screen controls.** Play, pause and skip from the lock screen or
   headphones, with artwork.
 - **Sleep timer.** 15 minutes to 2 hours, or just to the end of this track.
@@ -47,12 +50,32 @@ Open the app and use **Add music**:
 MP3, M4A, AAC, OGG, Opus, WAV and FLAC all work, as far as the browser
 supports them. Files never leave the device — there's no server involved.
 
+Nonstop plays music you already have the right to play. It doesn't search
+for, stream or download anything on its own.
+
+## Playlists
+
+Every track in **Your music** has a **+ Playlist** button. Tap it and
+either pick an existing playlist or type a name to make a new one. Tapping
+a playlist in that list again takes the track back out.
+
+Playlists appear as chips along the top, next to Tunage. Tap one and it
+becomes what's playing — the queue draws from it and nothing else, in the
+order you added things unless shuffle is on. While a playlist is playing
+you get a panel for it, where you can rename it, remove tracks, or delete
+the whole thing.
+
+Deleting a playlist, or removing a track from one, leaves your music
+alone: the tracks stay in Tunage. Deleting a track from **Your music** is
+the only thing that removes the file, and that also takes it out of every
+playlist it was in.
+
 ### Keeping a folder in sync
 
 **Keep a folder in sync** goes further than a one-off import: pick your
 music folder once and Nonstop re-reads it on every launch, importing
-anything you've added since and sorting it by genre. It only opens files it
-hasn't seen, so a large library doesn't get re-read from disk each time.
+anything you've added since. It only opens files it hasn't seen, so a
+large library doesn't get re-read from disk each time.
 
 This needs the File System Access API, which means **Chrome or Edge on a
 computer**. Safari and Firefox don't have it, and neither does any browser
@@ -61,8 +84,8 @@ folder" import is there instead. Chrome remembers the permission for an
 installed app; otherwise it asks once per visit, and Nonstop shows an
 "Allow access" button rather than nagging.
 
-Tracks are still copied into the app's own storage, so the stations keep
-playing when the folder isn't reachable — an unplugged external drive, or
+Tracks are still copied into the app's own storage, so playback keeps
+working when the folder isn't reachable — an unplugged external drive, or
 a phone with no connection.
 
 ### What a web app can't reach
@@ -73,28 +96,6 @@ catalogues are licensed for playback inside those apps only. The same goes
 for the iOS Music library: Safari has no access to it. Nonstop plays files
 you can see in a file browser — purchased downloads, CD rips, Bandcamp
 files, anything DRM-free.
-
-Nonstop plays music you already have the right to play. It doesn't search
-for, stream or download anything on its own.
-
-## Which station a track lands on
-
-In order, it looks at:
-
-1. the **genre tag** inside the file (`Reggae`, `Bluegrass`, `Country`…),
-2. the artist, album and title tags,
-3. the filename and the folder it came from.
-
-Words like _dub, roots, dancehall, riddim, ska_ send it to Reggae;
-_bluegrass, honky-tonk, outlaw, americana, nashville_ send it to Country.
-Matching is on whole words, so "Prairie Dogs" isn't reggae on account of
-"irie" and "Alaska" isn't on account of "ska".
-
-Anything with no clue either way — or clues for both — goes to **Random**,
-which is where the rest of your music lives: soul, rock, jazz, whatever
-else you own. Nothing sits unplayable waiting to be filed. To move a
-track, tap **Reggae**, **Country** or **Random** on its row in
-**Your music**.
 
 ## Keeping it on your phone
 
@@ -110,8 +111,8 @@ Two things worth knowing about browser storage:
 
 - The app asks the browser to make its storage **persistent** the first
   time you add music, so it isn't cleared automatically.
-- Clearing site data (or deleting the app on iOS) removes the saved music.
-  The tracks are copies — your originals are untouched.
+- Clearing site data (or deleting the app on iOS) removes the saved music
+  and your playlists. The tracks are copies — your originals are untouched.
 
 ## Running it
 

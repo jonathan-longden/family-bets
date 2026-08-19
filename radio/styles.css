@@ -66,27 +66,30 @@ main { max-width: 620px; margin: 0 auto; padding: 0 16px; }
 
 /* ───────────── stations ───────────── */
 
-/* two-up on a phone, four across once there's room */
-.stations {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
-  max-width: 620px; margin: 0 auto 14px; padding: 0 16px;
+/* One row of what-to-play chips — Tunage plus a chip per playlist — that
+   scrolls sideways once there are more than fit. */
+.sources {
+  display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x proximity;
+  max-width: 620px; margin: 0 auto 14px; padding: 0 16px 2px;
+  scrollbar-width: none; -ms-overflow-style: none;
 }
-@media (min-width: 520px) {
-  .stations { grid-template-columns: repeat(4, 1fr); }
-}
+.sources::-webkit-scrollbar { display: none; }
 
-.station {
-  appearance: none; cursor: pointer; text-align: left;
+.source {
+  appearance: none; cursor: pointer; text-align: left; scroll-snap-align: start;
+  flex: 0 0 auto; min-width: 116px;
   border: 1px solid var(--line); background: var(--bg-2); color: var(--ink);
   border-radius: var(--radius); padding: 10px 12px; line-height: 1.2;
   display: flex; flex-direction: column; gap: 3px;
   transition: border-color .15s, background .15s, transform .1s;
 }
-.station b { font-size: 15px; }
-.station span { font-size: 11px; color: var(--ink-dim); }
-.station:active { transform: scale(.98); }
-.station.on { background: var(--card); border-color: var(--accent); }
-.station.on b { color: var(--accent); }
+.source b { font-size: 15px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source span { font-size: 11px; color: var(--ink-dim); }
+.source:active { transform: scale(.98); }
+.source.on { background: var(--card); border-color: var(--accent); }
+.source.on b { color: var(--accent); }
+.source.new { border-style: dashed; min-width: 96px; }
+.source.new b { color: var(--ink-dim); }
 
 /* ───────────── player ───────────── */
 
@@ -207,22 +210,20 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 .tracks .who span { display: block; color: var(--ink-dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; background: #4A4136; }
-.dot.reggae { background: var(--reggae); }
-.dot.country { background: var(--country); }
-.dot.random { background: var(--random); }
 
 .mini {
   appearance: none; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
   padding: 5px 9px; border-radius: 9px; border: 1px solid var(--line);
   background: transparent; color: var(--ink-dim);
 }
-.mini.reggae.on { background: var(--reggae); border-color: transparent; color: #0C1A11; }
-.mini.country.on { background: var(--country); border-color: transparent; color: #1A0F05; }
-.mini.random.on { background: var(--random); border-color: transparent; color: #100B1F; }
+.mini.on { background: var(--accent); border-color: transparent; color: #12100C; }
+.mini.add { color: var(--ink); }
 .mini.danger { color: var(--hot); border-color: transparent; padding: 5px 6px; }
 .mini .ic { width: 16px; height: 16px; }
 
-.lib-filter { display: flex; gap: 8px; margin-bottom: 8px; }
+.pl-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.pl-pick li { cursor: pointer; }
+.pl-pick .who b { font-weight: 600; }
 
 /* ───────────── add music ───────────── */
 
@@ -282,9 +283,10 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
   }
 
   .top { flex: none; padding-top: 8px; padding-bottom: 6px; max-width: none; }
-  .stations { flex: none; max-width: none; margin-bottom: 8px; grid-template-columns: repeat(4, 1fr); }
-  .station b { font-size: 13px; }
-  .station span { display: none; }
+  .sources { flex: none; max-width: none; margin-bottom: 8px; }
+  .source { min-width: 100px; padding: 7px 10px; }
+  .source b { font-size: 13px; }
+  .source span { display: none; }
 
   main {
     flex: 1 1 auto; min-height: 0; max-width: none;
@@ -351,8 +353,9 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
   width: 100%; font: inherit; padding: 12px; border-radius: 12px;
   border: 1px solid var(--line); background: var(--card); color: var(--ink); margin-bottom: 8px;
 }
-.row { display: flex; gap: 8px; }
+.row { display: flex; gap: 8px; align-items: center; }
 .row select { flex: 1; margin: 0; }
+.row input[type=text] { flex: 1; margin: 0; }
 .err { color: var(--hot); font-size: 13px; margin: 6px 0 0; }
 
 /* ───────────── toast ───────────── */
