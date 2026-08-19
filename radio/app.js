@@ -495,7 +495,7 @@ function makeDeck() {
   const el = new Audio();
   el.preload = 'auto';
   el.crossOrigin = 'anonymous';
-  return { el, gain: null, url: null, id: null, trackGain: 1 };
+  return { el, gain: null, analyser: null, url: null, id: null, trackGain: 1 };
 }
 
 const decks = [makeDeck(), makeDeck()];
@@ -531,9 +531,14 @@ async function ensureAudioGraph() {
     for (const d of decks) {
       const src = ctx.createMediaElementSource(d.el);
       d.gain = ctx.createGain();
+      d.analyser = ctx.createAnalyser();
+      d.analyser.fftSize = 256;
       src.connect(d.gain).connect(ctx.destination);
+      d.gain.connect(d.analyser);          // a tap for the meters, going nowhere else
     }
     routed = true;
+    document.body.classList.add('metered');
+    startMeters();
   } catch {
     routed = false;                      // fall back to element volume
   }
@@ -804,6 +809,7 @@ setInterval(() => {
     saveResume();                              // pausing is worth remembering
     render();
   }
+  updateArms();
   if (playing && Date.now() - resumeSavedAt > RESUME_EVERY) {
     resumeSavedAt = Date.now();
     saveResume();
@@ -1287,6 +1293,56 @@ function renderDecks() {
   const nextUp = queue.map(byId).find(Boolean) || null;
   paintDeck(live, current, true);
   paintDeck(1 - live, current ? nextUp : null, false);
+  updateArms();
+  if (playing) startMeters();
+}
+
+/* The tonearm sits parked until a deck is playing, then tracks steadily
+   inwards across the record as the track goes on. */
+function updateArms() {
+  decks.forEach((d, i) => {
+    const arm = document.querySelector(`.deck[data-deck="${i}"] .arm`);
+    if (!arm) return;
+    let angle = 6;                                     // up on the arm rest
+    if (i === live && current) {
+      const dur = d.el.duration;
+      const through = isFinite(dur) && dur > 0 ? clamp(d.el.currentTime / dur, 0, 1) : 0;
+      angle = -4 - through * 30;                       // outer groove in to the spindle
+    }
+    arm.style.setProperty('--arm', angle.toFixed(2) + 'deg');
+  });
+}
+
+/* Level meters, taken off the same gain the speakers hear. */
+let meterFrame = null;
+
+function startMeters() {
+  if (meterFrame || !routed) return;
+  const bars = [0, 1].map(i => document.querySelector(`.meter[data-meter="${i}"] i`));
+  const buffers = decks.map(d => d.analyser ? new Uint8Array(d.analyser.fftSize) : null);
+
+  const frame = () => {
+    let anyPlaying = false;
+    decks.forEach((d, i) => {
+      if (!d.analyser || !bars[i]) return;
+      d.analyser.getByteTimeDomainData(buffers[i]);
+      let sum = 0;
+      for (let j = 0; j < buffers[i].length; j++) {
+        const v = (buffers[i][j] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / buffers[i].length);
+      bars[i].style.height = clamp(Math.pow(rms * 2.2, 0.6) * 100, 0, 100).toFixed(1) + '%';
+      if (!d.el.paused) anyPlaying = true;
+    });
+    if (anyPlaying) {
+      meterFrame = requestAnimationFrame(frame);
+    } else {
+      meterFrame = null;
+      bars.forEach(b => { if (b) b.style.height = '0%'; });
+    }
+  };
+  meterFrame = requestAnimationFrame(frame);
 }
 
 /* Slides the crossfader to whichever deck is on air, over the length of the

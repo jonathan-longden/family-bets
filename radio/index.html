@@ -51,22 +51,45 @@
   <section class="player" id="player">
     <div class="decks" id="decks">
       <div class="deck" data-deck="0">
-        <div class="platter"><div class="vinyl"><span class="label"></span></div></div>
+        <div class="turntable">
+          <div class="platter">
+            <div class="vinyl"><span class="label"></span></div>
+            <div class="strobe"></div>
+          </div>
+          <div class="tonearm"><span class="arm"></span></div>
+          <div class="pitch"><span class="pitch-knob"></span></div>
+          <div class="power"></div>
+        </div>
         <div class="deck-tag">Deck A</div>
         <div class="deck-track">Nothing cued</div>
       </div>
+
       <div class="deck" data-deck="1">
-        <div class="platter"><div class="vinyl"><span class="label"></span></div></div>
+        <div class="turntable">
+          <div class="platter">
+            <div class="vinyl"><span class="label"></span></div>
+            <div class="strobe"></div>
+          </div>
+          <div class="tonearm"><span class="arm"></span></div>
+          <div class="pitch"><span class="pitch-knob"></span></div>
+          <div class="power"></div>
+        </div>
         <div class="deck-tag">Deck B</div>
         <div class="deck-track">Nothing cued</div>
       </div>
     </div>
 
-    <div class="fader" id="fader" data-side="a" aria-hidden="true">
-      <span class="fader-knob"></span>
-      <span class="fader-end">A</span>
-      <span class="fader-end">B</span>
+    <div class="mixer">
+      <div class="meter" data-meter="0"><i></i></div>
+      <div class="fader" id="fader" data-side="a" aria-hidden="true">
+        <span class="fader-slot"></span>
+        <span class="fader-knob"></span>
+        <span class="fader-end">A</span>
+        <span class="fader-end">B</span>
+      </div>
+      <div class="meter" data-meter="1"><i></i></div>
     </div>
+
     <div class="meta">
       <div class="title" id="npTitle">Nothing playing yet</div>
       <div class="artist" id="npArtist">Add some music to get going</div>
