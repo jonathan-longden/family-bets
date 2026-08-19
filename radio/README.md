@@ -23,6 +23,9 @@ download), and it keeps them rolling.
   track goes on, and the next one sits cued on the other. A mixer between
   them carries the crossfader — which slides across as the music hands
   over — and a level meter per deck reading the real signal.
+- **Scratching.** Put a finger on the record that's playing and it stops
+  running on its own: the platter follows you and drags the sound with it.
+  Let go and it spins back up to speed.
 - **Crossfades.** Tracks blend into each other (up to six seconds) instead
   of stopping dead. Turn it off for straight cuts. Short tracks always cut.
 - **One steady volume.** Every track is measured once and played at a
@@ -102,6 +105,21 @@ very quiet recording is brought up as far as is safe and no further. Turn
 One caveat: lifting a quiet track above its recorded volume needs the Web
 Audio path, which is what the app normally uses. On a browser that won't
 allow it, tracks can still be brought *down* to match, just not up.
+
+## Scratching
+
+Hold the record on the live deck — mouse or finger — and the platter comes
+under your hand. Push it forward and the audio speeds up or slows down with
+the pitch bending like a real record, because pitch correction is switched
+off while you have hold of it. Drag it backwards and the sound follows you
+back; no browser will play audio in reverse, so it's seeked back instead,
+which gives roughly the stutter you'd expect. Let go and the platter spins
+back up to speed over a fifth of a second.
+
+One revolution is worth 1.8 seconds of audio, the same as a record at
+33⅓ rpm, so the movement feels the size it should. Nothing advances while
+you're holding a record, even if you drag past the end of the track. The
+cued deck can't be scratched — there's nothing loaded on it to scratch.
 
 ## Files a browser can't play
 

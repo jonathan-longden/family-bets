@@ -181,8 +181,10 @@ main { max-width: 620px; margin: 0 auto; padding: 0 16px; }
 }
 .deck.live .strobe { opacity: .8; }
 
-.vinyl.spinning { animation: spin 2.6s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+/* the record is grabbable on the deck that's playing */
+.deck.live .vinyl { cursor: grab; touch-action: none; }
+.deck.live.scratching .vinyl { cursor: grabbing; }
+.deck.live.scratching .turntable { box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 0 0 1px var(--accent); }
 
 /* a record dropped onto the platter */
 @keyframes drop-on {
@@ -193,7 +195,7 @@ main { max-width: 620px; margin: 0 auto; padding: 0 16px; }
 .platter.flip { animation: drop-on .6s cubic-bezier(.2,.75,.3,1); }
 
 @media (prefers-reduced-motion: reduce) {
-  .vinyl.spinning, .platter.flip { animation: none; }
+  .platter.flip { animation: none; }
 }
 
 /* ── tonearm ──

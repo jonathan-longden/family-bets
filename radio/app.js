@@ -325,6 +325,7 @@ function pool(source = settings.source) {
 const TARGET_LUFS = -16;      // quiet enough that most tracks come down, not up
 const MAX_BOOST = 2;          // +6 dB, past which a quiet track just sounds hissy
 const ANALYSIS_RATE = 16000;
+const SECONDS_PER_REV = 1.8;   // a platter at 33⅓ rpm
 let levelling = false;
 
 function offlineCtx(channels, length, rate) {
@@ -495,7 +496,7 @@ function makeDeck() {
   const el = new Audio();
   el.preload = 'auto';
   el.crossOrigin = 'anonymous';
-  return { el, gain: null, analyser: null, url: null, id: null, trackGain: 1 };
+  return { el, gain: null, analyser: null, url: null, id: null, trackGain: 1, angle: 0 };
 }
 
 const decks = [makeDeck(), makeDeck()];
@@ -538,7 +539,7 @@ async function ensureAudioGraph() {
     }
     routed = true;
     document.body.classList.add('metered');
-    startMeters();
+    startPlatters();
   } catch {
     routed = false;                      // fall back to element volume
   }
@@ -795,13 +796,13 @@ setInterval(() => {
 
     const left = dur - d.currentTime;
     const fade = fadeLengthFor(dur);
-    if (settings.crossfade && fade > 0 && !fading && !d.paused && left <= fade && left > 0.4
+    if (settings.crossfade && fade > 0 && !fading && !d.paused && !scratch && left <= fade && left > 0.4
         && queue.length && !sleepEndsHere()) {
       next({ fade: true });
     }
 
     // belt and braces: if a track somehow finished without handing over, move on
-    if (playing && !fading && d.paused && left <= 0.25 && queue.length) next();
+    if (playing && !fading && !scratch && d.paused && left <= 0.25 && queue.length) next();
   }
 
   if (playing !== !d.paused && !fading) {
@@ -819,6 +820,7 @@ setInterval(() => {
 
 for (const d of decks) {
   d.el.addEventListener('ended', () => {
+    if (scratch) return;                 // scratched off the end; stay put
     if (d !== deck()) return;            // the outgoing deck running out mid-blend: ignore
     if (sleepEndsHere()) { endSleep(); return; }
     finishFade();                        // it ended before the blend did — take over cleanly
@@ -1263,7 +1265,7 @@ function paintDeck(i, track, isLive) {
 
   deckEl.classList.toggle('live', isLive);
   $('.deck-tag', deckEl).textContent = isLive ? 'Now playing' : 'Up next';
-  vinyl.classList.toggle('spinning', isLive && playing);
+  if (isLive && playing) startPlatters();
 
   const id = track ? track.id : null;
   if (cuedOnDeck[i] === id) return;
@@ -1294,7 +1296,7 @@ function renderDecks() {
   paintDeck(live, current, true);
   paintDeck(1 - live, current ? nextUp : null, false);
   updateArms();
-  if (playing) startMeters();
+  if (playing) startPlatters();
 }
 
 /* The tonearm sits parked until a deck is playing, then tracks steadily
@@ -1313,36 +1315,149 @@ function updateArms() {
   });
 }
 
-/* Level meters, taken off the same gain the speakers hear. */
-let meterFrame = null;
+/* One loop turns the platters and drives the meters. The rotation is done
+   here rather than with a CSS animation so a finger on the record can take
+   it over and hand it back without the vinyl jumping to some other angle. */
+let platterFrame = null;
+let lastFrameAt = 0;
+const stillMotion = matchMedia('(prefers-reduced-motion: reduce)');
 
-function startMeters() {
-  if (meterFrame || !routed) return;
+function startPlatters() {
+  if (platterFrame) return;
   const bars = [0, 1].map(i => document.querySelector(`.meter[data-meter="${i}"] i`));
   const buffers = decks.map(d => d.analyser ? new Uint8Array(d.analyser.fftSize) : null);
+  lastFrameAt = performance.now();
 
-  const frame = () => {
-    let anyPlaying = false;
+  const frame = now => {
+    const dt = Math.min(0.1, (now - lastFrameAt) / 1000);
+    lastFrameAt = now;
+    let busy = false;
+
     decks.forEach((d, i) => {
-      if (!d.analyser || !bars[i]) return;
-      d.analyser.getByteTimeDomainData(buffers[i]);
-      let sum = 0;
-      for (let j = 0; j < buffers[i].length; j++) {
-        const v = (buffers[i][j] - 128) / 128;
-        sum += v * v;
+      const spinning = i === live && !d.el.paused && !scratch;
+      if (spinning) {
+        d.angle = (d.angle + (360 / SECONDS_PER_REV) * d.el.playbackRate * dt) % 360;
+        busy = true;
       }
-      const rms = Math.sqrt(sum / buffers[i].length);
-      bars[i].style.height = clamp(Math.pow(rms * 2.2, 0.6) * 100, 0, 100).toFixed(1) + '%';
-      if (!d.el.paused) anyPlaying = true;
+      if (scratch && i === live) busy = true;
+      if (!stillMotion.matches) {
+        const vinyl = document.querySelector(`.deck[data-deck="${i}"] .vinyl`);
+        if (vinyl) vinyl.style.transform = `rotate(${d.angle.toFixed(2)}deg)`;
+      }
+
+      if (d.analyser && bars[i]) {
+        d.analyser.getByteTimeDomainData(buffers[i]);
+        let sum = 0;
+        for (let j = 0; j < buffers[i].length; j++) {
+          const v = (buffers[i][j] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / buffers[i].length);
+        bars[i].style.height = clamp(Math.pow(rms * 2.2, 0.6) * 100, 0, 100).toFixed(1) + '%';
+      }
     });
-    if (anyPlaying) {
-      meterFrame = requestAnimationFrame(frame);
+
+    if (busy) {
+      platterFrame = requestAnimationFrame(frame);
     } else {
-      meterFrame = null;
+      platterFrame = null;
       bars.forEach(b => { if (b) b.style.height = '0%'; });
     }
   };
-  meterFrame = requestAnimationFrame(frame);
+  platterFrame = requestAnimationFrame(frame);
+}
+
+/* ───────────────────────── scratching ─────────────────────────
+
+   Hold the record on the live deck and it stops running on its own: the
+   platter follows your finger and the audio is dragged along with it. Moving
+   forward speeds the sound up or slows it down with the pitch bending like a
+   real record, since pitch preservation is turned off while you have hold of
+   it. Dragging backwards can't play in reverse — no browser will — so the
+   audio is seeked back to follow instead, which gives the stutter you'd
+   expect. Let go and the platter spins back up to speed. */
+
+let scratch = null;
+
+const angleAt = (el, x, y) => {
+  const r = el.getBoundingClientRect();
+  return Math.atan2(y - (r.top + r.height / 2), x - (r.left + r.width / 2)) * 180 / Math.PI;
+};
+
+function startScratch(e) {
+  const vinyl = e.target.closest('.vinyl');
+  if (!vinyl) return;
+  const deckEl = vinyl.closest('.deck');
+  if (!deckEl || Number(deckEl.dataset.deck) !== live) return;    // only the live deck
+  const d = deck();
+  if (!current || !d.id) return;
+
+  const el = d.el;
+  scratch = {
+    vinyl,
+    last: angleAt(vinyl, e.clientX, e.clientY),
+    turned: 0,
+    from: el.currentTime,
+    wasPlaying: !el.paused,
+    at: performance.now(),
+  };
+  deckEl.classList.add('scratching');
+  el.preservesPitch = false;
+  el.webkitPreservesPitch = false;
+  if (el.paused) el.play().catch(() => {});      // so the scratch is audible
+  try { vinyl.setPointerCapture(e.pointerId); } catch {}
+  e.preventDefault();
+  startPlatters();
+}
+
+function moveScratch(e) {
+  if (!scratch) return;
+  const d = deck(), el = d.el;
+
+  let step = angleAt(scratch.vinyl, e.clientX, e.clientY) - scratch.last;
+  if (step > 180) step -= 360; else if (step < -180) step += 360;
+  scratch.last += step;
+  scratch.turned += step;
+  d.angle = (d.angle + step) % 360;
+
+  const now = performance.now();
+  const dt = Math.max(0.004, (now - scratch.at) / 1000);
+  scratch.at = now;
+
+  // how fast the finger is going, as a multiple of playing speed
+  const speed = Math.abs(step / dt) / (360 / SECONDS_PER_REV);
+  el.playbackRate = clamp(speed, 0.0625, 4);
+
+  const dur = isFinite(el.duration) ? el.duration : null;
+  const target = clamp(scratch.from + (scratch.turned / 360) * SECONDS_PER_REV,
+    0, dur ? dur - 0.05 : 1e9);
+  if (Math.abs(el.currentTime - target) > 0.06) el.currentTime = target;
+  e.preventDefault();
+}
+
+function endScratch() {
+  if (!scratch) return;
+  const el = deck().el;
+  const wasPlaying = scratch.wasPlaying;
+  document.querySelectorAll('.deck.scratching').forEach(n => n.classList.remove('scratching'));
+  scratch = null;
+
+  // the platter catching its speed again
+  const from = el.playbackRate;
+  const started = performance.now();
+  const spinUp = setInterval(() => {
+    const k = Math.min(1, (performance.now() - started) / 220);
+    el.playbackRate = from + (1 - from) * k;
+    if (k >= 1) {
+      clearInterval(spinUp);
+      el.playbackRate = 1;
+      el.preservesPitch = true;
+      el.webkitPreservesPitch = true;
+      if (!wasPlaying) el.pause();
+      saveResume();
+    }
+  }, 30);
+  startPlatters();
 }
 
 /* Slides the crossfader to whichever deck is on air, over the length of the
@@ -1532,6 +1647,13 @@ $('#playlistPanel').addEventListener('click', e => {
     toast(`${name} deleted — the music itself is still in Tunage`);
   }
 });
+
+const decksEl = $('#decks');
+decksEl.addEventListener('pointerdown', startScratch);
+decksEl.addEventListener('pointermove', moveScratch);
+decksEl.addEventListener('pointerup', endScratch);
+decksEl.addEventListener('pointercancel', endScratch);
+decksEl.addEventListener('lostpointercapture', endScratch);
 
 $('#libSearch').addEventListener('input', e => {
   search = e.target.value.trim().toLowerCase();
