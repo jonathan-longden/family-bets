@@ -237,6 +237,7 @@ const settings = {
   shuffle: stored.shuffle !== false,
   crossfade: stored.crossfade !== false,
   level: stored.level !== false,
+  autoListen: stored.autoListen !== false,
 };
 const saveSettings = () => localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 
@@ -2113,9 +2114,27 @@ async function runCommand(raw) {
 
 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
 const canListen = () => typeof SpeechRec === 'function';
+
+/* 'granted' | 'prompt' | 'denied' | 'unknown'. Chrome answers this; Safari
+   throws on a microphone query, which is what 'unknown' covers. */
+async function micPermission() {
+  try {
+    if (!navigator.permissions || !navigator.permissions.query) return 'unknown';
+    const st = await navigator.permissions.query({ name: 'microphone' });
+    return st.state || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
 let listening = null;
 
 function renderVoice() {
+  const auto = $('#autoListen');
+  if (auto) {
+    auto.hidden = !canListen();
+    auto.classList.toggle('on', settings.autoListen);
+    auto.setAttribute('aria-pressed', String(!!settings.autoListen));
+  }
   const btn = $('#voiceBtn');
   if (!btn) return;
   btn.hidden = !canListen();
@@ -2139,7 +2158,7 @@ async function handleSpoken(heard) {
   toast(said);
 }
 
-function startListening() {
+function startListening({ automatic = false } = {}) {
   if (!canListen() || listening) return;
   let rec;
   try { rec = new SpeechRec(); } catch { return; }
@@ -2152,10 +2171,16 @@ function startListening() {
     handleSpoken(heard);
   };
   rec.onerror = e => {
-    voiceStatus(e.error === 'not-allowed'
-      ? 'The microphone is blocked for this site — allow it in your browser settings'
-      : e.error === 'no-speech' ? "Didn't hear anything"
-      : "Speech recognition didn't work — it needs a connection");
+    if (e.error === 'not-allowed') {
+      voiceStatus(automatic
+        ? 'Tap the microphone once to allow it, and Tunage will listen every time it opens'
+        : 'The microphone is blocked for this site — allow it in your browser settings');
+      renderVoice();
+      return;
+    }
+    // nothing said into an automatic listen is the normal way it ends
+    if (e.error === 'no-speech') { voiceStatus(automatic ? '' : "Didn't hear anything"); return; }
+    voiceStatus(automatic ? '' : "Speech recognition didn't work — it needs a connection");
   };
   rec.onend = () => { listening = null; renderVoice(); };
 
@@ -2167,7 +2192,7 @@ function startListening() {
   } catch {
     listening = null;
     renderVoice();
-    voiceStatus('Tap the microphone to speak');
+    voiceStatus(automatic ? '' : 'Tap the microphone to speak');
   }
 }
 
@@ -2221,6 +2246,23 @@ async function runPendingCommand() {
     return;
   }
 
+  /* Nothing was asked for in the link, so fall back to the standing
+     preference: open listening unless told not to. Music already playing
+     means the resume picked up where it left off, and a microphone would
+     only hear that. */
+  if (settings.autoListen && canListen() && !pendingCommand() && !playing && !onAir()) {
+    /* Only open the microphone if this browser has already been given it.
+       Launching straight into a permission prompt every time would be the
+       kind of thing that gets an app deleted, and a prompt nobody answers
+       reads as a refusal. Tap the button once, allow it, and every open
+       after that listens on its own. */
+    const perm = await micPermission();
+    if (perm === 'granted') startListening({ automatic: true });
+    else if (perm !== 'denied') {
+      voiceStatus('Tap the microphone once to allow it — after that Tunage listens whenever it opens');
+    }
+  }
+
   const asked = pendingCommand();
   if (!asked) return;
   // don't leave it in the address bar to fire again on every reload
@@ -2231,6 +2273,15 @@ async function runPendingCommand() {
 }
 
 $('#voiceBtn').addEventListener('click', () => (listening ? stopListening() : startListening()));
+$('#autoListen').addEventListener('click', () => {
+  settings.autoListen = !settings.autoListen;
+  saveSettings();
+  renderVoice();
+  if (!settings.autoListen && listening) stopListening();
+  toast(settings.autoListen
+    ? 'Tunage will listen when it opens'
+    : 'Tunage will wait for the microphone button');
+});
 $('#voiceType').addEventListener('submit', e => {
   e.preventDefault();
   const val = $('#voiceText').value.trim();

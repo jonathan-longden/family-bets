@@ -185,6 +185,19 @@ There's a microphone button beside play. Tap it, say what you want, and
 Tunage does it. There's also a text box in the **Voice** panel that takes
 the same phrases, which is handy for trying one out.
 
+**It listens as soon as it opens.** Open Tunage and just say *"play Capital
+FM"* — no tapping. **Listen when it opens** in the Voice panel turns that
+off if you'd rather press the button.
+
+The first time only, you have to tap the microphone once and allow it.
+Tunage won't throw a permission prompt at you on launch: until the browser
+has actually granted the microphone it leaves it alone and says so. After
+you've allowed it once, every open listens on its own.
+
+It stays quiet in the cases where listening would be wrong: when a link
+already said what to play, and when music is already going — a microphone
+opened over your own music only hears your own music.
+
 ### What it understands
 
 | Say | What happens |
