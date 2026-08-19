@@ -98,7 +98,10 @@
   <!-- ───────────── library ───────────── -->
   <section class="panel">
     <h2>Your music <span class="count" id="libCount"></span></h2>
+    <input id="libSearch" class="search" type="search" autocomplete="off"
+           placeholder="Search titles and artists" aria-label="Search your music" />
     <ul class="tracks" id="library"></ul>
+    <p class="empty" id="libNoMatch" hidden>Nothing matches that.</p>
     <p class="empty" id="libEmpty">Nothing saved yet. Add music below — it's stored on this device, so it plays with the phone in flight mode.</p>
   </section>
 

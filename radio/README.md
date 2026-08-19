@@ -34,6 +34,10 @@ download), and it keeps them rolling.
 - **Lock screen controls.** Play, pause and skip from the lock screen or
   headphones, with artwork.
 - **Sleep timer.** 15 minutes to 2 hours, or just to the end of this track.
+- **Picks up where you left off.** Close it mid-track and it comes back on
+  the same track at the same second, paused and waiting for you.
+- **Search.** Filter your library by title or artist once there's more than
+  a couple of tracks in it.
 
 ## Getting music in
 
@@ -68,6 +72,15 @@ Deleting a playlist, or removing a track from one, leaves your music
 alone: the tracks stay in your library. Deleting a track from **Your music** is
 the only thing that removes the file, and that also takes it out of every
 playlist it was in.
+
+## Files a browser can't play
+
+Browsers don't all support the same formats — Safari won't decode FLAC, for
+instance. When Tunage meets a file this browser can't play, it marks the
+track **can't play in this browser** and skips it, rather than deleting
+something you own. It stays in your library and your playlists, and the
+audio stays on the device, so the same file plays normally somewhere that
+does support it. Only a file whose audio has genuinely gone is removed.
 
 ### Keeping a folder in sync
 

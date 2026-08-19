@@ -222,6 +222,18 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 .mini .ic { width: 16px; height: 16px; }
 
 .pl-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+
+.search {
+  width: 100%; font: inherit; font-size: 14px; margin: 0 0 8px;
+  padding: 9px 12px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+}
+.search::placeholder { color: var(--ink-dim); }
+.search:focus { outline: none; border-color: var(--accent); }
+
+/* still listed, still deletable, just not something this browser can play */
+.tracks li.unplayable .who b { color: var(--ink-dim); }
+.tracks li.unplayable .dot { background: #4A4136 !important; }
 .pl-pick li { cursor: pointer; }
 .pl-pick .who b { font-weight: 600; }
 
