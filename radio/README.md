@@ -18,6 +18,9 @@ download), and it keeps them rolling.
 - **Never stops.** When a track ends the next one is already lined up. The
   queue refills itself forever, and shuffle plays through everything once
   before it starts repeating.
+- **Two decks.** The record that's playing spins on the live deck and the
+  next one sits cued on the other, with a crossfader that slides across as
+  the music hands over. Each new track drops onto whichever deck is free.
 - **Crossfades.** Tracks blend into each other (up to six seconds) instead
   of stopping dead. Turn it off for straight cuts. Short tracks always cut.
 - **One steady volume.** Every track is measured once and played at a

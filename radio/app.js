@@ -470,6 +470,12 @@ function refill() {
     queue.push(...batch);
     if (queue.length > 60) queue = queue.slice(0, 60);
   }
+
+  // With only a couple of tracks about, a pass can hand back the one that's
+  // playing right now — which the Up Next deck would sit there displaying.
+  if (current && queue.length > 1 && queue[0] === current.id) {
+    [queue[0], queue[1]] = [queue[1], queue[0]];
+  }
 }
 
 function rebuildQueue() {
@@ -510,6 +516,7 @@ function finishFade() {
   releaseDeck(other());
   setLevel(deck(), 1);
   fading = false;
+  renderDecks();
 }
 
 const fadeLengthFor = dur =>
@@ -604,18 +611,23 @@ async function playTrack(track, { fade = false } = {}) {
     live = 1 - live;                     // the incoming deck is the one on air now
     setLevel(incoming, 1, seconds);
     setLevel(other(), 0, seconds);
+    moveFader(seconds);                    // the knob travels with the blend
     fadeTimer = setTimeout(finishFade, seconds * 1000 + 150);
   } else {
-    const outgoing = other();
-    releaseDeck(outgoing);
-    const d = deck();
+    // even without a blend, the next record goes onto the free deck — the
+    // decks take turns, which is what makes the two-deck display mean anything
+    const incoming = other();
     try {
-      await loadInto(d, track);
+      await loadInto(incoming, track);
     } catch {
       return dropMissing(track);
     }
-    setLevel(d, 1);
-    try { await d.el.play(); } catch { /* blocked until a tap — the UI still updates */ }
+    setLevel(incoming, 1);
+    const outgoing = deck();
+    live = 1 - live;
+    releaseDeck(outgoing);
+    moveFader(0.45);
+    try { await incoming.el.play(); } catch { /* blocked until a tap — the UI still updates */ }
   }
 
   // the deck can error while we're still starting it, in which case the error
@@ -1207,16 +1219,10 @@ function render() {
   $('#fadeBtn').classList.toggle('on', settings.crossfade);
   $('#levelBtn').classList.toggle('on', settings.level);
 
-  const art = $('#art');
-  art.classList.toggle('spinning', playing);
   if (current) {
-    const hue = hueOf(current.id);
-    art.innerHTML = `<div class="label" style="background:linear-gradient(140deg,hsl(${hue} 60% 55%),hsl(${
-      (hue + 45) % 360} 55% 42%))">${esc((current.title || '?').trim()[0].toUpperCase())}</div>`;
     $('#npTitle').textContent = current.title || current.file;
     $('#npArtist').textContent = current.artist || 'Unknown artist';
   } else {
-    art.innerHTML = '<svg class="ic art-disc"><use href="#i-disc"/></svg>';
     $('#npTitle').textContent = lib.length ? 'Ready when you are' : 'Nothing playing yet';
     $('#npArtist').textContent = lib.length
       ? (emptyMessage() || (currentPlaylist()
@@ -1227,10 +1233,69 @@ function render() {
     $('#tNow').textContent = $('#tEnd').textContent = '0:00';
   }
 
+  renderDecks();
   renderSources();
   renderQueue();
   renderPlaylist();
   renderLibrary();
+}
+
+/* ───────────────────────── the decks ─────────────────────────
+   Deck A and Deck B mirror the two audio decks underneath: whichever is on
+   air holds the record that's playing, the other one has the next track
+   cued. A record only animates onto a platter when that platter's track
+   actually changes, so ordinary re-renders leave it alone. */
+
+const cuedOnDeck = [null, null];
+
+function paintDeck(i, track, isLive) {
+  const deckEl = $(`.deck[data-deck="${i}"]`);
+  if (!deckEl) return;
+  const platter = $('.platter', deckEl);
+  const vinyl = $('.vinyl', deckEl);
+  const label = $('.label', deckEl);
+
+  deckEl.classList.toggle('live', isLive);
+  $('.deck-tag', deckEl).textContent = isLive ? 'Now playing' : 'Up next';
+  vinyl.classList.toggle('spinning', isLive && playing);
+
+  const id = track ? track.id : null;
+  if (cuedOnDeck[i] === id) return;
+  cuedOnDeck[i] = id;
+
+  $('.deck-track', deckEl).textContent = track ? (track.title || track.file) : 'Nothing cued';
+  if (!track) {
+    label.textContent = '';
+    label.style.background = '';
+    return;
+  }
+
+  const hue = hueOf(track.id);
+  label.textContent = (track.title || '?').trim()[0].toUpperCase();
+  label.style.background =
+    `linear-gradient(140deg,hsl(${hue} 60% 55%),hsl(${(hue + 45) % 360} 55% 42%))`;
+
+  // drop the record onto the platter, and tidy the class up after itself so
+  // the deck isn't left permanently mid-animation
+  platter.classList.remove('flip');
+  void platter.offsetWidth;                 // let the animation start again
+  platter.classList.add('flip');
+  platter.addEventListener('animationend', () => platter.classList.remove('flip'), { once: true });
+}
+
+function renderDecks() {
+  const nextUp = queue.map(byId).find(Boolean) || null;
+  paintDeck(live, current, true);
+  paintDeck(1 - live, current ? nextUp : null, false);
+}
+
+/* Slides the crossfader to whichever deck is on air, over the length of the
+   blend so the knob and the sound arrive together. */
+function moveFader(seconds) {
+  const f = $('#fader');
+  if (!f) return;
+  f.style.setProperty('--fader-time', (seconds > 0 ? seconds : 0.45) + 's');
+  f.dataset.side = live === 0 ? 'a' : 'b';
 }
 
 /* The chip row: Tunage, then a chip per playlist, then a way to make one. */

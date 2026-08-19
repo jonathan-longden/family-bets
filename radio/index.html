@@ -49,7 +49,24 @@
 <main>
   <!-- ───────────── now playing ───────────── -->
   <section class="player" id="player">
-    <div class="art" id="art"><svg class="ic art-disc"><use href="#i-disc"/></svg></div>
+    <div class="decks" id="decks">
+      <div class="deck" data-deck="0">
+        <div class="platter"><div class="vinyl"><span class="label"></span></div></div>
+        <div class="deck-tag">Deck A</div>
+        <div class="deck-track">Nothing cued</div>
+      </div>
+      <div class="deck" data-deck="1">
+        <div class="platter"><div class="vinyl"><span class="label"></span></div></div>
+        <div class="deck-tag">Deck B</div>
+        <div class="deck-track">Nothing cued</div>
+      </div>
+    </div>
+
+    <div class="fader" id="fader" data-side="a" aria-hidden="true">
+      <span class="fader-knob"></span>
+      <span class="fader-end">A</span>
+      <span class="fader-end">B</span>
+    </div>
     <div class="meta">
       <div class="title" id="npTitle">Nothing playing yet</div>
       <div class="artist" id="npArtist">Add some music to get going</div>
