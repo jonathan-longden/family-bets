@@ -19,6 +19,8 @@ const FADE_MIN_TRACK = 14;       // shorter than this and a straight cut sounds 
 const RECENT_MEMORY = 0.4;       // fraction of a pool kept out of the reshuffle
 
 const PLAYLISTS_KEY = 'playlists';
+const RESUME_KEY = 'nonstop.resume';   // localStorage: writes finish even on unload
+const RESUME_EVERY = 5000;
 const TUNAGE_COLOUR = '#F2C230';
 
 function esc(s) {
@@ -244,6 +246,7 @@ let current = null;        // the track object on air
 let recent = [];           // ids kept out of the next reshuffle
 let sleep = { mode: null, until: 0 };
 let playlists = [];        // [{ id, name, tracks: [trackId], created }]
+let search = '';           // what's typed in the library search box
 
 const byId = id => lib.find(t => t.id === id);
 
@@ -299,9 +302,10 @@ function deletePlaylist(plId) {
 
 /* What's on air: everything, or one playlist in its own order. */
 function pool(source = settings.source) {
+  const playable = t => t && !t.unplayable;
   const pl = source.startsWith('pl:') ? playlistById(source.slice(3)) : null;
-  if (!pl) return lib.slice();
-  return pl.tracks.map(byId).filter(Boolean);
+  if (!pl) return lib.filter(playable);
+  return pl.tracks.map(byId).filter(playable);
 }
 
 /* ───────────────────────── the never-ending queue ───────────────────────── */
@@ -483,6 +487,10 @@ async function playTrack(track, { fade = false } = {}) {
     try { await d.el.play(); } catch { /* blocked until a tap — the UI still updates */ }
   }
 
+  // the deck can error while we're still starting it, in which case the error
+  // handler has already moved on and this track is no longer the one on air
+  if (track.unplayable) return;
+
   if (current) history.push(current.id);
   if (history.length > 60) history.shift();
   current = track;
@@ -494,11 +502,30 @@ async function playTrack(track, { fade = false } = {}) {
   updateMediaSession();
 }
 
+/* Two very different failures used to land here together. A file whose audio
+   has actually gone is worth removing; a file this browser simply can't decode
+   — a FLAC in Safari, say — is still perfectly good music on another device, so
+   deleting it would be destroying something the listener still owns. */
 function dropMissing(track) {
-  toast('That file went missing — skipping it');
+  toast('That file has gone — removed');
   lib = lib.filter(t => t.id !== track.id);
+  playlists.forEach(pl => { pl.tracks = pl.tracks.filter(x => x !== track.id); });
+  savePlaylists();
   store.delTrack(track.id).catch(() => {});
+  store.delAudio(track.id).catch(() => {});      // don't leave the bytes behind
   rebuildQueue();
+  render();
+  next();
+}
+
+function markUnplayable(track) {
+  if (!track.unplayable) {
+    track.unplayable = true;
+    store.putTrack(track).catch(() => {});
+    toast(`This browser can't play ${track.title || track.file}`);
+  }
+  rebuildQueue();
+  render();
   next();
 }
 
@@ -559,6 +586,55 @@ function emptyMessage() {
   return '';
 }
 
+/* ───────────────────────── picking up where you left off ───────────────────────── */
+
+let resumeSavedAt = 0;
+
+function saveResume() {
+  if (!current) return;
+  const at = deck().el.currentTime || 0;
+  try {
+    localStorage.setItem(RESUME_KEY, JSON.stringify({ id: current.id, at }));
+  } catch { /* private mode, or the quota is full — not worth interrupting playback */ }
+}
+
+/* Puts the last track back on the deck, paused at the second you left it.
+   It deliberately doesn't start playing: browsers block that without a tap,
+   and starting music by itself on launch would be obnoxious anyway. */
+async function restoreResume() {
+  let saved;
+  try { saved = JSON.parse(localStorage.getItem(RESUME_KEY) || 'null'); } catch { return; }
+  if (!saved || !saved.id) return;
+
+  const track = byId(saved.id);
+  if (!track || track.unplayable) return;
+
+  try {
+    await loadInto(deck(), track);
+  } catch {
+    return;                                   // the audio has gone; leave it alone
+  }
+  setLevel(deck(), 1);
+  current = track;
+  queue = queue.filter(id => id !== track.id);
+
+  const at = Number(saved.at) || 0;
+  if (at > 1) {
+    const d = deck().el;
+    const seek = () => {
+      if (isFinite(d.duration) && at < d.duration - 1) d.currentTime = at;
+    };
+    if (d.readyState >= 1) seek();
+    else d.addEventListener('loadedmetadata', seek, { once: true });
+  }
+  render();
+  updateMediaSession();
+}
+
+// last chance to record the position when the app is closed or backgrounded
+addEventListener('pagehide', saveResume);
+addEventListener('visibilitychange', () => { if (document.hidden) saveResume(); });
+
 /* the heartbeat: seek bar, crossfade hand-off, sleep timer */
 setInterval(() => {
   const d = deck().el;
@@ -580,7 +656,15 @@ setInterval(() => {
     if (playing && !fading && d.paused && left <= 0.25 && queue.length) next();
   }
 
-  if (playing !== !d.paused && !fading) { playing = !d.paused; render(); }
+  if (playing !== !d.paused && !fading) {
+    playing = !d.paused;
+    saveResume();                              // pausing is worth remembering
+    render();
+  }
+  if (playing && Date.now() - resumeSavedAt > RESUME_EVERY) {
+    resumeSavedAt = Date.now();
+    saveResume();
+  }
   tickSleep();
 }, 250);
 
@@ -592,7 +676,15 @@ for (const d of decks) {
     next();
   });
   d.el.addEventListener('error', () => {
-    if (d === deck() && current) dropMissing(current);
+    // the deck knows which track it holds; `current` isn't set yet while a
+    // track is still being started, which is exactly when this tends to fire
+    if (d !== deck() || !d.id) return;            // ignore a deck being torn down
+    const track = byId(d.id);
+    if (!track) return;
+    const code = d.el.error && d.el.error.code;
+    // 3 = can't decode, 4 = format unsupported — the file is fine, this browser isn't
+    if (code === 3 || code === 4) markUnplayable(track);
+    else next();                                  // network blip: just move on
   });
   d.el.addEventListener('play', () => { if (d === deck()) { playing = true; render(); } });
   d.el.addEventListener('pause', () => { if (d === deck() && !fading) { playing = false; render(); } });
@@ -1050,23 +1142,34 @@ function trackRow(t, { inPlaylist = false } = {}) {
     ? '<button class="mini" data-act="unpl">Remove</button>'
     : '<button class="mini add" data-act="addpl" aria-label="Add to a playlist">+ Playlist</button>' +
       '<button class="mini danger" data-act="del" aria-label="Delete"><svg class="ic"><use href="#i-trash"/></svg></button>';
+  const note = t.unplayable ? " · can't play in this browser" : '';
   return `
-    <li data-id="${t.id}">
+    <li data-id="${t.id}" class="${t.unplayable ? 'unplayable' : ''}">
       <span class="dot" style="background:hsl(${hueOf(t.id)} 60% 55%)"></span>
       <span class="who" data-act="play">
         <b>${esc(t.title || t.file)}</b>
-        <span>${esc(t.artist || 'Unknown artist')}${t.size ? ' · ' + mb(t.size) : ''}</span>
+        <span>${esc(t.artist || 'Unknown artist')}${t.size ? ' · ' + mb(t.size) : ''}${note}</span>
       </span>
       <span class="row-actions">${actions}</span>
     </li>`;
 }
 
+function matchesSearch(t) {
+  if (!search) return true;
+  return [t.title, t.artist, t.file].some(v => (v || '').toLowerCase().includes(search));
+}
+
 function renderLibrary() {
-  const list = lib.slice().sort((a, b) => (a.artist || '').localeCompare(b.artist || '')
-    || (a.title || '').localeCompare(b.title || ''));
+  const list = lib.filter(matchesSearch)
+    .sort((a, b) => (a.artist || '').localeCompare(b.artist || '')
+      || (a.title || '').localeCompare(b.title || ''));
   $('#library').innerHTML = list.map(t => trackRow(t)).join('');
   $('#libEmpty').hidden = !!lib.length;
-  $('#libCount').textContent = lib.length ? `${lib.length} track${lib.length === 1 ? '' : 's'}` : '';
+  $('#libNoMatch').hidden = !(search && lib.length && !list.length);
+  $('#libSearch').hidden = lib.length < 2;
+  $('#libCount').textContent = !lib.length ? ''
+    : search ? `${list.length} of ${lib.length}`
+      : `${lib.length} track${lib.length === 1 ? '' : 's'}`;
 }
 
 /* ───────────────────────── wiring ───────────────────────── */
@@ -1176,6 +1279,11 @@ $('#playlistPanel').addEventListener('click', e => {
   }
 });
 
+$('#libSearch').addEventListener('input', e => {
+  search = e.target.value.trim().toLowerCase();
+  renderLibrary();
+});
+
 $('#playBtn').addEventListener('click', togglePlay);
 $('#nextBtn').addEventListener('click', () => next({ fade: settings.crossfade && playing }));
 $('#prevBtn').addEventListener('click', prev);
@@ -1218,6 +1326,7 @@ function onTrackListClick(e) {
   } else if (what === 'play') {
     const t = byId(id);
     if (!t) return;
+    if (t.unplayable) return toast("This browser can't play that one");
     queue = queue.filter(x => x !== id);
     playTrack(t, { fade: settings.crossfade && playing });
   }
@@ -1348,6 +1457,7 @@ document.addEventListener('keydown', e => {
   render();
   renderSleep();
   refreshStorage();
+  await restoreResume();
   restoreFolder();
 })();
 
