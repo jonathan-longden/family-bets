@@ -239,9 +239,14 @@
   <!-- ───────────── voice ───────────── -->
   <section class="panel" id="voicePanel">
     <h2><svg class="ic"><use href="#i-mic"/></svg> Voice</h2>
-    <p class="hint">Tap the microphone by the play button and say what you want —
+    <p class="hint">Tunage listens as soon as it opens — just say what you want.
+      Tap the microphone once the first time to allow it. Say things like
       <em>play Capital FM</em>, <em>play my Night Shift playlist</em>, <em>next</em>,
       <em>sleep in 30 minutes</em>. You can type it here too.</p>
+    <p class="toggles voice-toggles">
+      <button class="chip on" id="autoListen" aria-pressed="true" hidden>
+        <svg class="ic"><use href="#i-mic"/></svg> Listen when it opens</button>
+    </p>
     <form id="voiceType" class="add-btns">
       <input id="voiceText" type="text" placeholder="play Capital FM" aria-label="Type a command" />
       <button class="btn" type="submit">Run</button>
