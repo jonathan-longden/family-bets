@@ -1887,6 +1887,358 @@ $('#backupInput').addEventListener('change', e => {
   e.target.value = '';
 });
 
+
+/* ───────────────────────── voice ─────────────────────────
+
+   Two ways in, one brain. The microphone button hands whatever was heard to
+   runCommand(); so does a ?say= link, which is how Siri or Google Assistant
+   reach the app — they can't talk to a web page, but they can open a URL.
+
+   No browser lets a web app listen for its own name in the background, so
+   there is no "Tunage, ..." out of thin air. The word is still stripped off
+   the front of anything heard, because people say it and a Shortcut phrase
+   tends to carry it in. */
+
+const VOICE_KEYS = ['say', 'play', 'q'];   // ?say=… is the documented one
+
+const wordsOf = s => (s || '').toLowerCase()
+  .replace(/[.,!?;:"'`]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+/* Spoken text arrives without punctuation and with the app's name attached
+   often as not: "tunage play capital fm", "hey tunage, next". */
+function stripWake(text) {
+  return wordsOf(text)
+    .replace(/^(hey |ok |okay )?(tunage|tuneage|tunedge|tunich|toonage)\b[, ]*/, '')
+    .replace(/^(please|can you|could you)\b\s*/, '')
+    .trim();
+}
+
+const scoreMatch = (hay, needle) => {
+  const h = wordsOf(hay);
+  if (!h || !needle) return 0;
+  if (h === needle) return 3;
+  if (h.startsWith(needle)) return 2;
+  if (h.includes(needle)) return 1;
+  return 0;
+};
+
+/* Best track by title, then artist — the spoken words are rarely exact. */
+function findTrack(term) {
+  let best = null, bestScore = 0;
+  for (const t of lib) {
+    if (t.unplayable) continue;
+    const s = Math.max(scoreMatch(t.title, term), scoreMatch(t.artist, term) - 0.5);
+    if (s > bestScore) { best = t; bestScore = s; }
+  }
+  return bestScore ? best : null;
+}
+
+function findPlaylist(term) {
+  let best = null, bestScore = 0;
+  for (const pl of playlists) {
+    const s = scoreMatch(pl.name, term);
+    if (s > bestScore) { best = pl; bestScore = s; }
+  }
+  return bestScore ? best : null;
+}
+
+const findSavedStation = term => {
+  let best = null, bestScore = 0;
+  for (const st of stations) {
+    const s = scoreMatch(st.name, term);
+    if (s > bestScore) { best = st; bestScore = s; }
+  }
+  return bestScore ? best : null;
+};
+
+const findShow = term => {
+  let best = null, bestScore = 0;
+  for (const sh of podcasts) {
+    const s = scoreMatch(sh.name, term);
+    if (s > bestScore) { best = sh; bestScore = s; }
+  }
+  return bestScore ? best : null;
+};
+
+function voiceStatus(text, { heard = null } = {}) {
+  const el = $('#voiceSaid');
+  if (!el) return;
+  el.hidden = !text && !heard;
+  el.innerHTML = (heard ? `<b>“${esc(heard)}”</b> — ` : '') + esc(text || '');
+}
+
+/* Switch what's playing to a playlist (or everything) and start it. */
+function playSource(source) {
+  settings.source = source;
+  saveSettings();
+  rebuildQueue();
+  if (onAir()) stopStation();
+  if (!pool().length) { stopAll(); render(); return false; }
+  next({ fade: false });
+  render();
+  return true;
+}
+
+async function playStationByName(term) {
+  const saved = findSavedStation(term);
+  if (saved) { playStation(saved); return `Playing ${saved.name}`; }
+
+  settings.source = 'radio';
+  saveSettings();
+  render();
+  await searchStations({ name: term });
+  const first = $('#stationResults .tile');
+  if (!first) return `Couldn't find a station called “${term}”`;
+  let st;
+  try { st = JSON.parse(first.dataset.station); } catch { return 'That station came back unreadable'; }
+  playStation(st);
+  return `Playing ${st.name}`;
+}
+
+async function playShowByName(term) {
+  const sub = findShow(term);
+  if (!sub) return `You're not subscribed to a show called “${term}”`;
+  settings.source = 'podcasts';
+  saveSettings();
+  render();
+  await openPodcast(sub);
+  const first = $('#episodes .tile');
+  if (!first) return `Couldn't read ${sub.name}'s episode list`;
+  first.click();
+  return `Playing the latest ${sub.name}`;
+}
+
+/* The whole grammar. Returns what to show the user; throws nothing. */
+async function runCommand(raw) {
+  const text = stripWake(raw);
+  if (!text) return "Didn't catch that";
+
+  // ── transport: no argument, so match these before anything with a subject
+  if (/^(stop|pause|shut up|be quiet)\b/.test(text)) {
+    if (onAir()) { stopStation(); return 'Stopped'; }
+    if (playing) { togglePlay(); return 'Paused'; }
+    return 'Nothing was playing';
+  }
+  if (/^(next|skip|forward)\b/.test(text)) {
+    if (onAir()) return "Can't skip a live stream";
+    next({ fade: settings.crossfade && playing });
+    return 'Skipped';
+  }
+  if (/^(previous|back|go back|last one)\b/.test(text)) {
+    if (onAir()) return "Can't go back on a live stream";
+    prev();
+    return 'Went back';
+  }
+  if (/^(resume|carry on|keep going|unpause|continue)$/.test(text) ||
+      /^(play|play it|play music|play something|play anything)$/.test(text)) {
+    if (!playing) await togglePlay();
+    return playing ? 'Playing' : 'Nothing to play — add some music first';
+  }
+  if (/^shuffle (on|off)$/.test(text)) {
+    settings.shuffle = text.endsWith('on');
+    saveSettings(); rebuildQueue(); render();
+    return `Shuffle ${settings.shuffle ? 'on' : 'off'}`;
+  }
+  const nap = text.match(/^(?:sleep|sleep timer|set a sleep timer)(?: for)? (\d+) (minute|minutes|hour|hours)$/);
+  if (nap) {
+    const mins = Number(nap[1]) * (nap[2].startsWith('hour') ? 60 : 1);
+    setSleep(mins);
+    return `Sleeping in ${mins} minutes`;
+  }
+
+  // ── "play X": work out which X
+  const m = text.match(/^(?:play|put on|listen to|start)\s+(.+)$/);
+  if (!m) return `Didn't understand “${text}”`;
+  let what = m[1].replace(/\s+(please|now)$/, '').trim();
+
+  // an explicit steer wins over any guessing
+  let forced = null;
+  let s;
+  if ((s = what.match(/^(?:the\s+)?(?:radio\s+station|station|radio)\s+(.+)$/))) { forced = 'radio'; what = s[1]; }
+  else if ((s = what.match(/^(.+?)\s+on (?:the )?radio$/))) { forced = 'radio'; what = s[1]; }
+  else if ((s = what.match(/^(?:the\s+)?(?:podcast|show)\s+(.+)$/))) { forced = 'podcast'; what = s[1]; }
+  else if ((s = what.match(/^(.+?)\s+(?:podcast|show)$/))) { forced = 'podcast'; what = s[1]; }
+  else if ((s = what.match(/^(?:my|the)\s+(.+?)\s+playlist$/))) { forced = 'playlist'; what = s[1]; }
+  else if ((s = what.match(/^(?:the\s+)?playlist\s+(.+)$/))) { forced = 'playlist'; what = s[1]; }
+  else if ((s = what.match(/^my\s+(.+)$/))) { forced = 'playlist'; what = s[1]; }
+  what = what.trim();
+  if (!what) return "Didn't catch what to play";
+
+  if (forced === 'radio') return playStationByName(what);
+  if (forced === 'podcast') return playShowByName(what);
+  if (forced === 'playlist') {
+    const pl = findPlaylist(what);
+    if (!pl) return `No playlist called “${what}”`;
+    return playSource('pl:' + pl.id) ? `Playing ${pl.name}` : `${pl.name} is empty`;
+  }
+
+  // everything / all my music
+  if (/^(everything|all my music|all of it|my music|music)$/.test(what)) {
+    return playSource('tunage') ? 'Playing everything' : 'There is no music in here yet';
+  }
+
+  // no steer given: your own music first — it's offline and it's yours
+  const track = findTrack(what);
+  if (track) {
+    if (onAir()) stopStation();
+    if (settings.source === 'radio' || settings.source === 'podcasts') {
+      settings.source = 'tunage';
+      saveSettings();
+      rebuildQueue();
+    }
+    await playTrack(track);
+    render();
+    return `Playing ${track.title}`;
+  }
+
+  const pl = findPlaylist(what);
+  if (pl) return playSource('pl:' + pl.id) ? `Playing ${pl.name}` : `${pl.name} is empty`;
+
+  const saved = findSavedStation(what);
+  if (saved) { playStation(saved); return `Playing ${saved.name}`; }
+
+  const show = findShow(what);
+  if (show) return playShowByName(what);
+
+  // nothing of yours matches, so it's probably a station out there
+  return playStationByName(what);
+}
+
+/* ── the microphone ──
+   Speech recognition is the browser's, not ours, and both Chrome's and
+   Safari's send the audio away to be transcribed — so this is the second
+   thing in Tunage that needs a connection. Firefox has none of it. */
+
+const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+const canListen = () => typeof SpeechRec === 'function';
+let listening = null;
+
+function renderVoice() {
+  const btn = $('#voiceBtn');
+  if (!btn) return;
+  btn.hidden = !canListen();
+  btn.classList.toggle('listening', !!listening);
+  btn.setAttribute('aria-label', listening ? 'Stop listening' : 'Speak a command');
+  const help = $('#voiceUnsupported');
+  if (help) help.hidden = canListen();
+  const here = location.origin + location.pathname.replace(/[^/]*$/, '');
+  const url = $('#voiceUrl');
+  if (url && !url.textContent) url.textContent = here + '?listen=1';
+  const sayUrl = $('#voiceSayUrl');
+  if (sayUrl && !sayUrl.textContent) sayUrl.textContent = here + '?say=play ';
+}
+
+async function handleSpoken(heard) {
+  voiceStatus('…', { heard });
+  let said;
+  try { said = await runCommand(heard); }
+  catch { said = 'That went wrong somewhere'; }
+  voiceStatus(said, { heard });
+  toast(said);
+}
+
+function startListening() {
+  if (!canListen() || listening) return;
+  let rec;
+  try { rec = new SpeechRec(); } catch { return; }
+  rec.lang = navigator.language || 'en-GB';
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+
+  rec.onresult = e => {
+    const heard = e.results[0][0].transcript;
+    handleSpoken(heard);
+  };
+  rec.onerror = e => {
+    voiceStatus(e.error === 'not-allowed'
+      ? 'The microphone is blocked for this site — allow it in your browser settings'
+      : e.error === 'no-speech' ? "Didn't hear anything"
+      : "Speech recognition didn't work — it needs a connection");
+  };
+  rec.onend = () => { listening = null; renderVoice(); };
+
+  listening = rec;
+  renderVoice();
+  voiceStatus('Listening…');
+  try {
+    rec.start();
+  } catch {
+    listening = null;
+    renderVoice();
+    voiceStatus('Tap the microphone to speak');
+  }
+}
+
+function stopListening() {
+  if (!listening) return;
+  try { listening.stop(); } catch {}
+  listening = null;
+  renderVoice();
+}
+
+/* ── being opened with a request already in hand ──
+   Siri and Assistant can't speak to a page, but they can open a link, so a
+   Shortcut that dictates a phrase and opens ?say=<phrase> gets the same
+   result. The command runs after boot, once the library is actually loaded. */
+function pendingCommand() {
+  let params;
+  try { params = new URL(location.href).searchParams; } catch { return null; }
+  for (const key of VOICE_KEYS) {
+    const v = params.get(key);
+    if (v && v.trim()) return v.trim();
+  }
+  return null;
+}
+
+async function runPendingCommand() {
+  let params;
+  try { params = new URL(location.href).searchParams; } catch { params = null; }
+
+  // ?open=radio jumps straight to a section without playing anything — that's
+  // what the icon's long-press shortcuts use.
+  const open = params && params.get('open');
+  if (open === 'radio' || open === 'podcasts' || open === 'tunage') {
+    settings.source = open;
+    saveSettings();
+    rebuildQueue();
+    render();
+    try { window.history.replaceState(null, '', location.pathname); } catch {}
+    return;
+  }
+
+  /* ?listen=1 opens with the microphone already running. Android's assistant
+     can't dictate into a link the way Shortcuts can, so instead of arriving
+     with the request in hand the app arrives ready to hear it. Whether it
+     may start without being tapped is the browser's call: an installed app
+     that already has the microphone usually can, and where it can't the
+     error handler says to tap the button rather than failing silently. */
+  if (params && (params.get('listen') === '1' || params.get('listen') === 'true')) {
+    try { window.history.replaceState(null, '', location.pathname); } catch {}
+    if (!canListen()) { voiceStatus('This browser has no speech recognition — type it instead'); return; }
+    startListening();
+    return;
+  }
+
+  const asked = pendingCommand();
+  if (!asked) return;
+  // don't leave it in the address bar to fire again on every reload
+  try { window.history.replaceState(null, '', location.pathname); } catch {}
+  const said = await runCommand(asked);
+  voiceStatus(said, { heard: asked });
+  toast(said);
+}
+
+$('#voiceBtn').addEventListener('click', () => (listening ? stopListening() : startListening()));
+$('#voiceType').addEventListener('submit', e => {
+  e.preventDefault();
+  const val = $('#voiceText').value.trim();
+  if (!val) return;
+  $('#voiceText').value = '';
+  handleSpoken(val);
+});
+
 /* ───────────────────────── rendering ───────────────────────── */
 
 function render() {
@@ -2605,6 +2957,8 @@ document.addEventListener('keydown', e => {
   await restoreResume();
   restoreFolder();
   levelPending();
+  renderVoice();
+  runPendingCommand();
 })();
 
 /* An installed app keeps the manifest it was installed with, so a copy added

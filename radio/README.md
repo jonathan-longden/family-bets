@@ -59,6 +59,9 @@ download), and it keeps them rolling.
 - **Backup.** Save everything that isn't the music itself — playlists,
   saved stations, subscriptions, loudness readings — to a small file you
   keep, and restore it later or on another device.
+- **Voice.** Tap the microphone and say what you want — *play Capital FM*,
+  *play my Night Shift playlist*, *next*. With one shortcut set up on your
+  phone, *"Hey Siri, Tunage"* works from the lock screen.
 
 ## Getting music in
 
@@ -175,6 +178,99 @@ episode audio itself almost always plays — it's reading the list of
 episodes that can be refused. If a show you follow won't load, its feed
 address can still be added by hand under **Add a show by its feed
 address**, though the same restriction applies.
+
+## Voice
+
+There's a microphone button beside play. Tap it, say what you want, and
+Tunage does it. There's also a text box in the **Voice** panel that takes
+the same phrases, which is handy for trying one out.
+
+### What it understands
+
+| Say | What happens |
+| --- | --- |
+| *play Honky Tonk Highway* | plays that track |
+| *play Toots* | plays something by that artist |
+| *play my Night Shift playlist* | switches to that playlist and starts it |
+| *play everything* | back to the whole library |
+| *play Capital FM* | finds and plays that station |
+| *play Kiss FM on the radio* | forces a station, even if you own a track by that name |
+| *play the podcast Desert Island Discs* | latest episode of a show you follow |
+| *next* · *back* · *pause* · *resume* | the transport buttons |
+| *shuffle on* · *shuffle off* | shuffle |
+| *sleep for 30 minutes* | sets the sleep timer |
+
+Say "Tunage" at the front if you like — *"Tunage, play Capital FM"* — it's
+stripped off either way.
+
+When you don't say which kind of thing you mean, **your own music comes
+first**: a track, then a playlist, then a station you saved, then a show you
+follow, and only then the station directory. So if you own a track called
+*Honky Tonk Highway*, that's what plays — add *on the radio* to mean the
+station instead.
+
+### Saying it without opening the app first
+
+Here is the honest limit: **Tunage cannot listen for its own name in the
+background.** No web app can — browsers give no website the microphone
+while it isn't open, and neither Android nor iOS will register a wake word
+for one. That needs a native app.
+
+What it can do is **open already listening**, so you speak once it's up
+rather than before.
+
+#### Android
+
+Install Tunage first — Chrome menu → **Install app**. It becomes a real
+app on the phone, which is what makes the rest work.
+
+- **Long-press the icon → Listen.** It opens with the microphone running;
+  say *"play Capital FM"*. Drag that entry onto the home screen and it's a
+  one-tap button. This needs no setup beyond installing.
+- **Hands-free:** in the Google Home app, make a routine with the starter
+  phrase **Tunage** and an action that opens
+  `https://<your-pages-site>/radio/?listen=1`. Then *"Hey Google, Tunage"*
+  opens it listening. Google moves this UI around and not every version
+  will take a plain link as an action — where yours won't, *"Hey Google,
+  open Tunage"* still launches the installed app and you tap the mic.
+
+Android's assistant can't dictate text *into* a link mid-routine, which is
+why the flow is open-then-speak rather than one sentence.
+
+#### iPhone
+
+Shortcuts can dictate, so iOS gets it in one go: Shortcuts app → new
+shortcut → **Dictate Text**, then **Open URLs** with
+`https://<your-pages-site>/radio/?say=` and the dictated text joined on the
+end. Name it **Tunage**. Then *"Hey Siri, Tunage"* → it asks what to play →
+*"Capital FM"* → the app opens straight onto it.
+
+#### The links themselves
+
+| Link | What it does |
+| --- | --- |
+| `?listen=1` | opens with the microphone running |
+| `?say=play Capital FM` | runs that phrase on load |
+| `?open=radio` | jumps to a section, plays nothing |
+
+Any of them works anywhere a link does — a bookmark, an NFC tag by the
+front door, a home-screen button. The parameter is cleared from the address
+bar once it has run, so a reload doesn't fire it twice.
+
+### Two caveats
+
+- **Speech recognition needs a connection.** Both Chrome's and Safari's send
+  the audio away to be transcribed, so this is the second part of Tunage
+  (with radio) that doesn't work in flight mode. Everything about playing
+  your own music still does.
+- **Firefox has no speech recognition at all**, so the microphone button
+  hides itself there and says why. Typing a command still works, and so does
+  a shortcut on your phone.
+
+One more thing worth knowing: a browser won't always let a page opened by a
+shortcut start playing without you touching it. When that happens Tunage
+loads with the track or station ready and says *tap play* rather than
+pretending it worked.
 
 ## Backup
 

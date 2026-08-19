@@ -122,7 +122,9 @@
       <button id="prevBtn" class="icon-btn" aria-label="Previous"><svg class="ic"><use href="#i-prev"/></svg></button>
       <button id="playBtn" class="play-btn" aria-label="Play"><svg class="ic"><use href="#i-play"/></svg></button>
       <button id="nextBtn" class="icon-btn" aria-label="Next"><svg class="ic"><use href="#i-next"/></svg></button>
+      <button id="voiceBtn" class="icon-btn mic" aria-label="Speak a command" hidden><svg class="ic"><use href="#i-mic"/></svg></button>
     </div>
+    <p class="hint said" id="voiceSaid" hidden></p>
 
     <div class="toggles">
       <button id="shuffleBtn" class="chip on"><svg class="ic"><use href="#i-shuffle"/></svg> Shuffle</button>
@@ -234,6 +236,43 @@
   </section>
 
   <!-- ───────────── backup ───────────── -->
+  <!-- ───────────── voice ───────────── -->
+  <section class="panel" id="voicePanel">
+    <h2><svg class="ic"><use href="#i-mic"/></svg> Voice</h2>
+    <p class="hint">Tap the microphone by the play button and say what you want —
+      <em>play Capital FM</em>, <em>play my Night Shift playlist</em>, <em>next</em>,
+      <em>sleep in 30 minutes</em>. You can type it here too.</p>
+    <form id="voiceType" class="add-btns">
+      <input id="voiceText" type="text" placeholder="play Capital FM" aria-label="Type a command" />
+      <button class="btn" type="submit">Run</button>
+    </form>
+    <p class="hint" id="voiceUnsupported" hidden>This browser has no speech recognition —
+      Firefox doesn't offer it. Typing a command still works, and so does a
+      voice shortcut on your phone.</p>
+    <details class="voice-help">
+      <summary>Say it without opening the app first</summary>
+      <p class="hint">Tunage can't listen for its own name in the background — no
+        web app can. What it can do is open <em>already listening</em>, so you
+        speak once the app is up instead of before it.</p>
+      <p class="hint"><b>Android.</b> Install Tunage first (Chrome menu →
+        <b>Install app</b>). Then <b>long-press the icon</b> and pick
+        <b>Listen</b> — it opens with the microphone running, and you just say
+        <em>"play Capital FM"</em>. Drag that Listen entry onto your home screen
+        and it becomes a one-tap button.</p>
+      <p class="hint">For hands-free, make a Google Assistant routine in the Home
+        app with the starter phrase <b>Tunage</b> and an action that opens
+        <code id="voiceUrl"></code> — then <em>"Hey Google, Tunage"</em> opens it
+        listening. Where a routine won't take a link, <em>"Hey Google, open
+        Tunage"</em> still opens the installed app for you to tap the mic.</p>
+      <p class="hint"><b>iPhone.</b> Shortcuts app → <b>Dictate Text</b> → <b>Open
+        URLs</b> with <code id="voiceSayUrl"></code> and the dictated text joined
+        on the end. Name it <b>Tunage</b>, then <em>"Hey Siri, Tunage"</em> asks
+        what to play and opens straight onto it.</p>
+      <p class="hint">Links of that shape work anywhere a link does — a bookmark,
+        an NFC tag by the door, a home-screen button.</p>
+    </details>
+  </section>
+
   <section class="panel" id="backupPanel">
     <h2><svg class="ic"><use href="#i-save"/></svg> Backup</h2>
     <p class="hint">Your playlists, saved stations and subscriptions live in this
