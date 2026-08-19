@@ -29,8 +29,21 @@
   ],
   "shortcuts": [
     {
+      "name": "Listen for a command",
+      "short_name": "Listen",
+      "description": "Open with the microphone already running",
+      "url": "./?listen=1",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
       "name": "Play everything",
       "short_name": "Play",
+      "description": "Start the whole library",
       "url": "./?say=play%20everything",
       "icons": [
         {
@@ -42,6 +55,7 @@
     {
       "name": "Radio",
       "short_name": "Radio",
+      "description": "Live stations",
       "url": "./?open=radio",
       "icons": [
         {
@@ -53,6 +67,7 @@
     {
       "name": "Podcasts",
       "short_name": "Podcasts",
+      "description": "Shows and episodes",
       "url": "./?open=podcasts",
       "icons": [
         {

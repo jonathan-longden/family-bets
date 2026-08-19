@@ -213,31 +213,49 @@ station instead.
 
 Here is the honest limit: **Tunage cannot listen for its own name in the
 background.** No web app can — browsers give no website the microphone
-while it isn't open, and neither iOS nor Android will register a wake word
+while it isn't open, and neither Android nor iOS will register a wake word
 for one. That needs a native app.
 
-What Tunage can do is *start with a request already in hand*. Opening it
-with `?say=` runs that phrase as soon as it loads:
+What it can do is **open already listening**, so you speak once it's up
+rather than before.
 
-```
-https://<your-pages-site>/radio/?say=play Capital FM
-```
+#### Android
 
-Your phone's own assistant can build that link, which gets you most of the
-way to the real thing:
+Install Tunage first — Chrome menu → **Install app**. It becomes a real
+app on the phone, which is what makes the rest work.
 
-- **iPhone.** Shortcuts app → new shortcut → **Dictate Text**, then **Open
-  URLs** with the address above and the dictated text joined on the end.
-  Name the shortcut **Tunage**. Then *"Hey Siri, Tunage"* → it asks what to
-  play → *"Capital FM"* → the app opens and plays it.
-- **Android.** A Google Assistant routine that opens the same link, or a
-  home-screen shortcut to it.
+- **Long-press the icon → Listen.** It opens with the microphone running;
+  say *"play Capital FM"*. Drag that entry onto the home screen and it's a
+  one-tap button. This needs no setup beyond installing.
+- **Hands-free:** in the Google Home app, make a routine with the starter
+  phrase **Tunage** and an action that opens
+  `https://<your-pages-site>/radio/?listen=1`. Then *"Hey Google, Tunage"*
+  opens it listening. Google moves this UI around and not every version
+  will take a plain link as an action — where yours won't, *"Hey Google,
+  open Tunage"* still launches the installed app and you tap the mic.
 
-A link like that works anywhere a link does — a bookmark, an NFC tag by the
-front door, a button on your home screen.
+Android's assistant can't dictate text *into* a link mid-routine, which is
+why the flow is open-then-speak rather than one sentence.
 
-Long-pressing the app icon also gives you **Play everything**, **Radio** and
-**Podcasts** without any setup.
+#### iPhone
+
+Shortcuts can dictate, so iOS gets it in one go: Shortcuts app → new
+shortcut → **Dictate Text**, then **Open URLs** with
+`https://<your-pages-site>/radio/?say=` and the dictated text joined on the
+end. Name it **Tunage**. Then *"Hey Siri, Tunage"* → it asks what to play →
+*"Capital FM"* → the app opens straight onto it.
+
+#### The links themselves
+
+| Link | What it does |
+| --- | --- |
+| `?listen=1` | opens with the microphone running |
+| `?say=play Capital FM` | runs that phrase on load |
+| `?open=radio` | jumps to a section, plays nothing |
+
+Any of them works anywhere a link does — a bookmark, an NFC tag by the
+front door, a home-screen button. The parameter is cleared from the address
+bar once it has run, so a reload doesn't fire it twice.
 
 ### Two caveats
 

@@ -252,16 +252,24 @@
     <details class="voice-help">
       <summary>Say it without opening the app first</summary>
       <p class="hint">Tunage can't listen for its own name in the background — no
-        web app can. What it can do is start with a request already in hand, so
-        your phone's own assistant can hand one over.</p>
-      <p class="hint"><b>iPhone.</b> Shortcuts app → new shortcut → <b>Dictate Text</b>,
-        then <b>Open URLs</b> with <code id="voiceUrl"></code> and the dictated text
-        joined on the end. Name it <b>Tunage</b>. Then: <em>"Hey Siri, Tunage"</em> →
-        it asks what to play → say <em>"Capital FM"</em>.</p>
-      <p class="hint"><b>Android.</b> Make a Google Assistant routine that opens the
-        same link, or add a home-screen shortcut to it.</p>
-      <p class="hint">Any link of that shape works on its own, too — a bookmark,
-        an NFC tag by the door, or a button on a home screen.</p>
+        web app can. What it can do is open <em>already listening</em>, so you
+        speak once the app is up instead of before it.</p>
+      <p class="hint"><b>Android.</b> Install Tunage first (Chrome menu →
+        <b>Install app</b>). Then <b>long-press the icon</b> and pick
+        <b>Listen</b> — it opens with the microphone running, and you just say
+        <em>"play Capital FM"</em>. Drag that Listen entry onto your home screen
+        and it becomes a one-tap button.</p>
+      <p class="hint">For hands-free, make a Google Assistant routine in the Home
+        app with the starter phrase <b>Tunage</b> and an action that opens
+        <code id="voiceUrl"></code> — then <em>"Hey Google, Tunage"</em> opens it
+        listening. Where a routine won't take a link, <em>"Hey Google, open
+        Tunage"</em> still opens the installed app for you to tap the mic.</p>
+      <p class="hint"><b>iPhone.</b> Shortcuts app → <b>Dictate Text</b> → <b>Open
+        URLs</b> with <code id="voiceSayUrl"></code> and the dictated text joined
+        on the end. Name it <b>Tunage</b>, then <em>"Hey Siri, Tunage"</em> asks
+        what to play and opens straight onto it.</p>
+      <p class="hint">Links of that shape work anywhere a link does — a bookmark,
+        an NFC tag by the door, a home-screen button.</p>
     </details>
   </section>
 

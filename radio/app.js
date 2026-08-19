@@ -2123,10 +2123,11 @@ function renderVoice() {
   btn.setAttribute('aria-label', listening ? 'Stop listening' : 'Speak a command');
   const help = $('#voiceUnsupported');
   if (help) help.hidden = canListen();
+  const here = location.origin + location.pathname.replace(/[^/]*$/, '');
   const url = $('#voiceUrl');
-  if (url && !url.textContent) {
-    url.textContent = location.origin + location.pathname.replace(/[^/]*$/, '') + '?say=play ';
-  }
+  if (url && !url.textContent) url.textContent = here + '?listen=1';
+  const sayUrl = $('#voiceSayUrl');
+  if (sayUrl && !sayUrl.textContent) sayUrl.textContent = here + '?say=play ';
 }
 
 async function handleSpoken(heard) {
@@ -2161,7 +2162,13 @@ function startListening() {
   listening = rec;
   renderVoice();
   voiceStatus('Listening…');
-  try { rec.start(); } catch { listening = null; renderVoice(); }
+  try {
+    rec.start();
+  } catch {
+    listening = null;
+    renderVoice();
+    voiceStatus('Tap the microphone to speak');
+  }
 }
 
 function stopListening() {
@@ -2198,6 +2205,19 @@ async function runPendingCommand() {
     rebuildQueue();
     render();
     try { window.history.replaceState(null, '', location.pathname); } catch {}
+    return;
+  }
+
+  /* ?listen=1 opens with the microphone already running. Android's assistant
+     can't dictate into a link the way Shortcuts can, so instead of arriving
+     with the request in hand the app arrives ready to hear it. Whether it
+     may start without being tapped is the browser's call: an installed app
+     that already has the microphone usually can, and where it can't the
+     error handler says to tap the button rather than failing silently. */
+  if (params && (params.get('listen') === '1' || params.get('listen') === 'true')) {
+    try { window.history.replaceState(null, '', location.pathname); } catch {}
+    if (!canListen()) { voiceStatus('This browser has no speech recognition — type it instead'); return; }
+    startListening();
     return;
   }
 
