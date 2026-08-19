@@ -122,7 +122,9 @@
       <button id="prevBtn" class="icon-btn" aria-label="Previous"><svg class="ic"><use href="#i-prev"/></svg></button>
       <button id="playBtn" class="play-btn" aria-label="Play"><svg class="ic"><use href="#i-play"/></svg></button>
       <button id="nextBtn" class="icon-btn" aria-label="Next"><svg class="ic"><use href="#i-next"/></svg></button>
+      <button id="voiceBtn" class="icon-btn mic" aria-label="Speak a command" hidden><svg class="ic"><use href="#i-mic"/></svg></button>
     </div>
+    <p class="hint said" id="voiceSaid" hidden></p>
 
     <div class="toggles">
       <button id="shuffleBtn" class="chip on"><svg class="ic"><use href="#i-shuffle"/></svg> Shuffle</button>
@@ -234,6 +236,35 @@
   </section>
 
   <!-- ───────────── backup ───────────── -->
+  <!-- ───────────── voice ───────────── -->
+  <section class="panel" id="voicePanel">
+    <h2><svg class="ic"><use href="#i-mic"/></svg> Voice</h2>
+    <p class="hint">Tap the microphone by the play button and say what you want —
+      <em>play Capital FM</em>, <em>play my Night Shift playlist</em>, <em>next</em>,
+      <em>sleep in 30 minutes</em>. You can type it here too.</p>
+    <form id="voiceType" class="add-btns">
+      <input id="voiceText" type="text" placeholder="play Capital FM" aria-label="Type a command" />
+      <button class="btn" type="submit">Run</button>
+    </form>
+    <p class="hint" id="voiceUnsupported" hidden>This browser has no speech recognition —
+      Firefox doesn't offer it. Typing a command still works, and so does a
+      voice shortcut on your phone.</p>
+    <details class="voice-help">
+      <summary>Say it without opening the app first</summary>
+      <p class="hint">Tunage can't listen for its own name in the background — no
+        web app can. What it can do is start with a request already in hand, so
+        your phone's own assistant can hand one over.</p>
+      <p class="hint"><b>iPhone.</b> Shortcuts app → new shortcut → <b>Dictate Text</b>,
+        then <b>Open URLs</b> with <code id="voiceUrl"></code> and the dictated text
+        joined on the end. Name it <b>Tunage</b>. Then: <em>"Hey Siri, Tunage"</em> →
+        it asks what to play → say <em>"Capital FM"</em>.</p>
+      <p class="hint"><b>Android.</b> Make a Google Assistant routine that opens the
+        same link, or add a home-screen shortcut to it.</p>
+      <p class="hint">Any link of that shape works on its own, too — a bookmark,
+        an NFC tag by the door, or a button on a home screen.</p>
+    </details>
+  </section>
+
   <section class="panel" id="backupPanel">
     <h2><svg class="ic"><use href="#i-save"/></svg> Backup</h2>
     <p class="hint">Your playlists, saved stations and subscriptions live in this
