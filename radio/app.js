@@ -303,7 +303,7 @@ function deletePlaylist(plId) {
 
 /* What's on air: everything, or one playlist in its own order. */
 function pool(source = settings.source) {
-  if (source === 'radio') return [];             // live streams, not tracks
+  if (source === 'radio' || source === 'podcasts') return [];   // not tracks
   const playable = t => t && !t.unplayable;
   const pl = source.startsWith('pl:') ? playlistById(source.slice(3)) : null;
   if (!pl) return lib.filter(playable);
@@ -795,14 +795,24 @@ async function restoreResume() {
 }
 
 // last chance to record the position when the app is closed or backgrounded
-addEventListener('pagehide', saveResume);
+addEventListener('pagehide', () => { saveResume(); saveEpisodePos(); });
 addEventListener('visibilitychange', () => { if (document.hidden) saveResume(); });
 
 /* the heartbeat: seek bar, crossfade hand-off, sleep timer */
 setInterval(() => {
-  if (onAir()) {                                 // nothing to seek or hand over
-    const live = !radioEl.paused;
-    if (live !== playing) { playing = live; render(); }
+  if (onAir()) {
+    const going = !radioEl.paused;
+    if (going !== playing) { playing = going; render(); }
+
+    if (!isLive() && isFinite(radioEl.duration) && radioEl.duration > 0) {
+      $('#seek').value = String(Math.round((radioEl.currentTime / radioEl.duration) * 1000));
+      $('#tNow').textContent = mmss(radioEl.currentTime);
+      $('#tEnd').textContent = mmss(radioEl.duration);
+      if (going && Date.now() - resumeSavedAt > RESUME_EVERY) {
+        resumeSavedAt = Date.now();
+        saveEpisodePos();
+      }
+    }
     tickSleep();
     return;
   }
@@ -1255,11 +1265,12 @@ const GENRES = ['dance', 'house', 'reggae', 'country', 'rock', 'pop',
   '90s', '80s', 'jazz', 'chillout', 'news', 'sport'];
 
 let stations = [];              // saved ones
-let nowStation = null;          // what's on air, if anything
+let nowStream = null;           // a station or a podcast episode, if either is on
 const radioEl = new Audio();
 radioEl.preload = 'none';
 
-const onAir = () => !!nowStation;
+const onAir = () => !!nowStream;
+const isLive = () => !!nowStream && nowStream.kind === 'station';
 const saveStations = () => store.setPref(STATIONS_KEY, stations).catch(() => {});
 const isSaved = url => stations.some(s => s.url === url);
 
@@ -1326,7 +1337,7 @@ function stationTile(st) {
     : esc((st.name || '?').trim()[0].toUpperCase());
   const saved = isSaved(st.url);
   return `
-    <button class="tile ${nowStation && nowStation.url === st.url ? 'on' : ''}"
+    <button class="tile ${nowStream && nowStream.url === st.url ? 'on' : ''}"
             data-station='${esc(JSON.stringify(st))}'>
       <span class="tile-art" style="background:linear-gradient(150deg,hsl(${hueOf(st.id)} 55% 45%),hsl(${(hueOf(st.id) + 40) % 360} 50% 30%))">
         ${art}
@@ -1350,19 +1361,33 @@ function renderRadio() {
   }
 }
 
-async function playStation(st) {
+/* One player for anything that isn't a record: a live station, or a podcast
+   episode. An episode can be seeked and remembers where you got to; a station
+   can do neither, so the seek bar and skip buttons stand down for one. */
+async function playStream(item) {
   stopAll();                                   // the decks stand down
-  nowStation = st;
+  nowStream = item;
   document.body.classList.add('on-air');
-  radioEl.src = st.url;
+  document.body.classList.toggle('is-live', item.kind === 'station');
+  radioEl.src = item.url;
+
   $('#onAir').hidden = false;
-  $('#onAirName').textContent = st.name;
-  $('#onAirState').textContent = 'Connecting…';
-  $('#onAirArt').innerHTML = st.favicon
-    ? `<img src="${esc(st.favicon)}" alt="" onerror="this.remove()" />`
-    : esc((st.name || '?').trim()[0].toUpperCase());
-  $('#npTitle').textContent = st.name;
-  $('#npArtist').textContent = st.tags || st.country || 'Live radio';
+  $('#onAirName').textContent = item.name;
+  $('#onAirState').textContent = item.kind === 'station' ? 'Connecting…' : 'Loading…';
+  $('#onAirArt').innerHTML = item.art
+    ? `<img src="${esc(item.art)}" alt="" onerror="this.remove()" />`
+    : esc((item.name || '?').trim()[0].toUpperCase());
+  $('#npTitle').textContent = item.name;
+  $('#npArtist').textContent = item.sub || '';
+
+  if (item.kind === 'episode') {
+    const at = Number(episodePos[item.url]) || 0;
+    if (at > 5) {
+      radioEl.addEventListener('loadedmetadata', () => {
+        if (isFinite(radioEl.duration) && at < radioEl.duration - 5) radioEl.currentTime = at;
+      }, { once: true });
+    }
+  }
 
   try {
     await radioEl.play();
@@ -1373,24 +1398,37 @@ async function playStation(st) {
   if ('mediaSession' in navigator) {
     try {
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: st.name, artist: 'Live radio', album: 'Tunage',
+        title: item.name,
+        artist: item.sub || (item.kind === 'station' ? 'Live radio' : 'Podcast'),
+        album: 'Tunage',
+        artwork: item.art ? [{ src: item.art }] : [],
       });
     } catch {}
   }
 }
 
+const playStation = st => playStream({
+  kind: 'station', name: st.name, sub: st.tags || st.country || 'Live radio',
+  url: st.url, art: st.favicon,
+});
+
 function stopStation() {
+  if (nowStream && nowStream.kind === 'episode') saveEpisodePos();
   radioEl.pause();
   radioEl.removeAttribute('src');
   radioEl.load();
-  nowStation = null;
+  nowStream = null;
   playing = false;
-  document.body.classList.remove('on-air');
+  document.body.classList.remove('on-air', 'is-live');
   $('#onAir').hidden = true;
   render();
 }
 
-radioEl.addEventListener('playing', () => { $('#onAirState').textContent = 'Live'; playing = true; render(); });
+radioEl.addEventListener('playing', () => {
+  $('#onAirState').textContent = isLive() ? 'Live' : 'Playing';
+  playing = true;
+  render();
+});
 radioEl.addEventListener('waiting', () => { $('#onAirState').textContent = 'Buffering…'; });
 radioEl.addEventListener('pause', () => { if (onAir()) { playing = false; render(); } });
 radioEl.addEventListener('error', () => {
@@ -1461,6 +1499,238 @@ $('#stationSave').addEventListener('click', () => {
   playStation(st);
 });
 
+
+/* ───────────────────────── podcasts ─────────────────────────
+
+   A show is an RSS feed; an episode is an audio file listed in it. Shows are
+   found through the iTunes Search directory, which is open and needs no key,
+   and the feed itself is read straight from the publisher.
+
+   The catch is CORS: plenty of feeds don't allow another site to read them
+   from a browser, and without a server of our own there is nothing to be
+   done about it. Those are reported plainly rather than failing quietly —
+   the episode audio itself almost always plays, it's reading the list that
+   can be refused. */
+
+const PODCASTS_KEY = 'podcasts';
+const EPISODES_KEY = 'episodePos';
+const PODCAST_API = 'https://itunes.apple.com/search';
+
+let podcasts = [];              // subscribed shows
+let episodePos = {};            // how far into each episode you got
+let openShow = null;            // the show whose episodes are listed
+
+const savePodcasts = () => store.setPref(PODCASTS_KEY, podcasts).catch(() => {});
+const isSubscribed = feed => podcasts.some(p => p.feed === feed);
+
+function saveEpisodePos() {
+  if (!nowStream || nowStream.kind !== 'episode') return;
+  const at = radioEl.currentTime || 0;
+  if (at > 5) episodePos[nowStream.url] = Math.floor(at);
+  else delete episodePos[nowStream.url];
+  store.setPref(EPISODES_KEY, episodePos).catch(() => {});
+}
+
+function podcastStatus(text) {
+  const el = $('#podcastStatus');
+  el.hidden = !text;
+  el.textContent = text || '';
+}
+
+async function searchPodcasts(term) {
+  if (!term) return;
+  podcastStatus('Searching…');
+  $('#podcastResults').innerHTML = '';
+  $('#episodes').innerHTML = '';
+  $('#episodesHead').hidden = true;
+  openShow = null;
+
+  const params = new URLSearchParams({ media: 'podcast', limit: '24', term });
+  let data;
+  try {
+    const res = await fetch(`${PODCAST_API}?${params}`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    data = await res.json();
+  } catch {
+    podcastStatus("Couldn't reach the podcast directory. You need a connection for " +
+      'searching, and you can always add a show by its feed address instead.');
+    return;
+  }
+
+  const shows = (data.results || [])
+    .filter(r => r.feedUrl)
+    .map(r => ({
+      id: r.collectionId ? String(r.collectionId) : uid(),
+      name: r.collectionName || r.trackName || 'Untitled show',
+      author: r.artistName || '',
+      feed: r.feedUrl,
+      art: r.artworkUrl600 || r.artworkUrl100 || '',
+    }));
+
+  $('#podcastResults').innerHTML = shows.map(showTile).join('');
+  podcastStatus(shows.length ? `${shows.length} show${shows.length === 1 ? '' : 's'}`
+    : 'Nothing found');
+}
+
+function showTile(show) {
+  const art = show.art
+    ? `<img src="${esc(show.art)}" alt="" loading="lazy" onerror="this.remove()" />`
+    : esc((show.name || '?').trim()[0].toUpperCase());
+  const subbed = isSubscribed(show.feed);
+  return `
+    <button class="tile" data-show='${esc(JSON.stringify(show))}'>
+      <span class="tile-art" style="background:linear-gradient(150deg,hsl(${hueOf(show.id)} 50% 42%),hsl(${(hueOf(show.id) + 40) % 360} 45% 28%))">
+        ${art}
+        <span class="tile-save ${subbed ? 'on' : ''}" data-sub="1" role="button"
+              aria-label="${subbed ? 'Unsubscribe' : 'Subscribe'}">
+          <svg class="ic"><use href="#i-heart"/></svg>
+        </span>
+      </span>
+      <b>${esc(show.name)}</b>
+      <span>${esc(show.author || 'Podcast')}</span>
+    </button>`;
+}
+
+/* Reads a feed and pulls out what's needed to list and play episodes. */
+function parseFeed(xml) {
+  const doc = new DOMParser().parseFromString(xml, 'application/xml');
+  if (doc.querySelector('parsererror')) return null;
+  const text = (node, tag) => {
+    const el = node.getElementsByTagName(tag)[0];
+    return el ? el.textContent.trim() : '';
+  };
+  const channel = doc.querySelector('channel') || doc.documentElement;
+  const showArt = (channel.getElementsByTagName('itunes:image')[0] || {}).getAttribute
+    ? channel.getElementsByTagName('itunes:image')[0].getAttribute('href')
+    : text(channel, 'url');
+
+  const episodes = [...doc.getElementsByTagName('item')].slice(0, 60).map(item => {
+    const enclosure = item.getElementsByTagName('enclosure')[0];
+    return {
+      title: text(item, 'title') || 'Untitled episode',
+      url: enclosure ? enclosure.getAttribute('url') : '',
+      date: text(item, 'pubDate'),
+      duration: text(item, 'itunes:duration'),
+    };
+  }).filter(ep => ep.url);
+
+  return { title: text(channel, 'title'), art: showArt || '', episodes };
+}
+
+async function openPodcast(show) {
+  openShow = show;
+  $('#episodesHead').hidden = false;
+  $('#episodesHead').textContent = show.name;
+  $('#episodes').innerHTML = '';
+  podcastStatus('Fetching episodes…');
+
+  let xml;
+  try {
+    const res = await fetch(show.feed);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    xml = await res.text();
+  } catch {
+    podcastStatus(`Couldn't read ${show.name}'s feed. Plenty of podcast feeds don't let ` +
+      'other sites read them from a browser, and without a server of our own there ' +
+      'is no way round it.');
+    return;
+  }
+
+  const feed = parseFeed(xml);
+  if (!feed || !feed.episodes.length) {
+    podcastStatus(`Nothing playable found in ${show.name}'s feed.`);
+    return;
+  }
+  if (!show.art && feed.art) show.art = feed.art;
+
+  podcastStatus(`${feed.episodes.length} episode${feed.episodes.length === 1 ? '' : 's'}`);
+  $('#episodes').innerHTML = feed.episodes.map(ep => {
+    const at = Number(episodePos[ep.url]) || 0;
+    const when = ep.date ? new Date(ep.date) : null;
+    const bits = [
+      when && !isNaN(when) ? when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '',
+      ep.duration,
+      at > 5 ? `${mmss(at)} in` : '',
+    ].filter(Boolean).join(' · ');
+    return `
+      <li data-episode='${esc(JSON.stringify({ ...ep, show: show.name, art: show.art }))}'>
+        <span class="who" data-act="play">
+          <b>${esc(ep.title)}</b>
+          <span>${esc(bits)}</span>
+        </span>
+        <button class="mini" data-act="play">Play</button>
+      </li>`;
+  }).join('');
+}
+
+function renderPodcasts() {
+  $('#podcastPanel').hidden = settings.source !== 'podcasts';
+  $('#subsHead').hidden = !podcasts.length;
+  $('#subscriptions').innerHTML = podcasts.map(showTile).join('');
+}
+
+function subscribe(show) {
+  if (isSubscribed(show.feed)) podcasts = podcasts.filter(p => p.feed !== show.feed);
+  else podcasts.push(show);
+  savePodcasts();
+  renderPodcasts();
+  render();
+  toast(isSubscribed(show.feed) ? `Subscribed to ${show.name}` : `Unsubscribed from ${show.name}`);
+}
+
+/* ── wiring ── */
+
+$('#podcastGo').addEventListener('click', () => searchPodcasts($('#podcastSearch').value.trim()));
+$('#podcastSearch').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); searchPodcasts(e.target.value.trim()); }
+});
+
+function onShowClick(e) {
+  const tile = e.target.closest('.tile');
+  if (!tile) return;
+  let show;
+  try { show = JSON.parse(tile.dataset.show); } catch { return; }
+  if (e.target.closest('[data-sub]')) subscribe(show);
+  else openPodcast(show);
+}
+$('#podcastResults').addEventListener('click', onShowClick);
+$('#subscriptions').addEventListener('click', onShowClick);
+
+$('#episodes').addEventListener('click', e => {
+  const li = e.target.closest('li[data-episode]');
+  if (!li || !e.target.closest('[data-act]')) return;
+  let ep;
+  try { ep = JSON.parse(li.dataset.episode); } catch { return; }
+  playStream({
+    kind: 'episode', name: ep.title, sub: ep.show || 'Podcast',
+    url: ep.url, art: ep.art || '',
+  });
+});
+
+$('#addFeedUrl').addEventListener('click', () => {
+  $('#feedErr').hidden = true;
+  $('#feedUrl').value = '';
+  openSheet('#feedSheet');
+});
+
+$('#feedSave').addEventListener('click', async () => {
+  const url = $('#feedUrl').value.trim();
+  const err = $('#feedErr');
+  if (!url) { err.textContent = 'Paste the feed address first.'; err.hidden = false; return; }
+  if (location.protocol === 'https:' && !url.startsWith('https://')) {
+    err.textContent = "That address isn't https, so the browser won't fetch it.";
+    err.hidden = false;
+    return;
+  }
+  const show = { id: uid(), name: url.replace(/^https?:\/\//, '').split('/')[0], author: '', feed: url, art: '' };
+  podcasts.push(show);
+  savePodcasts();
+  closeSheets();
+  renderPodcasts();
+  render();
+  openPodcast(show);
+});
+
 /* ───────────────────────── rendering ───────────────────────── */
 
 function render() {
@@ -1488,6 +1758,7 @@ function render() {
 
   renderDecks();
   renderRadio();
+  renderPodcasts();
   renderSources();
   renderQueue();
   renderPlaylist();
@@ -1777,6 +2048,8 @@ function renderSources() {
       count(pl.tracks.filter(id => byId(id)).length))).join('') +
     chip('radio', 'Radio', stations.length
       ? `${stations.length} saved` : 'live stations') +
+    chip('podcasts', 'Podcasts', podcasts.length
+      ? `${podcasts.length} subscribed` : 'shows and episodes') +
     '<button class="source new" data-source="new"><b>+ New</b><span>playlist</span></button>';
 }
 
@@ -1849,8 +2122,8 @@ $('#sources').addEventListener('click', e => {
   saveSettings();
   rebuildQueue();
   render();
-  // radio is a section to browse, not something to start playing on its own
-  if (settings.source === 'radio') return;
+  // these are sections to browse, not something to start playing on its own
+  if (settings.source === 'radio' || settings.source === 'podcasts') return;
   if (onAir()) stopStation();
   // picking a playlist means that playlist's music, right now
   if (!pool().length) { stopAll(); toast(emptyMessage()); render(); return; }
@@ -1961,8 +2234,17 @@ $('#libSearch').addEventListener('input', e => {
 });
 
 $('#playBtn').addEventListener('click', togglePlay);
-$('#nextBtn').addEventListener('click', () => next({ fade: settings.crossfade && playing }));
-$('#prevBtn').addEventListener('click', prev);
+/* On an episode the skip buttons do what they do in a podcast app: a nudge
+   back over something you missed, a jump forward over something you didn't
+   want. On a record they still move between tracks. */
+$('#nextBtn').addEventListener('click', () => {
+  if (onAir()) { radioEl.currentTime = Math.min(radioEl.duration || 0, radioEl.currentTime + 30); return; }
+  next({ fade: settings.crossfade && playing });
+});
+$('#prevBtn').addEventListener('click', () => {
+  if (onAir()) { radioEl.currentTime = Math.max(0, radioEl.currentTime - 15); return; }
+  prev();
+});
 
 $('#shuffleBtn').addEventListener('click', () => {
   settings.shuffle = !settings.shuffle;
@@ -1987,6 +2269,12 @@ $('#fadeBtn').addEventListener('click', () => {
 });
 
 $('#seek').addEventListener('input', e => {
+  if (onAir()) {                                 // an episode, seeking itself
+    if (!isLive() && isFinite(radioEl.duration)) {
+      radioEl.currentTime = (Number(e.target.value) / 1000) * radioEl.duration;
+    }
+    return;
+  }
   const d = deck().el;
   if (!current || !isFinite(d.duration)) return;
   d.currentTime = (Number(e.target.value) / 1000) * d.duration;
@@ -2141,6 +2429,16 @@ document.addEventListener('keydown', e => {
     stations = Array.isArray(savedStations) ? savedStations : [];
   } catch {
     stations = [];
+  }
+
+  try {
+    const subs = await store.getPref(PODCASTS_KEY);
+    podcasts = Array.isArray(subs) ? subs : [];
+    const pos = await store.getPref(EPISODES_KEY);
+    episodePos = (pos && typeof pos === 'object') ? pos : {};
+  } catch {
+    podcasts = [];
+    episodePos = {};
   }
   // a playlist deleted on another tab shouldn't leave us pointing at nothing
   if (settings.source.startsWith('pl:') && !currentPlaylist()) settings.source = 'tunage';

@@ -483,15 +483,20 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 @keyframes pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
 
-/* while a station plays there are no decks, no queue and nothing to seek */
+.episodes li { align-items: center; }
+.episodes .who b { font-size: 13px; white-space: normal; }
+
+/* while a stream plays there are no decks and no queue; a live station has
+   nothing to seek either, while a podcast episode does */
 body.on-air .decks,
 body.on-air .mixer,
 body.on-air .meta,
-body.on-air .seek,
-body.on-air #prevBtn,
-body.on-air #nextBtn,
 body.on-air .toggles,
 body.on-air #queuePanel { display: none !important; }
+
+body.on-air.is-live .seek,
+body.on-air.is-live #prevBtn,
+body.on-air.is-live #nextBtn { display: none !important; }
 
 /* ───────────── panels ───────────── */
 
