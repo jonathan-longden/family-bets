@@ -1,17 +1,16 @@
-# Nonstop
+# Tunage
 
 Your own music, playing without stopping and without a signal. Everything
-you add lands in one pool called **Tunage**, and you can carve playlists
-out of it.
+you add lands in one pool, and you can carve playlists out of it.
 
-Nonstop is a player, not a streaming service: it doesn't come with any
+Tunage is a player, not a streaming service: it doesn't come with any
 music. You load it with tracks you already own (or ones you're allowed to
 download), and it keeps them rolling.
 
 ## What it does
 
-- **Tunage.** One pool holding everything you've added. Press play and it
-  runs.
+- **Everything.** One pool holding all the music you've added. Press play
+  and it runs.
 - **Playlists.** Make as many as you like, add any track to any number of
   them, and tap a playlist to make it the thing that's playing. Playlists
   hold references, so removing a track from one — or deleting the playlist
@@ -50,7 +49,7 @@ Open the app and use **Add music**:
 MP3, M4A, AAC, OGG, Opus, WAV and FLAC all work, as far as the browser
 supports them. Files never leave the device — there's no server involved.
 
-Nonstop plays music you already have the right to play. It doesn't search
+Tunage plays music you already have the right to play. It doesn't search
 for, stream or download anything on its own.
 
 ## Playlists
@@ -59,21 +58,21 @@ Every track in **Your music** has a **+ Playlist** button. Tap it and
 either pick an existing playlist or type a name to make a new one. Tapping
 a playlist in that list again takes the track back out.
 
-Playlists appear as chips along the top, next to Tunage. Tap one and it
+Playlists appear as chips along the top, next to Everything. Tap one and it
 becomes what's playing — the queue draws from it and nothing else, in the
 order you added things unless shuffle is on. While a playlist is playing
 you get a panel for it, where you can rename it, remove tracks, or delete
 the whole thing.
 
 Deleting a playlist, or removing a track from one, leaves your music
-alone: the tracks stay in Tunage. Deleting a track from **Your music** is
+alone: the tracks stay in your library. Deleting a track from **Your music** is
 the only thing that removes the file, and that also takes it out of every
 playlist it was in.
 
 ### Keeping a folder in sync
 
 **Keep a folder in sync** goes further than a one-off import: pick your
-music folder once and Nonstop re-reads it on every launch, importing
+music folder once and Tunage re-reads it on every launch, importing
 anything you've added since. It only opens files it hasn't seen, so a
 large library doesn't get re-read from disk each time.
 
@@ -81,7 +80,7 @@ This needs the File System Access API, which means **Chrome or Edge on a
 computer**. Safari and Firefox don't have it, and neither does any browser
 on iOS or Android — the button explains itself and the ordinary "Choose a
 folder" import is there instead. Chrome remembers the permission for an
-installed app; otherwise it asks once per visit, and Nonstop shows an
+installed app; otherwise it asks once per visit, and Tunage shows an
 "Allow access" button rather than nagging.
 
 Tracks are still copied into the app's own storage, so playback keeps
@@ -93,7 +92,7 @@ a phone with no connection.
 No browser can read your **Apple Music or Spotify library**, and neither
 can this one. Streaming apps store their music encrypted, and their
 catalogues are licensed for playback inside those apps only. The same goes
-for the iOS Music library: Safari has no access to it. Nonstop plays files
+for the iOS Music library: Safari has no access to it. Tunage plays files
 you can see in a file browser — purchased downloads, CD rips, Bandcamp
 files, anything DRM-free.
 
