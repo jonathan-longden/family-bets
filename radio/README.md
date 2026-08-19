@@ -40,8 +40,9 @@ download), and it keeps them rolling.
 - **Keeps a folder in sync.** On a computer, point it at your music folder
   once and it re-reads that folder every time you open it, importing
   anything new. See the limits below.
-- **Turns with the phone.** Sideways, the player takes a pane on the left
-  and the lists scroll beside it.
+- **Turns with the phone.** Sideways it becomes the deck view: two large
+  turntables with the mixer between them and nothing else on screen. The
+  queue, library and everything else are a portrait job.
 - **Lock screen controls.** Play, pause and skip from the lock screen or
   headphones, with artwork.
 - **Sleep timer.** 15 minutes to 2 hours, or just to the end of this track.
