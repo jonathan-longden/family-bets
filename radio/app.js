@@ -2180,7 +2180,11 @@ function startListening({ automatic = false } = {}) {
     }
     // nothing said into an automatic listen is the normal way it ends
     if (e.error === 'no-speech') { voiceStatus(automatic ? '' : "Didn't hear anything"); return; }
-    voiceStatus(automatic ? '' : "Speech recognition didn't work — it needs a connection");
+    // anything else stays on screen either way: a microphone that quietly
+    // fails to open looks identical to one that was never asked to
+    voiceStatus(e.error === 'network'
+      ? "Speech recognition needs a connection — tap the microphone to try again"
+      : `Couldn't start listening (${esc(e.error || 'unknown')}) — tap the microphone`);
   };
   rec.onend = () => { listening = null; renderVoice(); };
 
@@ -2192,7 +2196,7 @@ function startListening({ automatic = false } = {}) {
   } catch {
     listening = null;
     renderVoice();
-    voiceStatus(automatic ? '' : 'Tap the microphone to speak');
+    voiceStatus('Tap the microphone to speak');
   }
 }
 
@@ -2251,15 +2255,17 @@ async function runPendingCommand() {
      means the resume picked up where it left off, and a microphone would
      only hear that. */
   if (settings.autoListen && canListen() && !pendingCommand() && !playing && !onAir()) {
-    /* Only open the microphone if this browser has already been given it.
-       Launching straight into a permission prompt every time would be the
-       kind of thing that gets an app deleted, and a prompt nobody answers
-       reads as a refusal. Tap the button once, allow it, and every open
-       after that listens on its own. */
+    /* Try unless the browser has actually said no. An earlier version only
+       started on a 'granted' reading, which sounds safer and isn't: Chrome
+       doesn't report the speech-recognition grant through the microphone
+       permission reliably, so a phone that listens perfectly well when you
+       tap the button reads back as 'prompt' forever and never starts on its
+       own. A refusal is cheap to handle; never starting is the bug. */
     const perm = await micPermission();
-    if (perm === 'granted') startListening({ automatic: true });
-    else if (perm !== 'denied') {
-      voiceStatus('Tap the microphone once to allow it — after that Tunage listens whenever it opens');
+    if (perm === 'denied') {
+      voiceStatus('The microphone is blocked for this site — allow it in your browser settings');
+    } else {
+      startListening({ automatic: true });
     }
   }
 
