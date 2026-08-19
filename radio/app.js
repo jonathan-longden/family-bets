@@ -496,7 +496,8 @@ function makeDeck() {
   const el = new Audio();
   el.preload = 'auto';
   el.crossOrigin = 'anonymous';
-  return { el, gain: null, analyser: null, url: null, id: null, trackGain: 1, angle: 0 };
+  return { el, gain: null, analyser: null, url: null, id: null,
+    trackGain: 1, channel: 1, env: 1, angle: 0 };
 }
 
 const decks = [makeDeck(), makeDeck()];
@@ -550,7 +551,9 @@ async function ensureAudioGraph() {
    above 1 is fine; an <audio> element's volume caps at 1, so on that fallback
    path quiet tracks can only be left alone, not lifted. */
 function setLevel(d, value, seconds = 0) {
-  const wanted = value * (settings.level ? (d.trackGain || 1) : 1);
+  d.env = value;                                   // remembered so the channel
+                                                   // fader can re-apply it
+  const wanted = value * d.channel * (settings.level ? (d.trackGain || 1) : 1);
   const v = routed && d.gain ? clamp(wanted, 0, MAX_BOOST) : clamp(wanted, 0, 1);
   if (routed && d.gain) {
     const t = ctx.currentTime;
@@ -1366,6 +1369,50 @@ function startPlatters() {
   };
   platterFrame = requestAnimationFrame(frame);
 }
+
+/* ───────────────────────── channel faders ─────────────────────────
+   One per deck, and they do what they look like: the level rides on top of
+   whatever the crossfade envelope and the track's own levelling are doing,
+   so none of the three fights the others. */
+
+function setChannel(i, level) {
+  const d = decks[i];
+  d.channel = clamp(level, 0, 1);
+  setLevel(d, d.env);                              // re-apply at the new level
+  const track = document.querySelector(`.chan-fader[data-chan="${i}"]`);
+  if (track) {
+    track.style.setProperty('--level', d.channel.toFixed(3));
+    track.setAttribute('aria-valuenow', Math.round(d.channel * 100));
+  }
+}
+
+function channelFromPointer(track, y) {
+  const r = track.getBoundingClientRect();
+  return clamp(1 - (y - r.top) / r.height, 0, 1);   // top of the strip is full
+}
+
+let draggingChannel = null;
+
+$('#mixer').addEventListener('pointerdown', e => {
+  const track = e.target.closest('.chan-fader');
+  if (!track) return;
+  draggingChannel = Number(track.dataset.chan);
+  setChannel(draggingChannel, channelFromPointer(track, e.clientY));
+  try { track.setPointerCapture(e.pointerId); } catch {}
+  e.preventDefault();
+});
+
+$('#mixer').addEventListener('pointermove', e => {
+  if (draggingChannel === null) return;
+  const track = document.querySelector(`.chan-fader[data-chan="${draggingChannel}"]`);
+  if (track) setChannel(draggingChannel, channelFromPointer(track, e.clientY));
+  e.preventDefault();
+});
+
+const stopChannelDrag = () => { draggingChannel = null; };
+$('#mixer').addEventListener('pointerup', stopChannelDrag);
+$('#mixer').addEventListener('pointercancel', stopChannelDrag);
+$('#mixer').addEventListener('lostpointercapture', stopChannelDrag);
 
 /* ───────────────────────── scratching ─────────────────────────
 

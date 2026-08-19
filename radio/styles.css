@@ -274,12 +274,20 @@ main { max-width: 620px; margin: 0 auto; padding: 0 16px; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* ───────────── the mixer ───────────── */
+/* ───────────── the mixer ─────────────
+   Portrait keeps it to the crossfader with a meter each side. Sideways it
+   becomes the unit it's standing in for: a channel strip per deck with a
+   working level fader, and the crossfader across the bottom. */
 
 .mixer {
   display: flex; align-items: center; justify-content: center; gap: 10px;
   margin: 0 auto 12px; max-width: 300px;
 }
+.channel { display: contents; }
+.meter[data-meter="0"] { order: 1; }
+.fader { order: 2; }
+.meter[data-meter="1"] { order: 3; }
+.chan-fader { display: none; }
 
 .meter {
   width: 11px; height: 38px; border-radius: 3px; flex: none;
@@ -319,7 +327,30 @@ body:not(.metered) .meter { display: none; }
   width: 2px; background: rgba(0,0,0,.35); border-radius: 1px;
 }
 .fader[data-side="b"] .fader-knob { left: calc(100% - 38px); }
-.fader-end { display: none; }
+
+/* channel level faders — only worth the room when the phone is sideways */
+.chan-fader {
+  position: relative; width: 22px; flex: none;
+  border-radius: 4px; cursor: pointer; touch-action: none;
+  background: linear-gradient(180deg, #221F19, #14120E);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.9);
+}
+.chan-fader::before {                    /* the slot the knob rides in */
+  content: ''; position: absolute; left: 50%; top: 7px; bottom: 7px;
+  width: 4px; margin-left: -2px; border-radius: 2px;
+  background: #0C0B09; box-shadow: inset 0 1px 2px rgba(0,0,0,.9);
+}
+.chan-knob {
+  position: absolute; left: 2px; right: 2px; height: 14px;
+  bottom: calc(var(--level, 1) * (100% - 18px) + 2px);
+  border-radius: 3px;
+  background: linear-gradient(180deg, #DDD6C6 0%, #9A9284 48%, #6B6559 52%, #B4AC9C 100%);
+  box-shadow: 0 2px 4px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.5);
+}
+.chan-knob::after {
+  content: ''; position: absolute; left: 15%; right: 15%; top: 45%;
+  height: 2px; background: rgba(0,0,0,.35); border-radius: 1px;
+}
 
 .meta { min-height: 52px; }
 .title { font-size: 19px; font-weight: 700; }
@@ -524,11 +555,22 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
   .deck-tag { font-size: 9px; }
   .deck-track { font-size: 11px; max-width: 92%; }
 
-  .mixer { grid-column: 2; grid-row: 1; margin: 0; max-width: none; align-self: end; gap: 9px; }
-  .fader { height: 40px; }
-  .fader-knob { width: 40px; }
-  .fader[data-side="b"] .fader-knob { left: calc(100% - 44px); }
-  .meter { height: 40px; width: 13px; }
+  /* sideways, the mixer becomes a unit: two channel strips over a crossfader */
+  .mixer {
+    grid-column: 2; grid-row: 1; margin: 0; max-width: none; align-self: center;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    padding: 9px; border-radius: 10px;
+    background: linear-gradient(180deg, #2E2A23, #17140F);
+    border: 1px solid #100E0B;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 5px 14px rgba(0,0,0,.5);
+  }
+  .channel { display: flex; align-items: stretch; justify-content: center; gap: 5px; height: 92px; }
+  .chan-fader { display: block; width: 20px; }
+  .meter { height: auto; width: 9px; align-self: stretch; }
+  .meter[data-meter="0"], .meter[data-meter="1"] { order: 0; }
+  .fader { order: 0; grid-column: 1 / -1; flex: none; height: 34px; max-width: none; }
+  .fader-knob { width: 36px; }
+  .fader[data-side="b"] .fader-knob { left: calc(100% - 40px); }
 
   .controls { grid-column: 2; grid-row: 2; margin: 0; gap: 18px; }
   .controls .ic { width: 22px; height: 22px; }
@@ -549,11 +591,13 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
   .label { font-size: 11px; }
   .deck-tag { display: none; }
   .deck-track { font-size: 10px; }
-  .mixer { gap: 8px; }
-  .fader { height: 34px; }
-  .fader-knob { width: 34px; }
-  .fader[data-side="b"] .fader-knob { left: calc(100% - 38px); }
-  .meter { height: 34px; width: 11px; }
+  .mixer { gap: 7px; padding: 7px; }
+  .channel { height: 68px; gap: 4px; }
+  .chan-fader { width: 17px; }
+  .meter { width: 8px; }
+  .fader { height: 28px; }
+  .fader-knob { width: 30px; }
+  .fader[data-side="b"] .fader-knob { left: calc(100% - 34px); }
   .play-btn { width: 44px; height: 44px; }
   .play-btn .ic { width: 20px; height: 20px; }
   .controls { gap: 14px; }

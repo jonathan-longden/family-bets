@@ -41,8 +41,9 @@ download), and it keeps them rolling.
   once and it re-reads that folder every time you open it, importing
   anything new. See the limits below.
 - **Turns with the phone.** Sideways it becomes the deck view: two large
-  turntables with the mixer between them and nothing else on screen. The
-  queue, library and everything else are a portrait job.
+  turntables with a mixer between them — a level fader and meter per deck
+  over the crossfader — and nothing else on screen. The queue, library and
+  everything else are a portrait job.
 - **Lock screen controls.** Play, pause and skip from the lock screen or
   headphones, with artwork.
 - **Sleep timer.** 15 minutes to 2 hours, or just to the end of this track.
