@@ -20,6 +20,9 @@ download), and it keeps them rolling.
   before it starts repeating.
 - **Crossfades.** Tracks blend into each other (up to six seconds) instead
   of stopping dead. Turn it off for straight cuts. Short tracks always cut.
+- **One steady volume.** Every track is measured once and played at a
+  matched level, so a loud remaster and a quiet old rip sit together
+  without you reaching for the volume.
 - **Fully offline.** Music is copied into the browser's own storage
   (IndexedDB) and the app itself is cached by a service worker. After the
   first visit it works in flight mode, in a tunnel, on a plane.
@@ -72,6 +75,28 @@ Deleting a playlist, or removing a track from one, leaves your music
 alone: the tracks stay in your library. Deleting a track from **Your music** is
 the only thing that removes the file, and that also takes it out of every
 playlist it was in.
+
+## Levelling the volume
+
+Music collected from different places is mastered at wildly different
+volumes — a modern remaster can be six times louder than an old rip of the
+same song. **Level** (next to Shuffle and Crossfade) evens that out.
+
+Each track is measured once, in the background, shortly after it's added;
+until its turn comes it plays at its own volume. The measurement follows
+ITU-R BS.1770, the broadcast loudness standard: K-weighting filters in
+front of the meter, then gated 400 ms blocks so quiet passages don't drag
+a track's reading down. The result is stored with the track, so it's only
+ever done once.
+
+Playback then applies a per-track gain aiming at -16 LUFS. Boost is capped
+at +6 dB, and never enough to push a track's peaks into clipping — so a
+very quiet recording is brought up as far as is safe and no further. Turn
+**Level** off to hear tracks exactly as they were mastered.
+
+One caveat: lifting a quiet track above its recorded volume needs the Web
+Audio path, which is what the app normally uses. On a browser that won't
+allow it, tracks can still be brought *down* to match, just not up.
 
 ## Files a browser can't play
 

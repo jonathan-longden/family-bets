@@ -236,6 +236,7 @@ const settings = {
   source: typeof stored.source === 'string' ? stored.source : 'tunage',
   shuffle: stored.shuffle !== false,
   crossfade: stored.crossfade !== false,
+  level: stored.level !== false,
 };
 const saveSettings = () => localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 
@@ -308,6 +309,130 @@ function pool(source = settings.source) {
   return pl.tracks.map(byId).filter(playable);
 }
 
+/* ───────────────────────── loudness levelling ─────────────────────────
+
+   A CD rip, a Bandcamp download and something mastered in 2003 all play at
+   wildly different volumes, so you spend the evening on the volume button.
+   Each track is measured once, in the background, and a gain is stored with
+   it; playback multiplies the fade envelope by that gain.
+
+   The measurement follows ITU-R BS.1770: K-weighting filters in front of the
+   meter, then mean square over 400 ms blocks with the absolute (-70 LUFS) and
+   relative (-10 dB) gates, so quiet passages don't drag a track's reading
+   down. Audio is decoded at a low sample rate to keep a phone's memory sane,
+   which costs a little accuracy at the top end and nothing that matters here. */
+
+const TARGET_LUFS = -16;      // quiet enough that most tracks come down, not up
+const MAX_BOOST = 2;          // +6 dB, past which a quiet track just sounds hissy
+const ANALYSIS_RATE = 16000;
+let levelling = false;
+
+function offlineCtx(channels, length, rate) {
+  const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  if (!OC) return null;
+  try { return new OC(channels, length, rate); } catch { return null; }
+}
+
+async function measureLoudness(blob) {
+  // Safari has been picky about offline context rates; 44.1k is the safe retry
+  const dec = offlineCtx(1, 1, ANALYSIS_RATE) || offlineCtx(1, 1, 44100);
+  if (!dec) return null;
+  const buf = await dec.decodeAudioData(await blob.arrayBuffer());
+
+  // sample peak, taken before any filtering, to cap how far we boost
+  let peak = 0;
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const data = buf.getChannelData(c);
+    for (let i = 0; i < data.length; i += 7) {
+      const a = Math.abs(data[i]);
+      if (a > peak) peak = a;
+    }
+  }
+
+  const ctx = offlineCtx(1, buf.length, buf.sampleRate);
+  if (!ctx) return null;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const hp = ctx.createBiquadFilter();
+  hp.type = 'highpass'; hp.frequency.value = 38; hp.Q.value = 0.5;
+  const shelf = ctx.createBiquadFilter();
+  shelf.type = 'highshelf'; shelf.frequency.value = 1500; shelf.gain.value = 4;
+  src.connect(hp).connect(shelf).connect(ctx.destination);
+  src.start();
+  const x = (await ctx.startRendering()).getChannelData(0);
+
+  const rate = buf.sampleRate;
+  const block = Math.round(rate * 0.4), step = Math.round(rate * 0.1);
+  const zs = [];
+  for (let start = 0; start + block <= x.length; start += step) {
+    let sum = 0;
+    for (let i = start; i < start + block; i++) sum += x[i] * x[i];
+    zs.push(sum / block);
+  }
+  if (!zs.length) return null;
+
+  const loud = z => -0.691 + 10 * Math.log10(z || 1e-12);
+  const mean = list => list.reduce((a, b) => a + b, 0) / list.length;
+
+  const overAbsolute = zs.filter(z => loud(z) > -70);
+  if (!overAbsolute.length) return null;
+  const gate = loud(mean(overAbsolute)) - 10;
+  const kept = overAbsolute.filter(z => loud(z) > gate);
+
+  return { lufs: loud(mean(kept.length ? kept : overAbsolute)), peak };
+}
+
+function gainFrom({ lufs, peak }) {
+  let g = Math.pow(10, (TARGET_LUFS - lufs) / 20);
+  if (peak > 0) g = Math.min(g, 0.98 / peak);       // never push it into clipping
+  return clamp(g, 0.05, MAX_BOOST);
+}
+
+function levelStatus(text) {
+  const el = $('#levelStatus');
+  if (!el) return;
+  el.hidden = !text;
+  el.textContent = text || '';
+}
+
+/* Works through anything unmeasured, one at a time, out of the way of
+   playback. Tracks play at their own volume until their turn comes. */
+async function levelPending() {
+  if (levelling) return;
+  const pending = () => lib.filter(t => t.gain === undefined && !t.unplayable);
+  if (!pending().length) return;
+
+  levelling = true;
+  let done = 0;
+  try {
+    for (let list = pending(); list.length; list = pending()) {
+      const track = list[0];
+      levelStatus(`Levelling volumes — ${++done} of ${done + list.length - 1}`);
+      try {
+        const blob = await store.getAudio(track.id);
+        const m = blob && await measureLoudness(blob);
+        if (m) {
+          track.gain = gainFrom(m);
+          track.lufs = Math.round(m.lufs * 10) / 10;
+          track.peak = Math.round(m.peak * 1000) / 1000;
+        } else {
+          track.gain = 1;
+        }
+      } catch {
+        track.gain = 1;        // couldn't decode it here; leave the volume alone
+      }
+      await store.putTrack(track).catch(() => {});
+      for (const d of decks) {
+        if (d.id === track.id) { d.trackGain = track.gain; if (!fading) setLevel(d, 1); }
+      }
+      await new Promise(r => setTimeout(r, 30));      // let playback breathe
+    }
+  } finally {
+    levelling = false;
+    levelStatus('');
+  }
+}
+
 /* ───────────────────────── the never-ending queue ───────────────────────── */
 
 function shuffled(arr) {
@@ -364,7 +489,7 @@ function makeDeck() {
   const el = new Audio();
   el.preload = 'auto';
   el.crossOrigin = 'anonymous';
-  return { el, gain: null, url: null, id: null };
+  return { el, gain: null, url: null, id: null, trackGain: 1 };
 }
 
 const decks = [makeDeck(), makeDeck()];
@@ -407,8 +532,13 @@ async function ensureAudioGraph() {
   }
 }
 
+/* `value` is the crossfade envelope, 0 to 1. The track's own levelling gain
+   multiplies it, so the two never fight each other. Through Web Audio a gain
+   above 1 is fine; an <audio> element's volume caps at 1, so on that fallback
+   path quiet tracks can only be left alone, not lifted. */
 function setLevel(d, value, seconds = 0) {
-  const v = clamp(value, 0, 1);
+  const wanted = value * (settings.level ? (d.trackGain || 1) : 1);
+  const v = routed && d.gain ? clamp(wanted, 0, MAX_BOOST) : clamp(wanted, 0, 1);
   if (routed && d.gain) {
     const t = ctx.currentTime;
     d.gain.gain.cancelScheduledValues(t);
@@ -445,6 +575,7 @@ async function loadInto(d, track) {
   if (d.url) URL.revokeObjectURL(d.url);
   d.url = URL.createObjectURL(blob);
   d.id = track.id;
+  d.trackGain = track.gain || 1;
   d.el.src = d.url;
   d.el.load();
 }
@@ -847,6 +978,7 @@ async function addFiles(fileList, { quiet = false } = {}) {
   render();
   refreshStorage();
   if (added && !current && pool().length) next();     // first import: start it off
+  if (added) levelPending();
   return { added, skipped, failed };
 }
 
@@ -1073,6 +1205,7 @@ function render() {
   $('#playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
   $('#shuffleBtn').classList.toggle('on', settings.shuffle);
   $('#fadeBtn').classList.toggle('on', settings.crossfade);
+  $('#levelBtn').classList.toggle('on', settings.level);
 
   const art = $('#art');
   art.classList.toggle('spinning', playing);
@@ -1295,6 +1428,14 @@ $('#shuffleBtn').addEventListener('click', () => {
   render();
 });
 
+$('#levelBtn').addEventListener('click', () => {
+  settings.level = !settings.level;
+  saveSettings();
+  if (!fading) setLevel(deck(), 1);
+  render();
+  toast(settings.level ? 'Tracks levelled to a steady volume' : 'Tracks play at their own volume');
+});
+
 $('#fadeBtn').addEventListener('click', () => {
   settings.crossfade = !settings.crossfade;
   saveSettings();
@@ -1459,6 +1600,7 @@ document.addEventListener('keydown', e => {
   refreshStorage();
   await restoreResume();
   restoreFolder();
+  levelPending();
 })();
 
 if ('serviceWorker' in navigator) {
