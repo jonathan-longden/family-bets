@@ -1,5 +1,5 @@
-/* Nonstop — your own music playing without stopping and without a signal:
-   one pool called Tunage, plus any playlists you build out of it.
+/* Tunage — your own music playing without stopping and without a signal:
+   one pool of everything, plus any playlists you build out of it.
    Music files live in IndexedDB on the device, track details live alongside
    them, and the app shell is cached by the service worker. No build step,
    no bundler, no server. */
@@ -11,6 +11,8 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 
+// The storage keys keep the old name on purpose: renaming them would orphan
+// every track and playlist already saved on someone's device.
 const SETTINGS_KEY = 'nonstop.settings';
 const FADE_SECONDS = 6;          // longest crossfade
 const FADE_MIN_TRACK = 14;       // shorter than this and a straight cut sounds better
@@ -54,7 +56,7 @@ function toast(msg) {
 
 /* ───────────────────────── storage (IndexedDB) ───────────────────────── */
 
-const DB_NAME = 'nonstop';
+const DB_NAME = 'nonstop';                      // see the note by SETTINGS_KEY
 let dbPromise = null;
 
 function db() {
@@ -253,7 +255,7 @@ const savePlaylists = () => store.setPref(PLAYLISTS_KEY, playlists).catch(() => 
 const playlistById = id => playlists.find(p => p.id === id);
 const currentPlaylist = () =>
   settings.source.startsWith('pl:') ? playlistById(settings.source.slice(3)) : null;
-const sourceName = () => (currentPlaylist() || { name: 'Tunage' }).name;
+const sourceName = () => (currentPlaylist() || { name: 'Everything' }).name;
 const sourceColour = () => {
   const pl = currentPlaylist();
   return pl ? `hsl(${hueOf(pl.id)} 70% 62%)` : TUNAGE_COLOUR;
@@ -630,7 +632,7 @@ function updateMediaSession() {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: current.title || 'Unknown track',
       artist: current.artist || 'Unknown artist',
-      album: 'Nonstop · ' + sourceName(),
+      album: currentPlaylist() ? 'Tunage · ' + sourceName() : 'Tunage',
       artwork: [{ src: artworkFor(current), sizes: '512x512', type: 'image/png' }],
     });
   } catch { /* older browsers */ }
@@ -772,7 +774,7 @@ async function buildTrack(file, relativePath = '') {
 }
 
 /* ───────────────────────── the watched folder ─────────────────────────
-   Where the browser allows it, you point Nonstop at your music folder once
+   Where the browser allows it, you point Tunage at your music folder once
    and it re-reads that folder on every launch, picking up anything new.
    Files are still copied into the app's own storage, so playback keeps
    working when the folder isn't reachable — an external drive, say. */
@@ -883,7 +885,7 @@ function renderFolder(permission = 'granted') {
   }
   if (!folderHandle) {
     box.innerHTML = `<button class="btn ghost" data-folder="link">Keep a folder in sync</button>
-      <p class="hint">Pick your music folder once. Every time you open Nonstop it checks that folder and brings in anything new.</p>`;
+      <p class="hint">Pick your music folder once. Every time you open Tunage it checks that folder and brings in anything new.</p>`;
     return;
   }
   const name = esc(folderHandle.name || 'your folder');
@@ -992,7 +994,9 @@ function render() {
     art.innerHTML = '<svg class="ic art-disc"><use href="#i-disc"/></svg>';
     $('#npTitle').textContent = lib.length ? 'Ready when you are' : 'Nothing playing yet';
     $('#npArtist').textContent = lib.length
-      ? (emptyMessage() || `Press play for nonstop ${sourceName()}`)
+      ? (emptyMessage() || (currentPlaylist()
+        ? `Press play for nonstop ${sourceName()}`
+        : 'Press play and it keeps going'))
       : 'Add some music to get going';
     $('#seek').value = '0';
     $('#tNow').textContent = $('#tEnd').textContent = '0:00';
@@ -1012,7 +1016,7 @@ function renderSources() {
   const count = n => `${n} track${n === 1 ? '' : 's'}`;
 
   $('#sources').innerHTML =
-    chip('tunage', 'Tunage', count(lib.length)) +
+    chip('tunage', 'Everything', count(lib.length)) +
     playlists.map(pl => chip('pl:' + pl.id, pl.name,
       count(pl.tracks.filter(id => byId(id)).length))).join('') +
     '<button class="source new" data-source="new"><b>+ New</b><span>playlist</span></button>';

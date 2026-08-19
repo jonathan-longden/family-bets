@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "Nonstop — reggae & country",
-  "short_name": "Nonstop",
-  "description": "Two stations that never stop: reggae and country, playing straight from your own device with no signal needed.",
+  "name": "Tunage — your music, offline",
+  "short_name": "Tunage",
+  "description": "Your own music playing nonstop from your device with no signal needed, in one pool plus any playlists you build.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
