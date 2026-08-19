@@ -1,5 +1,5 @@
-/* Nonstop — stations (reggae, country, and random for the rest) that keep
-   playing with no signal.
+/* Nonstop — your own music playing without stopping and without a signal:
+   one pool called Tunage, plus any playlists you build out of it.
    Music files live in IndexedDB on the device, track details live alongside
    them, and the app shell is cached by the service worker. No build step,
    no bundler, no server. */
@@ -14,17 +14,10 @@ const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 const SETTINGS_KEY = 'nonstop.settings';
 const FADE_SECONDS = 6;          // longest crossfade
 const FADE_MIN_TRACK = 14;       // shorter than this and a straight cut sounds better
-const RECENT_MEMORY = 0.4;       // fraction of a station kept out of the reshuffle
+const RECENT_MEMORY = 0.4;       // fraction of a pool kept out of the reshuffle
 
-const STATIONS = {
-  reggae: { name: 'Reggae', colour: '#3FA96B' },
-  country: { name: 'Country', colour: '#E08A3C' },
-  random: { name: 'Random', colour: '#9B7BE0' },
-  all: { name: 'Everything', colour: '#F2C230' },
-};
-
-// the three a track can belong to — "all" is a way of listening, not a home
-const PLAYABLE = ['reggae', 'country', 'random'];
+const PLAYLISTS_KEY = 'playlists';
+const TUNAGE_COLOUR = '#F2C230';
 
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
@@ -103,36 +96,9 @@ const store = {
   delPref: key => tx('prefs', 'readwrite', s => s.delete(key)),
 };
 
-/* ───────────────────────── working out the station ───────────────────────── */
-
-const REGGAE_WORDS = ['reggae', 'dub', 'dancehall', 'roots', 'ska ', 'rocksteady', 'rock steady',
-  'riddim', 'rasta', 'lovers rock', 'nyabinghi', 'dub plate', 'kingston', 'jamaica', 'trench town',
-  'toasting', 'skank', 'irie', 'one drop', 'ragga'];
-const COUNTRY_WORDS = ['country', 'bluegrass', 'honky', 'honkytonk', 'nashville', 'americana',
-  'western', 'outlaw', 'twang', 'hillbilly', 'alt-country', 'appalachian', 'banjo', 'steel guitar',
-  'redneck', 'rodeo', 'cowboy', 'texas', 'tennessee', 'grand ole opry'];
-
-/* Whole words only. Matching on bare substrings finds "irie" inside "Prairie
-   Dogs" and "ska" inside "Alaska", which is how a bluegrass band ends up on
-   the reggae station. */
-const wordsRe = words => new RegExp(
-  '(^|[^a-z0-9])(' + words.map(w => w.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') +
-  ')([^a-z0-9]|$)', 'i');
-
-const REGGAE_RE = wordsRe(REGGAE_WORDS);
-const COUNTRY_RE = wordsRe(COUNTRY_WORDS);
-
-function guessStation(...bits) {
-  const hay = bits.filter(Boolean).join(' ').toLowerCase();
-  const r = REGGAE_RE.test(hay), c = COUNTRY_RE.test(hay);
-  if (r && !c) return 'reggae';
-  if (c && !r) return 'country';
-  return 'random';                   // everything else, and anything claiming both
-}
-
 /* ───────────────────────── reading the file's own tags ─────────────────────────
-   Enough of ID3v2 to pull title / artist / genre out of an MP3. Anything else
-   (or an untagged file) falls back to the filename. */
+   Enough of ID3v2 to pull title and artist out of an MP3. Anything else (or an
+   untagged file) falls back to the filename. */
 
 function decodeText(bytes, encoding) {
   try {
@@ -149,10 +115,10 @@ function decodeText(bytes, encoding) {
 }
 
 /* An iTunes-style library is full of .m4a files, which carry their tags in MP4
-   boxes rather than ID3 frames. Without this, every purchased track would fall
-   back to its filename and land on Random. */
+   boxes rather than ID3 frames. Without this, every purchased track would show
+   up under its filename instead of its title and artist. */
 async function readMp4Tags(file) {
-  const NAMES = { '\xA9nam': 'title', '\xA9ART': 'artist', '\xA9alb': 'album', '\xA9gen': 'genre', aART: 'artist' };
+  const NAMES = { '\xA9nam': 'title', '\xA9ART': 'artist', '\xA9alb': 'album', aART: 'artist' };
   const str = (view, at, n) => {
     let s = '';
     for (let i = 0; i < n; i++) s += String.fromCharCode(view.getUint8(at + i));
@@ -222,7 +188,7 @@ async function readId3(file) {
     const buf = new Uint8Array(await file.slice(10, 10 + Math.min(size, 1 << 20)).arrayBuffer());
 
     const out = {};
-    const want = { TIT2: 'title', TPE1: 'artist', TCON: 'genre', TALB: 'album' };
+    const want = { TIT2: 'title', TPE1: 'artist', TALB: 'album' };
     let p = 0;
     while (p + 10 <= buf.length) {
       const id = String.fromCharCode(buf[p], buf[p + 1], buf[p + 2], buf[p + 3]);
@@ -239,8 +205,6 @@ async function readId3(file) {
       }
       p += 10 + frameSize;
     }
-    // "(43)Reggae" style genres from the old numeric table
-    if (out.genre) out.genre = out.genre.replace(/^\((\d+)\)\s*/, '').trim();
     return out;
   } catch {
     return {};
@@ -261,11 +225,14 @@ function fromFilename(name) {
 
 /* ───────────────────────── app state ───────────────────────── */
 
-const settings = Object.assign(
-  { station: 'all', shuffle: true, crossfade: true, filter: 'all' },
-  JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')
-);
-if (settings.station === 'both') settings.station = 'all';   // renamed when Random arrived
+/* Only three settings survive: what you're listening to, and the two toggles.
+   Anything left over from the genre stations is dropped on read. */
+const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+const settings = {
+  source: typeof stored.source === 'string' ? stored.source : 'tunage',
+  shuffle: stored.shuffle !== false,
+  crossfade: stored.crossfade !== false,
+};
 const saveSettings = () => localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 
 let lib = [];              // track metadata, newest last
@@ -274,12 +241,65 @@ let history = [];          // ids already played, most recent last
 let current = null;        // the track object on air
 let recent = [];           // ids kept out of the next reshuffle
 let sleep = { mode: null, until: 0 };
+let playlists = [];        // [{ id, name, tracks: [trackId], created }]
 
 const byId = id => lib.find(t => t.id === id);
 
-function pool(station = settings.station) {
-  if (station === 'all') return lib.filter(t => PLAYABLE.includes(t.station));
-  return lib.filter(t => t.station === station);
+/* ───────────────────────── playlists ─────────────────────────
+   A playlist is just an ordered list of track ids. The tracks themselves stay
+   in Tunage — deleting a playlist never deletes music. */
+
+const savePlaylists = () => store.setPref(PLAYLISTS_KEY, playlists).catch(() => {});
+const playlistById = id => playlists.find(p => p.id === id);
+const currentPlaylist = () =>
+  settings.source.startsWith('pl:') ? playlistById(settings.source.slice(3)) : null;
+const sourceName = () => (currentPlaylist() || { name: 'Tunage' }).name;
+const sourceColour = () => {
+  const pl = currentPlaylist();
+  return pl ? `hsl(${hueOf(pl.id)} 70% 62%)` : TUNAGE_COLOUR;
+};
+
+function createPlaylist(name) {
+  const pl = {
+    id: uid(),
+    name: (name || '').trim().slice(0, 60) || `Playlist ${playlists.length + 1}`,
+    tracks: [],
+    created: Date.now(),
+  };
+  playlists.push(pl);
+  savePlaylists();
+  return pl;
+}
+
+function addToPlaylist(plId, trackId) {
+  const pl = playlistById(plId);
+  if (!pl || pl.tracks.includes(trackId)) return;
+  pl.tracks.push(trackId);
+  savePlaylists();
+}
+
+function removeFromPlaylist(plId, trackId) {
+  const pl = playlistById(plId);
+  if (!pl) return;
+  pl.tracks = pl.tracks.filter(id => id !== trackId);
+  savePlaylists();
+}
+
+function deletePlaylist(plId) {
+  playlists = playlists.filter(p => p.id !== plId);
+  savePlaylists();
+  if (settings.source === 'pl:' + plId) {
+    settings.source = 'tunage';
+    saveSettings();
+  }
+  rebuildQueue();
+}
+
+/* What's on air: everything, or one playlist in its own order. */
+function pool(source = settings.source) {
+  const pl = source.startsWith('pl:') ? playlistById(source.slice(3)) : null;
+  if (!pl) return lib.slice();
+  return pl.tracks.map(byId).filter(Boolean);
 }
 
 /* ───────────────────────── the never-ending queue ───────────────────────── */
@@ -294,8 +314,8 @@ function shuffled(arr) {
 }
 
 /* Refills the queue so there is always something after this track. In shuffle
-   mode each pass plays the whole station once, skipping the handful of tracks
-   heard most recently so a small library doesn't feel like a loop. */
+   mode each pass plays the whole pool once, skipping the handful of tracks
+   heard most recently so a short playlist doesn't feel like a loop. */
 function refill() {
   const p = pool();
   if (!p.length) { queue = []; return; }
@@ -533,7 +553,7 @@ function stopAll() {
 
 function emptyMessage() {
   if (!lib.length) return 'Add a few tracks first — then this never stops';
-  if (!pool().length) return 'Nothing on this station yet — try Everything';
+  if (!pool().length) return 'This playlist is empty — add tracks from Your music';
   return '';
 }
 
@@ -589,7 +609,7 @@ function artworkFor(track) {
   const hue = hueOf(track.id);
   const grad = g.createLinearGradient(0, 0, size, size);
   grad.addColorStop(0, `hsl(${hue} 55% 34%)`);
-  grad.addColorStop(1, (STATIONS[track.station] || STATIONS.random).colour);
+  grad.addColorStop(1, `hsl(${(hue + 45) % 360} 45% 30%)`);
   g.fillStyle = grad;
   g.fillRect(0, 0, size, size);
   g.fillStyle = 'rgba(255,255,255,.14)';
@@ -610,7 +630,7 @@ function updateMediaSession() {
     navigator.mediaSession.metadata = new MediaMetadata({
       title: current.title || 'Unknown track',
       artist: current.artist || 'Unknown artist',
-      album: 'Nonstop · ' + (STATIONS[settings.station] || STATIONS.all).name,
+      album: 'Nonstop · ' + sourceName(),
       artwork: [{ src: artworkFor(current), sizes: '512x512', type: 'image/png' }],
     });
   } catch { /* older browsers */ }
@@ -684,7 +704,7 @@ function importStatus(html) {
 }
 
 /* Accepts plain files or {file, path} pairs, so a folder scan can say where
-   each one came from — the folder name is a decent hint about the genre. */
+   each one came from, which keeps the track's own details tidy. */
 async function addFiles(fileList, { quiet = false } = {}) {
   const files = [...fileList]
     .map(x => (x && x.file) ? x : { file: x, path: (x && x.webkitRelativePath) || '' })
@@ -696,7 +716,6 @@ async function addFiles(fileList, { quiet = false } = {}) {
   await askToPersist();
 
   let added = 0, skipped = 0, failed = 0;
-  const landed = { reggae: 0, country: 0, random: 0 };
   for (let i = 0; i < files.length; i++) {
     const { file: f, path } = files[i];
     if (!quiet) {
@@ -712,7 +731,6 @@ async function addFiles(fileList, { quiet = false } = {}) {
       await store.putTrack(track);
       lib.push(track);
       added++;
-      landed[track.station] = (landed[track.station] || 0) + 1;
     } catch (err) {
       failed++;
       if (err && /quota/i.test(err.name + ' ' + err.message)) {
@@ -727,17 +745,15 @@ async function addFiles(fileList, { quiet = false } = {}) {
     const bits = [`${added} added`];
     if (skipped) bits.push(`${skipped} already here`);
     if (failed) bits.push(`${failed} wouldn't save`);
-    const where = PLAYABLE.filter(id => landed[id])
-      .map(id => `${landed[id]} ${STATIONS[id].name.toLowerCase()}`).join(' · ');
-    if (added) importStatus(`<b>${bits.join(' · ')}</b>${where ? ' — ' + where : ''}`);
+    if (added) importStatus(`<b>${bits.join(' · ')}</b> — ready to play.`);
     else if (!failed) importStatus(`<b>${bits.join(' · ')}</b>`);
   }
 
   rebuildQueue();
   render();
   refreshStorage();
-  if (added && !current && pool().length) next();     // first import: start the station
-  return { added, skipped, failed, landed };
+  if (added && !current && pool().length) next();     // first import: start it off
+  return { added, skipped, failed };
 }
 
 async function buildTrack(file, relativePath = '') {
@@ -748,7 +764,6 @@ async function buildTrack(file, relativePath = '') {
     id: uid(),
     title: tags.title || guessFromName.title || file.name,
     artist: tags.artist || guessFromName.artist || '',
-    station: guessStation(tags.genre, tags.album, tags.artist, tags.title, path, file.name),
     file: file.name,
     size: file.size,
     type: file.type || '',
@@ -868,7 +883,7 @@ function renderFolder(permission = 'granted') {
   }
   if (!folderHandle) {
     box.innerHTML = `<button class="btn ghost" data-folder="link">Keep a folder in sync</button>
-      <p class="hint">Pick your music folder once. Every time you open Nonstop it checks that folder and brings in anything new, sorted by genre.</p>`;
+      <p class="hint">Pick your music folder once. Every time you open Nonstop it checks that folder and brings in anything new.</p>`;
     return;
   }
   const name = esc(folderHandle.name || 'your folder');
@@ -885,7 +900,7 @@ function renderFolder(permission = 'granted') {
     </div>`;
 }
 
-async function addFromUrl(url, station) {
+async function addFromUrl(url) {
   const err = $('#urlErr');
   err.hidden = true;
   let res;
@@ -908,7 +923,6 @@ async function addFromUrl(url, station) {
   const name = decodeURIComponent(url.split('/').pop().split('?')[0]) || 'track';
   const file = new File([blob], name, { type: blob.type || 'audio/mpeg' });
   const track = await buildTrack(file);
-  if (station) track.station = station;
   try {
     await store.putAudio(track.id, file);
     await store.putTrack(track);
@@ -932,22 +946,13 @@ async function removeTrack(id) {
   lib = lib.filter(x => x.id !== id);
   queue = queue.filter(x => x !== id);
   history = history.filter(x => x !== id);
+  playlists.forEach(pl => { pl.tracks = pl.tracks.filter(x => x !== id); });
+  savePlaylists();
   await Promise.all([store.delTrack(id), store.delAudio(id)]).catch(() => {});
   if (current && current.id === id) { stopAll(); rebuildQueue(); next(); }
   else { rebuildQueue(); render(); }
   refreshStorage();
   toast(`Removed “${t.title}”`);
-}
-
-function setStation(id, station) {
-  const t = byId(id);
-  if (!t) return;
-  if (t.station === station) return;    // already there — never leave it stationless
-  t.station = station;
-  store.putTrack(t).catch(() => {});
-  rebuildQueue();
-  render();
-  if (!current && pool().length) next();
 }
 
 async function refreshStorage() {
@@ -968,9 +973,7 @@ async function refreshStorage() {
 /* ───────────────────────── rendering ───────────────────────── */
 
 function render() {
-  $$('.station').forEach(b => b.classList.toggle('on', b.dataset.station === settings.station));
-  document.documentElement.style.setProperty('--accent',
-    (STATIONS[settings.station] || STATIONS.all).colour);
+  document.documentElement.style.setProperty('--accent', sourceColour());
 
   $('#playBtn').innerHTML = `<svg class="ic"><use href="#i-${playing ? 'pause' : 'play'}"/></svg>`;
   $('#playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
@@ -981,24 +984,49 @@ function render() {
   art.classList.toggle('spinning', playing);
   if (current) {
     const hue = hueOf(current.id);
-    art.innerHTML = `<div class="label" style="background:linear-gradient(140deg,hsl(${hue} 60% 55%),${
-      (STATIONS[current.station] || STATIONS.random).colour})">${
-      esc((current.title || '?').trim()[0].toUpperCase())}</div>`;
+    art.innerHTML = `<div class="label" style="background:linear-gradient(140deg,hsl(${hue} 60% 55%),hsl(${
+      (hue + 45) % 360} 55% 42%))">${esc((current.title || '?').trim()[0].toUpperCase())}</div>`;
     $('#npTitle').textContent = current.title || current.file;
-    $('#npArtist').textContent = [current.artist, (STATIONS[current.station] || {}).name]
-      .filter(Boolean).join(' · ') || 'Unknown artist';
+    $('#npArtist').textContent = current.artist || 'Unknown artist';
   } else {
     art.innerHTML = '<svg class="ic art-disc"><use href="#i-disc"/></svg>';
     $('#npTitle').textContent = lib.length ? 'Ready when you are' : 'Nothing playing yet';
     $('#npArtist').textContent = lib.length
-      ? (emptyMessage() || 'Press play for nonstop ' + (STATIONS[settings.station] || STATIONS.all).name.toLowerCase())
-      : 'Add some music to start the station';
+      ? (emptyMessage() || `Press play for nonstop ${sourceName()}`)
+      : 'Add some music to get going';
     $('#seek').value = '0';
     $('#tNow').textContent = $('#tEnd').textContent = '0:00';
   }
 
+  renderSources();
   renderQueue();
+  renderPlaylist();
   renderLibrary();
+}
+
+/* The chip row: Tunage, then a chip per playlist, then a way to make one. */
+function renderSources() {
+  const chip = (id, name, sub, extra = '') =>
+    `<button class="source ${settings.source === id ? 'on' : ''} ${extra}" data-source="${id}">` +
+    `<b>${esc(name)}</b><span>${esc(sub)}</span></button>`;
+  const count = n => `${n} track${n === 1 ? '' : 's'}`;
+
+  $('#sources').innerHTML =
+    chip('tunage', 'Tunage', count(lib.length)) +
+    playlists.map(pl => chip('pl:' + pl.id, pl.name,
+      count(pl.tracks.filter(id => byId(id)).length))).join('') +
+    '<button class="source new" data-source="new"><b>+ New</b><span>playlist</span></button>';
+}
+
+function renderPlaylist() {
+  const pl = currentPlaylist();
+  $('#playlistPanel').hidden = !pl;
+  if (!pl) return;
+  const tracks = pl.tracks.map(byId).filter(Boolean);
+  $('#plName').textContent = pl.name;
+  $('#plCount').textContent = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
+  $('#plTracks').innerHTML = tracks.map(t => trackRow(t, { inPlaylist: true })).join('');
+  $('#plEmpty').hidden = !!tracks.length;
 }
 
 function renderQueue() {
@@ -1008,57 +1036,140 @@ function renderQueue() {
   ol.innerHTML = items.map((t, i) => `
     <li>
       <span class="n">${i + 1}</span>
-      <span class="dot ${t.station || ''}"></span>
+      <span class="dot" style="background:hsl(${hueOf(t.id)} 60% 55%)"></span>
       <span class="who"><b>${esc(t.title || t.file)}</b><span>${esc(t.artist || 'Unknown artist')}</span></span>
     </li>`).join('');
 }
 
-function trackRow(t) {
-  const button = (id, label) =>
-    `<button class="mini ${id} ${t.station === id ? 'on' : ''}" data-act="${id}" ` +
-    `title="Move to ${label}" aria-label="Move to ${label}">${label}</button>`;
+function trackRow(t, { inPlaylist = false } = {}) {
+  const actions = inPlaylist
+    ? '<button class="mini" data-act="unpl">Remove</button>'
+    : '<button class="mini add" data-act="addpl" aria-label="Add to a playlist">+ Playlist</button>' +
+      '<button class="mini danger" data-act="del" aria-label="Delete"><svg class="ic"><use href="#i-trash"/></svg></button>';
   return `
     <li data-id="${t.id}">
-      <span class="dot ${t.station || ''}"></span>
+      <span class="dot" style="background:hsl(${hueOf(t.id)} 60% 55%)"></span>
       <span class="who" data-act="play">
         <b>${esc(t.title || t.file)}</b>
         <span>${esc(t.artist || 'Unknown artist')}${t.size ? ' · ' + mb(t.size) : ''}</span>
       </span>
-      <span class="row-actions">
-        ${button('reggae', 'Reggae')}${button('country', 'Country')}${button('random', 'Random')}
-        <button class="mini danger" data-act="del" aria-label="Remove"><svg class="ic"><use href="#i-trash"/></svg></button>
-      </span>
+      <span class="row-actions">${actions}</span>
     </li>`;
 }
 
 function renderLibrary() {
-  const filter = settings.filter;
-  const list = lib.filter(t => filter === 'all' ? true : t.station === filter)
-    .slice().sort((a, b) => (a.artist || '').localeCompare(b.artist || '')
-      || (a.title || '').localeCompare(b.title || ''));
+  const list = lib.slice().sort((a, b) => (a.artist || '').localeCompare(b.artist || '')
+    || (a.title || '').localeCompare(b.title || ''));
   $('#library').innerHTML = list.map(t => trackRow(t)).join('');
   $('#libEmpty').hidden = !!lib.length;
-  const count = id => lib.filter(t => t.station === id).length;
-  $('#libCount').textContent = lib.length
-    ? `${count('reggae')} reggae · ${count('country')} country · ${count('random')} random`
-    : '';
-  $$('#libFilter .chip').forEach(b => b.classList.toggle('on', b.dataset.filter === filter));
+  $('#libCount').textContent = lib.length ? `${lib.length} track${lib.length === 1 ? '' : 's'}` : '';
 }
 
 /* ───────────────────────── wiring ───────────────────────── */
 
-$('#stations').addEventListener('click', e => {
-  const btn = e.target.closest('.station');
+$('#sources').addEventListener('click', e => {
+  const btn = e.target.closest('.source');
   if (!btn) return;
-  settings.station = btn.dataset.station;
+  if (btn.dataset.source === 'new') return openPlaylistSheet({ mode: 'new' });
+
+  settings.source = btn.dataset.source;
   saveSettings();
   rebuildQueue();
   render();
-  // a station switch means that station's music, right now
+  // picking a playlist means that playlist's music, right now
   if (!pool().length) { stopAll(); toast(emptyMessage()); render(); return; }
-  const stillFits = current && (settings.station === 'all'
-    ? PLAYABLE.includes(current.station) : current.station === settings.station);
+  const stillFits = current && pool().some(t => t.id === current.id);
   if (!stillFits) next({ fade: settings.crossfade && playing });
+});
+
+/* ───────────────────────── the playlist sheet ─────────────────────────
+   One sheet does three jobs: file a track, make an empty playlist, rename one. */
+
+let sheetMode = 'add', sheetTrack = null, sheetPlaylist = null;
+
+function openPlaylistSheet({ mode = 'add', trackId = null, playlist = null } = {}) {
+  sheetMode = mode;
+  sheetTrack = trackId;
+  sheetPlaylist = playlist;
+  const t = trackId && byId(trackId);
+
+  $('#plSheetTitle').textContent =
+    mode === 'rename' ? 'Rename playlist' : mode === 'new' ? 'New playlist' : 'Add to playlist';
+  $('#plSheetTrack').textContent = t ? `${t.title || t.file} — ${t.artist || 'Unknown artist'}` : '';
+  $('#plSheetTrack').hidden = !t;
+  $('#plSheetGo').textContent = mode === 'rename' ? 'Save' : 'Create';
+  $('#plNameInput').value = mode === 'rename' && playlist ? playlist.name : '';
+  $('#plNameInput').placeholder = mode === 'rename' ? 'Playlist name' : 'New playlist name';
+
+  renderSheetList();
+  openSheet('#plSheet');
+  setTimeout(() => $('#plNameInput').focus(), 60);
+}
+
+function renderSheetList() {
+  const list = $('#plSheetList');
+  const show = sheetMode === 'add' && playlists.length > 0;
+  list.hidden = !show;
+  if (!show) return;
+  list.innerHTML = playlists.map(pl => {
+    const has = pl.tracks.includes(sheetTrack);
+    return `<li data-pick="${pl.id}">
+      <span class="who"><b>${esc(pl.name)}</b>
+        <span>${pl.tracks.length} track${pl.tracks.length === 1 ? '' : 's'}</span></span>
+      <button class="mini ${has ? 'on' : ''}">${has ? 'Added' : 'Add'}</button>
+    </li>`;
+  }).join('');
+}
+
+$('#plSheetList').addEventListener('click', e => {
+  const li = e.target.closest('li[data-pick]');
+  if (!li || !sheetTrack) return;
+  const pl = playlistById(li.dataset.pick);
+  if (!pl) return;
+  if (pl.tracks.includes(sheetTrack)) removeFromPlaylist(pl.id, sheetTrack);
+  else addToPlaylist(pl.id, sheetTrack);
+  renderSheetList();
+  rebuildQueue();
+  render();
+});
+
+function submitPlaylistSheet() {
+  const name = $('#plNameInput').value;
+
+  if (sheetMode === 'rename') {
+    const clean = name.trim().slice(0, 60);
+    if (sheetPlaylist && clean) { sheetPlaylist.name = clean; savePlaylists(); }
+    closeSheets();
+    render();
+    return;
+  }
+
+  const pl = createPlaylist(name);
+  if (sheetTrack) addToPlaylist(pl.id, sheetTrack);
+  else { settings.source = 'pl:' + pl.id; saveSettings(); }
+  closeSheets();
+  rebuildQueue();
+  render();
+  toast(sheetTrack ? `Added to ${pl.name}` : `Playlist ${pl.name} created`);
+}
+
+$('#plSheetGo').addEventListener('click', submitPlaylistSheet);
+$('#plNameInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); submitPlaylistSheet(); }
+});
+
+$('#playlistPanel').addEventListener('click', e => {
+  const act = e.target.closest('[data-pl]');
+  if (!act) return onTrackListClick(e);
+  const pl = currentPlaylist();
+  if (!pl) return;
+  if (act.dataset.pl === 'rename') openPlaylistSheet({ mode: 'rename', playlist: pl });
+  else if (act.dataset.pl === 'delete') {
+    const name = pl.name;
+    deletePlaylist(pl.id);
+    render();
+    toast(`${name} deleted — the music itself is still in Tunage`);
+  }
 });
 
 $('#playBtn').addEventListener('click', togglePlay);
@@ -1085,14 +1196,6 @@ $('#seek').addEventListener('input', e => {
   d.currentTime = (Number(e.target.value) / 1000) * d.duration;
 });
 
-$('#libFilter').addEventListener('click', e => {
-  const btn = e.target.closest('.chip');
-  if (!btn) return;
-  settings.filter = btn.dataset.filter;
-  saveSettings();
-  renderLibrary();
-});
-
 function onTrackListClick(e) {
   const li = e.target.closest('li[data-id]');
   if (!li) return;
@@ -1101,12 +1204,19 @@ function onTrackListClick(e) {
   const id = li.dataset.id;
   const what = act.dataset.act;
   if (what === 'del') removeTrack(id);
-  else if (what === 'play') {
+  else if (what === 'addpl') openPlaylistSheet({ mode: 'add', trackId: id });
+  else if (what === 'unpl') {
+    const pl = currentPlaylist();
+    if (!pl) return;
+    removeFromPlaylist(pl.id, id);
+    rebuildQueue();
+    render();
+  } else if (what === 'play') {
     const t = byId(id);
     if (!t) return;
     queue = queue.filter(x => x !== id);
     playTrack(t, { fade: settings.crossfade && playing });
-  } else setStation(id, what);
+  }
 }
 $('#library').addEventListener('click', onTrackListClick);
 
@@ -1183,7 +1293,7 @@ $('#urlGo').addEventListener('click', async () => {
   const btn = $('#urlGo');
   btn.disabled = true;
   btn.textContent = 'Saving…';
-  await addFromUrl(url, $('#urlStation').value);
+  await addFromUrl(url);
   btn.disabled = false;
   btn.textContent = 'Save';
 });
@@ -1221,15 +1331,15 @@ document.addEventListener('keydown', e => {
     toast("This browser wouldn't open the music store — try leaving private mode");
   }
 
-  // tracks saved before Random existed sat unplayable in the sorting pile
-  const stranded = lib.filter(t => !PLAYABLE.includes(t.station));
-  if (stranded.length) {
-    for (const t of stranded) {
-      t.station = 'random';
-      await store.putTrack(t).catch(() => {});
-    }
-    toast(`${stranded.length} unsorted track${stranded.length === 1 ? '' : 's'} moved to Random`);
+  try {
+    const saved = await store.getPref(PLAYLISTS_KEY);
+    playlists = Array.isArray(saved) ? saved : [];
+  } catch {
+    playlists = [];
   }
+  playlists.forEach(pl => { if (!Array.isArray(pl.tracks)) pl.tracks = []; });
+  // a playlist deleted on another tab shouldn't leave us pointing at nothing
+  if (settings.source.startsWith('pl:') && !currentPlaylist()) settings.source = 'tunage';
   rebuildQueue();
   render();
   renderSleep();

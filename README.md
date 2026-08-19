@@ -11,9 +11,9 @@ pot live, connect it to a free Firebase Realtime Database.
 >
 > - **[Spotlight](singers/)** (`/singers/`) — a short-video app for
 >   singers who want to get noticed.
-> - **[Nonstop](radio/)** (`/radio/`) — nonstop reggae, country and
->   everything-else stations built from your own music, playing with no
->   signal at all.
+> - **[Nonstop](radio/)** (`/radio/`) — your own music playing nonstop
+>   with no signal at all, in one pool called Tunage plus any playlists
+>   you build from it.
 > - **[Neon Chomp](chomp/)** (`/chomp/`) — a springer spaniel loose in a
 >   neon maze: fetch the balls, dodge four cats. Plays offline.
 >

@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>Nonstop — reggae &amp; country, offline</title>
+<title>Nonstop — your tunage, offline</title>
 <link rel="manifest" href="manifest.json" />
-<meta name="description" content="Two stations that never stop: reggae and country, playing straight from your phone with no signal needed." />
+<meta name="description" content="Your music, playing nonstop from your own phone with no signal needed. Build playlists and let them run." />
 <meta name="theme-color" content="#12100C" />
 <link rel="icon" href="icon-192.png" />
 <link rel="apple-touch-icon" href="icon-192.png" />
@@ -44,12 +44,7 @@
   </button>
 </header>
 
-<nav class="stations" id="stations" aria-label="Stations">
-  <button class="station" data-station="reggae"><b>Reggae</b><span>roots, dub, dancehall</span></button>
-  <button class="station" data-station="country"><b>Country</b><span>honky-tonk to outlaw</span></button>
-  <button class="station" data-station="random"><b>Random</b><span>every other genre</span></button>
-  <button class="station" data-station="all"><b>Everything</b><span>the whole lot, shuffled</span></button>
-</nav>
+<nav class="sources" id="sources" aria-label="What to play"></nav>
 
 <main>
   <!-- ───────────── now playing ───────────── -->
@@ -57,7 +52,7 @@
     <div class="art" id="art"><svg class="ic art-disc"><use href="#i-disc"/></svg></div>
     <div class="meta">
       <div class="title" id="npTitle">Nothing playing yet</div>
-      <div class="artist" id="npArtist">Add some music to start the station</div>
+      <div class="artist" id="npArtist">Add some music to get going</div>
     </div>
 
     <div class="seek">
@@ -82,6 +77,18 @@
        pane beside the player in landscape -->
   <div class="stack">
 
+  <!-- ───────────── the playlist you're listening to ───────────── -->
+  <section class="panel" id="playlistPanel" hidden>
+    <h2><svg class="ic"><use href="#i-list"/></svg> <span id="plName">Playlist</span>
+      <span class="count" id="plCount"></span></h2>
+    <div class="pl-actions">
+      <button class="chip" data-pl="rename">Rename</button>
+      <button class="chip" data-pl="delete">Delete playlist</button>
+    </div>
+    <ul class="tracks" id="plTracks"></ul>
+    <p class="empty" id="plEmpty">Nothing in here yet — add tracks from Your music below.</p>
+  </section>
+
   <!-- ───────────── up next ───────────── -->
   <section class="panel" id="queuePanel">
     <h2><svg class="ic"><use href="#i-list"/></svg> Up next</h2>
@@ -91,12 +98,6 @@
   <!-- ───────────── library ───────────── -->
   <section class="panel">
     <h2>Your music <span class="count" id="libCount"></span></h2>
-    <div class="lib-filter" id="libFilter">
-      <button class="chip on" data-filter="all">All</button>
-      <button class="chip" data-filter="reggae">Reggae</button>
-      <button class="chip" data-filter="country">Country</button>
-      <button class="chip" data-filter="random">Random</button>
-    </div>
     <ul class="tracks" id="library"></ul>
     <p class="empty" id="libEmpty">Nothing saved yet. Add music below — it's stored on this device, so it plays with the phone in flight mode.</p>
   </section>
@@ -157,15 +158,24 @@
     <p class="hint">Paste a direct link to an audio file you're allowed to download. It gets saved onto this device so it plays offline afterwards.</p>
     <input id="urlInput" type="url" inputmode="url" placeholder="https://example.com/track.mp3" />
     <div class="row">
-      <select id="urlStation">
-        <option value="">Work it out for me</option>
-        <option value="reggae">Reggae</option>
-        <option value="country">Country</option>
-        <option value="random">Random</option>
-      </select>
       <button class="btn" id="urlGo">Save</button>
     </div>
     <p class="err" id="urlErr" hidden></p>
+  </div>
+</div>
+
+<div class="overlay" id="plSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3 id="plSheetTitle">Add to playlist</h3>
+      <button class="icon-btn" data-close aria-label="Close"><svg class="ic"><use href="#i-close"/></svg></button>
+    </div>
+    <p class="hint" id="plSheetTrack" hidden></p>
+    <ul class="tracks pl-pick" id="plSheetList" hidden></ul>
+    <div class="row">
+      <input id="plNameInput" type="text" maxlength="60" placeholder="New playlist name" />
+      <button class="btn" id="plSheetGo">Create</button>
+    </div>
   </div>
 </div>
 
