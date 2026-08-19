@@ -189,10 +189,9 @@ the same phrases, which is handy for trying one out.
 FM"* — no tapping. **Listen when it opens** in the Voice panel turns that
 off if you'd rather press the button.
 
-The first time only, you have to tap the microphone once and allow it.
-Tunage won't throw a permission prompt at you on launch: until the browser
-has actually granted the microphone it leaves it alone and says so. After
-you've allowed it once, every open listens on its own.
+The first time, the browser asks to use the microphone — allow it and every
+open after that listens on its own. If it's ever refused, the line under the
+play button says so rather than the microphone just quietly not opening.
 
 It stays quiet in the cases where listening would be wrong: when a link
 already said what to play, and when music is already going — a microphone
