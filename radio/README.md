@@ -51,6 +51,9 @@ download), and it keeps them rolling.
   the same track at the same second, paused and waiting for you.
 - **Search.** Filter your library by title or artist once there's more than
   a couple of tracks in it.
+- **Radio.** A section of its own for live stations: search an open station
+  directory, save the ones you like, or add a stream link by hand. Needs a
+  connection, unlike everything else here.
 
 ## Getting music in
 
@@ -122,6 +125,32 @@ One revolution is worth 1.8 seconds of audio, the same as a record at
 33⅓ rpm, so the movement feels the size it should. Nothing advances while
 you're holding a record, even if you drag past the end of the track. The
 cued deck can't be scratched — there's nothing loaded on it to scratch.
+
+## Radio
+
+The **Radio** chip, next to Everything and your playlists, is a separate
+section for live stations. Search by name, tap a genre, or add a station by
+its stream link. Save the ones you keep coming back to and they sit under
+**Your stations**.
+
+Stations come from [Radio Browser](https://www.radio-browser.info/), an open
+community-run directory — no account, no key, and nothing scraped from
+anyone's app.
+
+Two things behave differently here, both unavoidable:
+
+- **Radio needs a connection.** It's a live stream, so this is the one part
+  of Tunage that doesn't work offline. Your own music is unaffected.
+- **Stations that only stream over plain `http` can't be played at all.**
+  Tunage is served over `https`, and browsers refuse to load insecure audio
+  into a secure page. Those stations are filtered out of results, with a
+  note saying how many were skipped, rather than being offered and failing.
+
+A station plays on its own, away from the decks: there is no scratching or
+crossfading a live stream, and starting a record takes the station off air.
+The technical reason is that a cross-origin stream routed through the Web
+Audio graph comes out silent unless the station sends CORS headers, and
+most don't — so stations bypass that graph entirely.
 
 ## Files a browser can't play
 
