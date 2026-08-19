@@ -1846,6 +1846,15 @@ document.addEventListener('keydown', e => {
   levelPending();
 })();
 
+/* An installed app keeps the manifest it was installed with, so a copy added
+   to a home screen while this app still asked for portrait can stay locked
+   that way long after the manifest changed. Releasing the lock explicitly
+   frees those installs without waiting for the browser to regenerate them.
+   It throws where it isn't supported, which is fine — nothing depends on it. */
+try {
+  if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
+} catch { /* not supported here, or nothing was locked */ }
+
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
