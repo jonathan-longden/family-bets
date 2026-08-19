@@ -1731,6 +1731,162 @@ $('#feedSave').addEventListener('click', async () => {
   openPodcast(show);
 });
 
+
+/* ───────────────────────── backup ─────────────────────────
+
+   Playlists, saved stations and subscriptions live in this browser and
+   nowhere else, so clearing site data takes the lot. This writes them to a
+   file you keep.
+
+   The music itself isn't in there — those are your own files, and a backup
+   the size of a record collection would be no use to anyone. What matters is
+   that a playlist survives losing them: entries are stored by filename and
+   size rather than by internal id, so once the same files are back in the
+   library the playlists can be stitched onto them again. Ids alone would
+   restore playlists that look right and play nothing. */
+
+const BACKUP_VERSION = 1;
+
+const trackKey = t => `${t.file}\u0000${t.size}`;
+const slim = t => ({ file: t.file, size: t.size, title: t.title, artist: t.artist });
+
+function buildBackup() {
+  return {
+    app: 'tunage',
+    version: BACKUP_VERSION,
+    exported: new Date().toISOString(),
+    settings: {
+      shuffle: settings.shuffle, crossfade: settings.crossfade, level: settings.level,
+    },
+    playlists: playlists.map(pl => ({
+      name: pl.name,
+      created: pl.created,
+      tracks: pl.tracks.map(byId).filter(Boolean).map(slim),
+    })),
+    stations,
+    podcasts,
+    episodePos,
+    // enough to put loudness measurements back without re-analysing everything
+    library: lib.map(t => ({ ...slim(t), gain: t.gain, lufs: t.lufs, peak: t.peak,
+      unplayable: t.unplayable || undefined })),
+  };
+}
+
+function backupStatus(text) {
+  const el = $('#backupStatus');
+  el.hidden = !text;
+  el.textContent = text || '';
+}
+
+function exportBackup() {
+  const data = JSON.stringify(buildBackup(), null, 2);
+  const url = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tunage-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  backupStatus(`Saved ${playlists.length} playlist${playlists.length === 1 ? '' : 's'}, ` +
+    `${stations.length} station${stations.length === 1 ? '' : 's'} and ` +
+    `${podcasts.length} show${podcasts.length === 1 ? '' : 's'}.`);
+}
+
+async function importBackup(file) {
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch {
+    backupStatus("That file isn't readable as a backup.");
+    return;
+  }
+  if (!data || data.app !== 'tunage' || !Array.isArray(data.playlists)) {
+    backupStatus("That doesn't look like a Tunage backup.");
+    return;
+  }
+
+  const here = new Map(lib.map(t => [trackKey(t), t]));
+  let addedPlaylists = 0, matched = 0, missing = 0, addedStations = 0, addedShows = 0, measured = 0;
+
+  for (const saved of data.playlists) {
+    const ids = [];
+    for (const entry of saved.tracks || []) {
+      const found = here.get(trackKey(entry));
+      if (found) { ids.push(found.id); matched++; } else missing++;
+    }
+    const existing = playlists.find(pl => pl.name === saved.name);
+    if (existing) {
+      const fresh = ids.filter(id => !existing.tracks.includes(id));
+      existing.tracks.push(...fresh);
+    } else {
+      playlists.push({ id: uid(), name: saved.name || 'Playlist',
+        tracks: ids, created: saved.created || Date.now() });
+      addedPlaylists++;
+    }
+  }
+
+  for (const st of data.stations || []) {
+    if (!st || !st.url || stations.some(x => x.url === st.url)) continue;
+    stations.push(st);
+    addedStations++;
+  }
+  for (const show of data.podcasts || []) {
+    if (!show || !show.feed || podcasts.some(x => x.feed === show.feed)) continue;
+    podcasts.push(show);
+    addedShows++;
+  }
+
+  if (data.episodePos && typeof data.episodePos === 'object') {
+    for (const [url, at] of Object.entries(data.episodePos)) {
+      episodePos[url] = Math.max(Number(episodePos[url]) || 0, Number(at) || 0);
+    }
+  }
+
+  // put loudness back on tracks that have been re-imported since
+  for (const entry of data.library || []) {
+    const found = here.get(trackKey(entry));
+    if (found && found.gain === undefined && entry.gain !== undefined) {
+      found.gain = entry.gain;
+      found.lufs = entry.lufs;
+      found.peak = entry.peak;
+      await store.putTrack(found).catch(() => {});
+      measured++;
+    }
+  }
+
+  if (data.settings) {
+    settings.shuffle = data.settings.shuffle !== false;
+    settings.crossfade = data.settings.crossfade !== false;
+    settings.level = data.settings.level !== false;
+    saveSettings();
+  }
+
+  savePlaylists();
+  saveStations();
+  savePodcasts();
+  store.setPref(EPISODES_KEY, episodePos).catch(() => {});
+  rebuildQueue();
+  render();
+
+  const bits = [];
+  if (addedPlaylists) bits.push(`${addedPlaylists} playlist${addedPlaylists === 1 ? '' : 's'}`);
+  if (matched) bits.push(`${matched} track${matched === 1 ? '' : 's'} matched`);
+  if (addedStations) bits.push(`${addedStations} station${addedStations === 1 ? '' : 's'}`);
+  if (addedShows) bits.push(`${addedShows} show${addedShows === 1 ? '' : 's'}`);
+  if (measured) bits.push(`${measured} volume reading${measured === 1 ? '' : 's'}`);
+  backupStatus((bits.length ? 'Restored ' + bits.join(', ') + '.' : 'Nothing new to restore.') +
+    (missing ? ` ${missing} playlist track${missing === 1 ? '' : 's'} not in your library — ` +
+      'add those files back and restore again to pick them up.' : ''));
+}
+
+$('#exportBackup').addEventListener('click', exportBackup);
+$('#importBackupBtn').addEventListener('click', () => $('#backupInput').click());
+$('#backupInput').addEventListener('change', e => {
+  if (e.target.files[0]) importBackup(e.target.files[0]);
+  e.target.value = '';
+});
+
 /* ───────────────────────── rendering ───────────────────────── */
 
 function render() {
