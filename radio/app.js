@@ -303,6 +303,7 @@ function deletePlaylist(plId) {
 
 /* What's on air: everything, or one playlist in its own order. */
 function pool(source = settings.source) {
+  if (source === 'radio') return [];             // live streams, not tracks
   const playable = t => t && !t.unplayable;
   const pl = source.startsWith('pl:') ? playlistById(source.slice(3)) : null;
   if (!pl) return lib.filter(playable);
@@ -602,6 +603,7 @@ let playing = false;
 
 async function playTrack(track, { fade = false } = {}) {
   if (!track) return;
+  if (onAir()) stopStation();                    // a record and a station can't both be on
   await ensureAudioGraph();
   finishFade();                          // never start on top of a blend in progress
 
@@ -707,6 +709,15 @@ function prev() {
 }
 
 async function togglePlay() {
+  if (onAir()) {
+    if (radioEl.paused) {
+      $('#onAirState').textContent = 'Connecting…';
+      radioEl.play().catch(() => { $('#onAirState').textContent = "Couldn't start"; });
+    } else {
+      radioEl.pause();
+    }
+    return;
+  }
   await ensureAudioGraph();
   if (!current) {
     if (!pool().length) return toast(emptyMessage());
@@ -789,6 +800,12 @@ addEventListener('visibilitychange', () => { if (document.hidden) saveResume(); 
 
 /* the heartbeat: seek bar, crossfade hand-off, sleep timer */
 setInterval(() => {
+  if (onAir()) {                                 // nothing to seek or hand over
+    const live = !radioEl.paused;
+    if (live !== playing) { playing = live; render(); }
+    tickSleep();
+    return;
+  }
   const d = deck().el;
   const dur = d.duration;
 
@@ -917,6 +934,7 @@ function tickSleep() {
 function endSleep() {
   sleep = { mode: null, until: 0 };
   decks.forEach(d => d.el.pause());
+  if (onAir()) radioEl.pause();
   playing = false;
   renderSleep();
   render();
@@ -1219,6 +1237,230 @@ async function refreshStorage() {
     : '';
 }
 
+
+/* ───────────────────────── radio ─────────────────────────
+
+   Live stations, deliberately kept apart from the decks. A stream plays on
+   its own element that never joins the Web Audio graph: a cross-origin
+   stream routed through it comes out silent unless the station sends CORS
+   headers, and most don't. That means no scratching or crossfading a live
+   stream, which is right anyway.
+
+   Stations come from Radio Browser, an open community directory — no key,
+   no scraping of anyone's app. */
+
+const STATIONS_KEY = 'stations';
+const RADIO_API = 'https://de1.api.radio-browser.info/json/stations/search';
+const GENRES = ['dance', 'house', 'reggae', 'country', 'rock', 'pop',
+  '90s', '80s', 'jazz', 'chillout', 'news', 'sport'];
+
+let stations = [];              // saved ones
+let nowStation = null;          // what's on air, if anything
+const radioEl = new Audio();
+radioEl.preload = 'none';
+
+const onAir = () => !!nowStation;
+const saveStations = () => store.setPref(STATIONS_KEY, stations).catch(() => {});
+const isSaved = url => stations.some(s => s.url === url);
+
+function radioStatus(text) {
+  const el = $('#stationStatus');
+  el.hidden = !text;
+  el.textContent = text || '';
+}
+
+/* Most stations still only offer plain http, which a page served over https
+   isn't allowed to load at all — better to say so than to fail silently. */
+function playableStations(list) {
+  const secure = location.protocol === 'https:';
+  const out = [], skipped = [];
+  for (const st of list) {
+    const url = st.url_resolved || st.url;
+    if (!url) continue;
+    if (secure && !url.startsWith('https://')) { skipped.push(st); continue; }
+    out.push({
+      id: st.stationuuid || uid(),
+      name: st.name ? st.name.trim() : 'Unnamed station',
+      url,
+      favicon: st.favicon && st.favicon.startsWith('https://') ? st.favicon : '',
+      tags: (st.tags || '').split(',').slice(0, 2).filter(Boolean).join(' · '),
+      country: st.country || '',
+    });
+  }
+  return { out, skipped: skipped.length };
+}
+
+async function searchStations({ name = '', tag = '' } = {}) {
+  radioStatus('Searching…');
+  $('#stationResults').innerHTML = '';
+  const params = new URLSearchParams({
+    limit: '30', hidebroken: 'true', order: 'clickcount', reverse: 'true',
+  });
+  if (name) params.set('name', name);
+  if (tag) params.set('tag', tag);
+
+  let list;
+  try {
+    const res = await fetch(`${RADIO_API}?${params}`, { headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    list = await res.json();
+  } catch {
+    radioStatus("Couldn't reach the station directory — you need a connection for this, " +
+      'and you can still add a station by its stream link.');
+    return;
+  }
+
+  const { out, skipped } = playableStations(Array.isArray(list) ? list : []);
+  $('#resultsHead').hidden = !out.length;
+  $('#stationResults').innerHTML = out.map(stationTile).join('');
+  radioStatus(out.length
+    ? `${out.length} station${out.length === 1 ? '' : 's'}` +
+      (skipped ? ` · ${skipped} skipped, they only stream over http` : '')
+    : 'Nothing found' + (skipped ? ` — ${skipped} matched but only stream over http` : ''));
+}
+
+function stationTile(st) {
+  const art = st.favicon
+    ? `<img src="${esc(st.favicon)}" alt="" loading="lazy"
+         onerror="this.remove()" />`
+    : esc((st.name || '?').trim()[0].toUpperCase());
+  const saved = isSaved(st.url);
+  return `
+    <button class="tile ${nowStation && nowStation.url === st.url ? 'on' : ''}"
+            data-station='${esc(JSON.stringify(st))}'>
+      <span class="tile-art" style="background:linear-gradient(150deg,hsl(${hueOf(st.id)} 55% 45%),hsl(${(hueOf(st.id) + 40) % 360} 50% 30%))">
+        ${art}
+        <span class="tile-save ${saved ? 'on' : ''}" data-save="1" role="button"
+              aria-label="${saved ? 'Remove from your stations' : 'Save this station'}">
+          <svg class="ic"><use href="#i-heart"/></svg>
+        </span>
+      </span>
+      <b>${esc(st.name)}</b>
+      <span>${esc(st.tags || st.country || 'Live radio')}</span>
+    </button>`;
+}
+
+function renderRadio() {
+  $('#radioPanel').hidden = settings.source !== 'radio';
+  $('#savedHead').hidden = !stations.length;
+  $('#savedStations').innerHTML = stations.map(stationTile).join('');
+  if (!$('#genreChips').children.length) {
+    $('#genreChips').innerHTML = GENRES
+      .map(g => `<button class="chip" data-genre="${g}">${g}</button>`).join('');
+  }
+}
+
+async function playStation(st) {
+  stopAll();                                   // the decks stand down
+  nowStation = st;
+  document.body.classList.add('on-air');
+  radioEl.src = st.url;
+  $('#onAir').hidden = false;
+  $('#onAirName').textContent = st.name;
+  $('#onAirState').textContent = 'Connecting…';
+  $('#onAirArt').innerHTML = st.favicon
+    ? `<img src="${esc(st.favicon)}" alt="" onerror="this.remove()" />`
+    : esc((st.name || '?').trim()[0].toUpperCase());
+  $('#npTitle').textContent = st.name;
+  $('#npArtist').textContent = st.tags || st.country || 'Live radio';
+
+  try {
+    await radioEl.play();
+  } catch {
+    $('#onAirState').textContent = "Couldn't start — tap play";
+  }
+  render();
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: st.name, artist: 'Live radio', album: 'Tunage',
+      });
+    } catch {}
+  }
+}
+
+function stopStation() {
+  radioEl.pause();
+  radioEl.removeAttribute('src');
+  radioEl.load();
+  nowStation = null;
+  playing = false;
+  document.body.classList.remove('on-air');
+  $('#onAir').hidden = true;
+  render();
+}
+
+radioEl.addEventListener('playing', () => { $('#onAirState').textContent = 'Live'; playing = true; render(); });
+radioEl.addEventListener('waiting', () => { $('#onAirState').textContent = 'Buffering…'; });
+radioEl.addEventListener('pause', () => { if (onAir()) { playing = false; render(); } });
+radioEl.addEventListener('error', () => {
+  if (!onAir()) return;
+  $('#onAirState').textContent = "That stream wouldn't play";
+  playing = false;
+  render();
+});
+
+function saveStation(st) {
+  if (isSaved(st.url)) stations = stations.filter(x => x.url !== st.url);
+  else stations.push(st);
+  saveStations();
+  renderRadio();
+  $('#stationResults').innerHTML = $('#stationResults').innerHTML;   // refresh hearts
+  toast(isSaved(st.url) ? `Saved ${st.name}` : `Removed ${st.name}`);
+}
+
+/* ── wiring ── */
+
+$('#stationGo').addEventListener('click', () => searchStations({ name: $('#stationSearch').value.trim() }));
+$('#stationSearch').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); searchStations({ name: e.target.value.trim() }); }
+});
+
+$('#genreChips').addEventListener('click', e => {
+  const chip = e.target.closest('[data-genre]');
+  if (!chip) return;
+  $$('#genreChips .chip').forEach(c => c.classList.toggle('on', c === chip));
+  $('#stationSearch').value = '';
+  searchStations({ tag: chip.dataset.genre });
+});
+
+function onStationClick(e) {
+  const tile = e.target.closest('.tile');
+  if (!tile) return;
+  let st;
+  try { st = JSON.parse(tile.dataset.station); } catch { return; }
+  if (e.target.closest('[data-save]')) saveStation(st);
+  else playStation(st);
+}
+$('#stationResults').addEventListener('click', onStationClick);
+$('#savedStations').addEventListener('click', onStationClick);
+
+$('#addStationUrl').addEventListener('click', () => {
+  $('#stationErr').hidden = true;
+  $('#stationName').value = '';
+  $('#stationUrl').value = '';
+  openSheet('#stationSheet');
+});
+
+$('#stationSave').addEventListener('click', () => {
+  const name = $('#stationName').value.trim();
+  const url = $('#stationUrl').value.trim();
+  const err = $('#stationErr');
+  if (!url) { err.textContent = 'Paste the stream link first.'; err.hidden = false; return; }
+  if (location.protocol === 'https:' && !url.startsWith('https://')) {
+    err.textContent = "That link isn't https, so the browser will refuse to play it.";
+    err.hidden = false;
+    return;
+  }
+  const st = { id: uid(), name: name || url.replace(/^https?:\/\//, '').split('/')[0],
+    url, favicon: '', tags: '', country: '' };
+  stations.push(st);
+  saveStations();
+  closeSheets();
+  renderRadio();
+  playStation(st);
+});
+
 /* ───────────────────────── rendering ───────────────────────── */
 
 function render() {
@@ -1245,6 +1487,7 @@ function render() {
   }
 
   renderDecks();
+  renderRadio();
   renderSources();
   renderQueue();
   renderPlaylist();
@@ -1328,7 +1571,9 @@ const stillMotion = matchMedia('(prefers-reduced-motion: reduce)');
 function startPlatters() {
   if (platterFrame) return;
   const bars = [0, 1].map(i => document.querySelector(`.meter[data-meter="${i}"] i`));
-  const buffers = decks.map(d => d.analyser ? new Uint8Array(d.analyser.fftSize) : null);
+  // allocated as the analysers appear: the loop can start turning the platters
+  // before the audio graph is routed, and did throw when it caught up
+  const buffers = [null, null];
   lastFrameAt = performance.now();
 
   const frame = now => {
@@ -1349,6 +1594,9 @@ function startPlatters() {
       }
 
       if (d.analyser && bars[i]) {
+        if (!buffers[i] || buffers[i].length !== d.analyser.fftSize) {
+          buffers[i] = new Uint8Array(d.analyser.fftSize);
+        }
         d.analyser.getByteTimeDomainData(buffers[i]);
         let sum = 0;
         for (let j = 0; j < buffers[i].length; j++) {
@@ -1527,6 +1775,8 @@ function renderSources() {
     chip('tunage', 'Everything', count(lib.length)) +
     playlists.map(pl => chip('pl:' + pl.id, pl.name,
       count(pl.tracks.filter(id => byId(id)).length))).join('') +
+    chip('radio', 'Radio', stations.length
+      ? `${stations.length} saved` : 'live stations') +
     '<button class="source new" data-source="new"><b>+ New</b><span>playlist</span></button>';
 }
 
@@ -1599,6 +1849,9 @@ $('#sources').addEventListener('click', e => {
   saveSettings();
   rebuildQueue();
   render();
+  // radio is a section to browse, not something to start playing on its own
+  if (settings.source === 'radio') return;
+  if (onAir()) stopStation();
   // picking a playlist means that playlist's music, right now
   if (!pool().length) { stopAll(); toast(emptyMessage()); render(); return; }
   const stillFits = current && pool().some(t => t.id === current.id);
@@ -1882,6 +2135,13 @@ document.addEventListener('keydown', e => {
     playlists = [];
   }
   playlists.forEach(pl => { if (!Array.isArray(pl.tracks)) pl.tracks = []; });
+
+  try {
+    const savedStations = await store.getPref(STATIONS_KEY);
+    stations = Array.isArray(savedStations) ? savedStations : [];
+  } catch {
+    stations = [];
+  }
   // a playlist deleted on another tab shouldn't leave us pointing at nothing
   if (settings.source.startsWith('pl:') && !currentPlaylist()) settings.source = 'tunage';
   rebuildQueue();
