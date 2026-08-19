@@ -54,6 +54,8 @@ download), and it keeps them rolling.
 - **Radio.** A section of its own for live stations: search an open station
   directory, save the ones you like, or add a stream link by hand. Needs a
   connection, unlike everything else here.
+- **Podcasts.** Search for a show, subscribe, and pick an episode. Episodes
+  can be seeked, skip in 30-second jumps, and remember where you got to.
 
 ## Getting music in
 
@@ -151,6 +153,25 @@ crossfading a live stream, and starting a record takes the station off air.
 The technical reason is that a cross-origin stream routed through the Web
 Audio graph comes out silent unless the station sends CORS headers, and
 most don't — so stations bypass that graph entirely.
+
+## Podcasts
+
+The **Podcasts** chip opens a section for shows. Search by name, subscribe
+to the ones you follow, and tap a show to see its episodes. Shows are found
+through the iTunes Search directory, which is open and needs no key, and
+the episode list is read straight from the show's own feed.
+
+An episode isn't a live stream, so it behaves like one: the seek bar works,
+the skip buttons jump back 15 seconds and forward 30, and where you got to
+is remembered — come back later and it picks up from there.
+
+**Some feeds can't be read.** A podcast's feed has to allow other sites to
+fetch it, and plenty don't. Without a server of our own there's no way
+round that, so those shows say so plainly instead of failing quietly. The
+episode audio itself almost always plays — it's reading the list of
+episodes that can be refused. If a show you follow won't load, its feed
+address can still be added by hand under **Add a show by its feed
+address**, though the same restriction applies.
 
 ## Files a browser can't play
 
