@@ -19,9 +19,16 @@
   const MAT = '#232a44';             // the board around the picture
   const MAX_CUSTOM = 24;
 
-  // How the grid is cut into areas. Anything smaller than this, or too thin
-  // to hold its own number, is given to a neighbour instead.
-  const SHAPE = { minArea: 12, minRoom: 1.6, simplify: 0.9, smoothing: 2 };
+  /* How the grid is cut into areas: anything smaller than this, or too thin
+     to hold its own number, is given to a neighbour instead.
+
+     Drawn pictures and photographs want different answers. In a drawn
+     picture a small area is there on purpose — a star, a stitch, a sprinkle
+     — and merging it away means the finished colouring is missing what the
+     picture was drawn with. In a photograph a small area is usually noise,
+     and keeping it means a hundred specks nobody wants to fill in. */
+  const SHAPE_DRAWN = { minArea: 5, minRoom: 1.05, simplify: 0.9, smoothing: 2 };
+  const SHAPE_PHOTO = { minArea: 12, minRoom: 1.6, simplify: 0.9, smoothing: 2 };
 
   // ------------------------------------------------------------- storage
 
@@ -36,7 +43,7 @@
   // Progress is kept per area. The name carries the shape of the picture, so
   // a picture that is redrawn one day starts again rather than restoring
   // half-filled nonsense from an older set of areas.
-  const progressKey = (id) => 'pigment.areas.' + id;
+  const progressKey = (id) => 'pigment.areas2.' + id;
 
   function toBase64(bytes) {
     let out = '';
@@ -200,7 +207,7 @@
   function prepare(puzzle) {
     const known = prepared.get(puzzle.id);
     if (known) return known;
-    const shape = REGIONS.prepare(puzzle, SHAPE);
+    const shape = REGIONS.prepare(puzzle, puzzle.custom ? SHAPE_PHOTO : SHAPE_DRAWN);
     shape.id = puzzle.id;
     shape.name = puzzle.name;
     shape.blurb = puzzle.blurb;

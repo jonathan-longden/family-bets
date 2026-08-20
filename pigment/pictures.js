@@ -568,7 +568,7 @@
       for (let i = 0; i < 70; i++) {
         const x = random() * 31.4 + 0.3, y = random() * 39 + 0.3;
         if (x > 9.5 && x < 22.5 && y > 3 && y < 38) continue;      // keep off the rocket
-        g.disc(x, y, 0.18 + random() * 0.22, star);
+        g.disc(x, y, 0.26 + random() * 0.24, star);
       }
       for (const [x, y] of [[4, 30], [28, 22], [22, 6], [10, 36]]) {
         g.stamp(Math.round(x), Math.round(y), [' s ', 'sss', ' s '], { s: star });
@@ -1127,7 +1127,7 @@
       for (let i = 0; i < 40; i++) {
         const x = random() * 31.5, y = random() * 24;
         if (x > 11 && x < 21 && y > 6) continue;
-        g.disc(x, y, 0.16 + random() * 0.2, star);
+        g.disc(x, y, 0.24 + random() * 0.22, star);
       }
       g.sphere(25.5, 5.5, 3.2, 3.2, moon, { lx: -0.5, ly: -0.5, ambient: 0.55, spread: 0.4 });
 
@@ -1420,6 +1420,190 @@
           const depth = 1 - Math.min(1, dx * dx + dy * dy);
           g.poke(x, y, sand[level(0.34 - depth * 0.3, sand.length)]);
         });
+      }
+    },
+  });
+
+  picture({
+    id: 'stadium',
+    name: 'Under the Lights',
+    blurb: 'Floodlights, and a full house',
+    cols: 40, rows: 32,
+    palette: [
+      { ramp: '#1d2a52', name: 'Night', tones: 6, dark: 0.6, light: 0.5 },
+      { ramp: '#ffe9a8', name: 'Glow', tones: 4, light: 0.6 },
+      { hex: '#fffdf2', name: 'Lamp' },
+      { ramp: '#3f8f47', name: 'Pitch', tones: 8, dark: 0.55, light: 0.5 },
+      { ramp: '#f2f5ff', name: 'Line', tones: 3, dark: 0.35 },
+      { ramp: '#4a5878', name: 'Stand', tones: 5, dark: 0.55 },
+      { ramp: '#2b3550', name: 'Roof', tones: 4, dark: 0.5 },
+      { ramp: '#8f9cc0', name: 'Steel', tones: 4 },
+      { ramp: '#d13b3b', name: 'Home', tones: 3 },
+      { hex: '#f0f0f5', name: 'Away' },
+    ],
+    draw(g, c) {
+      const [night, glow, lamp, pitch, line, stand, roof, steel, home, away] = c;
+      const random = rng(1886);
+      const air = noise(5151);
+      const turf = noise(9292);
+
+      // ------------------------------------------------------------- sky
+      g.shadeEach(paint => g.rectEach(0, 0, 40, 18, paint), night, (ux, uy) =>
+        0.12 + uy / 18 * 0.5 + air.fbm(ux * 0.3, uy * 0.6, 3) * 0.16 - 0.08);
+      for (let i = 0; i < 34; i++) {
+        const x = random() * 40, y = random() * 9;
+        g.disc(x, y, 0.24 + random() * 0.2, night[5]);
+      }
+
+      /* The four towers. Light spills upward into the night as a soft cone,
+         so the beams are painted before the towers themselves and only where
+         they lift the sky rather than replacing it. */
+      const towers = [[3.5, 5.5, 1], [36.5, 5.5, 1], [9.5, 7.5, 0.72], [30.5, 7.5, 0.72]];
+      for (const [tx, ty, scale] of towers) {
+        g.shadeEach(paint => g.ellipseEach(tx, ty + 7 * scale, 7 * scale, 8 * scale, paint),
+          night, (ux, uy) => {
+            const fall = 1 - Math.min(1, Math.hypot((ux - tx) / (7 * scale), (uy - ty) / (9 * scale)));
+            if (fall <= 0.08) return -1;
+            return 0.36 + fall * 0.85 + air.fbm(ux * 0.8, uy * 0.8, 2) * 0.2 - 0.1;
+          });
+      }
+
+      // ------------------------------------------------------- the ground
+      // far stand, then the two sides, all curving away from the viewer
+      g.shadeEach(paint => g.polyEach([[1, 17.5], [4, 12.2], [36, 12.2], [39, 17.5]], paint),
+        stand, (ux, uy) => 0.3 + (17.5 - uy) / 6 * 0.5);
+      g.shadeEach(paint => g.polyEach([[0.4, 12.6], [4, 9.4], [36, 9.4], [39.6, 12.6]], paint),
+        roof, (ux, uy) => 0.36 + (12.6 - uy) / 3.6 * 0.5 + air.fbm(ux * 2, uy * 2, 2) * 0.2 - 0.1);
+
+      /* The crowd. Drawn as thousands of individual specks it looks right
+         and coloured in it isn't there at all: every speck is smaller than
+         the smallest area worth giving a number to, so they all get merged
+         back into the stand. Patches about a metre across survive, and from
+         this far away a crowd is patches of colour anyway. */
+      const faces = noise(3311);
+      const flecks = noise(7733);
+      g.polyEach([[2, 12.6], [38, 12.6], [37.2, 17.3], [2.8, 17.3]], (x, y) => {
+        const ux = (x + 0.5) / g.detail, uy = (y + 0.5) / g.detail;
+        // mostly dark, with colour coming through in flecks rather than slabs
+        const patch = faces.fbm(ux * 2.2, uy * 2.8, 2);
+        const fleck = flecks.fbm(ux * 1.5 + 40, uy * 2.1, 2);
+        // a full house: colour on most of it, dark only in the gaps
+        let shirt = stand[patch < 0.5 ? 2 : 3];
+        if (fleck > 0.52) shirt = home[patch < 0.4 ? 0 : patch < 0.75 ? 1 : 2];
+        else if (fleck < 0.34) shirt = patch < 0.5 ? away : stand[4];
+        else if (patch < 0.28) shirt = stand[1];
+        g.poke(x, y, shirt);
+      });
+      // the rail along the front of the stand
+      g.rect(1.6, 17.1, 36.8, 0.5, steel[1]);
+
+      // ------------------------------------------------------------ pitch
+      /* The surround goes down first and covers the whole floor of the
+         ground. Without it the corners either side of the pitch stay as bare
+         paper, which is exactly what the first draft did. */
+      g.shadeEach(paint => g.rectEach(0, 17.2, 40, 15, paint), stand, (ux, uy) =>
+        0.12 + (uy - 17.2) / 15 * 0.3 + air.fbm(ux * 1.2, uy * 2.4, 3) * 0.24 - 0.12);
+
+      const pitchShape = [[3, 30.8], [9.5, 18], [30.5, 18], [37, 30.8]];
+      const pools = towers.map(([tx, , scale]) => [tx < 20 ? 12 + tx * 0.3 : 28 - (40 - tx) * 0.3, scale]);
+      g.shadeEach(paint => g.polyEach(pitchShape, paint), pitch, (ux, uy) => {
+        // how far across the pitch, allowing for the perspective
+        const width = 6.5 + (uy - 18) / 12.8 * 27;
+        const across = (ux - 20) / (width / 2);
+        if (Math.abs(across) > 1.02) return -1;
+        /* Mown stripes run away from the viewer, and each tower lays its own
+           pool of light across the grass. Both have to stay well clear of the
+           top of the ramp or the whole pitch clamps to one bright green. */
+        const stripe = Math.floor((across + 1) * 4) % 2 ? 0.26 : 0;
+        let lit = 0;
+        for (const [px, scale] of pools) {
+          lit += Math.exp(-((ux - px) ** 2) / (26 * scale)) * 0.26 * scale;
+        }
+        return 0.14 + lit + stripe + (uy - 18) / 12.8 * 0.14 + turf.fbm(ux * 1.4, uy * 3, 3) * 0.14 - 0.07;
+      });
+
+      /* Markings, drawn in the same perspective as the pitch: everything is
+         measured across the pitch in halves, then widened with depth. */
+      const at = (across, uy) => 20 + across * (6.5 + (uy - 18) / 12.8 * 27) / 2;
+      const mark = (points) => g.poly(points.map(([across, uy]) => [at(across, uy), uy]), line[2]);
+      const thickness = (uy) => 0.03 + (uy - 18) / 12.8 * 0.05;
+
+      // touchlines and goal lines
+      mark([[-1, 18], [1, 18], [1, 18.45], [-1, 18.45]]);
+      mark([[-1, 30.4], [1, 30.4], [1, 30.8], [-1, 30.8]]);
+      for (const side of [-1, 1]) {
+        mark([[side * 0.985, 18], [side * 0.93, 18], [side * 0.93, 30.8], [side * 0.985, 30.8]]);
+      }
+      // halfway line and the centre circle
+      mark([[-1, 24.2], [1, 24.2], [1, 24.2 + thickness(24.2) * 4], [-1, 24.2 + thickness(24.2) * 4]]);
+      for (let a = 0; a < Math.PI * 2; a += 0.05) {
+        const uy = 24.4 + Math.sin(a) * 2.1;
+        g.disc(at(Math.cos(a) * 0.34, uy), uy, 0.16, line[2]);
+      }
+      g.disc(at(0, 24.4), 24.4, 0.24, line[2]);
+      // the far penalty area and its six-yard box
+      mark([[-0.56, 18.3], [0.56, 18.3], [0.56, 18.6], [-0.56, 18.6]]);
+      mark([[-0.56, 18.3], [-0.5, 18.3], [-0.5, 20.5], [-0.56, 20.5]]);
+      mark([[0.5, 18.3], [0.56, 18.3], [0.56, 20.5], [0.5, 20.5]]);
+      mark([[-0.56, 20.3], [0.56, 20.3], [0.56, 20.6], [-0.56, 20.6]]);
+
+      /* The goal. A net is mostly holes, so it is drawn as the mesh itself
+         over the darker stand behind rather than as a white slab. */
+      const goalLeft = at(-0.2, 18.2), goalRight = at(0.2, 18.2);
+      g.shadeEach(paint => g.rectEach(goalLeft, 16.5, goalRight - goalLeft, 1.9, paint),
+        stand, () => 0.06);
+      for (let x = goalLeft + 0.3; x < goalRight; x += 0.62) g.rect(x, 16.5, 0.16, 1.9, line[0]);
+      for (let y = 16.7; y < 18.4; y += 0.5) g.rect(goalLeft, y, goalRight - goalLeft, 0.14, line[0]);
+      g.rect(goalLeft - 0.2, 16.4, 0.4, 2, line[2]);
+      g.rect(goalRight - 0.2, 16.4, 0.4, 2, line[2]);
+      g.rect(goalLeft - 0.2, 16.3, goalRight - goalLeft + 0.4, 0.36, line[2]);
+
+      // ---------------------------------------------------------- players
+      const player = (x, y, kit, size) => {
+        g.ellipse(x, y + size * 0.16, size * 0.52, size * 0.15, pitch[1]);   // shadow first
+        g.poly([[x - size * 0.3, y - size * 0.42], [x - size * 0.12, y],
+          [x + size * 0.1, y], [x + size * 0.28, y - size * 0.42]], night[0]);
+        g.ellipse(x, y - size * 0.5, size * 0.3, size * 0.2, line[2]);       // shorts
+        g.ellipse(x, y - size * 0.92, size * 0.32, size * 0.42, kit);
+        g.disc(x, y - size * 1.42, size * 0.22, glow[1]);
+      };
+      for (const [x, y, kit, size] of [
+        [14.6, 26.8, home[1], 2.2], [18.6, 23.2, away, 1.75], [24.2, 28, home[1], 2.4],
+        [27, 22.4, away, 1.6], [21, 30, home[1], 2.6], [11.8, 22, away, 1.5],
+        [30, 25.6, away, 2], [24.8, 20.4, home[1], 1.4],
+      ]) player(x, y, kit, size);
+      g.disc(22.4, 29.2, 0.55, line[2]);
+      g.disc(22.4, 29.2, 0.26, night[1]);
+
+      // ---------------------------------------------------------- towers
+      for (const [tx, ty, scale] of towers) {
+        const w = 1.1 * scale;
+        const base = 18.6 - (1 - scale) * 3;
+        // the mast, tapering as it climbs
+        g.shadeEach(paint => g.polyEach([[tx - w, base], [tx + w, base],
+          [tx + w * 0.42, ty + 2.2 * scale], [tx - w * 0.42, ty + 2.2 * scale]], paint),
+          steel, (ux) => 0.3 + (ux - tx + w) / (2 * w) * 0.45);
+        // cross-bracing up the mast
+        for (let i = 0; i < 7; i++) {
+          const t0 = i / 7, t1 = (i + 1) / 7;
+          const y0 = base + (ty + 2.2 * scale - base) * t0;
+          const y1 = base + (ty + 2.2 * scale - base) * t1;
+          const w0 = w - (w - w * 0.42) * t0, w1 = w - (w - w * 0.42) * t1;
+          g.line(tx - w0 * (i % 2 ? -1 : 1), y0, tx + w1 * (i % 2 ? -1 : 1), y1, steel[0], 0.28 * scale);
+        }
+        // the bank of lamps, and the halo round it
+        g.shadeEach(paint => g.ellipseEach(tx, ty, 4.6 * scale, 3.4 * scale, paint), glow, (ux, uy) => {
+          const fall = 1 - Math.min(1, Math.hypot((ux - tx) / (4.6 * scale), (uy - ty) / (3.4 * scale)));
+          if (fall <= 0.1) return -1;
+          return fall * 1.4 - 0.2;
+        });
+        g.shadeEach(paint => g.rectEach(tx - 2.6 * scale, ty - 1.4 * scale, 5.2 * scale, 2.8 * scale, paint),
+          steel, () => 0.2);
+        for (let row = 0; row < 3; row++) {
+          for (let col = 0; col < 5; col++) {
+            g.disc(tx + (col - 2) * scale, ty + (row - 1) * 0.95 * scale, 0.42 * scale, lamp);
+          }
+        }
       }
     },
   });

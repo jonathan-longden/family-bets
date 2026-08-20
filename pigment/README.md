@@ -1,6 +1,6 @@
 # Pigment
 
-Colour by number, on a phone. Ten pictures are built in, and any photo
+Colour by number, on a phone. Eleven pictures are built in, and any photo
 already on the device can be turned into another. No account, no
 downloads, no signal needed.
 
@@ -13,10 +13,11 @@ number ignores you and says which number it actually wants.
 
 ## What's in it
 
-- **Ten pictures** — a hot air balloon, a rocket, a butterfly, a springer
-  spaniel, a boat at sunset, a cupcake, a desert at sundown, an old teddy,
-  a lighthouse at night, and a hat and boot left by a crate out west.
-  Between 73 and 147 areas each, in 22 to 41 colours.
+- **Eleven pictures** — a hot air balloon, a rocket, a butterfly, a
+  springer spaniel, a boat at sunset, a cupcake, a desert at sundown, an
+  old teddy, a lighthouse at night, a hat and boot left by a crate out
+  west, and a stadium under floodlights. Between 96 and 302 areas each, in
+  23 to 45 colours.
 - **Your own photos.** Pick one and it becomes a picture to colour in,
   worked out here on the phone.
 - **It keeps your place**, picture by picture, so you can put one down
@@ -38,7 +39,20 @@ that grid into the shapes you actually colour in:
 2. **Absorb the specks.** An area too small — or too *thin*, which is not
    the same thing: a one-square ring around an eye can be large and still
    be invisible — is given to whichever neighbour it shares the most edge
-   with. Nothing survives that can't hold its own number.
+   with.
+
+   How small is too small depends on where the picture came from. In a
+   drawn picture a small area is there on purpose — a star, a stitch, a
+   lamp in a floodlight — and merging it away means the finished colouring
+   is missing what the picture was drawn with. In a photograph a small
+   area is usually noise, and keeping it means a hundred specks nobody
+   wants to fill in. So drawn pictures are cut finer than imported ones.
+
+   This is worth watching when drawing: the stadium's crowd was first
+   drawn as six hundred individual specks. It looked right and coloured in
+   it wasn't there at all — every speck was smaller than the smallest area
+   worth giving a number to, so the lot got merged back into the stand.
+   It's patches now, which is what a crowd is from that far away anyway.
 3. **Walk the edges** to get closed loops of points, one for the outside
    of the area and one for each hole.
 4. **Cut the loops into arcs** that run from one meeting point to the
