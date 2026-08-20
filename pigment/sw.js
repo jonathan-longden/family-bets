@@ -1,9 +1,10 @@
-const CACHE_NAME = 'pigment-v1';
+const CACHE_NAME = 'pigment-v2';
 const FILES_TO_CACHE = [
   './',
   './index.html',
   './styles.css',
   './pictures.js',
+  './regions.js',
   './app.js',
   './manifest.json',
   './icon-192.png',

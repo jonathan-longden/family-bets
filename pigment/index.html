@@ -52,9 +52,9 @@
         <label class="field">
           <span>Size</span>
           <select id="photoSize">
-            <option value="32">Small</option>
-            <option value="44" selected>Medium</option>
-            <option value="60">Large</option>
+            <option value="80">Small</option>
+            <option value="120" selected>Medium</option>
+            <option value="180">Large</option>
           </select>
         </label>
       </div>
@@ -96,7 +96,8 @@
           <h2>Finished</h2>
           <p id="doneText">Every square filled in.</p>
           <div class="done-actions">
-            <button class="btn btn--primary" id="saveBtn" type="button">Save the picture</button>
+            <button class="btn btn--primary" id="saveBtn" type="button">Save as PNG</button>
+            <button class="btn btn--ghost" id="svgBtn" type="button">Save as SVG</button>
             <button class="btn btn--ghost" id="doneBackBtn" type="button">Pick another</button>
           </div>
         </div>
@@ -106,7 +107,8 @@
     <div class="tools">
       <button class="btn btn--ghost" id="hintBtn" type="button">Hint</button>
       <button class="btn btn--ghost" id="fitBtn" type="button">Fit</button>
-      <button class="btn btn--ghost" id="resetBtn" type="button">Start again</button>
+      <button class="btn btn--ghost" id="printBtn" type="button">Print</button>
+      <button class="btn btn--ghost" id="resetBtn" type="button">Restart</button>
     </div>
 
     <div class="palette" id="palette" role="radiogroup" aria-label="Colours"></div>
@@ -114,6 +116,7 @@
 
 </div>
 <script src="pictures.js"></script>
+<script src="regions.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

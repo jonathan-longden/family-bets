@@ -1,19 +1,27 @@
 /* Pigment — colour by number.
 
-   No build step and no dependencies: the pictures are drawn by pictures.js
-   into a grid of numbers, this file paints that grid onto a canvas and keeps
-   track of which squares have been filled in. Everything — progress, the
-   pictures made from photos, the sound — stays on the device. */
+   No build step and no dependencies. pictures.js draws each picture onto a
+   grid of colour numbers, regions.js turns that grid into outlined areas
+   with a number in each, and this file draws those areas, works out which
+   one a finger landed on, and remembers what has been filled in.
+
+   Everything — progress, the pictures made from photos, the sound — stays on
+   the device. */
 (() => {
   'use strict';
 
   const PICTURES = self.PigmentPictures;
+  const REGIONS = self.PigmentRegions;
 
-  const CELL_EMPTY = '#eef0f4';      // a square still waiting for its colour
-  const GRID = '#cfd5e4';            // shows through the gap between squares
+  const PAPER = '#ffffff';           // an area still waiting for its colour
+  const OUTLINE = '#3a4260';         // the line around every area
+  const NUMBER_INK = '#7d879f';
   const MAT = '#232a44';             // the board around the picture
-  const NUMBER_INK = '#8e97ad';
   const MAX_CUSTOM = 24;
+
+  // How the grid is cut into areas. Anything smaller than this, or too thin
+  // to hold its own number, is given to a neighbour instead.
+  const SHAPE = { minArea: 12, minRoom: 1.6, simplify: 0.9, smoothing: 2 };
 
   // ------------------------------------------------------------- storage
 
@@ -25,7 +33,10 @@
 
   const KEY_CUSTOM = 'pigment.custom';
   const KEY_SOUND = 'pigment.sound';
-  const progressKey = (id) => 'pigment.progress.' + id;
+  // Progress is kept per area. The name carries the shape of the picture, so
+  // a picture that is redrawn one day starts again rather than restoring
+  // half-filled nonsense from an older set of areas.
+  const progressKey = (id) => 'pigment.areas.' + id;
 
   function toBase64(bytes) {
     let out = '';
@@ -43,8 +54,8 @@
     return out;
   }
 
-  // Progress is one bit per square, so a picture costs a couple of hundred
-  // bytes however long it took to colour in.
+  // One bit per area, so a picture costs a few dozen bytes however long it
+  // took to colour in.
   function packBits(flags) {
     const out = new Uint8Array(Math.ceil(flags.length / 8));
     for (let i = 0; i < flags.length; i++) if (flags[i]) out[i >> 3] |= 1 << (i & 7);
@@ -74,6 +85,16 @@
     const [r, g, b] = hexToRgb(hex);
     return (r * 0.299 + g * 0.587 + b * 0.114) / 255;
   };
+
+  /* Areas waiting for the colour in hand are tinted with it. A pale colour
+     tints to something indistinguishable from blank paper, so anything
+     without enough contrast of its own gets a neutral wash instead: the
+     point is to show which areas are next, not to preview the shade. */
+  function waitingTint(hex) {
+    const tint = mix(PAPER, hex, 0.3);
+    if (Math.abs(luminance(tint) - luminance(PAPER)) < 0.05) return mix(PAPER, '#8794b4', 0.26);
+    return tint;
+  }
 
   // --------------------------------------------------------------- sound
 
@@ -113,7 +134,7 @@
     blip() {
       const ctx = this.resume();
       if (!ctx) return;
-      if (ctx.currentTime - this.lastBlip < 0.045) return;   // a fast drag would blur
+      if (ctx.currentTime - this.lastBlip < 0.045) return;
       this.lastBlip = ctx.currentTime;
       const scale = [523.25, 587.33, 698.46, 783.99, 880.0];
       this.note(scale[this.step % scale.length], ctx.currentTime, 0.09, 0.07);
@@ -141,13 +162,13 @@
 
   let builtIn = [];
   let custom = [];
+  const prepared = new Map();        // picture id -> areas, worked out once
 
   function loadCustom() {
     const raw = store.get(KEY_CUSTOM);
     if (!raw) return [];
     try {
-      const list = JSON.parse(raw);
-      return list.map(item => ({
+      return JSON.parse(raw).map(item => ({
         id: item.id,
         name: item.name,
         number: item.number || 0,
@@ -165,8 +186,8 @@
 
   function saveCustom() {
     const packed = custom.map(p => ({
-      id: p.id, name: p.name, number: p.number, blurb: p.blurb, cols: p.cols, rows: p.rows,
-      palette: p.palette, cells: toBase64(p.cells),
+      id: p.id, name: p.name, number: p.number, blurb: p.blurb,
+      cols: p.cols, rows: p.rows, palette: p.palette, cells: toBase64(p.cells),
     }));
     return store.set(KEY_CUSTOM, JSON.stringify(packed));
   }
@@ -174,28 +195,34 @@
   const allPuzzles = () => custom.concat(builtIn);
   const puzzleById = (id) => allPuzzles().find(p => p.id === id);
 
-  function loadProgress(puzzle) {
-    const raw = store.get(progressKey(puzzle.id));
-    const filled = new Uint8Array(puzzle.cells.length);
+  /* Working out the areas takes a moment, so it happens once per picture and
+     is then kept for the rest of the session. */
+  function prepare(puzzle) {
+    const known = prepared.get(puzzle.id);
+    if (known) return known;
+    const shape = REGIONS.prepare(puzzle, SHAPE);
+    shape.id = puzzle.id;
+    shape.name = puzzle.name;
+    shape.blurb = puzzle.blurb;
+    shape.custom = puzzle.custom;
+    for (const region of shape.regions) region.path = new Path2D(REGIONS.ringsToPath(region.rings));
+    prepared.set(puzzle.id, shape);
+    return shape;
+  }
+
+  function loadProgress(shape) {
+    const filled = new Uint8Array(shape.regions.length);
+    const raw = store.get(progressKey(shape.id));
     if (raw) {
       try {
-        const bits = unpackBits(fromBase64(raw), puzzle.cells.length);
-        // A square that carries no number (the paper) is never "filled".
-        for (let i = 0; i < filled.length; i++) filled[i] = puzzle.cells[i] && bits[i] ? 1 : 0;
+        const bits = unpackBits(fromBase64(raw), shape.regions.length);
+        filled.set(bits);
       } catch (e) { /* a corrupt save just starts the picture again */ }
     }
     return filled;
   }
 
-  function countFilled(puzzle, filled) {
-    let done = 0, total = 0;
-    for (let i = 0; i < puzzle.cells.length; i++) {
-      if (!puzzle.cells[i]) continue;
-      total++;
-      if (filled[i]) done++;
-    }
-    return { done, total };
-  }
+  const countFilled = (filled) => filled.reduce((total, value) => total + value, 0);
 
   // ----------------------------------------------------------------- DOM
 
@@ -228,42 +255,78 @@
 
   // ------------------------------------------------------------- gallery
 
-  /* A thumbnail of a picture nobody has touched would be a blank grey
-     rectangle, which is no way to choose one. Squares still to do are shown
-     as a washed-out version of the colour they are waiting for: enough to
-     recognise the picture, and it comes up to full strength as you fill it. */
-  function thumbnail(puzzle, filled) {
-    const scale = 4;
+  /* Before a picture has been opened its areas aren't worked out yet, so the
+     card shows a washed-out version of the finished picture straight from
+     the grid — enough to tell the pictures apart, and it comes up to full
+     strength as the real thing is filled in. */
+  function thumbnail(puzzle) {
+    const scale = 3;
     const el = document.createElement('canvas');
     el.width = puzzle.cols * scale;
     el.height = puzzle.rows * scale;
     const c = el.getContext('2d');
-    c.fillStyle = '#ffffff';
+    c.fillStyle = PAPER;
     c.fillRect(0, 0, el.width, el.height);
-    for (let y = 0; y < puzzle.rows; y++) {
-      for (let x = 0; x < puzzle.cols; x++) {
-        const i = y * puzzle.cols + x;
-        const n = puzzle.cells[i];
-        if (!n) continue;
-        const hex = puzzle.palette[n - 1].hex;
-        c.fillStyle = filled[i] ? hex : mix(hex, '#ffffff', 0.76);
-        c.fillRect(x * scale, y * scale, scale, scale);
+
+    const shape = prepared.get(puzzle.id);
+    if (!shape) {
+      for (let y = 0; y < puzzle.rows; y++) {
+        for (let x = 0; x < puzzle.cols; x++) {
+          const n = puzzle.cells[y * puzzle.cols + x];
+          if (!n) continue;
+          c.fillStyle = mix(puzzle.palette[n - 1].hex, PAPER, 0.76);
+          c.fillRect(x * scale, y * scale, scale, scale);
+        }
       }
+      return el;
+    }
+
+    const filled = state && state.shape.id === puzzle.id ? state.filled : loadProgress(shape);
+    c.setTransform(scale, 0, 0, scale, 0, 0);
+    for (const region of shape.regions) {
+      const hex = shape.palette[region.colour - 1].hex;
+      c.fillStyle = filled[region.id] ? hex : mix(hex, PAPER, 0.76);
+      c.fill(region.path, 'evenodd');
+      c.lineWidth = 1 / scale;
+      c.strokeStyle = c.fillStyle;
+      c.stroke(region.path);
     }
     return el;
   }
 
+  function progressOf(puzzle) {
+    const shape = prepared.get(puzzle.id);
+    if (shape) {
+      const filled = state && state.shape.id === puzzle.id ? state.filled : loadProgress(shape);
+      return { done: countFilled(filled), total: shape.regions.length };
+    }
+    // without the areas, the saved bits still say how much is done
+    const raw = store.get(progressKey(puzzle.id));
+    if (!raw) return { done: 0, total: 0 };
+    try {
+      const bytes = fromBase64(raw);
+      let done = 0;
+      for (const byte of bytes) {
+        for (let bit = 0; bit < 8; bit++) if (byte & (1 << bit)) done++;
+      }
+      return { done, total: 0, partial: true };
+    } catch (e) {
+      return { done: 0, total: 0 };
+    }
+  }
+
+  let galleryQueue = 0;
+
   function renderGallery() {
     cardsEl.textContent = '';
-    for (const puzzle of allPuzzles()) {
-      const filled = loadProgress(puzzle);
-      const { done, total } = countFilled(puzzle, filled);
-      const percent = total ? Math.round(done / total * 100) : 0;
+    const puzzles = allPuzzles();
 
+    for (const puzzle of puzzles) {
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'card';
-      card.appendChild(thumbnail(puzzle, filled));
+      card.dataset.picture = puzzle.id;
+      card.appendChild(thumbnail(puzzle));
 
       const name = document.createElement('div');
       name.className = 'card-name';
@@ -272,20 +335,22 @@
 
       const meta = document.createElement('div');
       meta.className = 'card-meta';
-      if (done === 0) {
+      const { done, total } = progressOf(puzzle);
+      if (!done) {
         meta.textContent = puzzle.blurb;
-      } else if (done === total) {
+      } else if (total && done === total) {
         meta.innerHTML = '<span class="card-done">✓ Finished</span>';
       } else {
+        const percent = total ? Math.round(done / total * 100) : 0;
         const bar = document.createElement('div');
         bar.className = 'card-bar';
         const fill = document.createElement('span');
         fill.style.width = percent + '%';
         bar.appendChild(fill);
         meta.appendChild(bar);
-        const label = document.createElement('span');
-        label.textContent = percent + '%';
-        meta.appendChild(label);
+        const written = document.createElement('span');
+        written.textContent = total ? percent + '%' : 'Started';
+        meta.appendChild(written);
       }
       card.appendChild(meta);
       card.addEventListener('click', () => openPuzzle(puzzle.id));
@@ -301,6 +366,7 @@
           event.stopPropagation();
           if (!confirm('Delete ' + puzzle.name + '?')) return;
           custom = custom.filter(p => p.id !== puzzle.id);
+          prepared.delete(puzzle.id);
           store.remove(progressKey(puzzle.id));
           saveCustom();
           renderGallery();
@@ -308,6 +374,37 @@
         card.appendChild(del);
       }
     }
+
+    /* Cut the areas for one picture at a time in the background, refreshing
+       each card as its picture becomes exact. Doing the lot up front would
+       hold the gallery up for a second on a phone. */
+    const pending = puzzles.filter(p => !prepared.has(p.id));
+    const run = ++galleryQueue;
+    const step = (index) => {
+      if (run !== galleryQueue || index >= pending.length) return;
+      setTimeout(() => {
+        if (run !== galleryQueue) return;
+        const puzzle = pending[index];
+        prepare(puzzle);
+        const card = cardsEl.querySelector('[data-picture="' + puzzle.id + '"]');
+        if (card) {
+          const canvasEl = card.querySelector('canvas');
+          if (canvasEl) card.replaceChild(thumbnail(puzzle), canvasEl);
+          const meta = card.querySelector('.card-meta');
+          const { done, total } = progressOf(puzzle);
+          if (meta && done && total) {
+            const percent = Math.round(done / total * 100);
+            if (done === total) meta.innerHTML = '<span class="card-done">✓ Finished</span>';
+            else {
+              meta.innerHTML = '<div class="card-bar"><span style="width:' + percent + '%"></span></div>' +
+                '<span>' + percent + '%</span>';
+            }
+          }
+        }
+        step(index + 1);
+      }, 16);
+    };
+    step(0);
   }
 
   function openGallery() {
@@ -328,29 +425,27 @@
     const puzzle = puzzleById(id);
     if (!puzzle) return;
 
-    const filled = loadProgress(puzzle);
-    const counts = new Uint32Array(puzzle.palette.length + 1);
-    for (let i = 0; i < puzzle.cells.length; i++) {
-      const n = puzzle.cells[i];
-      if (n && !filled[i]) counts[n]++;
-    }
+    const shape = prepare(puzzle);
+    const filled = loadProgress(shape);
+    const left = new Uint32Array(shape.palette.length + 1);
+    for (const region of shape.regions) if (!filled[region.id]) left[region.colour]++;
 
     state = {
-      puzzle,
+      shape,
       filled,
-      left: counts,                       // squares still to fill, per colour
+      left,                          // areas still to fill, per colour
       active: 0,
+      done: countFilled(filled),
+      total: shape.regions.length,
       view: { scale: 1, x: 0, y: 0 },
+      cache: document.createElement('canvas'),
+      cacheScale: 0,
+      cacheTimer: 0,
       hint: null,
-      wrong: null,
       finished: false,
       saveTimer: 0,
     };
-
-    const { done, total } = countFilled(puzzle, filled);
-    state.done = done;
-    state.total = total;
-    state.finished = done === total;
+    state.finished = state.done === state.total;
 
     gallery.hidden = true;
     paintView.hidden = false;
@@ -358,19 +453,19 @@
     backBtn.hidden = false;
     titleEl.textContent = puzzle.name;
     canvas.setAttribute('aria-label',
-      puzzle.name + ': ' + puzzle.cols + ' by ' + puzzle.rows + ' numbered squares in '
-      + puzzle.palette.length + ' colours');
+      puzzle.name + ': ' + state.total + ' outlined areas in ' + shape.palette.length + ' colours');
 
     resizeCanvas();
     fitView();
     chooseColour(nextUnfinished(0) || 1, true);
     updateProgress();
     renderPalette();
+    renderCache();
     requestDraw();
   }
 
   function nextUnfinished(from) {
-    const n = state.puzzle.palette.length;
+    const n = state.shape.palette.length;
     for (let step = 1; step <= n; step++) {
       const candidate = ((from - 1 + step) % n) + 1;
       if (state.left[candidate] > 0) return candidate;
@@ -380,17 +475,17 @@
 
   function chooseColour(colour, quiet) {
     state.active = colour;
-    const swatch = state.puzzle.palette[colour - 1];
+    const swatch = state.shape.palette[colour - 1];
     subtitleEl.textContent = swatch
-      ? swatch.name + ' — ' + state.left[colour] + ' left'
+      ? swatch.name + ' — ' + state.left[colour] + (state.left[colour] === 1 ? ' area left' : ' areas left')
       : 'Finished';
     renderPalette();
-    if (!quiet) requestDraw();
+    if (!quiet) { renderCache(); requestDraw(); }
   }
 
   function renderPalette() {
     paletteEl.textContent = '';
-    state.puzzle.palette.forEach((swatch, index) => {
+    state.shape.palette.forEach((swatch, index) => {
       const colour = index + 1;
       const button = document.createElement('button');
       button.type = 'button';
@@ -416,33 +511,100 @@
       left.textContent = String(state.left[colour]);
       button.appendChild(left);
 
-      button.addEventListener('click', () => {
-        chooseColour(colour);
-        requestDraw();
-      });
+      button.addEventListener('click', () => chooseColour(colour));
       paletteEl.appendChild(button);
     });
 
     const chosen = paletteEl.querySelector('[aria-checked="true"]');
-    if (chosen && chosen.scrollIntoView) {
-      chosen.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    }
+    if (chosen && chosen.scrollIntoView) chosen.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
   function updateProgress() {
-    const percent = state.total ? state.done / state.total * 100 : 0;
-    progressFill.style.width = percent + '%';
+    progressFill.style.width = (state.total ? state.done / state.total * 100 : 0) + '%';
   }
 
   function scheduleSave() {
     clearTimeout(state.saveTimer);
     const current = state;
     state.saveTimer = setTimeout(() => {
-      store.set(progressKey(current.puzzle.id), toBase64(packBits(current.filled)));
+      store.set(progressKey(current.shape.id), toBase64(packBits(current.filled)));
     }, 350);
   }
 
   // ---------------------------------------------------------- the canvas
+
+  /* The picture is drawn once into an off-screen canvas and then simply
+     copied onto the visible one, so dragging a finger across it doesn't mean
+     re-drawing a thousand outlines sixty times a second. Filling an area
+     repaints that area alone; only a real change of zoom rebuilds the lot. */
+
+  const colourOf = (region) => {
+    if (state.filled[region.id]) return state.shape.palette[region.colour - 1].hex;
+    if (region.colour === state.active && !state.finished) {
+      return waitingTint(state.shape.palette[region.colour - 1].hex);
+    }
+    return PAPER;
+  };
+
+  function cacheScaleFor(scale) {
+    const dpr = Math.min(self.devicePixelRatio || 1, 3);
+    const { cols, rows } = state.shape;
+    const most = Math.sqrt(11e6 / Math.max(1, cols * rows));   // keep it under ~11 megapixels
+    return Math.max(2, Math.min(most, scale * dpr));
+  }
+
+  function paintRegion(c, region, withNumber) {
+    const s = state.cacheScale;
+    c.fillStyle = colourOf(region);
+    c.fill(region.path, 'evenodd');
+    // a hairline of the same colour seals the join with its neighbours
+    c.strokeStyle = c.fillStyle;
+    c.lineWidth = 0.7 / s;
+    c.stroke(region.path);
+
+    c.strokeStyle = OUTLINE;
+    c.lineWidth = Math.max(0.05, 1.1 / s);
+    c.lineJoin = 'round';
+    c.stroke(region.path);
+
+    if (!withNumber || state.filled[region.id] || state.finished) return;
+    const size = Math.min(region.label.room * 1.15, 34 / s);
+    if (size * s < 7) return;                                  // too small to read
+    c.fillStyle = region.colour === state.active ? mix(OUTLINE, '#000000', 0.25) : NUMBER_INK;
+    c.font = '600 ' + size.toFixed(2) + 'px ui-rounded, "SF Pro Rounded", system-ui, sans-serif';
+    c.textAlign = 'center';
+    c.textBaseline = 'middle';
+    c.fillText(String(region.colour), region.label.x, region.label.y);
+  }
+
+  function renderCache() {
+    if (!state) return;
+    const { cols, rows } = state.shape;
+    const s = cacheScaleFor(state.view.scale);
+    state.cacheScale = s;
+    state.cache.width = Math.max(1, Math.ceil(cols * s));
+    state.cache.height = Math.max(1, Math.ceil(rows * s));
+
+    const c = state.cache.getContext('2d');
+    c.setTransform(s, 0, 0, s, 0, 0);
+    c.fillStyle = PAPER;
+    c.fillRect(0, 0, cols, rows);
+    for (const region of state.shape.regions) paintRegion(c, region, true);
+  }
+
+  function scheduleCache() {
+    if (!state) return;
+    clearTimeout(state.cacheTimer);
+    const current = state;
+    current.cacheTimer = setTimeout(() => {
+      if (state !== current) return;
+      const wanted = cacheScaleFor(current.view.scale);
+      if (Math.abs(wanted - current.cacheScale) / current.cacheScale > 0.15) {
+        renderCache();
+        requestDraw();
+      }
+    }, 160);
+  }
 
   let drawQueued = false;
 
@@ -463,11 +625,11 @@
     if (state) state.viewport = { width: rect.width, height: rect.height };
   }
 
-  const viewport = () => state.viewport || { width: board.clientWidth, height: board.clientHeight };
+  const viewport = () => (state && state.viewport) || { width: board.clientWidth, height: board.clientHeight };
 
   function fitScale() {
     const { width, height } = viewport();
-    const { cols, rows } = state.puzzle;
+    const { cols, rows } = state.shape;
     return Math.min(width / cols, height / rows);
   }
 
@@ -475,15 +637,15 @@
     const scale = fitScale();
     const { width, height } = viewport();
     state.view.scale = scale;
-    state.view.x = (width - state.puzzle.cols * scale) / 2;
-    state.view.y = (height - state.puzzle.rows * scale) / 2;
+    state.view.x = (width - state.shape.cols * scale) / 2;
+    state.view.y = (height - state.shape.rows * scale) / 2;
   }
 
   function clampView() {
     const { width, height } = viewport();
     const view = state.view;
-    const pictureWidth = state.puzzle.cols * view.scale;
-    const pictureHeight = state.puzzle.rows * view.scale;
+    const pictureWidth = state.shape.cols * view.scale;
+    const pictureHeight = state.shape.rows * view.scale;
     view.x = pictureWidth <= width
       ? (width - pictureWidth) / 2
       : Math.min(0, Math.max(width - pictureWidth, view.x));
@@ -494,156 +656,95 @@
 
   function zoomTo(scale, originX, originY) {
     const view = state.view;
-    const min = fitScale() * 0.95;
-    const next = Math.max(min, Math.min(64, scale));
+    const next = Math.max(fitScale() * 0.95, Math.min(80, scale));
     const cellX = (originX - view.x) / view.scale;
     const cellY = (originY - view.y) / view.scale;
     view.scale = next;
     view.x = originX - cellX * next;
     view.y = originY - cellY * next;
     clampView();
+    scheduleCache();
     requestDraw();
   }
 
   function draw() {
     if (!state) return;
-    const { puzzle, filled, view } = state;
+    const { view, shape } = state;
     const { width, height } = viewport();
-    const scale = view.scale;
 
     ctx.fillStyle = MAT;
     ctx.fillRect(0, 0, width, height);
-    ctx.fillStyle = GRID;
-    ctx.fillRect(view.x, view.y, puzzle.cols * scale, puzzle.rows * scale);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(state.cache, view.x, view.y, shape.cols * view.scale, shape.rows * view.scale);
 
-    const firstX = Math.max(0, Math.floor(-view.x / scale));
-    const lastX = Math.min(puzzle.cols - 1, Math.ceil((width - view.x) / scale));
-    const firstY = Math.max(0, Math.floor(-view.y / scale));
-    const lastY = Math.min(puzzle.rows - 1, Math.ceil((height - view.y) / scale));
-
-    const showNumbers = scale >= 11 && !state.finished;
-    const gap = state.finished || scale < 6 ? 0 : Math.min(1, scale * 0.05);
-    /* Squares waiting for the colour in hand are tinted with it. A pale
-       colour tints to something indistinguishable from a blank square,
-       though, so anything without enough contrast of its own gets a neutral
-       wash instead — the point is to show which squares are next, not to
-       preview the shade. */
-    const activeHex = state.active ? puzzle.palette[state.active - 1].hex : null;
-    let activeTint = CELL_EMPTY;
-    let activeInk = NUMBER_INK;
-    if (activeHex) {
-      activeTint = mix(CELL_EMPTY, activeHex, 0.34);
-      if (Math.abs(luminance(activeTint) - luminance(CELL_EMPTY)) < 0.05) {
-        activeTint = mix(CELL_EMPTY, '#8794b4', 0.32);
+    if (state.hint) {
+      const now = performance.now();
+      if (now < state.hint.until) {
+        const region = shape.regions[state.hint.id];
+        const phase = ((1 - (state.hint.until - now) / 1800) * 3) % 1;
+        ctx.save();
+        ctx.translate(view.x, view.y);
+        ctx.scale(view.scale, view.scale);
+        ctx.strokeStyle = '#12172b';
+        ctx.globalAlpha = Math.max(0, 1 - phase) * 0.9;
+        ctx.lineWidth = (2 + phase * 8) / view.scale;
+        ctx.lineJoin = 'round';
+        ctx.stroke(region.path);
+        ctx.restore();
+        requestAnimationFrame(draw);
+      } else {
+        state.hint = null;
       }
-      activeInk = mix(activeHex, '#101425', 0.55);
-      if (luminance(activeInk) > 0.5) activeInk = '#3d4761';
-    }
-
-    if (showNumbers) {
-      ctx.font = '600 ' + Math.min(scale * 0.58, 22).toFixed(1) + 'px ui-rounded, "SF Pro Rounded", system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-    }
-
-    for (let y = firstY; y <= lastY; y++) {
-      for (let x = firstX; x <= lastX; x++) {
-        const i = y * puzzle.cols + x;
-        const n = puzzle.cells[i];
-        const px = view.x + x * scale;
-        const py = view.y + y * scale;
-
-        if (!n) {
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(px, py, scale + 0.5, scale + 0.5);
-          continue;
-        }
-
-        if (filled[i]) {
-          ctx.fillStyle = puzzle.palette[n - 1].hex;
-          ctx.fillRect(px, py, scale + 0.5, scale + 0.5);
-          continue;
-        }
-
-        const isActive = n === state.active;
-        ctx.fillStyle = isActive ? activeTint : CELL_EMPTY;
-        ctx.fillRect(px + gap, py + gap, scale - gap * 2, scale - gap * 2);
-
-        if (showNumbers) {
-          ctx.fillStyle = isActive ? activeInk : NUMBER_INK;
-          ctx.fillText(String(n), px + scale / 2, py + scale / 2 + scale * 0.03);
-        }
-      }
-    }
-
-    const now = performance.now();
-
-    if (state.wrong && now < state.wrong.until) {
-      ring(state.wrong.index, '#e8433f', 1 - (state.wrong.until - now) / 600);
-    } else {
-      state.wrong = null;
-    }
-
-    if (state.hint && now < state.hint.until) {
-      const age = 1 - (state.hint.until - now) / 1600;
-      ring(state.hint.index, '#111528', (age * 3) % 1);
-      requestAnimationFrame(draw);
-    } else if (state.hint) {
-      state.hint = null;
-    }
-
-    function ring(index, colour, phase) {
-      const x = index % puzzle.cols;
-      const y = Math.floor(index / puzzle.cols);
-      const size = scale * (1 + phase * 1.6);
-      const cx = view.x + (x + 0.5) * scale;
-      const cy = view.y + (y + 0.5) * scale;
-      ctx.strokeStyle = colour;
-      ctx.globalAlpha = Math.max(0, 1 - phase);
-      ctx.lineWidth = Math.max(2, scale * 0.16);
-      ctx.strokeRect(cx - size / 2, cy - size / 2, size, size);
-      ctx.globalAlpha = 1;
     }
   }
 
   // ------------------------------------------------------------ painting
 
-  function cellFromPoint(clientX, clientY) {
+  function regionAt(clientX, clientY) {
     const rect = canvasRect();
     const view = state.view;
     const x = Math.floor((clientX - rect.left - view.x) / view.scale);
     const y = Math.floor((clientY - rect.top - view.y) / view.scale);
-    if (x < 0 || y < 0 || x >= state.puzzle.cols || y >= state.puzzle.rows) return -1;
-    return y * state.puzzle.cols + x;
+    if (x < 0 || y < 0 || x >= state.shape.cols || y >= state.shape.rows) return -1;
+    const id = state.shape.labels[y * state.shape.cols + x];
+    return id === undefined ? -1 : id;
   }
 
-  function fillCell(index, fromTap) {
-    if (index < 0 || state.finished) return false;
-    const n = state.puzzle.cells[index];
-    if (!n || state.filled[index]) return false;
+  function fillRegion(id, fromTap) {
+    if (id < 0 || state.finished) return false;
+    const region = state.shape.regions[id];
+    if (!region || state.filled[id]) return false;
 
-    if (n !== state.active) {
-      // Only a deliberate tap gets told off; dragging across the picture is
-      // meant to skim over everything that isn't the colour in hand.
+    if (region.colour !== state.active) {
+      // Only a deliberate tap gets told off; dragging is meant to skim over
+      // everything that isn't the colour in hand.
       if (fromTap) {
-        state.wrong = { index, until: performance.now() + 600 };
-        toast('That square is number ' + n, 1100);
+        toast('That area is number ' + region.colour, 1200);
+        state.hint = { id, until: performance.now() + 700 };
         requestDraw();
       }
       return false;
     }
 
-    state.filled[index] = 1;
-    state.left[n]--;
+    state.filled[id] = 1;
+    state.left[region.colour]--;
     state.done++;
     sound.blip();
 
-    if (state.left[n] === 0) finishColour(n);
+    const c = state.cache.getContext('2d');
+    c.setTransform(state.cacheScale, 0, 0, state.cacheScale, 0, 0);
+    paintRegion(c, region, false);
+    // its neighbours share the outline that was just painted over
+    for (const other of neighboursOf(region)) paintRegion(c, other, true);
+
+    if (state.left[region.colour] === 0) finishColour(region.colour);
     else {
-      const swatch = state.puzzle.palette[n - 1];
-      subtitleEl.textContent = swatch.name + ' — ' + state.left[n] + ' left';
-      const chip = paletteEl.querySelector('[data-colour="' + n + '"] .swatch-left');
-      if (chip) chip.textContent = String(state.left[n]);
+      const swatch = state.shape.palette[region.colour - 1];
+      const left = state.left[region.colour];
+      subtitleEl.textContent = swatch.name + ' — ' + left + (left === 1 ? ' area left' : ' areas left');
+      const chip = paletteEl.querySelector('[data-colour="' + region.colour + '"] .swatch-left');
+      if (chip) chip.textContent = String(left);
     }
 
     updateProgress();
@@ -652,8 +753,30 @@
     return true;
   }
 
+  /* Which areas touch this one. Worked out once per area, the first time it
+     is filled in, by walking its outline and looking at what is on the other
+     side of the line. */
+  function neighboursOf(region) {
+    if (region.neighbours) return region.neighbours.map(id => state.shape.regions[id]);
+    const { cols, rows, labels } = state.shape;
+    const found = new Set();
+    for (let y = region.bbox.y0; y <= region.bbox.y1; y++) {
+      for (let x = region.bbox.x0; x <= region.bbox.x1; x++) {
+        if (labels[y * cols + x] !== region.id) continue;
+        if (x > 0) found.add(labels[y * cols + x - 1]);
+        if (x < cols - 1) found.add(labels[y * cols + x + 1]);
+        if (y > 0) found.add(labels[(y - 1) * cols + x]);
+        if (y < rows - 1) found.add(labels[(y + 1) * cols + x]);
+      }
+    }
+    found.delete(region.id);
+    found.delete(-1);
+    region.neighbours = [...found];
+    return region.neighbours.map(id => state.shape.regions[id]);
+  }
+
   function finishColour(colour) {
-    const name = state.puzzle.palette[colour - 1].name;
+    const name = state.shape.palette[colour - 1].name;
     const next = nextUnfinished(colour);
     if (!next) return;                 // the picture itself is done
     sound.chime();
@@ -665,24 +788,24 @@
   function finishPicture() {
     state.finished = true;
     sound.fanfare();
-    const { name } = state.puzzle;
-    doneText.textContent = name + ' — all ' + state.total + ' squares filled in.';
+    doneText.textContent = state.shape.name + ' — all ' + state.total + ' areas filled in.';
     doneEl.hidden = false;
     subtitleEl.textContent = 'Finished';
-    store.set(progressKey(state.puzzle.id), toBase64(packBits(state.filled)));
+    store.set(progressKey(state.shape.id), toBase64(packBits(state.filled)));
+    renderCache();
     requestDraw();
   }
 
-  // Fill every square the drag passed over, not just the ones a pointer
-  // event happened to land on — a fast swipe reports very few positions.
+  // Fill everything the drag passed over, not only where a pointer event
+  // happened to land — a fast swipe reports very few positions.
   function paintAlong(fromX, fromY, toX, toY) {
-    const step = state.view.scale * 0.4;
+    const step = Math.max(2, state.view.scale * 0.7);
     const distance = Math.hypot(toX - fromX, toY - fromY);
-    const steps = Math.max(1, Math.ceil(distance / Math.max(1, step)));
+    const steps = Math.max(1, Math.ceil(distance / step));
     let painted = false;
     for (let s = 0; s <= steps; s++) {
       const f = s / steps;
-      painted = fillCell(cellFromPoint(fromX + (toX - fromX) * f, fromY + (toY - fromY) * f), false) || painted;
+      painted = fillRegion(regionAt(fromX + (toX - fromX) * f, fromY + (toY - fromY) * f), false) || painted;
     }
     return painted;
   }
@@ -692,12 +815,12 @@
   let stroke = null;
   let lastTap = 0;
   // Two quick taps only mean "zoom" if they land in the same place; tapping
-  // your way along a row of squares is not a double tap.
+  // your way along a row of areas is not a double tap.
   let lastTapAt = null;
 
-  /* These live on the canvas rather than on the board around it. The finished
-     panel sits inside the board, and a stroke that captured the pointer there
-     would swallow the taps meant for its buttons. */
+  /* These live on the canvas rather than the board around it: the finished
+     panel sits inside the board, and a stroke that captured the pointer
+     there would swallow the taps meant for its buttons. */
   canvas.addEventListener('pointerdown', (event) => {
     if (!state) return;
     canvas.setPointerCapture(event.pointerId);
@@ -707,7 +830,7 @@
       stroke = {
         x: event.clientX, y: event.clientY,
         startX: event.clientX, startY: event.clientY,
-        at: performance.now(), moved: false, painted: false,
+        at: performance.now(), moved: false,
       };
     } else {
       stroke = null;                    // a second finger means zoom, not paint
@@ -731,27 +854,24 @@
       const midX = (a.x + b.x) / 2, midY = (a.y + b.y) / 2;
       const rect = canvasRect();
       const view = state.view;
-      const min = fitScale() * 0.95;
-      const scale = Math.max(min, Math.min(64, gesture.scale * (distance / Math.max(1, gesture.distance))));
+      const scale = Math.max(fitScale() * 0.95, Math.min(80, gesture.scale * (distance / Math.max(1, gesture.distance))));
 
-      // Zoom about the point between the fingers, and let that point drag
-      // the picture with it, so pinch and pan are the same gesture.
+      // Zoom about the point between the fingers, and let that point drag the
+      // picture with it, so pinch and pan are the same gesture.
       const cellX = (gesture.midX - rect.left - gesture.viewX) / gesture.scale;
       const cellY = (gesture.midY - rect.top - gesture.viewY) / gesture.scale;
       view.scale = scale;
       view.x = (midX - rect.left) - cellX * scale;
       view.y = (midY - rect.top) - cellY * scale;
       clampView();
+      scheduleCache();
       requestDraw();
       return;
     }
 
     if (!stroke) return;
     if (Math.hypot(event.clientX - stroke.startX, event.clientY - stroke.startY) > 6) stroke.moved = true;
-    if (stroke.moved && paintAlong(stroke.x, stroke.y, event.clientX, event.clientY)) {
-      stroke.painted = true;
-      requestDraw();
-    }
+    if (stroke.moved && paintAlong(stroke.x, stroke.y, event.clientX, event.clientY)) requestDraw();
     stroke.x = event.clientX;
     stroke.y = event.clientY;
   });
@@ -776,7 +896,7 @@
         } else {
           lastTap = now;
           lastTapAt = { x: event.clientX, y: event.clientY };
-          if (fillCell(cellFromPoint(event.clientX, event.clientY), true)) requestDraw();
+          if (fillRegion(regionAt(event.clientX, event.clientY), true)) requestDraw();
         }
       }
       stroke = null;
@@ -790,8 +910,8 @@
     if (!state) return;
     event.preventDefault();
     const rect = canvasRect();
-    const factor = Math.exp(-event.deltaY * 0.0016);
-    zoomTo(state.view.scale * factor, event.clientX - rect.left, event.clientY - rect.top);
+    zoomTo(state.view.scale * Math.exp(-event.deltaY * 0.0016),
+      event.clientX - rect.left, event.clientY - rect.top);
   }, { passive: false });
 
   // --------------------------------------------------------------- tools
@@ -803,45 +923,45 @@
       if (next) chooseColour(next);
     }
 
-    const { puzzle, view } = state;
+    const { view, shape } = state;
     const { width, height } = viewport();
     const centreX = (width / 2 - view.x) / view.scale;
     const centreY = (height / 2 - view.y) / view.scale;
 
-    let best = -1, bestDistance = Infinity;
-    for (let i = 0; i < puzzle.cells.length; i++) {
-      if (puzzle.cells[i] !== state.active || state.filled[i]) continue;
-      const dx = (i % puzzle.cols) + 0.5 - centreX;
-      const dy = Math.floor(i / puzzle.cols) + 0.5 - centreY;
+    let best = null, bestDistance = Infinity;
+    for (const region of shape.regions) {
+      if (region.colour !== state.active || state.filled[region.id]) continue;
+      const dx = region.label.x - centreX, dy = region.label.y - centreY;
       const distance = dx * dx + dy * dy;
-      if (distance < bestDistance) { bestDistance = distance; best = i; }
+      if (distance < bestDistance) { bestDistance = distance; best = region; }
     }
-    if (best < 0) return;
+    if (!best) return;
 
-    // Bring it into view if the hint is somewhere off the screen.
-    const x = (best % puzzle.cols + 0.5) * view.scale + view.x;
-    const y = (Math.floor(best / puzzle.cols) + 0.5) * view.scale + view.y;
+    // bring it into view if the hint is off the screen
+    const x = best.label.x * view.scale + view.x;
+    const y = best.label.y * view.scale + view.y;
     if (x < 0 || y < 0 || x > width || y > height) {
-      view.x = width / 2 - (best % puzzle.cols + 0.5) * view.scale;
-      view.y = height / 2 - (Math.floor(best / puzzle.cols) + 0.5) * view.scale;
+      view.x = width / 2 - best.label.x * view.scale;
+      view.y = height / 2 - best.label.y * view.scale;
       clampView();
     }
 
-    state.hint = { index: best, until: performance.now() + 1600 };
+    state.hint = { id: best.id, until: performance.now() + 1800 };
     requestDraw();
   });
 
   $('fitBtn').addEventListener('click', () => {
     if (!state) return;
     fitView();
+    scheduleCache();
     requestDraw();
   });
 
   $('resetBtn').addEventListener('click', () => {
     if (!state) return;
-    if (!confirm('Start ' + state.puzzle.name + ' again from blank?')) return;
-    store.remove(progressKey(state.puzzle.id));
-    openPuzzle(state.puzzle.id);
+    if (!confirm('Start ' + state.shape.name + ' again from blank?')) return;
+    store.remove(progressKey(state.shape.id));
+    openPuzzle(state.shape.id);
     toast('Blank again');
   });
 
@@ -858,44 +978,116 @@
 
   soundBtn.setAttribute('aria-pressed', String(sound.on));
 
-  // Saving the finished picture: rendered afresh at a size worth keeping,
-  // rather than screenshotting whatever the board happens to be showing.
-  $('saveBtn').addEventListener('click', () => {
-    if (!state) return;
-    const { puzzle } = state;
-    const scale = Math.max(4, Math.round(1600 / Math.max(puzzle.cols, puzzle.rows)));
-    const out = document.createElement('canvas');
-    out.width = puzzle.cols * scale;
-    out.height = puzzle.rows * scale;
-    const c = out.getContext('2d');
-    c.fillStyle = '#ffffff';
-    c.fillRect(0, 0, out.width, out.height);
-    for (let y = 0; y < puzzle.rows; y++) {
-      for (let x = 0; x < puzzle.cols; x++) {
-        const n = puzzle.cells[y * puzzle.cols + x];
-        if (!n) continue;
-        c.fillStyle = puzzle.palette[n - 1].hex;
-        c.fillRect(x * scale, y * scale, scale, scale);
+  // ------------------------------------------------------------- saving
+
+  function download(blob, name, message) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    if ('download' in link) {
+      link.href = url;
+      link.download = name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast(message || ('Saved as ' + name), 2600);
+    } else {
+      self.open(url, '_blank');
+      toast('Press and hold to save it', 2600);
+    }
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  }
+
+  /* The same outlines the screen is drawing, written out as vector paths.
+     An SVG can be blown up to any size without going soft, which is what
+     makes it worth having next to the picture itself. */
+  function toSVG(options) {
+    const o = Object.assign({ coloured: false, numbers: true }, options || {});
+    const { cols, rows, palette, regions } = state.shape;
+    const stroke = 0.08;
+    const out = ['<?xml version="1.0" encoding="UTF-8"?>',
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' + cols + ' ' + rows + '" ' +
+      'width="' + cols * 12 + '" height="' + rows * 12 + '">',
+      '<title>' + state.shape.name.replace(/[<&>]/g, '') + '</title>',
+      '<rect width="' + cols + '" height="' + rows + '" fill="#ffffff"/>'];
+
+    for (const region of regions) {
+      const d = REGIONS.ringsToPath(region.rings);
+      const fill = o.coloured || state.filled[region.id] ? palette[region.colour - 1].hex : '#ffffff';
+      out.push('<path d="' + d + '" fill="' + fill + '" fill-rule="evenodd" stroke="' + fill +
+        '" stroke-width="' + stroke + '"/>');
+    }
+    if (!o.coloured) {
+      for (const region of regions) {
+        out.push('<path d="' + REGIONS.ringsToPath(region.rings) + '" fill="none" fill-rule="evenodd" ' +
+          'stroke="' + OUTLINE + '" stroke-width="' + stroke + '" stroke-linejoin="round"/>');
       }
     }
-    out.toBlob((blob) => {
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      const name = 'pigment-' + puzzle.id + '.png';
-      if ('download' in link) {
-        link.href = url;
-        link.download = name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        toast('Saved as ' + name, 2600);
-      } else {
-        self.open(url, '_blank');
-        toast('Press and hold the picture to save it', 2600);
+    if (o.numbers) {
+      out.push('<g font-family="system-ui, sans-serif" fill="' + NUMBER_INK + '" text-anchor="middle">');
+      for (const region of regions) {
+        if (o.coloured || state.filled[region.id]) continue;
+        const size = Math.min(region.label.room * 1.15, 3.4);
+        if (size < 0.9) continue;
+        out.push('<text x="' + region.label.x.toFixed(2) + '" y="' + region.label.y.toFixed(2) +
+          '" font-size="' + size.toFixed(2) + '" dominant-baseline="central">' + region.colour + '</text>');
       }
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      out.push('</g>');
+    }
+    out.push('</svg>');
+    return out.join('\n');
+  }
+
+  $('saveBtn').addEventListener('click', () => {
+    if (!state) return;
+    const { cols, rows, palette, regions } = state.shape;
+    const scale = Math.max(6, Math.round(1800 / Math.max(cols, rows)));
+    const out = document.createElement('canvas');
+    out.width = cols * scale;
+    out.height = rows * scale;
+    const c = out.getContext('2d');
+    c.setTransform(scale, 0, 0, scale, 0, 0);
+    c.fillStyle = PAPER;
+    c.fillRect(0, 0, cols, rows);
+    for (const region of regions) {
+      c.fillStyle = state.filled[region.id] ? palette[region.colour - 1].hex : PAPER;
+      c.fill(region.path, 'evenodd');
+      c.strokeStyle = c.fillStyle;
+      c.lineWidth = 0.7 / scale;
+      c.stroke(region.path);
+    }
+    out.toBlob((blob) => {
+      if (blob) download(blob, 'pigment-' + state.shape.id + '.png');
     }, 'image/png');
+  });
+
+  $('svgBtn').addEventListener('click', () => {
+    if (!state) return;
+    const coloured = state.finished;
+    download(new Blob([toSVG({ coloured })], { type: 'image/svg+xml' }),
+      'pigment-' + state.shape.id + (coloured ? '' : '-outlines') + '.svg');
+  });
+
+  /* Printing hands the numbered outlines to a printer — or to whatever the
+     browser's print dialogue offers instead, which is where "save as PDF"
+     lives on every platform that has it. */
+  $('printBtn').addEventListener('click', () => {
+    if (!state) return;
+    const sheet = self.open('', '_blank');
+    if (!sheet) { toast('Allow pop-ups to print this picture', 2600); return; }
+    sheet.document.write('<!DOCTYPE html><html><head><meta charset="utf-8">' +
+      '<title>' + state.shape.name + ' — colour by number</title>' +
+      '<style>@page{margin:12mm}body{margin:0;font-family:system-ui,sans-serif}' +
+      'h1{font-size:16pt;margin:0 0 2mm}p{font-size:9pt;color:#555;margin:0 0 4mm}' +
+      'svg{width:100%;height:auto}ul{list-style:none;padding:0;display:flex;flex-wrap:wrap;gap:3mm;font-size:8pt}' +
+      'li{display:flex;align-items:center;gap:1.5mm}i{width:4mm;height:4mm;border:0.3mm solid #888;display:block}' +
+      '</style></head><body>' +
+      '<h1>' + state.shape.name + '</h1><p>Colour by number</p>' + toSVG({ coloured: false }) +
+      '<ul>' + state.shape.palette.map((swatch, i) =>
+        '<li><i style="background:' + swatch.hex + '"></i>' + (i + 1) + ' ' + swatch.name + '</li>').join('') +
+      '</ul></body></html>');
+    sheet.document.close();
+    sheet.focus();
+    setTimeout(() => sheet.print(), 300);
   });
 
   // ------------------------------------------------- a photo into a picture
@@ -922,9 +1114,8 @@
     return best;
   }
 
-  /* k-means over the squares themselves. The picture is already tiny by the
-     time this runs — a few thousand cells — so a handful of passes settles
-     and the whole thing takes a few milliseconds. */
+  /* k-means over the squares themselves. The picture is already small by the
+     time this runs, so a handful of passes settles in a few milliseconds. */
   function quantise(pixels, count, k) {
     let seed = 0x9e3779b9;
     const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
@@ -1015,8 +1206,9 @@
       return { best, bestDistance };
     };
 
-    // colours too rare to be worth a number of their own
-    const floor = Math.max(3, Math.round(count * 0.004));
+    // a colour has to be worth a number of its own, but the eyes in a
+    // portrait are a very small part of it, so the bar is set low
+    const floor = Math.max(3, Math.round(count * 0.0015));
     let counts = tally();
     for (let c = 0; c < centres.length; c++) {
       if (!alive[c] || counts[c] >= floor) continue;
@@ -1024,8 +1216,11 @@
       if (best >= 0) { absorb(c, best); counts = tally(); }
     }
 
-    // colours a person could not tell apart on the swatch
-    const TOO_CLOSE = 26 * 26;
+    /* Roughly the point at which two flat colours stop being tellable apart
+       on a swatch. Set any higher and the shading that makes a photograph
+       worth colouring in — a face's light and shade, a sky's depth — is
+       flattened into one number. */
+    const TOO_CLOSE = 16 * 16;
     for (;;) {
       if (alive.filter(Boolean).length <= 2) break;
       let pair = null, pairDistance = Infinity;
@@ -1044,8 +1239,8 @@
     return { centres, assignment };
   }
 
-  // Single stray squares are miserable to colour and add nothing, so a
-  // square outvoted by all four of its neighbours joins them.
+  // Single stray squares add nothing but noise to the outlines, so a square
+  // outvoted by all four of its neighbours joins them.
   function despeckle(cells, cols, rows) {
     const out = cells.slice();
     for (let y = 0; y < rows; y++) {
@@ -1072,18 +1267,17 @@
     const source = await loadImage(file);
     const ratio = source.width / source.height;
     let cols = longest, rows = longest;
-    if (ratio > 1) rows = Math.max(16, Math.round(longest / ratio));
-    else cols = Math.max(16, Math.round(longest * ratio));
+    if (ratio > 1) rows = Math.max(40, Math.round(longest / ratio));
+    else cols = Math.max(40, Math.round(longest * ratio));
 
     /* Halve the photo repeatedly before the final draw. Going straight from a
-       12-megapixel photo to 44 squares makes some browsers point-sample it,
+       12-megapixel photo to 120 squares makes some browsers point-sample it,
        which turns a face into confetti; stepping down averages instead. */
     let width = source.width, height = source.height;
-    let canvasStep = document.createElement('canvas');
-    canvasStep.width = width;
-    canvasStep.height = height;
-    let stepCtx = canvasStep.getContext('2d');
-    stepCtx.drawImage(source, 0, 0, width, height);
+    let step = document.createElement('canvas');
+    step.width = width;
+    step.height = height;
+    step.getContext('2d').drawImage(source, 0, 0, width, height);
     while (width > cols * 2 && height > rows * 2) {
       width = Math.max(cols, Math.round(width / 2));
       height = Math.max(rows, Math.round(height / 2));
@@ -1093,9 +1287,8 @@
       const nextCtx = next.getContext('2d');
       nextCtx.imageSmoothingEnabled = true;
       nextCtx.imageSmoothingQuality = 'high';
-      nextCtx.drawImage(canvasStep, 0, 0, width, height);
-      canvasStep = next;
-      stepCtx = nextCtx;
+      nextCtx.drawImage(step, 0, 0, width, height);
+      step = next;
     }
 
     const small = document.createElement('canvas');
@@ -1104,7 +1297,7 @@
     const smallCtx = small.getContext('2d');
     smallCtx.imageSmoothingEnabled = true;
     smallCtx.imageSmoothingQuality = 'high';
-    smallCtx.drawImage(canvasStep, 0, 0, cols, rows);
+    smallCtx.drawImage(step, 0, 0, cols, rows);
 
     const data = smallCtx.getImageData(0, 0, cols, rows).data;
     const count = cols * rows;
@@ -1135,12 +1328,12 @@
     const cells = new Uint8Array(count);
     for (let i = 0; i < count; i++) cells[i] = lookup.get(tidied[i]);
 
-    const nextNumber = custom.reduce((highest, p) => Math.max(highest, p.number || 0), 0) + 1;
+    const number = custom.reduce((highest, p) => Math.max(highest, p.number || 0), 0) + 1;
     return {
       id: 'photo-' + Date.now().toString(36),
-      name: 'Photo ' + nextNumber,
-      number: nextNumber,
-      blurb: cols + ' × ' + rows + ', ' + palette.length + ' colours',
+      name: 'Photo ' + number,
+      number,
+      blurb: palette.length + ' colours',
       cols, rows, palette, cells,
       custom: true,
     };
@@ -1166,18 +1359,24 @@
       const colours = Number($('photoColours').value);
       const longest = Number($('photoSize').value);
       const puzzle = await photoToPuzzle(file, colours, longest);
+      makeStatus.textContent = 'Drawing the outlines…';
+      await new Promise(resolve => setTimeout(resolve, 16));
+      const shape = prepare(puzzle);
+      puzzle.blurb = shape.regions.length + ' areas, ' + shape.palette.length + ' colours';
+
       custom.unshift(puzzle);
       if (custom.length > MAX_CUSTOM) {
         const dropped = custom.pop();
+        prepared.delete(dropped.id);
         store.remove(progressKey(dropped.id));
       }
       if (!saveCustom()) {
         custom.shift();
+        prepared.delete(puzzle.id);
         makeStatus.textContent = 'There is no room left on this device to keep another picture.';
         return;
       }
       makeStatus.textContent = '';
-      renderGallery();
       openPuzzle(puzzle.id);
     } catch (error) {
       makeStatus.textContent = error && error.message ? error.message : 'That photo could not be used.';
@@ -1194,11 +1393,11 @@
     if (!state) return;
     const before = { scale: state.view.scale, fit: fitScale() };
     resizeCanvas();
-    // Hold the zoom level relative to a fitted picture, so turning the phone
-    // keeps you where you were rather than throwing you back out.
-    const ratio = before.fit ? before.scale / before.fit : 1;
-    state.view.scale = fitScale() * ratio;
+    // Hold the zoom relative to a fitted picture, so turning the phone keeps
+    // you where you were rather than throwing you back out.
+    state.view.scale = fitScale() * (before.fit ? before.scale / before.fit : 1);
     clampView();
+    scheduleCache();
     requestDraw();
   });
   observer.observe(board);
@@ -1207,10 +1406,7 @@
     if (!state) return;
     if (event.key === 'Escape') { openGallery(); return; }
     const number = Number(event.key);
-    if (number >= 1 && number <= 9 && number <= state.puzzle.palette.length) {
-      chooseColour(number);
-      requestDraw();
-    }
+    if (number >= 1 && number <= 9 && number <= state.shape.palette.length) chooseColour(number);
   });
 
   if ('serviceWorker' in navigator) {
