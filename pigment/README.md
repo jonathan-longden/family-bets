@@ -14,8 +14,8 @@ number ignores you and says which number it actually wants.
 ## What's in it
 
 - **Six pictures** — a hot air balloon, a rocket, a butterfly, a springer
-  spaniel, a boat at sunset, and a cupcake. Between 30 and 80 areas each,
-  in 14 to 17 colours.
+  spaniel, a boat at sunset, and a cupcake. Between 76 and 150 areas each,
+  in 22 to 35 colours.
 - **Your own photos.** Pick one and it becomes a picture to colour in,
   worked out here on the phone.
 - **It keeps your place**, picture by picture, so you can put one down
@@ -56,6 +56,13 @@ that grid into the shapes you actually colour in:
 The outlines are real vector paths, which is why the picture stays sharp
 however far you zoom in, and why it can be saved as an SVG.
 
+The drawing is done once into an off-screen copy and then blitted, so
+dragging a finger across a picture doesn't mean re-drawing hundreds of
+outlines sixty times a second. Zoomed out, that copy is the whole
+picture; zoomed right in, keeping the whole picture at that sharpness
+would run to tens of megabytes, so it covers the part on screen plus a
+margin and is redrawn when the view wanders out of it.
+
 ## The pictures aren't images
 
 There isn't a picture file in this folder. Each one is *drawn* by
@@ -64,15 +71,34 @@ polygons, lines, a text-art stamp for eyes and beaks, and a fold that
 mirrors the left half onto the right. A picture costs a few dozen lines
 of code instead of a download.
 
-They're authored on a grid of about 32×40 units but drawn four times
-finer than that, which is what turns a staircase of squares into a
-curve. The same drawing code would give a coarser or finer picture just
-by changing that one number.
+They're authored on a grid of about 32×40 units but drawn five times
+finer than that, which is what turns a staircase of squares into a curve
+and gives the shading room to fall in bands rather than steps. The same
+drawing code would give a coarser or finer picture just by changing that
+one number.
+
+### Light, rather than flat colour
+
+The detail in a picture comes from shading, so a colour in the palette
+isn't usually one colour: it's a **ramp**, written once and turned into a
+run of tones. Shadows lean towards a cold blue and highlights towards a
+warm white, the way they do in daylight — a ramp made by turning the
+brightness up and down alone comes out looking like plastic.
+
+Shapes are then *lit* rather than filled. `sphere` works out how squarely
+each square faces the light from where it sits on the ball, and picks the
+tone to match; `gradient` runs a ramp along a line. That is what makes
+the balloon look inflated, the cherry look like fruit, and the sky sit
+behind everything else instead of beside it.
+
+The balloon's envelope shows why it's worth the trouble: its five gores
+are shaded as parts of *one* ball rather than five stripes shaded
+separately, which is the difference between a balloon and a deckchair.
 
 ## Turning a photo into a picture
 
-Choose a photo, how many colours (8–20) and how big (80–180 squares
-along the longest side). What happens next is all local:
+Choose a photo, how many colours (8–30) and how much detail (80–240
+squares along the longest side). What happens next is all local:
 
 1. **Shrink it in halves.** Going straight from a 12-megapixel photo to
    120 squares makes some browsers point-sample it, which turns a face
@@ -83,13 +109,17 @@ along the longest side). What happens next is all local:
 3. **Fold colours together.** The number you picked is a ceiling, not a
    quota: colours a person couldn't tell apart on a swatch are merged,
    as is anything covering less than a sixth of a percent of the
-   picture.
+   picture. "Couldn't tell apart" is judged with the channels weighted
+   by how much of a difference the eye actually sees — plain RGB
+   distance reckons two greens are further apart than they look, and a
+   dark blue and a dark green closer.
 4. **Tidy stray squares**, then cut the result into areas exactly as
    above.
 5. **Number by area**, so colour 1 is always the one there's most of.
 
-A photograph of foliage — about the worst case there is — comes out as a
-few hundred areas in under half a second. Photos are never uploaded
+A photograph of foliage at the finest setting — about the worst case
+there is — comes out as about 600 areas in under half a second, and a
+tap on one of them takes two milliseconds. Photos are never uploaded
 anywhere: they're read, converted and thrown away in the page, and only
 the finished grid is kept, which is a couple of kilobytes.
 

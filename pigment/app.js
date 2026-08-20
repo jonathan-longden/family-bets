@@ -440,6 +440,7 @@
       view: { scale: 1, x: 0, y: 0 },
       cache: document.createElement('canvas'),
       cacheScale: 0,
+      cacheBox: null,
       cacheTimer: 0,
       hint: null,
       finished: false,
@@ -546,15 +547,38 @@
     return PAPER;
   };
 
-  function cacheScaleFor(scale) {
+  const BUDGET = 6e6;                 // how many pixels the off-screen copy may use
+
+  /* What the off-screen copy should cover. Zoomed out it is the whole
+     picture; zoomed in, keeping the whole picture at that scale would run to
+     tens of megabytes, so it covers the part on screen plus a margin and is
+     redrawn when the view wanders out of it. */
+  function cacheWindow() {
     const dpr = Math.min(self.devicePixelRatio || 1, 3);
     const { cols, rows } = state.shape;
-    const most = Math.sqrt(11e6 / Math.max(1, cols * rows));   // keep it under ~11 megapixels
-    return Math.max(2, Math.min(most, scale * dpr));
+    const view = state.view;
+    const wanted = Math.max(2, view.scale * dpr);
+    const whole = Math.sqrt(BUDGET / Math.max(1, cols * rows));
+
+    if (wanted <= whole) return { scale: wanted, x0: 0, y0: 0, w: cols, h: rows, whole: true };
+
+    const { width, height } = viewport();
+    const marginX = width * 0.3 / view.scale, marginY = height * 0.3 / view.scale;
+    const x0 = Math.max(0, (-view.x) / view.scale - marginX);
+    const y0 = Math.max(0, (-view.y) / view.scale - marginY);
+    const x1 = Math.min(cols, (width - view.x) / view.scale + marginX);
+    const y1 = Math.min(rows, (height - view.y) / view.scale + marginY);
+    const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+    // even a window has a ceiling, in case the zoom is extreme
+    const scale = Math.min(wanted, Math.sqrt(BUDGET / (w * h)));
+    return { scale, x0, y0, w, h, whole: false };
   }
 
   function paintRegion(c, region, withNumber) {
     const s = state.cacheScale;
+    const box = state.cacheBox;
+    if (box && (region.bbox.x1 < box.x0 || region.bbox.y1 < box.y0 ||
+      region.bbox.x0 > box.x0 + box.w || region.bbox.y0 > box.y0 + box.h)) return;
     c.fillStyle = colourOf(region);
     c.fill(region.path, 'evenodd');
     // a hairline of the same colour seals the join with its neighbours
@@ -579,17 +603,45 @@
 
   function renderCache() {
     if (!state) return;
-    const { cols, rows } = state.shape;
-    const s = cacheScaleFor(state.view.scale);
-    state.cacheScale = s;
-    state.cache.width = Math.max(1, Math.ceil(cols * s));
-    state.cache.height = Math.max(1, Math.ceil(rows * s));
+    const box = cacheWindow();
+    state.cacheScale = box.scale;
+    state.cacheBox = box;
+    state.cache.width = Math.max(1, Math.ceil(box.w * box.scale));
+    state.cache.height = Math.max(1, Math.ceil(box.h * box.scale));
 
     const c = state.cache.getContext('2d');
-    c.setTransform(s, 0, 0, s, 0, 0);
+    c.setTransform(box.scale, 0, 0, box.scale, -box.x0 * box.scale, -box.y0 * box.scale);
     c.fillStyle = PAPER;
-    c.fillRect(0, 0, cols, rows);
+    c.fillRect(box.x0, box.y0, box.w, box.h);
     for (const region of state.shape.regions) paintRegion(c, region, true);
+  }
+
+  // Does the off-screen copy still cover what is on screen? If it doesn't,
+  // there is nothing to draw, so this is the one case that can't wait.
+  function cacheCoversView() {
+    const box = state.cacheBox;
+    if (!box) return false;
+    if (box.whole) return true;
+    const { width, height } = viewport();
+    const view = state.view;
+    const left = (-view.x) / view.scale, top = (-view.y) / view.scale;
+    const right = (width - view.x) / view.scale, bottom = (height - view.y) / view.scale;
+    return left >= box.x0 - 0.01 && top >= box.y0 - 0.01 &&
+      right <= box.x0 + box.w + 0.01 && bottom <= box.y0 + box.h + 0.01;
+  }
+
+  // Stale is the softer case: still coverable, but at the wrong sharpness or
+  // with less margin than it should have. That one can wait for the gesture
+  // to finish.
+  function cacheIsStale() {
+    const box = state.cacheBox;
+    if (!box) return true;
+    const wanted = cacheWindow();
+    if (Math.abs(wanted.scale - box.scale) / box.scale > 0.15) return true;
+    if (box.whole) return false;
+    return wanted.x0 < box.x0 - 0.01 || wanted.y0 < box.y0 - 0.01 ||
+      wanted.x0 + wanted.w > box.x0 + box.w + 0.01 ||
+      wanted.y0 + wanted.h > box.y0 + box.h + 0.01;
   }
 
   function scheduleCache() {
@@ -597,12 +649,9 @@
     clearTimeout(state.cacheTimer);
     const current = state;
     current.cacheTimer = setTimeout(() => {
-      if (state !== current) return;
-      const wanted = cacheScaleFor(current.view.scale);
-      if (Math.abs(wanted - current.cacheScale) / current.cacheScale > 0.15) {
-        renderCache();
-        requestDraw();
-      }
+      if (state !== current || !cacheIsStale()) return;
+      renderCache();
+      requestDraw();
     }, 160);
   }
 
@@ -672,11 +721,19 @@
     const { view, shape } = state;
     const { width, height } = viewport();
 
+    // Anything that moves the view — a pinch, a pan, the hint jumping across
+    // the picture — can leave the window behind. Redraw it here rather than
+    // showing an empty board while a timer waits.
+    if (!cacheCoversView()) renderCache();
+
     ctx.fillStyle = MAT;
     ctx.fillRect(0, 0, width, height);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(state.cache, view.x, view.y, shape.cols * view.scale, shape.rows * view.scale);
+    const box = state.cacheBox;
+    ctx.drawImage(state.cache,
+      view.x + box.x0 * view.scale, view.y + box.y0 * view.scale,
+      box.w * view.scale, box.h * view.scale);
 
     if (state.hint) {
       const now = performance.now();
@@ -733,7 +790,8 @@
     sound.blip();
 
     const c = state.cache.getContext('2d');
-    c.setTransform(state.cacheScale, 0, 0, state.cacheScale, 0, 0);
+    const box = state.cacheBox;
+    c.setTransform(box.scale, 0, 0, box.scale, -box.x0 * box.scale, -box.y0 * box.scale);
     paintRegion(c, region, false);
     // its neighbours share the outline that was just painted over
     for (const other of neighboursOf(region)) paintRegion(c, other, true);
@@ -947,6 +1005,7 @@
     }
 
     state.hint = { id: best.id, until: performance.now() + 1800 };
+    scheduleCache();
     requestDraw();
   });
 
@@ -1185,7 +1244,15 @@
       return counts;
     };
 
-    const distance = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+    /* Plain RGB distance says a dark blue and a dark green are further apart
+       than two greens a person can't tell apart. This weights the channels by
+       how much of the difference the eye actually sees, shifting with how red
+       the pair is — cheap, and much closer to the judgement being made. */
+    const distance = (a, b) => {
+      const mean = (a[0] + b[0]) / 2;
+      const dr = a[0] - b[0], dg = a[1] - b[1], db = a[2] - b[2];
+      return (2 + mean / 256) * dr * dr + 4 * dg * dg + (2 + (255 - mean) / 256) * db * db;
+    };
 
     const absorb = (from, into) => {
       const counts = tally();
@@ -1220,7 +1287,7 @@
        on a swatch. Set any higher and the shading that makes a photograph
        worth colouring in — a face's light and shade, a sky's depth — is
        flattened into one number. */
-    const TOO_CLOSE = 16 * 16;
+    const TOO_CLOSE = 3 * 16 * 16;   // the weights above run about 3x an unweighted square
     for (;;) {
       if (alive.filter(Boolean).length <= 2) break;
       let pair = null, pairDistance = Infinity;

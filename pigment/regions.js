@@ -53,14 +53,18 @@
      previously apart, so this runs until nothing more moves. */
   function absorbSmall(cells, cols, rows, minArea, minRoom) {
     for (let pass = 0; pass < 10; pass++) {
-      const { labels, areas } = label(cells, cols, rows);
+      const { labels, areas, colours } = label(cells, cols, rows);
       const small = [];
       const boxes = boxesOf(labels, areas.length, cols, rows);
       for (let id = 0; id < areas.length; id++) {
         if (areas[id] < minArea) { small.push(id); continue; }
         /* Area alone isn't enough: a one-square-wide ring around an eye can
            be large and still be a sliver nobody can see, let alone colour.
-           Anything with no room in the middle of it goes as well. */
+           Anything with no room in the middle of it goes as well.
+
+           Only areas that got past the size test are measured, because
+           measuring means a distance pass over the shape, and a detailed
+           picture starts out with tens of thousands of specks. */
         if (minRoom > 0 && labelPoint(labels, cols, rows, id, boxes[id]).room < minRoom) small.push(id);
       }
       if (!small.length) return;
@@ -111,16 +115,31 @@
       }
       if (!newColour.size) return;
 
+      /* An area given to a neighbour that is itself being given away has to
+         follow the whole chain, however long it runs — and in a picture that
+         starts out as tens of thousands of specks, those chains are long.
+         Each is walked once and every step remembers where it ended up, so
+         the next area along the chain gets its answer immediately. Chains
+         that loop back on themselves stop where they close. */
+      const settled = new Map();
+      const endOf = (start) => {
+        const walked = [];
+        let current = start;
+        while (newColour.has(current) && !settled.has(current)) {
+          if (walked.includes(current)) break;
+          walked.push(current);
+          current = newColour.get(current);
+        }
+        const end = settled.has(current) ? settled.get(current) : current;
+        for (const step of walked) settled.set(step, end);
+        return end;
+      };
+
       let moved = false;
       for (let i = 0; i < cells.length; i++) {
         const id = labels[i];
-        if (id === NONE) continue;
-        const into = newColour.get(id);
-        if (into === undefined) continue;
-        // follow the chain, in case the neighbour is itself being absorbed
-        let target = into, guard = 0;
-        while (newColour.has(target) && guard++ < 10) target = newColour.get(target);
-        const colour = cellColourOf(cells, labels, target);
+        if (id === NONE || !newColour.has(id)) continue;
+        const colour = colours[endOf(id)];
         if (colour && cells[i] !== colour) { cells[i] = colour; moved = true; }
       }
       if (!moved) return;
@@ -142,19 +161,6 @@
       }
     }
     return boxes;
-  }
-
-  const colourCache = new Map();
-  function cellColourOf(cells, labels, id) {
-    // the colour of any one square in that area is the colour of all of them
-    if (colourCache.get(labels) === undefined) colourCache.set(labels, new Map());
-    const seen = colourCache.get(labels);
-    if (seen.has(id)) return seen.get(id);
-    for (let i = 0; i < labels.length; i++) {
-      if (labels[i] === id) { seen.set(id, cells[i]); return cells[i]; }
-    }
-    seen.set(id, 0);
-    return 0;
   }
 
   // ------------------------------------------------------------ outlines
@@ -437,11 +443,9 @@
     const cols = puzzle.cols, rows = puzzle.rows;
     const cells = Uint8Array.from(puzzle.cells);
 
-    colourCache.clear();
     if (settings.minArea > 1 || settings.minRoom > 0) {
       absorbSmall(cells, cols, rows, settings.minArea, settings.minRoom);
     }
-    colourCache.clear();
 
     const { labels, areas, colours } = label(cells, cols, rows);
 

@@ -17,9 +17,9 @@ pot live, connect it to a free Firebase Realtime Database.
 > - **[Neon Chomp](chomp/)** (`/chomp/`) — a springer spaniel loose in a
 >   neon maze: fetch the balls, dodge four cats. Plays offline.
 > - **[Pigment](pigment/)** (`/pigment/`) — colour by number: outlined
->   areas with a number in each, six pictures built in, or turn a photo on
->   your phone into one. Print it, or colour it in on the screen. Works
->   offline.
+>   areas with a number in each — six shaded pictures built in, or turn a
+>   photo on your phone into one. Print it, or colour it in on the screen.
+>   Works offline.
 >
 > All four are separate PWAs with the same no-build setup.
 
