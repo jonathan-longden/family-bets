@@ -136,6 +136,9 @@ body {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 10px;
+  /* portrait and landscape pictures sit side by side, so let each card be
+     its own height rather than stretching to match its neighbour */
+  align-items: start;
 }
 
 .card {

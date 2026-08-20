@@ -302,6 +302,14 @@
 
   const picture = (def) => { PICTURES.push(def); };
 
+  /* A bird in the distance: two strokes, not a stamp. `stamp` works in whole
+     drawing units, so at this resolution it would put down a pair of blocks
+     the size of the balloon's basket. */
+  const bird = (g, x, y, size, colour) => {
+    g.line(x - size, y, x, y - size * 0.55, colour, 0.32);
+    g.line(x, y - size * 0.55, x + size, y, colour, 0.32);
+  };
+
   // Scattering rocks, grass and stars needs to land in the same place every
   // time: the picture has to come out identical on every device and reload.
   const rng = (seed) => {
@@ -407,8 +415,9 @@
         g.disc(x, y, 0.34, [red[3], cream[3], orange[3]][Math.floor(random() * 3)]);
       }
 
-      for (const [x, y] of [[2, 20], [28, 23], [21, 12], [9, 24], [24, 26]]) {
-        g.stamp(x, y, ['b b', ' b '], { b: rope });
+      for (const [x, y, size] of [[2.5, 20, 0.9], [28, 23, 0.8], [21, 12, 0.7],
+        [9, 24.5, 0.6], [24.5, 26, 0.55]]) {
+        bird(g, x, y, size, rope);
       }
     },
   });
@@ -747,10 +756,9 @@
       g.line(14, 3.6, 22.6, 17.8, mast, 0.24);
 
       // gulls
-      g.stamp(30, 5, ['g g', ' g '], { g: mast });
-      g.stamp(34, 8, ['g g'], { g: mast });
-      g.stamp(5, 2, ['g g'], { g: mast });
-      g.stamp(24, 3, ['g g'], { g: mast });
+      for (const [x, y, size] of [[30, 5, 1.1], [34.5, 8, 0.85], [5, 2.4, 0.9], [24, 3.2, 0.7]]) {
+        bird(g, x, y, size, mast);
+      }
     },
   });
 
@@ -817,6 +825,275 @@
         g.ellipse(x, y, tilt ? 0.9 : 0.5, tilt ? 0.5 : 0.9, colours[Math.floor(random() * 4)]);
         placed++;
       }
+    },
+  });
+
+  picture({
+    id: 'desert',
+    name: 'Long Ride Home',
+    blurb: 'Mesas, cactus, a rider',
+    cols: 40, rows: 32,
+    palette: [
+      { ramp: '#f0a35e', name: 'Sky', tones: 7, dark: 0.5, light: 0.4 },
+      { hex: '#fff2c4', name: 'Sun' },
+      { ramp: '#8f6d8f', name: 'Far mesa', tones: 4 },
+      { ramp: '#a4623f', name: 'Mesa', tones: 5 },
+      { ramp: '#d99a5e', name: 'Sand', tones: 6 },
+      { ramp: '#4f8a52', name: 'Cactus', tones: 5 },
+      { ramp: '#8a6a4a', name: 'Rock', tones: 4 },
+      { hex: '#2a1d1a', name: 'Shadow' },
+    ],
+    draw(g, c) {
+      const [sky, sun, far, mesa, sand, cactus, rock, shadow] = c;
+      const random = rng(60614);
+
+      // sky burning down to the horizon, with the sun sitting on it
+      g.gradient(paint => g.rectEach(0, 0, 40, 19, paint), sky, 0, 0, 0, 18.5);
+      g.sphere(29, 17.5, 8, 6.5, [sky[4], sky[5], sky[6], sun], { ambient: 0.5, spread: 0.5, ly: 0.3 });
+      g.disc(29, 17.5, 4.4, sun);
+      for (let i = 0; i < 5; i++) {
+        const y = 3 + i * 2.6;
+        g.sphere(8 + i * 5.5, y, 4.5 - i * 0.35, 0.55, sky, { ambient: 0.7, spread: 0.3 });
+      }
+
+      // buttes: far ones hazy, near ones warm
+      const butte = (x, y, w, h, ramp) => {
+        g.gradient(paint => g.polyEach([[x - w, y + h], [x - w * 0.82, y + h * 0.15],
+          [x - w * 0.6, y], [x + w * 0.6, y], [x + w * 0.86, y + h * 0.2], [x + w, y + h]], paint),
+          ramp, x + w, 0, x - w, 0);
+        g.gradient(paint => g.polyEach([[x - w * 0.6, y], [x + w * 0.6, y],
+          [x + w * 0.66, y + 1], [x - w * 0.66, y + 1]], paint), ramp, 0, y + 1.4, 0, y - 0.4);
+      };
+      const striate = (x, y, w, h, ramp, count) => {
+        for (let i = 0; i < count; i++) {
+          const at = x - w * 0.55 + (i + 0.5) * (w * 1.1 / count);
+          g.gradient(paint => g.rectEach(at - 0.28, y + 1, 0.56, h - 1.4, paint),
+            ramp, at + 0.6, 0, at - 0.6, 0);
+        }
+      };
+      butte(6, 12.5, 4.2, 6.5, far);
+      striate(6, 12.5, 4.2, 6.5, far, 3);
+      butte(15, 14, 3.2, 5, far);
+      striate(15, 14, 3.2, 5, far, 2);
+      butte(34, 11.5, 5, 7.5, mesa);
+      striate(34, 11.5, 5, 7.5, mesa, 4);
+      butte(24, 15, 2.6, 4, mesa);
+      striate(24, 15, 2.6, 4, mesa, 2);
+
+      // the desert floor, lit towards the horizon
+      g.gradient(paint => g.rectEach(0, 19, 40, 13, paint), sand, 0, 32, 0, 18.5);
+      for (let i = 0; i < 14; i++) {
+        const y = 20 + random() * 11;
+        g.sphere(random() * 40, y, 2 + random() * 5, 0.5 + random() * 0.5, sand,
+          { ambient: 0.62, spread: 0.34 });
+      }
+
+      /* Saguaros. An arm leaves the trunk at the elbow, turns through a
+         rounded corner and stands up parallel to it — drawn as a bar and a
+         column it comes out as a capital letter H instead. */
+      const saguaro = (x, base, height, arms) => {
+        const w = height * 0.12;
+        g.gradient(paint => g.rectEach(x - w, base - height, w * 2, height, paint),
+          cactus, x + w, 0, x - w, 0);
+        g.sphere(x, base - height, w, w, cactus);
+        for (const [side, elbow, top] of arms) {
+          const ax = x + side * (w + height * 0.13);
+          const armWidth = w * 0.78;
+          const elbowY = base - height * elbow;
+          const topY = base - height * top;
+          // the crook, from the side of the trunk out to the arm
+          g.gradient(paint => g.rectEach(Math.min(x + side * w * 0.5, ax - side * armWidth),
+            elbowY - armWidth, Math.abs(ax - x) + armWidth * 0.5, armWidth * 2, paint),
+            cactus, 0, elbowY + armWidth * 2, 0, elbowY - armWidth);
+          g.gradient(paint => g.rectEach(ax - armWidth, topY, armWidth * 2, elbowY - topY + armWidth, paint),
+            cactus, ax + armWidth, 0, ax - armWidth, 0);
+          g.sphere(ax, topY, armWidth, armWidth, cactus);
+          g.sphere(ax, elbowY, armWidth, armWidth, cactus, { ambient: 0.42 });
+        }
+      };
+      saguaro(8, 30, 11, [[-1, 0.5, 0.78], [1, 0.36, 0.62]]);
+      saguaro(31, 27.5, 6.5, [[1, 0.45, 0.72]]);
+      saguaro(20.5, 25.5, 4.2, [[1, 0.45, 0.7]]);
+
+      // rocks and scrub
+      for (let i = 0; i < 12; i++) {
+        const x = random() * 39, y = 21 + random() * 10;
+        g.sphere(x, y, 0.7 + random() * 1.3, 0.5 + random() * 0.8, rock, { ambient: 0.42 });
+      }
+      for (let i = 0; i < 16; i++) {
+        const x = random() * 39, y = 21 + random() * 10;
+        g.sphere(x, y, 0.9 + random() * 0.8, 0.35 + random() * 0.3, cactus, { ambient: 0.4 });
+      }
+
+      // a rider coming across the flat, in silhouette against the light
+      const rx = 14.5, ry = 22.2, k = 1.2;
+      g.ellipse(rx, ry, 1.5 * k, 0.62 * k, shadow);                     // barrel
+      g.ellipse(rx - 1.45 * k, ry - 0.25 * k, 0.5 * k, 0.5 * k, shadow); // chest
+      g.ellipse(rx + 1.5 * k, ry - 0.1 * k, 0.42 * k, 0.5 * k, shadow);  // rump
+      for (const [dx, lean] of [[-1.15, -0.12], [-0.8, 0.1], [0.95, -0.1], [1.3, 0.12]]) {
+        g.poly([[rx + dx * k, ry], [rx + (dx + lean) * k, ry + 1.5 * k],
+          [rx + (dx + lean + 0.2) * k, ry + 1.5 * k], [rx + (dx + 0.22) * k, ry]], shadow);
+      }
+      g.poly([[rx - 1.6 * k, ry - 0.4 * k], [rx - 2.5 * k, ry - 1.35 * k],
+        [rx - 2.1 * k, ry - 1.45 * k], [rx - 1.3 * k, ry - 0.55 * k]], shadow);   // neck
+      g.ellipse(rx - 2.45 * k, ry - 1.45 * k, 0.42 * k, 0.26 * k, shadow);        // head
+      g.poly([[rx + 1.6 * k, ry - 0.2 * k], [rx + 2.2 * k, ry + 1.1 * k],
+        [rx + 1.9 * k, ry + 1.15 * k], [rx + 1.35 * k, ry - 0.1 * k]], shadow);   // tail
+      g.ellipse(rx - 0.15 * k, ry - 1.1 * k, 0.4 * k, 0.7 * k, shadow);          // rider
+      g.disc(rx - 0.15 * k, ry - 1.95 * k, 0.36 * k, shadow);
+      g.ellipse(rx - 0.15 * k, ry - 2.2 * k, 0.78 * k, 0.3 * k, shadow);          // hat
+      for (const [x, y, size] of [[6, 4, 1.1], [9.8, 6, 0.85], [13.4, 3.6, 0.7]]) {
+        bird(g, x, y, size, mesa[0]);
+      }
+    },
+  });
+
+  picture({
+    id: 'teddy',
+    name: 'Old Bear',
+    blurb: 'A teddy with a ribbon',
+    cols: 32, rows: 40,
+    palette: [
+      { ramp: '#ffe3ef', name: 'Wall', tones: 5, dark: 0.22 },
+      { ramp: '#c98f52', name: 'Fur', tones: 7 },
+      { ramp: '#f0dcb8', name: 'Muzzle', tones: 5, dark: 0.34 },
+      { ramp: '#e0596f', name: 'Ribbon', tones: 4 },
+      { ramp: '#f3a6b4', name: 'Pad', tones: 3 },
+      { ramp: '#2a2028', name: 'Ink', tones: 3, light: 0.55 },
+      { hex: '#fff8ef', name: 'Shine' },
+    ],
+    draw(g, c) {
+      const [wall, fur, muzzle, ribbon, pad, ink, shine] = c;
+      const random = rng(20260821);
+
+      g.fill(wall[4]);
+      g.sphere(16, 18, 15.5, 17, wall, { ambient: 0.55, spread: 0.45 });
+
+      // ears behind the head
+      for (const side of [-1, 1]) {
+        g.sphere(16 + side * 6.6, 8.6, 3.4, 3.4, fur);
+        g.sphere(16 + side * 6.6, 8.9, 2, 2, muzzle, { ambient: 0.5, spread: 0.4 });
+      }
+
+      // arms and legs behind the body
+      for (const side of [-1, 1]) {
+        g.sphere(16 + side * 8.4, 24, 3.1, 4.6, fur, { lx: -0.6 * side });
+        g.sphere(16 + side * 8.9, 26.6, 1.7, 2, pad, { ambient: 0.5 });
+        g.sphere(16 + side * 5.2, 33.6, 3.6, 3.4, fur, { lx: -0.6 * side });
+        g.sphere(16 + side * 5.6, 34.6, 2.1, 1.8, pad, { ambient: 0.5 });
+        for (let i = 0; i < 3; i++) g.disc(16 + side * (4.4 + i * 1.1), 32.6, 0.42, pad[0]);
+      }
+
+      // body, then head on top
+      g.sphere(16, 27, 7.4, 7.6, fur);
+      g.sphere(16, 27.6, 4.6, 5, muzzle, { ambient: 0.5, spread: 0.42 });
+      g.sphere(16, 13.5, 7.8, 7.2, fur);
+
+      // face
+      g.sphere(16, 17.4, 4.4, 3.4, muzzle, { ambient: 0.5, spread: 0.45 });
+      g.sphere(16, 15.6, 1.9, 1.4, ink, { ly: -0.85, ambient: 0.35 });
+      g.line(16, 16.8, 16, 18.2, ink[0], 0.4);
+      g.line(16, 18.2, 14.4, 19, ink[0], 0.4);
+      g.line(16, 18.2, 17.6, 19, ink[0], 0.4);
+      for (const side of [-1, 1]) {
+        g.disc(16 + side * 3.1, 11.8, 1.5, ink[0]);
+        g.disc(16 + side * 3.1 + 0.5, 11.3, 0.45, shine);
+      }
+
+      // ribbon at the neck
+      g.gradient(paint => g.rectEach(9.6, 20.4, 12.8, 1.8, paint), ribbon, 0, 22.6, 0, 20);
+      for (const side of [-1, 1]) {
+        g.sphere(16 + side * 3.4, 21.2, 2.6, 2, ribbon, { lx: -0.5 * side });
+        g.poly([[16 + side * 2, 21.6], [16 + side * 5.4, 24.6], [16 + side * 2.6, 24.2]], ribbon[1]);
+      }
+      g.sphere(16, 21.2, 1.1, 1.1, ribbon, { ambient: 0.6 });
+
+      // a worn patch and some stitching, the way an old bear goes
+      g.sphere(11.4, 29.6, 2.2, 1.8, fur, { ambient: 0.3, spread: 0.35 });
+      for (let i = 0; i < 5; i++) g.rect(9.8 + i * 0.8, 28.6 + i * 0.42, 0.5, 0.28, ink[1]);
+
+      // dust in the light
+      for (let i = 0; i < 18; i++) {
+        const x = random() * 31, y = random() * 39;
+        if (Math.hypot(x - 16, (y - 22) * 0.8) < 11) continue;
+        g.disc(x, y, 0.3 + random() * 0.22, wall[random() < 0.5 ? 0 : 4]);
+      }
+    },
+  });
+
+  picture({
+    id: 'lighthouse',
+    name: 'Night Watch',
+    blurb: 'A lighthouse over the rocks',
+    cols: 32, rows: 40,
+    palette: [
+      { ramp: '#2c4a86', name: 'Sky', tones: 7, dark: 0.55, light: 0.45 },
+      { hex: '#fff6c9', name: 'Star' },
+      { ramp: '#e8e3f5', name: 'Moon', tones: 3 },
+      { ramp: '#ffd66b', name: 'Beam', tones: 4, light: 0.55 },
+      { ramp: '#f2f0ec', name: 'Tower', tones: 5, dark: 0.42 },
+      { ramp: '#d4453f', name: 'Stripe', tones: 4 },
+      { ramp: '#5a6b86', name: 'Rock', tones: 5 },
+      { ramp: '#20567a', name: 'Sea', tones: 6 },
+      { ramp: '#dbeaf5', name: 'Foam', tones: 3 },
+    ],
+    draw(g, c) {
+      const [sky, star, moon, beam, tower, stripe, rock, sea, foam] = c;
+      const random = rng(1857);
+
+      // night sky, palest low down where the moon is
+      g.gradient(paint => g.rectEach(0, 0, 32, 27, paint), sky, 0, 0, 0, 26);
+      for (let i = 0; i < 40; i++) {
+        const x = random() * 31.5, y = random() * 24;
+        if (x > 11 && x < 21 && y > 6) continue;
+        g.disc(x, y, 0.16 + random() * 0.2, star);
+      }
+      g.sphere(25.5, 5.5, 3.2, 3.2, moon, { lx: -0.5, ly: -0.5, ambient: 0.55, spread: 0.4 });
+
+      // the beam sweeping out either side of the lantern
+      g.poly([[16, 9.5], [32, 3], [32, 13]], beam[3]);
+      g.poly([[16, 9.5], [32, 5.5], [32, 11]], beam[2]);
+      g.poly([[16, 9.5], [0, 4], [0, 12]], beam[3]);
+      g.poly([[16, 9.5], [0, 6.5], [0, 10.5]], beam[2]);
+
+      // the sea, then the rock it all stands on
+      g.gradient(paint => g.rectEach(0, 27, 32, 13, paint), sea, 0, 40, 0, 26.5);
+      for (let i = 0; i < 22; i++) {
+        const y = 27.5 + random() * 12;
+        g.sphere(random() * 32, y, 1 + random() * 2.6, 0.4, sea, { ambient: 0.66, spread: 0.3 });
+      }
+      g.gradient(paint => g.polyEach([[2, 40], [5, 30], [10, 26.5], [21, 26.5], [26, 30], [30, 40]], paint),
+        rock, 30, 0, 4, 0);
+      for (let i = 0; i < 9; i++) {
+        const x = 4 + random() * 24, y = 28 + random() * 10;
+        g.sphere(x, y, 1 + random() * 1.6, 0.7 + random() * 1.1, rock, { ambient: 0.4 });
+      }
+      for (let i = 0; i < 12; i++) {
+        const x = random() * 31, y = 26 + random() * 3;
+        g.sphere(x, y, 1 + random() * 1.4, 0.35, foam, { ambient: 0.6, spread: 0.35 });
+      }
+
+      // tower: bands of white and red, rounded across
+      const tw = (y) => 3.2 - (y - 11) * 0.075;
+      for (let y = 11; y < 27; y += 2.4) {
+        const w = tw(y);
+        g.gradient(paint => g.polyEach([[16 - w, y], [16 + w, y], [16 + tw(y + 2.4), y + 2.4],
+          [16 - tw(y + 2.4), y + 2.4]], paint),
+          ((y - 11) / 2.4) % 2 ? stripe : tower, 16 + w, 0, 16 - w, 0);
+      }
+
+      // lantern room, its rail and its cap
+      g.gradient(paint => g.rectEach(13.4, 7.6, 5.2, 3.4, paint), tower, 18.8, 0, 13.2, 0);
+      g.sphere(16, 9.2, 1.9, 1.6, beam, { ambient: 0.62, spread: 0.4 });
+      g.rect(12.8, 10.8, 6.4, 0.9, rock[1]);
+      g.rect(12.4, 11.6, 7.2, 0.6, rock[0]);
+      g.poly([[13.2, 7.6], [18.8, 7.6], [16, 4.6]], stripe[1]);
+      g.rect(15.7, 3.2, 0.6, 1.6, rock[0]);
+      g.disc(16, 3, 0.5, star);
+
+      // door and windows down the tower
+      g.rect(15, 24.6, 2, 2.4, rock[0]);
+      for (const y of [14, 18, 21.5]) g.rect(15.4, y, 1.2, 1.2, sky[1]);
     },
   });
 

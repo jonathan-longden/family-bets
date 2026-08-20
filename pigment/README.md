@@ -1,6 +1,6 @@
 # Pigment
 
-Colour by number, on a phone. Six pictures are built in, and any photo
+Colour by number, on a phone. Nine pictures are built in, and any photo
 already on the device can be turned into another. No account, no
 downloads, no signal needed.
 
@@ -13,9 +13,10 @@ number ignores you and says which number it actually wants.
 
 ## What's in it
 
-- **Six pictures** — a hot air balloon, a rocket, a butterfly, a springer
-  spaniel, a boat at sunset, and a cupcake. Between 76 and 150 areas each,
-  in 22 to 35 colours.
+- **Nine pictures** — a hot air balloon, a rocket, a butterfly, a springer
+  spaniel, a boat at sunset, a cupcake, a desert at sundown, an old teddy
+  and a lighthouse at night. Between 77 and 155 areas each, in 22 to 35
+  colours.
 - **Your own photos.** Pick one and it becomes a picture to colour in,
   worked out here on the phone.
 - **It keeps your place**, picture by picture, so you can put one down

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pigment-v2';
+const CACHE_NAME = 'pigment-v3';
 const FILES_TO_CACHE = [
   './',
   './index.html',
