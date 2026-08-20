@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#161a2b">
+<meta name="description" content="Pigment — colour by number on your phone. Six pictures built in, or turn any photo into one. Works with no signal.">
+<title>Pigment</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="bar">
+    <button class="icon-btn" id="backBtn" type="button" aria-label="Back to the pictures" hidden>&lsaquo;</button>
+    <div class="bar-title">
+      <h1 id="title">Pigment</h1>
+      <p id="subtitle">Colour by number</p>
+    </div>
+    <button class="icon-btn" id="soundBtn" type="button" aria-pressed="true" aria-label="Sound on">&#9834;</button>
+  </header>
+
+  <!-- ------------------------------------------------------------ gallery -->
+
+  <section class="gallery" id="gallery">
+    <div class="cards" id="cards"></div>
+
+    <section class="make">
+      <h2>Make your own</h2>
+      <p>Turn a photo already on this device into a picture to colour in.
+        It's worked out here on the phone &mdash; the photo is never uploaded
+        anywhere.</p>
+      <div class="make-row">
+        <label class="btn btn--primary">
+          Choose a photo
+          <input type="file" id="photo" accept="image/*" hidden>
+        </label>
+        <label class="field">
+          <span>Colours</span>
+          <select id="photoColours">
+            <option value="8">8</option>
+            <option value="12" selected>12</option>
+            <option value="16">16</option>
+            <option value="20">20</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Size</span>
+          <select id="photoSize">
+            <option value="32">Small</option>
+            <option value="44" selected>Medium</option>
+            <option value="60">Large</option>
+          </select>
+        </label>
+      </div>
+      <p class="make-status" id="makeStatus" role="status"></p>
+    </section>
+
+    <section class="notes">
+      <h2>How it works</h2>
+      <ul>
+        <li>Every square carries a number. Pick that number from the row of
+          colours and the square is yours &mdash; squares waiting for the
+          colour you're holding are tinted, so they're easy to find.</li>
+        <li><b>Drag</b> to fill a run of squares in one go. Squares with a
+          different number politely ignore you.</li>
+        <li><b>Pinch</b> to zoom, or use two fingers to move around. Double
+          tap to jump in close and back out again.</li>
+        <li>Finish a colour and the next one is handed to you automatically.
+          Lost? <b>Hint</b> points at a square that's waiting.</li>
+        <li>Your progress is kept on this device, picture by picture, so you
+          can put it down mid-sky and come back to it.</li>
+      </ul>
+      <p class="notes-foot">Works offline &mdash; add it to your home screen and
+        it opens with no signal at all.</p>
+    </section>
+  </section>
+
+  <!-- ------------------------------------------------------------- paint -->
+
+  <section class="paint" id="paint" hidden>
+    <div class="progress"><div class="progress-fill" id="progressFill"></div></div>
+
+    <div class="board" id="board">
+      <canvas id="canvas" role="img" aria-label="The picture, square by square"></canvas>
+
+      <p class="toast" id="toast" role="status" hidden></p>
+
+      <div class="done" id="done" hidden>
+        <div class="done-panel">
+          <h2>Finished</h2>
+          <p id="doneText">Every square filled in.</p>
+          <div class="done-actions">
+            <button class="btn btn--primary" id="saveBtn" type="button">Save the picture</button>
+            <button class="btn btn--ghost" id="doneBackBtn" type="button">Pick another</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tools">
+      <button class="btn btn--ghost" id="hintBtn" type="button">Hint</button>
+      <button class="btn btn--ghost" id="fitBtn" type="button">Fit</button>
+      <button class="btn btn--ghost" id="resetBtn" type="button">Start again</button>
+    </div>
+
+    <div class="palette" id="palette" role="radiogroup" aria-label="Colours"></div>
+  </section>
+
+</div>
+<script src="pictures.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
