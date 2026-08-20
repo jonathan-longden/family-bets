@@ -171,15 +171,37 @@
       /* Shade a shape as though it were round: the tone of a square comes
          from how square-on it faces the light, worked out from where it sits
          on the ball. This is what makes a balloon look inflated and a cherry
-         look like fruit rather than a red circle. */
+         look like fruit rather than a red circle.
+
+         `texture` is handed the position in drawing units and returns
+         something to add to the brightness, which is how a rock gets to be
+         round *and* mottled. */
       sphere(cx, cy, rx, ry, ramp, options) {
         const o = Object.assign({ lx: -0.62, ly: -0.66, ambient: 0.42, spread: 0.72 }, options || {});
         return g.ellipseEach(cx, cy, rx, ry, (x, y, dx, dy) => {
           const flat = Math.min(1, dx * dx + dy * dy);
           const nz = Math.sqrt(1 - flat);
-          const lit = o.ambient + o.spread * (dx * o.lx + dy * o.ly + nz * 0.55);
+          let lit = o.ambient + o.spread * (dx * o.lx + dy * o.ly + nz * 0.55);
+          if (o.texture) lit += o.texture((x + 0.5) / step, (y + 0.5) / step);
+          if (lit < 0) return;                       // below zero means leave it alone
           g.poke(x, y, ramp[level(lit, ramp.length)]);
         });
+      },
+
+      /* The general case: fill a shape, deciding each square's brightness
+         from where it is. Everything above is a special case of this one. */
+      /* A brightness below zero leaves the square as it was, which is how a
+         cloud gets a ragged edge instead of the outline of the ellipse it
+         was drawn inside. */
+      shadeEach(shape, ramp, brightness) {
+        const paint = (x, y) => {
+          const t = brightness((x + 0.5) / step, (y + 0.5) / step);
+          if (t < 0) return;
+          g.poke(x, y, ramp[level(t, ramp.length)]);
+        };
+        if (typeof shape === 'function') shape(paint);
+        else g.polyEach(shape, paint);
+        return g;
       },
 
       // Shade along a line: from (ax, ay) to (bx, by), dark end to light end.
@@ -295,6 +317,51 @@
 
   // Which tone of a ramp a brightness between 0 and 1 lands on.
   const level = (t, count) => Math.max(0, Math.min(count - 1, Math.round(t * (count - 1))));
+
+  /* ------------------------------------------------------------- texture
+
+     Flat tone bands look like cut paper. Real leather, rock, sand and cloth
+     are mottled, and it's that mottling — as much as the shading — that
+     makes a drawn surface read as a material.
+
+     This is ordinary value noise: a fixed random number at every whole
+     coordinate, smoothly blended in between, then summed at halving scales
+     ("fractional Brownian motion") so the result has both broad patches and
+     fine grain. It's a pure function of the seed, so a picture comes out
+     identical every time it is built. */
+  function noise(seed) {
+    const at = (x, y) => {
+      let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + Math.imul(seed | 0, 1013904223)) | 0;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+    };
+    const ease = (t) => t * t * (3 - 2 * t);
+
+    const value = (x, y) => {
+      const xi = Math.floor(x), yi = Math.floor(y);
+      const tx = ease(x - xi), ty = ease(y - yi);
+      const top = at(xi, yi) + (at(xi + 1, yi) - at(xi, yi)) * tx;
+      const bottom = at(xi, yi + 1) + (at(xi + 1, yi + 1) - at(xi, yi + 1)) * tx;
+      return top + (bottom - top) * ty;
+    };
+
+    // octaves of noise, each half the size and half the strength
+    const fbm = (x, y, octaves) => {
+      let total = 0, amplitude = 1, weight = 0, scale = 1;
+      for (let i = 0; i < (octaves || 3); i++) {
+        total += value(x * scale, y * scale) * amplitude;
+        weight += amplitude;
+        amplitude *= 0.5;
+        scale *= 2;
+      }
+      return total / weight;
+    };
+
+    // -1..1, for pushing a coordinate about rather than lighting it
+    const warp = (x, y) => value(x, y) * 2 - 1;
+
+    return { value, fbm, warp };
+  }
 
   // --------------------------------------------------------- the pictures
 
@@ -609,13 +676,17 @@
     draw(g, c) {
       const [gold, white, liver, ink, tongue, collar] = c;
       const random = rng(7788);
+      // a spaniel's ears are the hairiest thing about it, so they get the
+      // strongest mottle and the muzzle the softest
+      const coat = noise(4141);
+      const hairy = (amount) => (ux, uy) => coat.fbm(ux * 1.7, uy * 2.4, 3) * amount - amount / 2;
 
       // a warm pool of light behind the dog
       g.fill(gold[5]);
       g.sphere(16, 16, 15.5, 15.5, gold, { ambient: 0.5, spread: 0.5 });
 
       // ears behind the head, each rounded off down its length
-      g.sphere(5, 21, 5.7, 11, liver, { lx: -0.75, ly: -0.2 });
+      g.sphere(5, 21, 5.7, 11, liver, { lx: -0.75, ly: -0.2, texture: hairy(0.3) });
       // head and the liver cap over it
       g.sphere(16, 16, 9.2, 9.6, white, { lx: -0.55, ly: -0.6 });
       g.gradient(paint => g.polyEach([[6.4, 9], [16, 6.4], [16, 13], [7.9, 13.6]], paint),
@@ -627,7 +698,7 @@
       g.disc(10.3, 17.4, 0.34, white[4]);
 
       // muzzle
-      g.sphere(16, 22, 6.6, 5.6, white, { lx: -0.5, ly: -0.65 });
+      g.sphere(16, 22, 6.6, 5.6, white, { lx: -0.5, ly: -0.65, texture: hairy(0.1) });
       g.sphere(13.2, 24.6, 3.2, 2.6, white, { lx: -0.4, ly: -0.5, ambient: 0.3 });
       for (let i = 0; i < 14; i++) {
         const x = 10.6 + random() * 4.6, y = 22 + random() * 3.4;
@@ -696,12 +767,16 @@
     draw(g, c) {
       const [sky, sun, cloud, sail, sea, reflect, hull, mast] = c;
       const random = rng(5150);
+      const swell = noise(8181);
 
       // sky burning down towards the horizon, then the sea below it
       g.gradient(paint => g.rectEach(0, 0, 40, 19, paint), sky, 0, 0, 0, 18.5);
       g.sphere(27, 19, 7.5, 6, [sky[5], sky[6], cloud[3], sun], { ambient: 0.5, spread: 0.5, ly: 0.2 });
       g.disc(27, 19, 5.2, sun);
-      g.gradient(paint => g.rectEach(0, 19, 40, 13, paint), sea, 0, 32, 0, 19);
+      /* Water was three flat bands. Shading it with a long, low noise gives
+         the swell its own light and dark without drawing a single wave. */
+      g.shadeEach(paint => g.rectEach(0, 19, 40, 13, paint), sea, (ux, uy) =>
+        0.92 - (uy - 19) / 13 * 0.55 + swell.fbm(ux * 0.45, uy * 2.8, 3) * 0.5 - 0.25);
 
       // streaks of cloud
       const streak = (x, y, w, h) => {
@@ -746,9 +821,6 @@
         const width = 0.9 + random() * 2.2;
         g.sphere(x, y, width, 0.35, sea, { ambient: 0.62, spread: 0.32 });
       }
-
-      // a headland in the distance, hazy rather than solid
-      g.gradient(paint => g.ellipseEach(2.5, 20, 5.5, 1.9, paint), sea, 0, 22, 0, 17.6);
 
       // rigging
       g.line(13.2, 4.6, 3.6, 17.8, mast, 0.28);
@@ -846,6 +918,7 @@
     draw(g, c) {
       const [sky, sun, far, mesa, sand, cactus, rock, shadow] = c;
       const random = rng(60614);
+      const dust = noise(3030);
 
       // sky burning down to the horizon, with the sun sitting on it
       g.gradient(paint => g.rectEach(0, 0, 40, 19, paint), sky, 0, 0, 0, 18.5);
@@ -880,8 +953,9 @@
       butte(24, 15, 2.6, 4, mesa);
       striate(24, 15, 2.6, 4, mesa, 2);
 
-      // the desert floor, lit towards the horizon
-      g.gradient(paint => g.rectEach(0, 19, 40, 13, paint), sand, 0, 32, 0, 18.5);
+      // the desert floor, lit towards the horizon and grained all over
+      g.shadeEach(paint => g.rectEach(0, 19, 40, 13, paint), sand, (ux, uy) =>
+        0.92 - (uy - 18.5) / 13.5 * 0.5 + dust.fbm(ux * 0.7, uy * 1.8, 4) * 0.2 - 0.1);
       for (let i = 0; i < 14; i++) {
         const y = 20 + random() * 11;
         g.sphere(random() * 40, y, 2 + random() * 5, 0.5 + random() * 0.5, sand,
@@ -918,7 +992,8 @@
       // rocks and scrub
       for (let i = 0; i < 12; i++) {
         const x = random() * 39, y = 21 + random() * 10;
-        g.sphere(x, y, 0.7 + random() * 1.3, 0.5 + random() * 0.8, rock, { ambient: 0.42 });
+        g.sphere(x, y, 0.7 + random() * 1.3, 0.5 + random() * 0.8, rock,
+          { ambient: 0.42, texture: (ux, uy) => dust.fbm(ux * 3.4, uy * 3.4, 2) * 0.18 - 0.09 });
       }
       for (let i = 0; i < 16; i++) {
         const x = random() * 39, y = 21 + random() * 10;
@@ -965,32 +1040,37 @@
     draw(g, c) {
       const [wall, fur, muzzle, ribbon, pad, ink, shine] = c;
       const random = rng(20260821);
+      /* Plush is the difference between a bear and a brown balloon: a fine
+         mottle over the shading, finer across than down so it reads as pile
+         lying one way. */
+      const pile = noise(6161);
+      const fluff = (ux, uy) => pile.fbm(ux * 2.6, uy * 1.4, 3) * 0.26 - 0.13;
 
       g.fill(wall[4]);
       g.sphere(16, 18, 15.5, 17, wall, { ambient: 0.55, spread: 0.45 });
 
       // ears behind the head
       for (const side of [-1, 1]) {
-        g.sphere(16 + side * 6.6, 8.6, 3.4, 3.4, fur);
-        g.sphere(16 + side * 6.6, 8.9, 2, 2, muzzle, { ambient: 0.5, spread: 0.4 });
+        g.sphere(16 + side * 6.6, 8.6, 3.4, 3.4, fur, { texture: fluff });
+        g.sphere(16 + side * 6.6, 8.9, 2, 2, muzzle, { ambient: 0.5, spread: 0.4, texture: fluff });
       }
 
       // arms and legs behind the body
       for (const side of [-1, 1]) {
-        g.sphere(16 + side * 8.4, 24, 3.1, 4.6, fur, { lx: -0.6 * side });
+        g.sphere(16 + side * 8.4, 24, 3.1, 4.6, fur, { lx: -0.6 * side, texture: fluff });
         g.sphere(16 + side * 8.9, 26.6, 1.7, 2, pad, { ambient: 0.5 });
-        g.sphere(16 + side * 5.2, 33.6, 3.6, 3.4, fur, { lx: -0.6 * side });
+        g.sphere(16 + side * 5.2, 33.6, 3.6, 3.4, fur, { lx: -0.6 * side, texture: fluff });
         g.sphere(16 + side * 5.6, 34.6, 2.1, 1.8, pad, { ambient: 0.5 });
         for (let i = 0; i < 3; i++) g.disc(16 + side * (4.4 + i * 1.1), 32.6, 0.42, pad[0]);
       }
 
       // body, then head on top
-      g.sphere(16, 27, 7.4, 7.6, fur);
-      g.sphere(16, 27.6, 4.6, 5, muzzle, { ambient: 0.5, spread: 0.42 });
-      g.sphere(16, 13.5, 7.8, 7.2, fur);
+      g.sphere(16, 27, 7.4, 7.6, fur, { texture: fluff });
+      g.sphere(16, 27.6, 4.6, 5, muzzle, { ambient: 0.5, spread: 0.42, texture: fluff });
+      g.sphere(16, 13.5, 7.8, 7.2, fur, { texture: fluff });
 
       // face
-      g.sphere(16, 17.4, 4.4, 3.4, muzzle, { ambient: 0.5, spread: 0.45 });
+      g.sphere(16, 17.4, 4.4, 3.4, muzzle, { ambient: 0.5, spread: 0.45, texture: fluff });
       g.sphere(16, 15.6, 1.9, 1.4, ink, { ly: -0.85, ambient: 0.35 });
       g.line(16, 16.8, 16, 18.2, ink[0], 0.4);
       g.line(16, 18.2, 14.4, 19, ink[0], 0.4);
@@ -1009,7 +1089,7 @@
       g.sphere(16, 21.2, 1.1, 1.1, ribbon, { ambient: 0.6 });
 
       // a worn patch and some stitching, the way an old bear goes
-      g.sphere(11.4, 29.6, 2.2, 1.8, fur, { ambient: 0.3, spread: 0.35 });
+      g.sphere(11.4, 29.6, 2.2, 1.8, fur, { ambient: 0.3, spread: 0.35, texture: fluff });
       for (let i = 0; i < 5; i++) g.rect(9.8 + i * 0.8, 28.6 + i * 0.42, 0.5, 0.28, ink[1]);
 
       // dust in the light
@@ -1040,6 +1120,7 @@
     draw(g, c) {
       const [sky, star, moon, beam, tower, stripe, rock, sea, foam] = c;
       const random = rng(1857);
+      const stone = noise(2626);
 
       // night sky, palest low down where the moon is
       g.gradient(paint => g.rectEach(0, 0, 32, 27, paint), sky, 0, 0, 0, 26);
@@ -1062,8 +1143,8 @@
         const y = 27.5 + random() * 12;
         g.sphere(random() * 32, y, 1 + random() * 2.6, 0.4, sea, { ambient: 0.66, spread: 0.3 });
       }
-      g.gradient(paint => g.polyEach([[2, 40], [5, 30], [10, 26.5], [21, 26.5], [26, 30], [30, 40]], paint),
-        rock, 30, 0, 4, 0);
+      g.shadeEach(paint => g.polyEach([[2, 40], [5, 30], [10, 26.5], [21, 26.5], [26, 30], [30, 40]], paint),
+        rock, (ux, uy) => 0.78 - (ux - 4) / 26 * 0.5 + stone.fbm(ux * 1.3, uy * 1.3, 4) * 0.42 - 0.21);
       for (let i = 0; i < 9; i++) {
         const x = 4 + random() * 24, y = 28 + random() * 10;
         g.sphere(x, y, 1 + random() * 1.6, 0.7 + random() * 1.1, rock, { ambient: 0.4 });
@@ -1094,6 +1175,252 @@
       // door and windows down the tower
       g.rect(15, 24.6, 2, 2.4, rock[0]);
       for (const y of [14, 18, 21.5]) g.rect(15.4, y, 1.2, 1.2, sky[1]);
+    },
+  });
+
+  picture({
+    id: 'western',
+    name: 'Hat and Boot',
+    blurb: 'Left by the crate, out west',
+    cols: 32, rows: 40,
+    palette: [
+      { ramp: '#8ec4e8', name: 'Sky', tones: 5 },
+      { ramp: '#f4ead6', name: 'Cream', tones: 5, dark: 0.44, light: 0.3 },
+      { ramp: '#a98098', name: 'Mesa', tones: 4, dark: 0.4, light: 0.4 },
+      { ramp: '#d9a066', name: 'Sand', tones: 7, dark: 0.5, light: 0.42 },
+      { ramp: '#8a5626', name: 'Leather', tones: 9, dark: 0.68, light: 0.55 },
+      { ramp: '#a97b45', name: 'Wood', tones: 6, dark: 0.55, light: 0.45 },
+      { ramp: '#b3324a', name: 'Bandana', tones: 5, dark: 0.5, light: 0.45 },
+      { ramp: '#4f8f4a', name: 'Cactus', tones: 6, dark: 0.5, light: 0.45 },
+      { ramp: '#96836f', name: 'Rock', tones: 5, dark: 0.5, light: 0.4 },
+    ],
+    draw(g, c) {
+      const [sky, cream, mesa, sand, leather, wood, bandana, cactus, rock] = c;
+      const random = rng(1889);
+      const grain = noise(2211);
+      const rough = noise(707);
+
+      // ---------------------------------------------------------- distance
+      g.gradient(paint => g.rectEach(0, 0, 32, 17, paint), sky, 0, 0, 0, 16.5);
+
+      // clouds, their edges broken up so they aren't rows of bubbles
+      const cloud = (cx, cy, w, h, seed) => {
+        const puff = noise(seed);
+        g.shadeEach(paint => g.ellipseEach(cx, cy, w, h, paint), cream, (ux, uy) => {
+          const dx = (ux - cx) / w, dy = (uy - cy) / h;
+          const edge = 1 - Math.min(1, dx * dx + dy * dy);
+          const bite = puff.fbm(ux * 0.75 + dy, uy * 1.6, 3);
+          if (edge < 0.95 * bite) return -1;                    // nibbled away
+          return 0.36 + edge * 0.5 - dy * 0.45 + bite * 0.3;
+        });
+      };
+      cloud(7, 4, 6, 1.9, 31);
+      cloud(22, 2.6, 5.5, 1.6, 32);
+      cloud(27, 7.5, 4, 1.2, 33);
+
+      // buttes on the skyline, pale with distance
+      const butte = (x, y, w, h) => {
+        g.shadeEach(paint => g.polyEach([[x - w, y + h], [x - w * 0.85, y + h * 0.2],
+          [x - w * 0.62, y], [x + w * 0.62, y], [x + w * 0.88, y + h * 0.25], [x + w, y + h]], paint),
+          mesa, (ux) => 0.35 + (ux - (x - w)) / (2 * w) * 0.5 + rough.fbm(ux * 1.4, 0, 2) * 0.2);
+      };
+      butte(4, 11, 3.4, 4.4);
+      butte(11, 12.4, 2.4, 3);
+      butte(27, 10.4, 4.4, 5.2);
+      butte(20.5, 13, 2, 2.6);
+
+      // the flat, running back to the buttes
+      g.shadeEach(paint => g.rectEach(0, 15.5, 32, 25, paint), sand, (ux, uy) => {
+        const depth = Math.min(1, (uy - 15.5) / 22);
+        return 0.86 - depth * 0.42 + grain.fbm(ux * 0.5, uy * 1.4, 4) * 0.16 - 0.08;
+      });
+
+      // a fence going off to the right, and scrub along the middle distance
+      for (let i = 0; i < 7; i++) {
+        const x = 17.5 + i * 2.4, y = 17.6 + i * 0.42;
+        g.shadeEach(paint => g.rectEach(x, y - 1.5 - i * 0.1, 0.42 + i * 0.05, 1.8 + i * 0.14, paint),
+          wood, (ux, uy) => 0.3 + grain.fbm(ux * 3, uy * 0.7, 2) * 0.5);
+        if (i) {
+          g.rect(x - 2.4, y - 1.15 - i * 0.1, 2.6, 0.22, wood[1]);
+          g.rect(x - 2.4, y - 0.5 - i * 0.1, 2.6, 0.2, wood[1]);
+        }
+      }
+      // low scrub, and it stays low: a bush the size of the hat reads as a
+      // green cloud sitting on the sand
+      for (let i = 0; i < 18; i++) {
+        const y = 16.8 + random() * 4.4;
+        const size = (0.22 + (y - 16.8) * 0.1) * (0.7 + random() * 0.7);
+        g.sphere(random() * 32, y, size * 1.8, size * 0.8, cactus,
+          { ambient: 0.32 + random() * 0.2, spread: 0.4 });
+      }
+
+      // ------------------------------------------------------- the crate
+      const crateFront = [[17.6, 24.4], [30.5, 22.6], [30.5, 33.6], [17.6, 34.6]];
+      g.shadeEach(paint => g.polyEach(crateFront, paint), wood, (ux, uy) =>
+        0.34 + (30.5 - ux) / 13 * 0.22 + grain.fbm(ux * 0.5, uy * 6, 3) * 0.5 - 0.1);
+      // the gaps between the boards
+      for (const at of [0.26, 0.52, 0.78]) {
+        const yLeft = 24.4 + (34.6 - 24.4) * at, yRight = 22.6 + (33.6 - 22.6) * at;
+        g.poly([[17.6, yLeft], [30.5, yRight], [30.5, yRight + 0.3], [17.6, yLeft + 0.32]], wood[0]);
+      }
+      // the top of the crate, catching the light
+      g.shadeEach(paint => g.polyEach([[17.6, 24.4], [30.5, 22.6], [31.8, 21], [19.6, 22.6]], paint),
+        wood, (ux, uy) => 0.62 + grain.fbm(ux * 0.6, uy * 5, 3) * 0.4);
+      g.poly([[17.6, 24.4], [17.6, 34.6], [16.9, 33.9], [16.9, 24.1]], wood[0]);
+
+      // ------------------------------------------------------- the bandana
+      const cloth = noise(4242);
+      g.shadeEach(paint => g.polyEach([[21.4, 21.6], [26.4, 20.8], [28.6, 23],
+        [27.4, 25.4], [23.4, 25.2], [21, 23.4]], paint), bandana, (ux, uy) =>
+        0.34 + cloth.fbm(ux * 1.3, uy * 1.3, 3) * 0.8 - (uy - 21) * 0.04);
+      // the corner hanging down the front of the crate
+      g.shadeEach(paint => g.polyEach([[27.4, 25.4], [28.6, 23], [29.6, 26.6],
+        [28.2, 29.8], [26.6, 27.2]], paint), bandana, (ux, uy) =>
+        0.22 + cloth.fbm(ux * 1.6, uy * 1.6, 2) * 0.55);
+      for (let i = 0; i < 18; i++) {
+        const x = 20.5 + random() * 9, y = 20.8 + random() * 9;
+        if (!bandana.includes(g.get(x, y))) continue;
+        g.disc(x, y, 0.2 + random() * 0.12, cream[3]);
+      }
+
+      // ---------------------------------------------------------- the hat
+      /* Brim first, in the dark tones: the top surface is then drawn a
+         little higher up, so what is left showing along the front edge is
+         the underside of the brim in shadow. */
+      const hide = noise(9090);
+      const hx = 13, hy = 31.4;
+      const felt = (ux, uy) => hide.fbm(ux * 1.2, uy * 1.9, 3) * 0.18 - 0.09;
+
+      /* A brim is a disc seen almost edge on, tilting up towards its rim, so
+         it catches more light the further out you go — and the underside,
+         which is only a sliver at the front, is in shadow the whole way. */
+      g.shadeEach(paint => g.ellipseEach(hx, hy + 0.55, 10.9, 4.3, paint), leather,
+        (ux, uy) => 0.06 + felt(ux, uy) * 0.4);
+      g.shadeEach(paint => g.ellipseEach(hx, hy, 10.8, 4.2, paint), leather, (ux, uy) => {
+        const dx = (ux - hx) / 10.8, dy = (uy - hy) / 4.2;
+        const rim = dx * dx + dy * dy;
+        const key = -dx * 0.2 - dy * 0.42;                  // light from the upper left
+        const behind = uy < hy - 1 ? 0.2 : 0;               // the crown shades the far side
+        return 0.5 + rim * 0.42 + key - behind + felt(ux, uy);
+      });
+      // the stitched edge, running round the brim
+      for (let a = 0; a < Math.PI * 2; a += 0.06) {
+        g.disc(hx + Math.cos(a) * 9.9, hy + Math.sin(a) * 3.8, 0.17, leather[1]);
+      }
+
+      /* The crown: not a dome. Squaring off the shape gives it the flat top
+         and near-vertical sides a hat actually has, and the crease down the
+         middle is the thing that makes it read as felt rather than a bowl. */
+      g.shadeEach(paint => g.ellipseEach(hx, 27.4, 4.9, 4.9, paint), leather, (ux, uy) => {
+        const dx = (ux - hx) / 4.9, dy = (uy - 27.4) / 4.9;
+        if (Math.abs(dx) ** 2.3 + Math.abs(dy) ** 3.2 > 1) return -1;
+        if (uy > hy - 0.3) return -1;                        // the brim takes over
+        const nz = Math.sqrt(Math.max(0, 1 - dx * dx - dy * dy));
+        const crease = Math.exp(-((ux - hx) ** 2) / 1.6) * (uy < 26.6 ? 0.42 : 0.16);
+        const pinch = Math.exp(-((Math.abs(ux - hx) - 3.2) ** 2) / 0.5) * (uy < 25.6 ? 0.24 : 0);
+        const lift = Math.exp(-((ux - hx + 2.1) ** 2) / 1.6) * (uy < 26 ? 0.09 : 0);
+        return 0.5 + 0.46 * (dx * -0.5 + dy * -0.5 + nz * 0.62) - crease - pinch + lift + felt(ux, uy);
+      });
+
+      // the band round the base of the crown, and its buckle
+      g.shadeEach(paint => g.ellipseEach(hx, 29.9, 4.85, 2, paint), leather, (ux, uy) => {
+        if (uy < 29.2 || uy > hy - 0.35) return -1;
+        return 0.1 + (ux - 8) / 10 * 0.16 + felt(ux, uy) * 0.5;
+      });
+      g.sphere(16.2, 29.9, 0.85, 0.62, cream, { ambient: 0.5 });
+
+      // ---------------------------------------------------------- the boot
+      /* Leather that pale shows its shape only through shading, so the boot
+         gets a strong turn from its lit left edge round to the shadowed
+         right, and darkens where it meets the ground. */
+      const bootLight = (ux, uy) => 0.82 - Math.abs(ux - 4.2) / 5.4 * 0.62 - (uy - 25) * 0.028
+        + hide.fbm(ux * 1.1, uy * 1.1, 3) * 0.13 - 0.065;
+      // shaft, pulled in at the ankle
+      g.shadeEach(paint => g.polyEach([[2.6, 25.6], [6.6, 24.8], [7.4, 31.6],
+        [6.9, 33.4], [4.1, 33.9], [3.2, 31.8]], paint), cream, bootLight);
+      // foot and toe
+      g.shadeEach(paint => g.polyEach([[4.1, 33.9], [6.9, 33.4], [9.4, 35], [10.2, 36.4],
+        [9.8, 37.2], [4.6, 37.4], [3.6, 35.8]], paint), cream, bootLight);
+      // sole and heel
+      g.shadeEach(paint => g.polyEach([[4.6, 37.4], [9.8, 37.2], [10, 38.1], [4.4, 38.4]], paint),
+        leather, (ux) => 0.26 + (ux - 4) / 7 * 0.2);
+      g.shadeEach(paint => g.polyEach([[3.6, 35.8], [4.6, 37.4], [4.4, 38.4], [3, 37]], paint),
+        leather, (ux) => 0.2 + (ux - 3) / 3 * 0.16);
+      // the scrolled stitching a cowboy boot carries up its shaft
+      for (let i = 0; i < 4; i++) {
+        const y = 26.6 + i * 1.7;
+        g.line(3.1 + i * 0.12, y, 6.7 - i * 0.05, y - 0.55, cream[0], 0.2);
+      }
+      g.line(3.4, 30.6, 6.9, 30, cream[0], 0.26);
+      g.line(2.9, 25.4, 6.7, 24.6, cream[1], 0.3);
+
+      // --------------------------------------------------------- the plants
+      // barrel cactus, ribbed and spined
+      const barrel = (cx, cy, r) => {
+        g.sphere(cx, cy, r, r * 1.05, cactus, { texture: (ux, uy) => rough.fbm(ux * 2, uy * 2, 2) * 0.1 - 0.05 });
+        for (let i = -4; i <= 4; i++) {
+          const lean = i / 4;
+          for (let t = 0; t <= 1; t += 0.06) {
+            const x = cx + lean * r * 0.95 * Math.sin(Math.PI * t * 0.5 + 0.4) + lean * 0.3;
+            const y = cy - r * 1.0 + t * r * 2;
+            if (Math.hypot((x - cx) / r, (y - cy) / (r * 1.05)) > 0.98) continue;
+            g.disc(x, y, 0.16, cactus[1]);
+            if (t > 0.1 && t < 0.95 && Math.abs(i) % 2 === 0) g.disc(x + lean * 0.35, y, 0.12, cream[4]);
+          }
+        }
+        for (let i = 0; i < 5; i++) {
+          g.sphere(cx - r * 0.5 + i * r * 0.25, cy - r * 0.95, 0.5, 0.34, bandana, { ambient: 0.55 });
+        }
+      };
+      barrel(24.5, 34.6, 3.1);
+
+      // prickly pear pads
+      const pad = (cx, cy, rx, ry, tilt) => {
+        g.shadeEach(paint => g.ellipseEach(cx, cy, rx, ry, paint), cactus, (ux, uy) => {
+          const dx = (ux - cx) / rx, dy = (uy - cy) / ry;
+          const nz = Math.sqrt(Math.max(0, 1 - dx * dx - dy * dy));
+          return 0.42 + 0.45 * (dx * -0.5 + dy * -0.55 + nz * 0.5) + rough.fbm(ux * 1.6, uy * 1.6, 2) * 0.12;
+        });
+        for (let i = 0; i < 9; i++) {
+          const a = i * 2.4 + tilt, d = 0.35 + (i % 3) * 0.22;
+          g.disc(cx + Math.cos(a) * rx * d * 1.6, cy + Math.sin(a) * ry * d * 1.6, 0.16, cactus[0]);
+        }
+      };
+      pad(29.6, 32.6, 1.9, 2.6, 0.4);
+      pad(30.4, 29.2, 1.5, 2, 1.1);
+
+      // ----------------------------------------------------- ground detail
+      /* Rocks and tufts go on the ground, not on the hat: each one is only
+         put down where the sand is still showing through. */
+      const onSand = (x, y) => sand.includes(g.get(x, y));
+      for (let i = 0, placed = 0; i < 200 && placed < 16; i++) {
+        const x = random() * 32, y = 25 + random() * 14;
+        if (!onSand(x, y) || !onSand(x - 1, y) || !onSand(x + 1, y)) continue;
+        g.sphere(x, y, 0.5 + random() * 1.1, 0.35 + random() * 0.7, rock, {
+          ambient: 0.36, texture: (ux, uy) => rough.fbm(ux * 3, uy * 3, 2) * 0.14 - 0.07,
+        });
+        placed++;
+      }
+      for (let i = 0, placed = 0; i < 300 && placed < 15; i++) {
+        const x = random() * 32, y = 24 + random() * 15;
+        if (!onSand(x, y) || !onSand(x, y - 1)) continue;
+        const blades = 2 + Math.floor(random() * 3);
+        for (let b = 0; b < blades; b++) {
+          const lean = (random() - 0.5) * 1.4;
+          const tall = 0.6 + random() * 1.2;
+          g.poly([[x + lean, y - tall], [x + 0.3, y + 0.25], [x - 0.3, y + 0.25]],
+            cactus[random() < 0.4 ? 0 : 1]);
+        }
+        placed++;
+      }
+      // the shadows the hat and crate throw on the sand
+      for (const [cx, cy, rx, ry] of [[15, 35.4, 9.5, 1.5], [24.5, 36.4, 6, 1.1], [7, 38.4, 4, 0.8]]) {
+        g.ellipseEach(cx, cy, rx, ry, (x, y, dx, dy) => {
+          if (!onSand(x / g.detail, y / g.detail)) return;
+          const depth = 1 - Math.min(1, dx * dx + dy * dy);
+          g.poke(x, y, sand[level(0.34 - depth * 0.3, sand.length)]);
+        });
+      }
     },
   });
 
@@ -1159,6 +1486,7 @@
     PAPER,
     DETAIL,
     tones,
+    noise,
     grid,
     list: (detail) => PICTURES.map(def => build(def, detail)),
     build,

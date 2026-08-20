@@ -1,6 +1,6 @@
 # Pigment
 
-Colour by number, on a phone. Nine pictures are built in, and any photo
+Colour by number, on a phone. Ten pictures are built in, and any photo
 already on the device can be turned into another. No account, no
 downloads, no signal needed.
 
@@ -13,10 +13,10 @@ number ignores you and says which number it actually wants.
 
 ## What's in it
 
-- **Nine pictures** — a hot air balloon, a rocket, a butterfly, a springer
-  spaniel, a boat at sunset, a cupcake, a desert at sundown, an old teddy
-  and a lighthouse at night. Between 77 and 155 areas each, in 22 to 35
-  colours.
+- **Ten pictures** — a hot air balloon, a rocket, a butterfly, a springer
+  spaniel, a boat at sunset, a cupcake, a desert at sundown, an old teddy,
+  a lighthouse at night, and a hat and boot left by a crate out west.
+  Between 73 and 147 areas each, in 22 to 41 colours.
 - **Your own photos.** Pick one and it becomes a picture to colour in,
   worked out here on the phone.
 - **It keeps your place**, picture by picture, so you can put one down
@@ -95,6 +95,29 @@ behind everything else instead of beside it.
 The balloon's envelope shows why it's worth the trouble: its five gores
 are shaded as parts of *one* ball rather than five stripes shaded
 separately, which is the difference between a balloon and a deckchair.
+
+### Texture, or why flat tone bands look like cut paper
+
+Shading alone gives smooth, plastic-looking surfaces. Real leather, rock,
+sand, water and plush are *mottled*, and it is that mottling — as much as
+the light — that makes a drawn surface read as a material.
+
+`noise` is ordinary value noise: a fixed random number at every whole
+coordinate, blended smoothly in between, summed at halving scales so the
+result has broad patches and fine grain together. Any shading function
+can add a little of it. The teddy's pile is noise stretched wider than it
+is tall, so it lies one way; the hat's felt is finer and fainter; the
+sea's swell is long and low, which gives water its light and dark without
+drawing a single wave.
+
+Two details that matter more than they sound:
+
+- A brightness below zero means **leave this square alone**, which is how
+  a cloud gets a ragged edge instead of the outline of the ellipse it was
+  drawn inside.
+- Scattered things — rocks, tufts, sprinkles — are only put down where
+  the surface underneath is the one they belong on. Skip that and the
+  rocks land on the hat.
 
 ## Turning a photo into a picture
 
