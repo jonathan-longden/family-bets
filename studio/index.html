@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Take One — the voice studio</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="description" content="Record a take and it comes back finished: the room taken out, the tone put right, the level evened, the notes tuned and the loudness set for release." />
+<meta name="theme-color" content="#0E1116" />
+<link rel="icon" href="icon-192.png" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Take One" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3m6-3a6 6 0 0 1-5 5.9V20h3v2H8v-2h3v-3.1A6 6 0 0 1 6 11h2a4 4 0 0 0 8 0z"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5 19 12 7 19.5z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 4h4v16H7zm6 0h4v16h-4z"/></symbol>
+    <symbol id="i-start" viewBox="0 0 24 24"><path d="M6 5h2v14H6zm3.5 7L19 5.5v13z"/></symbol>
+    <symbol id="i-loop" viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2z"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M11 3h2v8.1l3-3L17.4 9.5 12 15 6.6 9.5 8 8.1l3 3zM5 18h14v2H5z"/></symbol>
+    <symbol id="i-share" viewBox="0 0 24 24"><path d="M18 16.1a3 3 0 0 0-2 .8l-7.1-4.2a3 3 0 0 0 0-1.4L16 7.1a3 3 0 1 0-1-2.1l-7.1 4.2a3 3 0 1 0 0 5.6L15 19a3 3 0 1 0 3-2.9"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M6 7h12l-1 14H7zm3-4h6l1 2h4v2H4V5h4z"/></symbol>
+    <symbol id="i-wand" viewBox="0 0 24 24"><path d="M14.5 3 16 6.5 19.5 8 16 9.5 14.5 13 13 9.5 9.5 8 13 6.5zM7 11l1 2.3L10.3 14 8 15l-1 2.3L6 15l-2.3-1L6 13zm10.5 4 .8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.7 5.3 8 12l6.7 6.7 1.4-1.4L10.8 12l5.3-5.3z"/></symbol>
+    <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-9 9v7h4v-8H5v-1a7 7 0 1 1 14 0v1h-2v8h4v-7a9 9 0 0 0-9-9"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6zm8 1.5V7h3.5z"/></symbol>
+  </defs>
+</svg>
+
+<header class="top">
+  <div class="brand">
+    <span class="logo"><svg class="ic"><use href="#i-mic"/></svg></span>
+    <span>Take One</span>
+  </div>
+  <button id="helpBtn" class="icon-btn" title="How it works" aria-label="How it works">
+    <svg class="ic"><use href="#i-wand"/></svg>
+  </button>
+</header>
+
+<nav class="tabs" id="tabs" aria-label="Sections">
+  <button class="tab is-on" data-view="record">Record</button>
+  <button class="tab" data-view="takes">Takes <span class="count" id="takeCount"></span></button>
+  <button class="tab" data-view="setup">Setup</button>
+</nav>
+
+<main>
+
+<!-- ───────────── record ───────────── -->
+<section class="view" id="view-record">
+  <div class="booth">
+    <canvas id="ring" width="280" height="280" aria-hidden="true"></canvas>
+    <button id="recBtn" class="rec" aria-label="Start recording"><span class="dot"></span></button>
+    <div class="clock" data-level=""><span id="clock">0:00</span></div>
+  </div>
+
+  <div class="tuner" id="tuner">
+    <div class="tuner-note" id="tunerNote">—</div>
+    <div class="tuner-bar"><i class="tuner-mid"></i><i class="tuner-needle" id="tunerNeedle"></i></div>
+    <div class="tuner-cents" id="tunerCents">waiting for a note</div>
+  </div>
+
+  <div class="inputrow">
+    <label class="field">
+      <span>Microphone</span>
+      <select id="deviceSel"><option>Default</option></select>
+    </label>
+    <button id="monBtn" class="chip" title="Hear the chain while you record">
+      <svg class="ic"><use href="#i-headphones"/></svg><span>Monitor</span>
+    </button>
+  </div>
+
+  <p class="hint" id="recHint">Record a take and it comes back finished. Nothing leaves the device.</p>
+
+  <div class="dropzone" id="drop">
+    <svg class="ic"><use href="#i-file"/></svg>
+    <div><strong>Already have a recording?</strong><br>Drop an audio file here, or <button class="link" id="pickBtn">choose one</button>.</div>
+    <input type="file" id="fileInput" accept="audio/*" hidden />
+  </div>
+</section>
+
+<!-- ───────────── one take ───────────── -->
+<section class="view" id="view-take" hidden>
+  <div class="take-head">
+    <button class="icon-btn" id="backBtn" aria-label="Back"><svg class="ic"><use href="#i-back"/></svg></button>
+    <input id="takeName" class="name" aria-label="Take name" />
+  </div>
+  <div class="take-sub" id="takeSub"></div>
+
+  <div class="wave-wrap">
+    <canvas id="wave" height="180"></canvas>
+    <div class="wave-time"><span id="playTime">0:00</span><span id="totalTime">0:00</span></div>
+  </div>
+
+  <div class="transport">
+    <button id="playBtn" class="round" aria-label="Play"><svg class="ic"><use href="#i-play"/></svg></button>
+    <div class="ab" id="ab" role="group" aria-label="What you're hearing">
+      <button data-src="studio" class="is-on">Studio</button>
+      <button data-src="raw">Raw</button>
+    </div>
+    <button id="loopBtn" class="round ghost" aria-label="Loop"><svg class="ic"><use href="#i-loop"/></svg></button>
+  </div>
+  <label class="match"><input type="checkbox" id="matchBox" checked /> Match the levels when comparing</label>
+
+  <div class="progress" id="progress" hidden>
+    <div class="bar"><i id="progBar"></i></div>
+    <span id="progWhat">working</span>
+  </div>
+
+  <div class="cards" id="whatItDid"></div>
+  <div class="stats" id="stats"></div>
+
+  <details class="tweak" id="tweak">
+    <summary>Do it yourself</summary>
+    <div id="controls"></div>
+    <button class="wide ghost" id="autoBtn">Put everything back to automatic</button>
+  </details>
+
+  <div class="actions">
+    <button id="exportBtn" class="wide"><svg class="ic"><use href="#i-save"/></svg> Export WAV</button>
+    <button id="shareBtn" class="wide ghost" hidden><svg class="ic"><use href="#i-share"/></svg> Share</button>
+    <button id="deleteBtn" class="wide danger"><svg class="ic"><use href="#i-trash"/></svg> Delete take</button>
+  </div>
+</section>
+
+<!-- ───────────── takes ───────────── -->
+<section class="view" id="view-takes" hidden>
+  <div id="takeList" class="take-list"></div>
+  <p class="empty" id="takesEmpty">Nothing recorded yet. Takes you record stay on this device.</p>
+</section>
+
+<!-- ───────────── setup ───────────── -->
+<section class="view" id="view-setup" hidden>
+  <div class="panel">
+    <h2>Release loudness</h2>
+    <p class="note">What the finished take is levelled to. Streaming services turn everything down to their own number anyway, so louder is not better — it's just squashed.</p>
+    <select id="targetSel"></select>
+  </div>
+
+  <div class="panel">
+    <h2>Reference pitch</h2>
+    <p class="note">Where A above middle C sits. Leave it at 440 unless you're playing along with something that doesn't.</p>
+    <div class="row">
+      <input type="range" id="a4" min="415" max="466" step="1" />
+      <output id="a4Out">440 Hz</output>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Recording</h2>
+    <label class="check"><input type="checkbox" id="rawProcessing" /> Let the browser clean up the microphone</label>
+    <p class="note">Off by default, and better off: phone browsers ship noise suppression, echo cancellation and automatic gain that fight with a studio chain and can't be undone once they're baked into the recording.</p>
+    <label class="check"><input type="checkbox" id="autoRun" checked /> Finish every take as soon as it stops</label>
+  </div>
+
+  <div class="panel">
+    <h2>On this device</h2>
+    <p class="note" id="storageNote">—</p>
+    <button class="wide ghost" id="clearBtn">Delete every take</button>
+  </div>
+
+  <div class="panel" id="about">
+    <h2>How it works</h2>
+    <p class="note">Every take is measured before it's touched: how loud the voice is, how loud the room is, where the tone sits, how much the s's spit, which notes were sung and in what key. Those measurements pick the settings, and then a single pass does the work:</p>
+    <ol class="note steps">
+      <li><b>Room out.</b> The quiet moments of your own recording are the fingerprint of the room, and every frequency gets turned down by however much of it is room rather than voice.</li>
+      <li><b>Tone.</b> A high pass under the lowest note you sang, the mud and the boxiness pulled back, presence and air put where a voice belongs.</li>
+      <li><b>S sounds.</b> Only the loudest few per cent of the sibilant band gets held down, so nothing else goes dull.</li>
+      <li><b>Level.</b> Two compressors, one slow and one quick, so the quiet words carry without the loud ones jumping.</li>
+      <li><b>Tuning.</b> The voice is cut into one grain per glottal pulse and laid back down at the spacing the right note asks for. The grains aren't stretched, so it still sounds like you — and vibrato survives, because only the slow part of the error is corrected.</li>
+      <li><b>Space and loudness.</b> A little room, then the whole thing brought to a broadcast loudness with a look-ahead limiter on the end.</li>
+    </ol>
+    <p class="note">Nothing is uploaded. The audio never leaves the device, there's no account, and it all works with the network off.</p>
+  </div>
+</section>
+
+</main>
+
+<div id="toast" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
