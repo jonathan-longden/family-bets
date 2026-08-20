@@ -16,8 +16,11 @@ pot live, connect it to a free Firebase Realtime Database.
 >   from it.
 > - **[Neon Chomp](chomp/)** (`/chomp/`) — a springer spaniel loose in a
 >   neon maze: fetch the balls, dodge four cats. Plays offline.
+> - **[Take One](studio/)** (`/studio/`) — a voice studio: record a take
+>   and it comes back finished, tuned and levelled for release, without
+>   the audio leaving the device.
 >
-> All three are separate PWAs with the same no-build setup.
+> All four are separate PWAs with the same no-build setup.
 
 ## Firebase setup (for cross-device sync)
 

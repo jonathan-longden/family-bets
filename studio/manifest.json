@@ -1,0 +1,57 @@
+{
+  "id": "./",
+  "name": "Take One — the voice studio",
+  "short_name": "Take One",
+  "description": "Record a take and it comes back finished: the room taken out, the tone put right, the level evened, the notes tuned and the loudness set for release. Everything happens on the device.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0E1116",
+  "theme_color": "#0E1116",
+  "categories": [
+    "music",
+    "productivity",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New take",
+      "short_name": "Record",
+      "description": "Open straight on the record button",
+      "url": "./?open=record",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Takes",
+      "short_name": "Takes",
+      "description": "Everything recorded on this device",
+      "url": "./?open=takes",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
