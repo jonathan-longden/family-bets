@@ -44,6 +44,14 @@ device.
   key profiles, and the tuning snaps inside that key rather than to every
   semitone there is — much kinder to a performance. If the key isn't clear it
   says so and snaps to the nearest note instead. You can override it.
+- **Sings to a backing.** Add a track — any audio file — and it plays while
+  you record, so you have something to sing to. The take is lined up against
+  it automatically, round-trip latency included: the app knows when it started
+  the music, when the microphone started listening, and what the headphones
+  and the input are adding on top, so your voice lands where you actually sang
+  it rather than a tenth of a second late. The music is then balanced four
+  decibels under the finished voice — measured, not guessed — and ducks out of
+  the way while you're singing. What you export is the mix.
 - **Finishes it.** A double either side of the middle, a room, a little tape
   drive, then the whole thing brought to a release loudness (−14 LUFS for
   streaming by default, −16 for podcasts, −23 for broadcast) with a look-ahead
@@ -76,6 +84,19 @@ device.
 3. Wait a few seconds. The finished take opens by itself.
 4. Play it, compare it with the raw one, pull a slider if you disagree.
 5. **Export WAV** (or **Share**).
+
+To sing to something, add a **backing track** on the record screen first
+(**Add**, then pick a file — it's kept as the file you added, so a four-minute
+song costs four megabytes rather than eighty). Press ▶ to hear it on its own,
+or just press record and sing along. **Wear headphones**: through speakers the
+backing goes into the take with you and can never be taken out again.
+
+Afterwards the take gets a **Backing** panel: whether the music is in the mix,
+its balance, how far it ducks under your voice, and **Line it up** for the last
+few milliseconds if it feels early or late. Switching to **Raw** plays your
+unprocessed voice against the same music, so the comparison stays in context.
+The exported WAV is the mix — turn *in the mix* off if you want the voice on
+its own.
 
 Drag an audio file onto the page — or use *choose one* — to run something you
 recorded elsewhere through the same chain. Anything the browser can decode
@@ -121,8 +142,10 @@ No build step, no bundler, no server, no account, and nothing from a CDN.
 
 Takes live in IndexedDB on the device: the raw take as 24-bit WAV and the
 finished one as 16-bit, so opening a take from the list plays immediately
-instead of re-rendering it. Settings live in local storage. Deleting a take
-deletes both.
+instead of re-rendering it. Backing tracks are kept as the file you added and
+decoded when they're needed. Settings live in local storage. Deleting a take
+deletes both halves of it; deleting a backing track leaves every take that used
+it alone.
 
 Rendering a take is real arithmetic — roughly a second per six seconds of
 audio on a laptop, slower on a phone — so it happens in a worker with a
@@ -144,3 +167,7 @@ HTTPS is not optional: browsers won't hand over a microphone without it,
 - Live monitoring gives you the tone chain, not the tuning.
 - Very long takes are limited by memory rather than by anything clever: an
   hour-long recording will make a phone unhappy.
+- A backing added to a take *afterwards* starts from the top of the track,
+  because there's nothing to line it up against — **Line it up** moves it by up
+  to 400 ms, not by verses. If you want to sing over the second chorus, record
+  to the backing rather than attaching it later.

@@ -65,6 +65,7 @@ function contourOf(x, sr) {
 
 export function createEngine(post) {
   let current = null;   // { id, samples, sampleRate, report }
+  let backing = null;   // { id, channels } — already lined up with the take
 
   return function handle(msg) {
     try {
@@ -78,19 +79,31 @@ export function createEngine(post) {
         return;
       }
 
+      /* A backing arrives lined up: sample zero of it is sample zero of the
+         take, padded or trimmed on the page where the alignment is known. */
+      if (msg.type === 'backing') {
+        backing = msg.channels && msg.channels.length
+          ? { id: msg.id, channels: msg.channels.map(c => new Float32Array(c)) }
+          : null;
+        post({ type: 'backing-ready', id: msg.id, has: !!backing });
+        return;
+      }
+
       if (msg.type === 'render') {
         if (!current || current.id !== msg.id) {
           post({ type: 'need-samples', id: msg.id });
           return;
         }
+        const useBacking = backing && backing.id === msg.id ? backing.channels : null;
         const out = render(current.samples, current.sampleRate, msg.settings, current.report,
-          (p, what) => post({ type: 'progress', id: msg.id, p, what }));
+          (p, what) => post({ type: 'progress', id: msg.id, p, what }), useBacking);
         const peaks = peaksOf(out.channels[0], 1200);
         const { contour, hopSeconds } = contourOf(out.channels[0], out.sampleRate);
         post({
           type: 'done', id: msg.id, token: msg.token,
           channels: out.channels, sampleRate: out.sampleRate,
           lufs: out.lufs, truePeakDb: out.truePeakDb, notes: out.notes, peaks,
+          vocalLufs: out.vocalLufs, backingGain: out.backingGain, normaliseGain: out.normaliseGain,
           contour, contourHopSeconds: hopSeconds,
         }, [...out.channels.map(c => c.buffer), peaks.buffer, contour.buffer]);
         return;
@@ -104,6 +117,7 @@ export function createEngine(post) {
 
       if (msg.type === 'forget') {
         if (current && current.id === msg.id) current = null;
+        if (backing && backing.id === msg.id) backing = null;
         return;
       }
     } catch (err) {

@@ -274,6 +274,21 @@ export function applyGain(x, g) {
   return x;
 }
 
+/* Linear resampling. Good enough for lining a backing track up with a take
+   recorded at a different rate — the alternative is refusing to mix them. */
+export function resampleLinear(x, fromRate, toRate) {
+  if (fromRate === toRate) return x;
+  const ratio = toRate / fromRate;
+  const out = new Float32Array(Math.round(x.length * ratio));
+  for (let i = 0; i < out.length; i++) {
+    const pos = i / ratio;
+    const i0 = Math.floor(pos), frac = pos - i0;
+    const a = x[i0] || 0, b = x[i0 + 1] !== undefined ? x[i0 + 1] : a;
+    out[i] = a + (b - a) * frac;
+  }
+  return out;
+}
+
 /* Fixed-seed noise: two renders of the same take must come out identical,
    so the reverb tail can't be built from Math.random(). */
 export function makeRandom(seed = 0x2f6e2b1) {

@@ -85,6 +85,9 @@ export function autoSettings(report, wish = {}) {
     space: sung ? 26 : 4,
     spaceSize: sung ? 45 : 25,
     saturation: sung ? 22 : 14,
+    backingOn: true,
+    backingDb: 0,          // a trim on top of the automatic balance
+    duck: sung ? 22 : 45,  // music gets out of the way of a talker more than a singer
     targetName: wish.targetName || (sung ? 'streaming' : 'podcast'),
     targetLufs: target.lufs,
     ceilingDb: target.ceiling,
@@ -534,9 +537,49 @@ export function limit(chans, sr, ceilingDb, lookaheadMs = 3, releaseMs = 70) {
   return { chans: out, maxReductionDb: -linToDb(minGain) };
 }
 
+/* ───────────────────────── backing ─────────────────────────
+   The backing arrives already lined up with the take — sample zero of one is
+   sample zero of the other — so all that happens here is balance: how loud the
+   music sits under the voice, and how far it steps back while the voice is
+   actually singing.
+
+   The balance is set from the loudness of both, not from a fader position, so
+   a quiet phone recording and a mastered instrumental still end up in the
+   right relationship to each other. */
+export function mixBacking(chans, sr, backing, opts) {
+  const { trimDb = 0, duck = 30, vocalLufs } = opts;
+  const bl = integratedLufs(backing[0], sr).lufs;
+
+  /* Four decibels under the voice is where a demo mix wants the music: close
+     enough to carry it, far enough that every word survives. */
+  const wanted = (isFinite(vocalLufs) ? vocalLufs : -16) - 4;
+  const gain = dbToLin(clamp(wanted - bl, -40, 24) + trimDb);
+
+  const n = chans[0].length;
+  const duckDb = duck / 100 * 12;
+  const atk = poleCoef(12, sr), rel = poleCoef(320, sr);
+
+  /* Sidechain: the voice's own envelope decides how far the music drops. */
+  const lead = chans[0];
+  let env = 0;
+  const thrDb = (isFinite(vocalLufs) ? vocalLufs : -16) - 12;
+
+  for (let i = 0; i < n; i++) {
+    const a = Math.abs(lead[i]);
+    env = a > env ? atk * env + (1 - atk) * a : rel * env + (1 - rel) * a;
+    const over = linToDb(env) - thrDb;
+    const g = gain * dbToLin(-duckDb * clamp(over / 10, 0, 1));
+    for (let c = 0; c < chans.length; c++) {
+      const src = backing[Math.min(c, backing.length - 1)];
+      if (src) chans[c][i] += src[i] * g;
+    }
+  }
+  return { gain, backingLufs: bl };
+}
+
 /* ───────────────────────── the whole pass ───────────────────────── */
 
-export function render(input, sr, st, report, onProgress = () => {}) {
+export function render(input, sr, st, report, onProgress = () => {}, backing = null) {
   const notes = [];
   const step = (p, what) => onProgress(p, what);
 
@@ -625,15 +668,38 @@ export function render(input, sr, st, report, onProgress = () => {}) {
     notes.push({ key: 'space', label: 'Room added', detail: st.space + '% ' + (st.spaceSize > 60 ? 'hall' : st.spaceSize > 30 ? 'room' : 'booth') });
   }
 
-  step(0.9, 'setting the loudness');
   let chans = R ? [L, R] : [L];
+  const measure = ch => integratedLufs(ch[0], sr).lufs;
+
+  /* The voice on its own, measured before anything joins it: the A/B between
+     raw and finished is only a fair fight if both sides are the same loudness,
+     and once there's music in the mix the mix's own number can't say that. */
+  const vocalLufs = measure(chans);
+
+  let backingGain = 0;
+  if (backing && backing.length && st.backingOn) {
+    step(0.86, 'balancing the backing');
+    if (chans.length === 1 && backing.length > 1) chans = [chans[0], Float32Array.from(chans[0])];
+    const mixed = mixBacking(chans, sr, backing, {
+      trimDb: st.backingDb, duck: st.duck, vocalLufs,
+    });
+    backingGain = mixed.gain;
+    notes.push({
+      key: 'backing', label: 'Backing mixed in',
+      detail: (st.backingDb ? (st.backingDb > 0 ? '+' : '') + st.backingDb.toFixed(1) + ' dB, ' : '') +
+        'ducking ' + (st.duck / 100 * 12).toFixed(1) + ' dB under the voice',
+    });
+  }
+
+  step(0.9, 'setting the loudness');
 
   /* Aim at the target, let the limiter have the last word, then check what
      came out and nudge once — a limiter always costs a little loudness. */
-  const measure = ch => integratedLufs(ch[0], sr).lufs;
+  let normalise = 1;
   for (let pass = 0; pass < 2; pass++) {
     const now = measure(chans);
     const g = dbToLin(clamp(st.targetLufs - now, -24, 24));
+    normalise *= g;
     for (const c of chans) applyGain(c, g);
     chans = limit(chans, sr, st.ceilingDb).chans;
   }
@@ -651,6 +717,11 @@ export function render(input, sr, st, report, onProgress = () => {}) {
     sampleRate: sr,
     lufs: outLufs,
     truePeakDb: outTp,
+    vocalLufs,
+    /* What the backing and the raw voice need to be played at for a
+       side-by-side with this mix to mean anything. */
+    normaliseGain: normalise,
+    backingGain: backingGain * normalise,
     notes,
   };
 }

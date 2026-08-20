@@ -13,7 +13,11 @@ class TakeRecorder extends AudioWorkletProcessor {
     this.n = 0;
     this.on = false;
     this.port.onmessage = e => {
-      if (e.data === 'start') { this.n = 0; this.on = true; }
+      if (e.data === 'start') {
+        this.n = 0; this.on = true;
+        // the exact moment capture begins, for lining a take up with a backing
+        this.port.postMessage({ started: currentTime });
+      }
       else if (e.data === 'stop') { this.on = false; this.flush(); this.port.postMessage('stopped'); }
     };
   }
