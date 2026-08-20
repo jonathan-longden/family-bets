@@ -30,6 +30,7 @@
     <symbol id="i-wand" viewBox="0 0 24 24"><path d="M14.5 3 16 6.5 19.5 8 16 9.5 14.5 13 13 9.5 9.5 8 13 6.5zM7 11l1 2.3L10.3 14 8 15l-1 2.3L6 15l-2.3-1L6 13zm10.5 4 .8 1.7 1.7.8-1.7.8-.8 1.7-.8-1.7-1.7-.8 1.7-.8z"/></symbol>
     <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.7 5.3 8 12l6.7 6.7 1.4-1.4L10.8 12l5.3-5.3z"/></symbol>
     <symbol id="i-headphones" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-9 9v7h4v-8H5v-1a7 7 0 1 1 14 0v1h-2v8h4v-7a9 9 0 0 0-9-9"/></symbol>
+    <symbol id="i-music" viewBox="0 0 24 24"><path d="M20 3v12.5a3.5 3.5 0 1 1-2-3.16V7L10 8.6v9.9a3.5 3.5 0 1 1-2-3.16V6.2z"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6zm8 1.5V7h3.5z"/></symbol>
   </defs>
 </svg>
@@ -76,6 +77,20 @@
     </button>
   </div>
 
+  <div class="inputrow">
+    <label class="field">
+      <span>Backing track</span>
+      <select id="backingSel"><option value="">None — just my voice</option></select>
+    </label>
+    <button id="backingPlayBtn" class="chip" title="Hear the backing on its own" disabled>
+      <svg class="ic"><use href="#i-play"/></svg>
+    </button>
+    <button id="backingAddBtn" class="chip" title="Add a backing track">
+      <svg class="ic"><use href="#i-music"/></svg><span>Add</span>
+    </button>
+    <input type="file" id="backingInput" accept="audio/*" hidden />
+  </div>
+
   <p class="hint" id="recHint">Record a take and it comes back finished. Nothing leaves the device.</p>
 
   <div class="dropzone" id="drop">
@@ -115,6 +130,31 @@
 
   <div class="cards" id="whatItDid"></div>
   <div class="stats" id="stats"></div>
+
+  <div class="panel backing" id="backingPanel">
+    <div class="backing-head">
+      <h2><svg class="ic"><use href="#i-music"/></svg> Backing</h2>
+      <label class="check"><input type="checkbox" id="backingOn" checked /> in the mix</label>
+    </div>
+    <select id="takeBackingSel"><option value="">None — just my voice</option></select>
+    <div id="backingControls" hidden>
+      <div class="ctl">
+        <div class="ctl-top"><b>Balance</b><span class="ctl-val" id="backingDbOut">automatic</span></div>
+        <div class="ctl-why">The music is set four decibels under the voice by measuring both. This nudges it from there.</div>
+        <input type="range" id="backingDb" min="-12" max="12" step="0.5" value="0" />
+      </div>
+      <div class="ctl">
+        <div class="ctl-top"><b>Ducking</b><span class="ctl-val" id="duckOut">30%</span></div>
+        <div class="ctl-why">How far the music steps back while you're actually singing.</div>
+        <input type="range" id="duck" min="0" max="100" step="1" value="30" />
+      </div>
+      <div class="ctl">
+        <div class="ctl-top"><b>Line it up</b><span class="ctl-val" id="nudgeOut">0 ms</span></div>
+        <div class="ctl-why">Recording along to something always lands a few milliseconds out. Positive drags your voice later against the music.</div>
+        <input type="range" id="nudge" min="-400" max="400" step="5" value="0" />
+      </div>
+    </div>
+  </div>
 
   <details class="tweak" id="tweak">
     <summary>Do it yourself</summary>
@@ -162,6 +202,7 @@
   <div class="panel">
     <h2>On this device</h2>
     <p class="note" id="storageNote">—</p>
+    <div id="backingList" class="backing-list"></div>
     <button class="wide ghost" id="clearBtn">Delete every take</button>
   </div>
 

@@ -248,6 +248,25 @@ select, input[type=text] {
 .wide.ghost { background: var(--card); color: var(--ink-dim); border: 1px solid var(--line); }
 .wide.danger { background: var(--card); color: var(--rec); border: 1px solid rgba(255,77,77,.3); }
 
+/* ───────────── backing ───────────── */
+
+.panel.backing { padding: 12px 14px 4px; }
+.backing-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.backing-head h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+.backing-head .check { margin: 0 0 8px; color: var(--ink-dim); white-space: nowrap; }
+.panel.backing select { margin-bottom: 6px; }
+.panel.backing .ctl:first-child { border-top: 1px solid var(--line); }
+
+.backing-list { display: grid; gap: 6px; margin-bottom: 10px; }
+.backing-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--card-2); border-radius: 10px; padding: 6px 6px 6px 11px; font-size: 14px;
+}
+.backing-row > span { display: grid; min-width: 0; }
+.backing-row b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.backing-row span span { font-size: 12px; color: var(--ink-faint); }
+.backing-row .icon-btn { color: var(--ink-faint); }
+
 /* ───────────── takes ───────────── */
 
 .take-list { display: grid; gap: 8px; margin-bottom: 20px; }
