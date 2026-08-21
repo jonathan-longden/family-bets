@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/leaflet.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -29,6 +30,7 @@
 <nav role="tablist">
   <button role="tab" id="t-cap" aria-selected="true" aria-controls="p-cap">Capture</button>
   <button role="tab" id="t-log" aria-selected="false" aria-controls="p-log">Log<span class="count" id="cnt">0</span></button>
+  <button role="tab" id="t-map" aria-selected="false" aria-controls="p-map">Map</button>
 </nav>
 
 <main>
@@ -157,8 +159,41 @@
     <span id="quota"></span>
   </div>
   <div class="note" id="wrongCount" hidden></div>
+
+  <label class="fld" id="w3wBox">
+    <span class="cap">what3words key</span>
+    <input type="text" id="w3wKey" placeholder="Paste an API key to record what3words addresses"
+           autocomplete="off" spellcheck="false">
+    <span class="hint">what3words is a paid service and the key is yours, not the app's — get one
+      at developer.what3words.com and paste it here. It is kept on this device. With no key,
+      entries simply carry coordinates as before. Existing entries are filled in as you go, not
+      retrospectively.</span>
+  </label>
 </section>
 </main>
+
+<!-- ================= MAP ================= -->
+<section class="panel" id="p-map" role="tabpanel" aria-labelledby="t-map" hidden>
+  <div id="map"></div>
+  <div class="mapbar">
+    <div class="key">
+      <span><i class="pin kem"></i>Emergency</span><span><i class="pin k1"></i>Cat 1</span>
+      <span><i class="pin k2"></i>Cat 2</span><span><i class="pin k3"></i>Cat 3</span>
+      <span><i class="pin k0"></i>Below</span>
+      <span><i class="pin unconf"></i>Unconfirmed</span>
+    </div>
+    <button type="button" class="btn ghost" id="bFit">Fit to defects</button>
+  </div>
+  <div class="empty" id="mapEmpty" hidden>
+    <div class="disp">Nothing to put on a map</div>
+    <p>Defects appear here once one has been saved with a location on it.</p>
+  </div>
+  <div class="note">
+    <b>Offline.</b> The map itself is part of the app, but its tiles are fetched as you pan.
+    Ground you have already looked at stays available; ground you have not comes up blank
+    until there is a signal.
+  </div>
+</section>
 
 <!-- full-size photo -->
 <div class="lightbox" id="lb" hidden>

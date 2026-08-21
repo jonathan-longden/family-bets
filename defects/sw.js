@@ -1,4 +1,4 @@
-const CACHE_NAME = 'defect-log-v3';
+const CACHE_NAME = 'defect-log-v4';
 const FILES_TO_CACHE = [
   './',
   './index.html',
@@ -7,7 +7,12 @@ const FILES_TO_CACHE = [
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
+  './vendor/leaflet.js', './vendor/leaflet.css',
 ];
+/* Map tiles are somebody else's server and there are a great many of them, so
+   they are cached as they are fetched rather than up front — ground you have
+   looked at stays available, ground you have not does not. */
+const TILE_HOST = 'https://tile.openstreetmap.org';
 /* The detection library is six megabytes. Precaching it would make the first
    visit pay for it before the camera even opens, so it is left to be cached the
    first time a capture actually needs it — after which it is there offline. */
@@ -93,6 +98,7 @@ self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
   if (FONT_HOSTS.some(h => req.url.startsWith(h))) return event.respondWith(cacheFirst(req));
+  if (req.url.startsWith(TILE_HOST)) return event.respondWith(cacheFirst(req));
   if (!req.url.startsWith(self.location.origin)) return;
   event.respondWith(networkFirst(req));
 });
