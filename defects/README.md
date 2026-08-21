@@ -20,8 +20,8 @@ round.
   card is on screen: impact down the side, probability across the top, tap the
   cell. The risk factor, the category and the response time come straight out
   of it.
-- **Proposes a score, and shows its working.** The photograph goes to a
-  pothole segmentation model, which outlines the defect. From the outline's
+- **Proposes a score, and shows its working.** A pothole detection model runs
+  on the phone and finds the defect. From the outline's
   share of the frame and the surface you are on, the app proposes a cell,
   pre-selects it, and says in words what it based that on and how sure it is
   that the thing is a pothole at all. One tap on any other cell overrules it,
@@ -59,8 +59,22 @@ So: the proposal exists to save you the tapping, not to make the decision. The
 category it lands on drives a two-hour or one-working-day obligation, and the
 app is explicit on screen that the cell wants checking before you save.
 
-Detection needs a signal. With none, the matrix is simply blank and you score
-it yourself — everything else in the app still works offline.
+Detection runs on the phone. The model is downloaded once, on the first check,
+and kept — so the first check needs a signal and none of the ones after it do.
+Until it has run somewhere with a signal, the matrix is simply blank and you
+score it yourself.
+
+This is the second attempt. The obvious approach — post the photograph to the
+hosted inference API — works from a terminal and cannot work from a web page:
+the service answers, and the browser will not hand a page a reply from a
+service that has not agreed to be read by one. That is not a bug to work
+around. Running the model here instead means the only thing crossing the
+network is the weights, once.
+
+One thing was lost in the move. Running on the phone rules out segmentation —
+the library carries detection architectures only — so the defect arrives as a
+box round it rather than an outline. A box is generous around an irregular
+hole, so the size band reads slightly high. The app says so on screen.
 
 When a check fails, the panel says what went wrong: the service refused it
 (with the status and whatever the server itself said), it timed out, or the
@@ -126,10 +140,14 @@ data takes the log with it, and there is no copy anywhere else.
   is the whole round.
 
 The detection model is a public one on Roboflow Universe
-(`potdet/pothole-detection-o4ys9`), called with a publishable workspace key.
-That key is meant to live in client code — it can run inference and nothing
-else — but it is visible in this page's source, so anyone who finds it can
-spend inference against the same workspace.
+(`cvhelmet/cv-helmet-combined-dataset-rf4bc`, a single pothole class over 5,482
+images), loaded by Roboflow's browser library, which is vendored at
+`vendor/inference.es.js` rather than pulled from a CDN so that the app depends
+on nothing but itself. It is six megabytes and is deliberately not precached:
+the first visit should not pay for it before the camera opens.
+
+The publishable workspace key is in the page source. It is meant to live in
+client code and can do nothing but load models and run them.
 
 An earlier build of this app kept its entries — photographs included — in
 `localStorage`, which holds about five megabytes in total. Around the third or
