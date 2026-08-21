@@ -86,10 +86,18 @@ device.
   wins every time and tells you nothing.
 - **A tuner while you sing.** The note and how many cents off it, live, before
   you've committed to anything.
-- **Monitoring.** Hear the tone chain while you record — headphones only, or
-  the microphone hears itself and the room wins. Tuning isn't in the monitor:
-  pitch correction has to see a whole note before it knows what to do with it,
-  so it belongs to the take.
+- **Tunes you live, while you sing.** Turn the monitor on and your own voice
+  comes back in your headphones already on the note — the same grain-by-grain
+  correction the finished take gets, running on the audio thread about 36 ms
+  behind you. That delay is the price of the grain: two periods of a note have
+  to have happened before two periods can be laid back down. Headphones only,
+  or the microphone hears itself and the room wins.
+
+  **What gets recorded is never that signal.** The take is captured dry,
+  straight off the microphone, and tuned afterwards with the whole performance
+  in front of it — which is always the better job, because it knows what key
+  you were in and what note came next. Live tuning is for singing to; the take
+  is for keeping.
 - **Keeps the master.** Takes are stored as 24-bit WAV, and export gives you
   24-bit WAV of either version. On a phone, Share puts it straight into a
   message or another app.
@@ -153,6 +161,7 @@ No build step, no bundler, no server, no account, and nothing from a CDN.
 | `audio/process.js` | the chain, and `autoSettings` — the part that decides |
 | `audio/engine.js`, `audio/worker.js` | all of that, off the main thread |
 | `audio/monitor.js` | the same tone chain built out of Web Audio nodes, live |
+| `live-tuner-processor.js` | the audio worklet that tunes you in real time: YIN on a quarter-rate copy, pitch marks as they arrive, grains overlapped a fixed delay behind the input |
 | `audio/wav.js` | WAV in and out, and the waveform peaks |
 | `recorder-processor.js` | the audio worklet that catches every sample |
 | `sw.js` | the service worker that makes it work offline |
@@ -181,7 +190,10 @@ HTTPS is not optional: browsers won't hand over a microphone without it,
   at once, has no single pitch to track and will come out sounding strange.
 - Pitch correction moves a note by up to two semitones. It is not a
   transposer, and it won't rescue a note that was sung a third out.
-- Live monitoring gives you the tone chain, not the tuning.
+- Live monitoring costs about 36 ms of delay, which is the price of the
+  grain: you can't lay down two periods of a note until two periods have
+  happened. On in-ears that's comfortable; through a laptop's own output,
+  where the browser adds its own buffering on top, it may not be.
 - Very long takes are limited by memory rather than by anything clever: an
   hour-long recording will make a phone unhappy.
 - A backing added to a take *afterwards* starts from the top of the track,

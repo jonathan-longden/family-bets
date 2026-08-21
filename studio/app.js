@@ -538,21 +538,49 @@ async function toggleMonitor() {
   }
   if (!await ensureMic()) return;
   const base = state.cur && state.cur.settings ? state.cur.settings : defaultMonitorSettings();
-  monitor = createMonitor(ctx, base);
+  let latency = 0;
+  monitor = await createMonitor(ctx, base, ms => { latency = ms; paintMonitorHint(base, latency); });
   micSource.connect(monitor.input);
   monitor.output.connect(ctx.destination);
   monitorOn = true;
   $('#monBtn').classList.add('is-on');
-  $('#recHint').innerHTML = '<b>Headphones only.</b> Through speakers the microphone hears itself and the room wins.';
-  $('#recHint').className = 'hint warn';
+  paintMonitorHint(base, latency);
   meterLoop();
 }
 
+/* Say what's actually in your headphones, including what it costs. */
+function paintMonitorHint(st, latencySeconds) {
+  if (!monitorOn && !monitor) return;
+  const tuned = monitor && monitor.tuning && st.tune > 1;
+  const ms = latencySeconds ? Math.round(latencySeconds * 1000) : 0;
+  const where = st.keyMode && st.keyMode !== 'chromatic'
+    ? NOTE_NAMES[st.keyTonic] + ' ' + st.keyMode
+    : 'the nearest notes';
+  $('#recHint').innerHTML = tuned
+    ? '<b>Headphones only.</b> You\u2019re hearing yourself tuned to ' + esc(where) +
+      (ms ? ', about ' + ms + ' ms behind' : '') +
+      '. The take itself is recorded dry and tuned properly afterwards.'
+    : '<b>Headphones only.</b> Through speakers the microphone hears itself and the room wins.';
+  $('#recHint').className = 'hint warn';
+}
+
+/* What to monitor through before there's a take to take the settings from.
+   The key comes from the last take that had a confident one — you're probably
+   still singing the same song. */
 function defaultMonitorSettings() {
+  const mode = prefs.tuneMode && prefs.tuneMode !== 'auto' ? prefs.tuneMode : 'locked';
+  const t = TUNE_MODES[mode] || TUNE_MODES.locked;
+  const recent = state.takes.find(x =>
+    x.report && x.report.key && x.report.key.mode !== 'chromatic' && x.report.key.confidence > 0.55);
   return {
     eq: { hp: 90, mud: -2, box: -1, presence: 3, air: 2.5 },
     presence: 55, warmth: 15, deEss: 45, compression: 45,
     saturation: 15, space: 10, spaceSize: 30,
+    tuneMode: mode,
+    tune: t.strength, tuneSpeed: t.speedMs, tuneMaxCents: t.maxCents, tuneMinConf: t.minConf,
+    keyMode: recent ? recent.report.key.mode : 'chromatic',
+    keyTonic: recent ? recent.report.key.tonic : 0,
+    a4: prefs.a4,
   };
 }
 
@@ -984,6 +1012,7 @@ function setTuneMode(mode) {
   cur.manual.add('tune');
   prefs.tuneMode = mode;                 // and every take from here on
   savePrefs();
+  if (monitor) { monitor.update(cur.settings); paintMonitorHint(cur.settings, 0); }
   paintTuneMode();
   buildControls();
   renderSoon();

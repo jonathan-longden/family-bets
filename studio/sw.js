@@ -1,6 +1,7 @@
-const CACHE_NAME = 'takeone-cache-v1';
+const CACHE_NAME = 'takeone-cache-v2';
 const FILES_TO_CACHE = [
-  './', './index.html', './styles.css', './app.js', './recorder-processor.js',
+  './', './index.html', './styles.css', './app.js',
+  './recorder-processor.js', './live-tuner-processor.js',
   './audio/dsp.js', './audio/analyse.js', './audio/process.js', './audio/wav.js',
   './audio/engine.js', './audio/worker.js', './audio/monitor.js',
   './manifest.json', './icon-192.png', './icon-512.png',
