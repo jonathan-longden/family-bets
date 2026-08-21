@@ -2096,12 +2096,32 @@ function playVideo(v) {
      may well be a YouTube app rather than a browser — and that app brings
      whatever it brings: an account, background playback, the lot. Tunage
      hands over the address and stops there. */
+  $('#ytChoose').hidden = !canChoose();
   $('#ytOpen').href = v.list
     ? `https://www.youtube.com/playlist?list=${encodeURIComponent(v.list)}`
     : `https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}`;
   $('#npTitle').textContent = v.title;
   $('#npArtist').textContent = v.channel || 'YouTube';
   render();
+}
+
+/* Android's own share sheet is the only chooser a web page can raise: the
+   browser will not say what is installed, so the phone is asked to offer
+   whatever can open the link and the choice is made there. Vanced, the
+   YouTube app, a browser — whatever is on the phone shows up, and Tunage
+   never learns which was picked. */
+const canChoose = () => typeof navigator.share === 'function';
+
+async function chooseApp() {
+  if (!nowVideo) return;
+  const url = $('#ytOpen').getAttribute('href');
+  try {
+    await navigator.share({ url, title: nowVideo.title || 'YouTube' });
+  } catch (err) {
+    // dismissing the sheet is not a failure worth reporting
+    if (err && err.name === 'AbortError') return;
+    ytStatus("This browser wouldn't open the chooser — Open in YouTube still works.");
+  }
 }
 
 function stopVideo() {
@@ -2143,6 +2163,7 @@ $('#ytLists').addEventListener('click', onRefClick);
 $('#ytSaved').addEventListener('click', onVideoClick);
 $('#ytResults').addEventListener('click', onVideoClick);
 $('#ytStop').addEventListener('click', stopVideo);
+$('#ytChoose').addEventListener('click', chooseApp);
 
 $('#ytKeySave').addEventListener('click', async () => {
   const val = $('#ytKeyInput').value.trim();
