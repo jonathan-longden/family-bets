@@ -147,6 +147,17 @@ broken.
 A service worker caches the app on first visit, so add it to the home screen
 and it runs in a lay-by with no bars.
 
+It goes to the network before the cache, so a deploy lands on the next load
+rather than whenever the cache happens to turn over. Two things are needed for
+that to be true and both were missing at first: the worker has to ask the
+network with the browser's own cache bypassed, and it has to hand back a copy
+the browser is not allowed to keep — otherwise the reply's `max-age` lets the
+browser answer the load after next by itself, without the network and without
+the worker, which never gets asked and never learns there is a new build.
+
+The build is printed in the footer. If a fix is meant to be there and the
+footer still shows the old one, that is the answer.
+
 ## What it is not
 
 It is a screening aid. It detects a defect and proposes a score; it does not
