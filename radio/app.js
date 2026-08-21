@@ -967,10 +967,24 @@ const AUDIO_RE = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac|weba|webm|mp4)$/i;
 const isAudio = f => (f.type && f.type.startsWith('audio/')) || AUDIO_RE.test(f.name);
 
 let askedToPersist = false;
+/* Ask the browser to promise not to evict this app's storage. Without the
+   promise, Android is free to throw the music away when space gets tight,
+   and the first you know of it is an empty library. Chrome grants it
+   silently to an installed app, so asking on every launch costs nothing and
+   covers a library added before the app was installed. */
 async function askToPersist() {
   if (askedToPersist || !navigator.storage || !navigator.storage.persist) return;
   askedToPersist = true;
   try { await navigator.storage.persist(); } catch {}
+}
+
+async function storageIsPersistent() {
+  try {
+    if (!navigator.storage || !navigator.storage.persisted) return null;
+    return await navigator.storage.persisted();
+  } catch {
+    return null;
+  }
 }
 
 function importStatus(html) {
@@ -1243,9 +1257,13 @@ async function refreshStorage() {
       if (est.quota) quota = ` of roughly ${mb(est.quota)} this browser will hand out`;
     } catch {}
   }
-  line.textContent = lib.length
-    ? `${lib.length} track${lib.length === 1 ? '' : 's'} on this device — ${mb(used)}${quota}.`
-    : '';
+  if (!lib.length) { line.textContent = ''; return; }
+  const kept = await storageIsPersistent();
+  line.textContent =
+    `${lib.length} track${lib.length === 1 ? '' : 's'} on this device — ${mb(used)}${quota}.` +
+    (kept === false
+      ? ' This browser has not promised to keep it, so save a backup and keep your original files.'
+      : '');
 }
 
 
@@ -3015,6 +3033,7 @@ document.addEventListener('keydown', e => {
   restoreFolder();
   levelPending();
   renderVoice();
+  askToPersist();
   runPendingCommand();
 })();
 
