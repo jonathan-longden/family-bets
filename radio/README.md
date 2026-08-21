@@ -181,7 +181,7 @@ address**, though the same restriction applies.
 
 ## Voice
 
-There's a microphone button beside play. Tap it, say what you want, and
+There's a microphone button in the top bar, next to the sleep timer. Tap it, say what you want, and
 Tunage does it. There's also a text box in the **Voice** panel that takes
 the same phrases, which is handy for trying one out.
 

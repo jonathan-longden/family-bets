@@ -388,6 +388,8 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
    The mic sits with the transport buttons; while it's listening it pulses so
    you can tell the browser is actually hearing you and not just thinking. */
 
+.top-actions { display: flex; align-items: center; gap: 2px; }
+
 .icon-btn.mic { position: relative; }
 .icon-btn.mic.listening { color: var(--accent); }
 .icon-btn.mic.listening::after {
