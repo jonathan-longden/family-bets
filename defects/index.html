@@ -39,6 +39,18 @@
     <canvas class="shot" id="shot"></canvas>
     <div class="badge" id="badge">Camera off</div>
     <div class="rec" id="rec" hidden><i class="dot live"></i><span id="recTxt">GPS</span></div>
+
+    <div class="hud" id="hud" hidden>
+      <div class="hud-bar">
+        <span class="hud-state" id="hudState">Survey</span>
+        <span class="hud-count" id="hudCount">0 logged</span>
+      </div>
+      <div class="hud-toast" id="hudToast" hidden></div>
+      <div class="hud-bottom">
+        <button type="button" class="hud-btn" id="bFull">Full screen</button>
+        <button type="button" class="hud-btn stop" id="bEnd">End survey</button>
+      </div>
+    </div>
   </div>
 
   <button class="btn" id="bStart">Start camera</button>
@@ -46,6 +58,7 @@
     <button class="btn ghost" id="bStop">Stop</button>
     <button class="btn" id="bShot">Capture defect</button>
   </div>
+  <button class="btn ghost" id="bSurvey" hidden>Start survey — log defects hands-free</button>
 
   <div class="meta" id="gpsBox" hidden>
     <div><span>Latitude</span><b id="mLat">—</b></div>
@@ -143,7 +156,8 @@
 </div>
 
 <footer>
-  Screening aid, not an inspection. Every entry is one you confirmed.<br>
+  Screening aid, not an inspection. Entries you scored are marked as yours;
+  entries the survey logged on its own are marked unconfirmed and want checking.<br>
   Depth is never estimated from an image.<br>
   <span class="build">Build <span id="build">—</span></span>
 </footer>

@@ -33,6 +33,35 @@ round.
 - **Exports both ways.** CSV for the data and the coordinates, opened straight
   into a spreadsheet; JSON when you need the photographs to travel with it.
 
+## Survey mode
+
+The camera opens by itself when the app does. Tap **Start survey** and the
+viewfinder takes the whole screen, the model watches it about once a second,
+and anything it finds is photographed, scored and written to the log without
+being asked. Mount the phone, drive or walk the road, and read the log
+afterwards.
+
+Some things about it are worth knowing before trusting it:
+
+- **Entries are marked unconfirmed.** Nobody looked at them. They are saved as
+  `survey, unconfirmed` and read that way in the log and the CSV, so they never
+  pass for a category an inspector stood over. Treat them as a list of places
+  to go and look.
+- **It needs a stronger opinion than you do.** A find has to clear a higher bar
+  than a deliberate capture before it is written down, because nothing is
+  checking it.
+- **The same hole is not logged fifty times.** One pothole stays in shot for
+  many frames and, from a vehicle, many metres. A find within twenty metres of
+  the last one logged is taken to be the same defect. With no GPS fix there is
+  no distance to compare, so it falls back to time alone — cruder, and the app
+  says so when it starts without a fix.
+- **It stops when the app does.** A web page cannot hold the camera once it is
+  not the app on screen; the browser suspends it. So the survey runs with the
+  app open and the phone mounted, and ends rather than pretending to watch.
+- **Full screen and landscape need a tap.** Browsers only grant either off a
+  gesture, so the button is that gesture. The viewfinder fills the screen
+  without it either way.
+
 ## What the photograph can and cannot tell you
 
 This is the part to understand before trusting a proposed score.
@@ -119,8 +148,8 @@ is harder to steer around. Everything else — depth, speed, volume — is yours
 ## What gets recorded
 
 Time, coordinates, GPS accuracy and fix age, defect type, surface, impact,
-probability, risk factor, category, response time, whether the score was the
-app's proposal or yours, what the model saw (its confidence, the share of the
+probability, risk factor, category, response time, whether the score was
+yours, an app proposal you accepted, or an unconfirmed survey find, what the model saw (its confidence, the share of the
 frame, how many defects), your notes, and the photograph.
 
 Depth and "wider than a tyre" are no longer collected, and the Cat 1
@@ -183,7 +212,8 @@ footer still shows the old one, that is the answer.
 ## What it is not
 
 It is a screening aid. It detects a defect and proposes a score; it does not
-measure anything, and it does not decide. The photograph is what it sees, and a
+measure anything, and it does not decide. A survey run is a list of places
+worth looking at, not a set of findings. The photograph is what it sees, and a
 photograph does not contain depth, scale, or how the road is used. Every entry
 is still one you confirmed — the app records which scores were its own
 proposals so that a later reader can tell the difference.

@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 7';
+var BUILD = '2026-08-21 · 8';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -38,6 +38,20 @@ var RF_MODEL = 'cv-helmet-combined-dataset-rf4bc';
 var RF_VERSION = 1;
 var RF_KEY = 'rf_pxctFcweYjTPKQwCJgjKpHcWSpz1';
 var RF_CONF = 0.40;     // below this the model is guessing
+
+/* Survey mode: the camera runs and the model watches it, and anything it finds
+   is written down without being asked. Three numbers govern how that behaves.
+
+   The same hole stays in shot for many frames and, from a moving vehicle, for
+   many metres, so without a memory a single pothole becomes fifty entries. A
+   find is ignored if one was already logged within NEAR_M of it; with no fix to
+   compare, the fallback is time alone, which is cruder and is why a survey
+   without GPS says so. SURVEY_CONF is higher than the deliberate-capture
+   threshold because nobody is looking at these before they land. */
+var SURVEY_MS = 1200;    // between looks; faster mainly costs battery
+var SURVEY_CONF = 0.55;  // unattended entries should be surer than watched ones
+var NEAR_M = 20;         // a find this close to one already logged is the same defect
+var QUIET_MS = 45000;    // with no fix, this long before the same view counts again
 
 var S = { imp: 0, prob: 0, foot: false, by: null,
           shot: null, shotFix: null, prevUrl: null, gps: null, det: null, items: [] };
@@ -205,9 +219,13 @@ function seg(a, b, fn) {
 seg($('segCar'), $('segFoot'), function (isCar) { S.foot = !isCar; propose(); });
 
 /* ---------- camera ---------- */
-$('bStart').addEventListener('click', async function () {
+$('bStart').addEventListener('click', function () { openCamera(true); });
+
+async function openCamera(byTap) {
+  if (stream) return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    return note('This browser will not give a page camera access.', true);
+    if (byTap) note('This browser will not give a page camera access.', true);
+    return;
   }
   var ideal = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false };
   try {
@@ -222,14 +240,21 @@ $('bStart').addEventListener('click', async function () {
     $('vid').srcObject = stream; $('badge').textContent = 'Live';
     $('bStart').hidden = true; $('capRow').hidden = false; $('rec').hidden = false;
     $('camNote').hidden = true;
+    $('bSurvey').hidden = false;
     startGps();
   } catch (e) {
-    note('Camera did not open: ' + e.name + '. If this is not an https address, that is why.', true);
+    /* Opening without being asked is allowed to fail quietly: some browsers
+       only hand over a camera off a tap, and the button is still sitting
+       there. A refusal of a tap is worth saying out loud. */
+    if (byTap) {
+      note('Camera did not open: ' + e.name + '. If this is not an https address, that is why.', true);
+    }
   }
-});
+}
 $('bStop').addEventListener('click', stopAll);
 
 function stopAll() {
+  if (survey.on) endSurvey();
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
   if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   if (ageTimer) { clearInterval(ageTimer); ageTimer = null; }
@@ -239,6 +264,7 @@ function stopAll() {
   S.gps = null;
   $('badge').textContent = 'Camera off'; $('bStart').hidden = false;
   $('capRow').hidden = true; $('rec').hidden = true; $('gpsBox').hidden = true;
+  $('bSurvey').hidden = true;
   primer();
 }
 
@@ -523,6 +549,172 @@ function whyLocal(e) {
 }
 
 
+/* ---------- survey ---------- */
+var survey = { on: false, busy: false, timer: null, logged: 0, last: null };
+
+function metresBetween(a, b) {
+  var R = 6371000, rad = Math.PI / 180;
+  var dLat = (b.lat - a.lat) * rad, dLon = (b.lon - a.lon) * rad;
+  var la1 = a.lat * rad, la2 = b.lat * rad;
+  var h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/* Is this the same defect we just wrote down? Distance settles it when there is
+   a fix; without one, only time can, and time alone cannot tell a second
+   pothole from the first one still in shot. */
+function alreadyLogged() {
+  if (!survey.last) return false;
+  if (S.gps && survey.last.gps) {
+    return metresBetween(S.gps, survey.last.gps) < NEAR_M;
+  }
+  return (Date.now() - survey.last.at) < QUIET_MS;
+}
+
+function hud(state, cls) {
+  $('hudState').textContent = state;
+  $('hudState').className = 'hud-state' + (cls ? ' ' + cls : '');
+}
+
+function toast(msg) {
+  var t = $('hudToast');
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(function () { t.hidden = true; }, 3200);
+}
+
+function startSurvey() {
+  if (survey.on || !stream) return;
+  survey.on = true; survey.logged = 0; survey.last = null;
+  document.body.classList.add('surveying');
+  $('hud').hidden = false; $('bSurvey').hidden = true;
+  $('hudCount').textContent = '0 logged';
+  hud(worker ? 'Watching' : 'Downloading the model…');
+  if (!S.gps) toast('No GPS fix yet — without one the survey cannot tell a new defect from the last.');
+  loadModel().then(function () {
+    if (survey.on) { hud('Watching'); tick(); }
+  }, function (e) {
+    hud('Model unavailable', 'bad');
+    toast(whyLocal(e));
+  });
+}
+
+function endSurvey() {
+  survey.on = false; survey.busy = false;
+  clearTimeout(survey.timer); survey.timer = null;
+  document.body.classList.remove('surveying');
+  $('hud').hidden = true;
+  $('bSurvey').hidden = !stream;
+  exitFull();
+  if (survey.logged) toast('');
+}
+
+function tick() {
+  if (!survey.on) return;
+  survey.timer = setTimeout(look, SURVEY_MS);
+}
+
+function look() {
+  if (!survey.on) return;
+  var v = $('vid');
+  if (survey.busy || !stream || !v.videoWidth || document.hidden) return tick();
+  survey.busy = true;
+  createImageBitmap(v).then(function (bmp) {
+    return import('./vendor/inference.es.js').then(function (m) {
+      return engine.infer(worker, new m.CVImage(bmp)).then(function (preds) {
+        return { preds: preds || [], w: bmp.width, h: bmp.height };
+      });
+    });
+  }).then(function (out) {
+    var hits = out.preds.filter(function (p) {
+      return (p.confidence == null || p.confidence >= SURVEY_CONF) && /pothole/i.test(p.class || '');
+    });
+    if (hits.length && !alreadyLogged()) return logFind(hits, out);
+    if (hits.length) hud('Same defect — not logged again');
+    else hud('Watching');
+  }).catch(function (e) {
+    hud('Look failed', 'bad');
+    toast(whyLocal(e));
+  }).then(function () {
+    survey.busy = false; tick();
+  });
+}
+
+/* Writes the entry with no one looking, which is exactly why it is marked as
+   such: the log has to keep saying which scores a person stood over. */
+function logFind(hits, out) {
+  var v = $('vid'), c = $('shot');
+  var scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
+  c.width = Math.round(v.videoWidth * scale);
+  c.height = Math.round(v.videoHeight * scale);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+
+  var best = hits.reduce(function (a, b) { return (b.confidence || 0) > (a.confidence || 0) ? b : a; });
+  var box = best.bbox || best;
+  var det = { conf: best.confidence == null ? 1 : best.confidence,
+              share: (box.width * box.height) / (out.w * out.h), count: hits.length };
+  var was = S.det; S.det = det;                 // proposal() reads the current find
+  var p = proposal(det), n = p.imp * p.prb, cat = category(n);
+  S.det = was;
+
+  return new Promise(function (resolve) {
+    c.toBlob(function (blob) {
+      if (!blob) { hud('Could not save the frame', 'bad'); return resolve(); }
+      var f = S.gps ? { lat: S.gps.lat, lon: S.gps.lon, acc: S.gps.acc, age: fixAge() } : null;
+      var e = {
+        id: nextId(), t: new Date().toISOString(), img: blob,
+        imp: p.imp, prob: p.prb, score: n, cat: cat.k, resp: cat.r, key: cat.key,
+        surface: S.foot ? 'Footway/cycleway' : 'Carriageway',
+        scoredBy: 'survey, unconfirmed',
+        detConf: det.conf, detShare: det.share, detCount: det.count,
+        type: 'Pothole', note: '',
+        lat: f ? f.lat : null, lon: f ? f.lon : null,
+        acc: f ? Math.round(f.acc) : null, fixAge: f ? f.age : null
+      };
+      (dbBroken ? Promise.resolve() : putEntry(e)).then(function () {
+        S.items.unshift(e);
+        survey.logged++; survey.last = { at: Date.now(), gps: S.gps ? { lat: S.gps.lat, lon: S.gps.lon } : null };
+        $('hudCount').textContent = survey.logged + ' logged';
+        render();
+        hud('Watching');
+        toast('Logged — ' + cat.k + ' (' + Math.round(det.conf * 100) + '% sure). Unconfirmed.');
+        resolve();
+      }, function () {
+        hud('Could not write it down', 'bad');
+        toast('This device refused the write. Export what is in the log.');
+        resolve();
+      });
+    }, 'image/jpeg', 0.82);
+  });
+}
+
+/* ---------- full screen and landscape ---------- */
+/* Both need a gesture, so neither can happen on its own — the button is that
+   gesture. The viewfinder fills the screen without either, which is most of
+   what is wanted; this adds the rest when the browser allows it. */
+function goFull() {
+  var el = document.documentElement;
+  var req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!req) return toast('This browser will not give a page the whole screen.');
+  req.call(el).then(function () {
+    if (screen.orientation && screen.orientation.lock) {
+      screen.orientation.lock('landscape').catch(function () {});
+    }
+  }).catch(function () { toast('The browser refused full screen.'); });
+}
+
+function exitFull() {
+  if (screen.orientation && screen.orientation.unlock) {
+    try { screen.orientation.unlock(); } catch (e) {}
+  }
+  if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
+}
+
+$('bSurvey').addEventListener('click', startSurvey);
+$('bEnd').addEventListener('click', endSurvey);
+$('bFull').addEventListener('click', goFull);
+
 /* ---------- log ---------- */
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function (m) {
@@ -692,6 +884,8 @@ $('t-log').addEventListener('click', function () { if (leaveScore()) show('log')
 
 /* The camera light staying on after the phone goes in a pocket is both a
    battery drain and a thing people reasonably object to. */
+/* A page cannot hold the camera once it is not the app on screen — the browser
+   suspends it — so a survey ends rather than pretending to still be watching. */
 document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'hidden' && stream) stopAll();
 });
@@ -710,8 +904,9 @@ openDb().then(function (d) {
 }).then(function (rows) {
   S.items = rows || [];
   render();
-  // home-screen shortcuts land on a tab rather than always on the camera
-  if (new URLSearchParams(location.search).get('open') === 'log') show('log');
+  var open = new URLSearchParams(location.search).get('open');
+  if (open === 'log') show('log');
+  else openCamera(false);     // the camera is the point; do not make them ask
 });
 
 if ('serviceWorker' in navigator) {
