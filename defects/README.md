@@ -62,10 +62,14 @@ app is explicit on screen that the cell wants checking before you save.
 Detection needs a signal. With none, the matrix is simply blank and you score
 it yourself — everything else in the app still works offline.
 
-When a check fails, the panel says which of three things went wrong: the
-request never got a reply (no route, or a cross-origin refusal), the service
-refused it (with the status and whatever the server itself said), or it timed
-out. They are different problems with different fixes, and a screen that
+When a check fails, the panel says what went wrong: the service refused it
+(with the status and whatever the server itself said), it timed out, or the
+request never completed. That last one arrives as a bare error the browser will
+not explain, so the app asks again with the reply waived — a request nothing
+can be read out of. If that one comes back, the service is reachable and the
+problem is that it will not let a web page read its answer; if it does not,
+there is no route to the service at all. Two different problems that look
+identical until something separates them. They are different problems with different fixes, and a screen that
 collapses them into "the service did not answer" leaves you guessing at one the
 server already explained.
 
