@@ -62,6 +62,47 @@ Some things about it are worth knowing before trusting it:
   gesture, so the button is that gesture. The viewfinder fills the screen
   without it either way.
 
+## Shadows
+
+Tree shadows across a carriageway are what this model gets wrong, and it is
+easy to see why: a dark irregular patch on tarmac is the thing it was trained
+to find. Raising the confidence bar does not help, because the model is as sure
+about the shadow as it is about the hole.
+
+What separates them is not darkness, it is texture. **A shadow is the road with
+the light turned down** — the same chippings, the same grain, scaled. A hole
+breaks the surface: a rim, broken edges, loose material. So each find is
+measured against the road immediately around it, and a patch that is
+substantially darker but grained exactly like its surroundings is thrown out. A
+long thin band, the shape a tree or a pole throws, is thrown out on shape alone.
+
+On synthetic road, a dimmed patch scores 1.00 against its surroundings, a
+broken-up hole scores 9.99, and a shallow worn hollow — the hardest real case —
+scores 2.59, against a cut-off of 1.18. The margin is wide, but it is a filter
+and not a cure, and it cuts both ways: **a real hole in deep shade looks smooth
+and can be waved through as a shadow.** In a survey that is a miss. In a
+deliberate capture the app says what it decided and leaves you free to score it
+anyway.
+
+## Teaching it
+
+The app cannot teach the model. A model learns by being retrained on labelled
+examples, and nothing in a web page can do that.
+
+What it can do is keep the evidence. Any entry can be marked **Not a defect**:
+it leaves the log — a thing you have said is not a defect must never read as
+one — and is kept as a correction with its photograph. Corrections travel in
+the JSON export, under `notDefects`, which is exactly what a retraining run
+needs: examples of what the model called a pothole and a person did not.
+
+Feeding them back is a job for Roboflow, not for this app: upload them to the
+project as negative examples, train a new version, and change the model id in
+`app.js`.
+
+> The JSON export changed shape for this. It used to be a bare array of
+> entries; it is now `{ "defects": [...], "notDefects": [...] }`. CSV is
+> unchanged and still carries the defects only.
+
 ## What the photograph can and cannot tell you
 
 This is the part to understand before trusting a proposed score.
