@@ -1,0 +1,156 @@
+:root{
+  --tar:#14161A;        /* asphalt */
+  --tar2:#1E2229;
+  --tar3:#2A2F38;
+  --hiviz:#FF6B1A;      /* PPE orange */
+  --mark-y:#FFE100;     /* Cat 2 marking */
+  --mark-w:#FFFFFF;     /* Cat 1 marking */
+  --refl:#8C93A0;       /* reflective grey */
+  --line:#39404B;
+  --ok:#4ADE80;
+  --r1:#C8323C; --r2:#D97A46; --r3:#E8D44A; --r4:#5FA85F;
+  --disp:'Barlow Condensed',
+         ui-condensed,'Roboto Condensed','Arial Narrow',system-ui,sans-serif;
+  --body:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* An author display rule beats the UA rule behind the hidden attribute, so
+   .btn{display:block} quietly showed the stop button before the camera was on,
+   and the export buttons over an empty log. Settled once, at the top. */
+[hidden]{display:none !important}
+html,body{margin:0;background:var(--tar);color:#EEF1F5;font-family:var(--body);
+  font-size:16px;overscroll-behavior:none}
+body{padding:0 0 env(safe-area-inset-bottom)}
+h1,h2,h3,.disp{font-family:var(--disp);text-transform:uppercase;letter-spacing:.06em;margin:0}
+button{font:inherit}
+
+/* ---- hazard bar: the one decorative nod, taken from site tape ---- */
+.tape{height:8px;background:repeating-linear-gradient(45deg,
+  var(--hiviz) 0 14px,#14161A 14px 28px)}
+
+header{padding:14px 16px 12px;border-bottom:1px solid var(--line);
+  display:flex;align-items:baseline;gap:10px}
+header h1{font-size:26px;font-weight:700}
+header .sub{font-family:var(--disp);font-size:14px;color:var(--refl);letter-spacing:.1em}
+
+nav{display:flex;border-bottom:1px solid var(--line);background:var(--tar2)}
+nav button{flex:1;background:none;border:0;color:var(--refl);padding:14px 4px;
+  font-family:var(--disp);font-size:16px;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;border-bottom:3px solid transparent}
+nav button[aria-selected="true"]{color:#fff;border-bottom-color:var(--hiviz)}
+nav .count{display:inline-block;min-width:20px;padding:0 5px;margin-left:5px;
+  background:var(--hiviz);color:#14161A;border-radius:10px;font-size:13px}
+
+main{padding:16px}
+
+/* ---- camera ---- */
+.stage{position:relative;border:1px solid var(--line);border-radius:6px;overflow:hidden;
+  background:#000;aspect-ratio:4/3}
+video,canvas.shot{width:100%;height:100%;object-fit:cover;display:block}
+canvas.shot{display:none}
+.stage .badge{position:absolute;top:8px;left:8px;background:rgba(20,22,26,.85);
+  font-family:var(--disp);font-size:13px;letter-spacing:.08em;padding:4px 8px;border-radius:4px;
+  color:var(--refl)}
+.stage .rec{position:absolute;top:8px;right:8px;display:flex;align-items:center;gap:6px;
+  background:rgba(20,22,26,.85);padding:4px 9px;border-radius:4px;font-family:var(--disp);font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--hiviz)}
+.dot.live{animation:p 1.4s infinite}
+.rec.poor .dot{background:var(--r3)} .rec.poor{color:var(--r3)}
+.rec.none .dot{background:var(--r1);animation:none} .rec.none{color:var(--r1)}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.dot.live{animation:none}}
+
+.btn{display:block;width:100%;padding:17px;border:0;border-radius:6px;
+  font-family:var(--disp);font-size:19px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;background:var(--hiviz);color:#14161A;margin-top:12px}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:#EEF1F5}
+.btn:disabled{opacity:.4}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}
+
+.meta{margin-top:14px;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.meta div{display:flex;justify-content:space-between;padding:10px 12px;font-size:14px;
+  border-bottom:1px solid var(--line)}
+.meta div:last-child{border-bottom:0}
+.meta span:first-child{color:var(--refl);font-family:var(--disp);letter-spacing:.06em;font-size:14px}
+.meta b{font-weight:600;font-variant-numeric:tabular-nums}
+.meta b.warn{color:var(--r3)}
+
+/* ---- SIGNATURE: the laminated card, made tappable ---- */
+.matrix{margin-top:6px}
+.mgrid{display:grid;grid-template-columns:auto repeat(5,1fr);gap:3px}
+.mgrid .lbl{font-family:var(--disp);font-size:11px;color:var(--refl);letter-spacing:.04em;
+  display:flex;align-items:center;justify-content:center;text-align:center;line-height:1.05;padding:2px}
+.mgrid .rowlbl{writing-mode:horizontal-tb;font-size:10.5px;padding-right:4px}
+.cell{aspect-ratio:1;border:0;border-radius:3px;font-family:var(--disp);font-weight:700;
+  font-size:17px;color:#14161A;opacity:.42;transition:opacity .12s,transform .12s}
+.cell[aria-pressed="true"]{opacity:1;transform:scale(1.06);box-shadow:0 0 0 2px #fff}
+.g4{background:var(--r4)} .g3{background:var(--r3)} .g2{background:var(--r2)} .g1{background:var(--r1);color:#fff}
+
+.verdict{margin-top:14px;border:2px solid var(--line);border-radius:6px;padding:14px;
+  display:flex;align-items:center;justify-content:space-between;gap:12px}
+.verdict .score{font-family:var(--disp);font-size:44px;font-weight:700;line-height:.9;
+  font-variant-numeric:tabular-nums}
+.verdict .cat{font-family:var(--disp);font-size:21px;font-weight:700;letter-spacing:.05em}
+.verdict .resp{font-size:13px;color:var(--refl);margin-top:2px}
+.verdict.c-em{border-color:var(--r1)} .verdict.c-1{border-color:var(--r1)}
+.verdict.c-2{border-color:var(--r2)} .verdict.c-3{border-color:var(--r3)}
+
+label.fld{display:block;margin-top:14px}
+label.fld .cap{font-family:var(--disp);font-size:14px;color:var(--refl);letter-spacing:.07em;
+  text-transform:uppercase;display:block;margin-bottom:6px}
+input,select,textarea{width:100%;padding:13px;background:var(--tar2);border:1px solid var(--line);
+  border-radius:5px;color:#EEF1F5;font-family:var(--body);font-size:16px}
+textarea{min-height:70px;resize:vertical}
+.hint{font-size:12.5px;color:var(--refl);margin-top:6px;line-height:1.45}
+.seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.seg button{padding:13px;background:var(--tar2);border:1px solid var(--line);border-radius:5px;
+  color:var(--refl);font-family:var(--disp);font-size:15px;letter-spacing:.06em;text-transform:uppercase}
+.seg button[aria-pressed="true"]{background:var(--hiviz);color:#14161A;border-color:var(--hiviz);font-weight:700}
+
+.esc{margin-top:12px;border:1px solid var(--line);border-radius:6px;padding:12px;background:var(--tar2)}
+.esc .ttl{font-family:var(--disp);font-size:14px;letter-spacing:.07em;color:var(--refl);text-transform:uppercase}
+.esc .out{margin-top:8px;font-size:14px;line-height:1.5}
+.esc .yes{color:var(--mark-w);font-weight:600}
+.esc .no{color:var(--refl)}
+
+/* what will be written down about the fix, said before it is saved */
+.fixnote{margin-top:14px;border:1px solid var(--line);border-left:3px solid var(--r3);
+  border-radius:0 5px 5px 0;padding:11px 13px;background:var(--tar2);
+  font-size:13px;line-height:1.5;color:#C9D0DA}
+.fixnote.ok{border-left-color:var(--ok)}
+
+/* ---- log ---- */
+.item{border:1px solid var(--line);border-left-width:5px;border-radius:6px;margin-bottom:10px;
+  overflow:hidden;background:var(--tar2)}
+.item.k1{border-left-color:var(--mark-w)} .item.k2{border-left-color:var(--mark-y)}
+.item.k3{border-left-color:var(--r4)} .item.kem{border-left-color:var(--r1)}
+.item.k0{border-left-color:var(--refl)}
+.item .thumb{display:block;width:100%;padding:0;border:0;border-bottom:1px solid var(--line);
+  background:#000;line-height:0}
+.item .thumb img{width:100%;display:block}
+.item .body{padding:11px 12px}
+.item .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.item .cat{font-family:var(--disp);font-size:18px;font-weight:700;letter-spacing:.05em}
+.item .sc{font-family:var(--disp);font-size:15px;color:var(--refl);font-variant-numeric:tabular-nums}
+.item .det{font-size:13px;color:var(--refl);margin-top:5px;line-height:1.5;word-break:break-word}
+.item .det .flag{color:var(--r3)}
+.item .del{margin-top:9px;background:none;border:1px solid var(--line);color:var(--refl);
+  padding:7px 12px;border-radius:4px;font-family:var(--disp);font-size:13px;letter-spacing:.06em;
+  text-transform:uppercase}
+.empty{border:1px dashed var(--line);border-radius:6px;padding:34px 20px;text-align:center;color:var(--refl)}
+.empty .disp{font-size:19px;color:#EEF1F5;margin-bottom:7px}
+.empty p{font-size:14px;margin:0;line-height:1.5}
+
+/* ---- full-size photo ---- */
+.lightbox{position:fixed;inset:0;z-index:50;background:rgba(10,11,13,.96);
+  display:flex;align-items:center;justify-content:center;padding:16px}
+.lightbox img{max-width:100%;max-height:calc(100% - 70px);object-fit:contain}
+.lbclose{position:absolute;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));
+  padding:15px;border:1px solid var(--line);background:var(--tar2);color:#EEF1F5;border-radius:6px;
+  font-family:var(--disp);font-size:17px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+
+.note{border-left:3px solid var(--hiviz);padding:11px 13px;background:var(--tar2);
+  border-radius:0 5px 5px 0;font-size:13.5px;line-height:1.55;margin-top:16px;color:#C9D0DA}
+.note b{color:#fff}
+.err{border-left-color:var(--r1)}
+footer{padding:22px 16px 30px;color:var(--refl);font-size:12px;line-height:1.6;text-align:center}

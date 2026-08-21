@@ -19,8 +19,11 @@ pot live, connect it to a free Firebase Realtime Database.
 > - **[Take One](studio/)** (`/studio/`) — a voice studio: record a take
 >   and it comes back finished, tuned and levelled for release, without
 >   the audio leaving the device.
+> - **[Defect Log](defects/)** (`/defects/`) — photograph a highway
+>   defect, score it on the risk matrix, and keep the coordinates and the
+>   measurements with the photograph. Works with no signal.
 >
-> All four are separate PWAs with the same no-build setup.
+> All five are separate PWAs with the same no-build setup.
 
 ## Firebase setup (for cross-device sync)
 
