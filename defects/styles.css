@@ -97,6 +97,9 @@ body.surveying #p-cap video{width:100%;height:100%;object-fit:cover}
 .hud-toast{align-self:center;max-width:38ch;background:rgba(20,22,26,.9);
   border-left:3px solid var(--hiviz);border-radius:0 5px 5px 0;padding:10px 13px;
   font-size:13.5px;line-height:1.5;color:#EEF1F5;text-align:left}
+.hud-surface{background:rgba(20,22,26,.82);border:1px solid var(--line);border-radius:4px;
+  padding:6px 10px;font-family:var(--disp);font-size:14px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--hiviz);pointer-events:auto}
 .hud-bottom{display:flex;gap:10px;justify-content:flex-end;pointer-events:auto}
 .hud-btn{padding:14px 18px;border:1px solid var(--line);background:rgba(20,22,26,.85);
   color:#EEF1F5;border-radius:6px;font-family:var(--disp);font-size:16px;font-weight:700;
@@ -181,6 +184,13 @@ textarea{min-height:70px;resize:vertical}
 .item .det{font-size:13px;color:var(--refl);margin-top:5px;line-height:1.5;word-break:break-word}
 .item .det .flag{color:var(--r3)}
 .item .acts{display:flex;gap:8px;flex-wrap:wrap}
+.item .amend{margin-top:10px;padding:11px;border:1px solid var(--line);border-radius:5px;
+  background:var(--tar)}
+.item .amend select{margin-bottom:8px;font-size:15px;padding:10px}
+.item .amend .amSave{width:100%;padding:11px;border:0;border-radius:5px;background:var(--hiviz);
+  color:#14161A;font-family:var(--disp);font-size:15px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase}
+.item .det .amended{color:var(--hiviz)}
 .item .del{margin-top:9px;background:none;border:1px solid var(--line);color:var(--refl);
   padding:7px 12px;border-radius:4px;font-family:var(--disp);font-size:13px;letter-spacing:.06em;
   text-transform:uppercase}
