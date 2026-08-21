@@ -306,10 +306,14 @@ data takes the log with it, and there is no copy anywhere else.
 - **JSON** carries the same fields plus the photographs, embedded, so one file
   is the whole round.
 
-The detection model is a public one on Roboflow Universe
-(`pothole-model-for-zed-cameras/pothole-fine-tuning-ghl9u` v2 — two classes,
-`pothole` and `manhole`, over 17,497 images, yolov8s), loaded by Roboflow's
-browser library, which is vendored at
+The detection model was trained for this app: `yolo11n` over 17,497 images
+forked from `pothole-model-for-zed-cameras/pothole-fine-tuning-ghl9u`, two
+classes, `pothole` and `manhole`. The architecture was picked for the decoder
+rather than for accuracy — the browser library ships a yolov11 decoder, and the
+public model that came before it returned confidences of 1.004 and 5,323,169.5
+because its head was one the library could not read. It is loaded by model id
+rather than by project and version, so there is no question which model of the
+several on a version is being asked for. The library is vendored at
 `vendor/inference.es.js` rather than pulled from a CDN so that the app depends
 on nothing but itself. It is six megabytes and is deliberately not precached:
 the first visit should not pay for it before the camera opens.
