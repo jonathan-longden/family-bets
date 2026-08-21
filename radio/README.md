@@ -56,6 +56,9 @@ download), and it keeps them rolling.
   connection, unlike everything else here.
 - **Podcasts.** Search for a show, subscribe, and pick an episode. Episodes
   can be seeked, skip in 30-second jumps, and remember where you got to.
+- **YouTube.** Search it and watch it here, in YouTube's own player. Save
+  the ones you come back to. Needs a connection and, for searching, a free
+  API key of your own — see below.
 - **Backup.** Save everything that isn't the music itself — playlists,
   saved stations, subscriptions, loudness readings — to a small file you
   keep, and restore it later or on another device.
@@ -283,6 +286,59 @@ One more thing worth knowing: a browser won't always let a page opened by a
 shortcut start playing without you touching it. When that happens Tunage
 loads with the track or station ready and says *tap play* rather than
 pretending it worked.
+
+## YouTube
+
+The **YouTube** chip opens a section for video. Search, tap a result, and it
+plays at the top of the page where the decks usually are — the turntables
+and transport controls stand down, because the player in the frame is
+YouTube's own and has its own buttons. **Close** puts the decks back.
+
+Playback is the official embedded player, which is the only way a web page
+is allowed to play YouTube. Nothing is downloaded, and nothing is stripped
+to audio: the view counts, the ads and the creator's terms all stay where
+they belong.
+
+### Turning search on
+
+Radio and podcasts have open directories. YouTube doesn't — searching it
+needs an API key. Tunage is a public page, so a key built into it would be
+a key everybody shared, drained and revoked within a week. You bring your
+own instead. It's stored on your device and never goes anywhere except to
+YouTube, with your searches.
+
+It's free:
+
+1. **console.cloud.google.com** → create a project
+2. **APIs & Services** → enable **YouTube Data API v3**
+3. **Credentials** → **Create credentials** → **API key**
+4. Paste it into **Turning search on** in the YouTube panel
+
+Worth restricting the key to that one API while you're in there. Saving an
+empty box clears it again.
+
+The free allowance works out at about **100 searches a day**, resetting at
+midnight Pacific time. Run out and Tunage says so rather than failing
+silently.
+
+**Without a key** the section still works for playing: **Play a YouTube
+link** takes anything you paste — a `watch?v=` link, a `youtu.be` short
+link, a Shorts link, or the bare video id.
+
+### What it can't do
+
+- **It doesn't work offline.** Video comes from YouTube. Your own music is
+  unaffected and carries on.
+- **It stops when you leave the app.** YouTube's embedded player doesn't
+  play in the background on a phone — that's YouTube's rule for embeds, not
+  something Tunage can or should work around. Music and radio are the parts
+  that keep playing with the screen off.
+- **A video and a record can't both be on.** Starting one closes the other,
+  the same way a station does.
+
+Saved videos go into your backup file. **The API key deliberately doesn't**,
+so a backup can be passed between your own devices, or anywhere else,
+without handing over a credential. You re-enter the key once per device.
 
 ## Backup
 
