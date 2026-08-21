@@ -327,9 +327,30 @@ The free allowance works out at about **100 searches a day**, resetting at
 midnight Pacific time. Run out and Tunage says so rather than failing
 silently.
 
-**Without a key** the section still works for playing: **Play a YouTube
-link** takes anything you paste — a `watch?v=` link, a `youtu.be` short
-link, a Shorts link, or the bare video id.
+**Without a key** the section still plays anything you paste: **Open a
+YouTube link** takes a `watch?v=` link, a `youtu.be` short link, a Shorts
+link, or a bare video id.
+
+### Browsing costs a fraction of searching
+
+A search costs **100 units** of the daily 10,000. Opening a **playlist** or a
+**channel** costs about **2** — the same key that manages a hundred searches
+a day manages thousands of these. So **Open a YouTube link** takes more than
+videos:
+
+| Paste | What happens |
+| --- | --- |
+| a video link | plays it |
+| a playlist link | lists everything in it, 50 at a time |
+| a channel link | lists that channel's uploads, newest first |
+
+Channel links work in all four shapes YouTube uses — `/channel/UC…`,
+`/@handle`, `/c/name` and `/user/name`. The first three resolve for a single
+unit. If none of them match, it falls back to a search and says so, because
+that one does cost you 100.
+
+Each video shows its length, which a search result doesn't carry — that's a
+separate lookup, and it covers fifty videos for one unit.
 
 ### What it can't do
 

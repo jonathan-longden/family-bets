@@ -1771,7 +1771,6 @@ $('#feedSave').addEventListener('click', async () => {
 
 const YT_KEY = 'ytKey';
 const VIDEOS_KEY = 'videos';
-const YT_API = 'https://www.googleapis.com/youtube/v3/search';
 
 let ytKey = '';
 let videos = [];             // [{ id, title, channel, thumb }]
@@ -1798,6 +1797,34 @@ function videoIdFrom(text) {
   return m ? m[1] : null;
 }
 
+/* A YouTube address names one of three things, and telling them apart is
+   what makes the cheap calls reachable: a playlist or a channel costs a
+   single unit to open, against a hundred for one search. */
+function linkKind(text) {
+  const s = (text || '').trim();
+  const vid = videoIdFrom(s);
+  let u;
+  try { u = new URL(s); } catch { u = null; }
+
+  if (u && /(^|\.)(youtube\.com|youtube-nocookie\.com)$/.test(u.hostname)) {
+    const list = u.searchParams.get('list');
+    // watch?v=…&list=… is a video playing from a playlist: the video wins
+    if (list && !vid) return { kind: 'playlist', value: list };
+
+    const path = u.pathname.replace(/\/+$/, '');
+    let m;
+    if ((m = path.match(/^\/channel\/(UC[\w-]{20,})$/))) return { kind: 'channel', ref: { kind: 'id', value: m[1] } };
+    if ((m = path.match(/^\/@([\w.-]+)$/)))               return { kind: 'channel', ref: { kind: 'handle', value: '@' + m[1] } };
+    if ((m = path.match(/^\/user\/([\w.-]+)$/)))          return { kind: 'channel', ref: { kind: 'username', value: m[1] } };
+    if ((m = path.match(/^\/c\/([\w.-]+)$/)))             return { kind: 'channel', ref: { kind: 'handle', value: '@' + m[1] } };
+  }
+
+  if (vid) return { kind: 'video', value: vid };
+  // a bare playlist id, pasted on its own
+  if (/^(PL|UU|LL|FL|OL)[\w-]{10,}$/.test(s)) return { kind: 'playlist', value: s };
+  return null;
+}
+
 function ytStatus(text) {
   const el = $('#ytStatus');
   el.hidden = !text;
@@ -1820,7 +1847,7 @@ function videoTile(v) {
         </span>
       </span>
       <b>${esc(v.title)}</b>
-      <span>${esc(v.channel || 'YouTube')}</span>
+      <span>${esc(v.channel || 'YouTube')}${v.dur ? ' · ' + esc(v.dur) : ''}</span>
     </button>`;
 }
 
@@ -1837,32 +1864,86 @@ function renderYouTube() {
   $('#ytGo').disabled = !ytKey;
 }
 
+const YT_ROOT = 'https://www.googleapis.com/youtube/v3';
+const YT_API = `${YT_ROOT}/search`;
+
+/* One door to the API, so every call reports a refusal the same way.
+   Returns { ok, data, message }. */
+async function ytFetch(path, params) {
+  if (!ytKey) return { ok: false, message: 'Add a YouTube API key first — see “Turning search on” below.' };
+  const q = new URLSearchParams({ ...params, key: ytKey });
+  let res, data;
+  try {
+    res = await fetch(`${YT_ROOT}/${path}?${q}`);
+    data = await res.json().catch(() => null);
+  } catch {
+    return { ok: false, message: "Couldn't reach YouTube — this part needs a connection." };
+  }
+  if (!res.ok) {
+    const reason = data && data.error && data.error.message ? data.error.message : 'HTTP ' + res.status;
+    if (/quota/i.test(reason)) {
+      return { ok: false, message: "That key's daily quota is used up — it resets at midnight Pacific time. " +
+        'Opening a channel or playlist link costs a hundredth of a search, if you want to go easier on it.' };
+    }
+    if (res.status === 400 || res.status === 403) return { ok: false, message: `YouTube refused the key: ${reason}` };
+    return { ok: false, message: `YouTube said no: ${reason}` };
+  }
+  return { ok: true, data };
+}
+
+/* PT1H2M3S → 1:02:03. Search results don't carry a length; videos.list does,
+   at one unit for fifty of them, so it's worth the extra call. */
+function prettyDuration(iso) {
+  const m = /^P(?:\d+D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || '');
+  if (!m) return '';
+  const [h, mi, s] = [Number(m[1] || 0), Number(m[2] || 0), Number(m[3] || 0)];
+  const pad = n => String(n).padStart(2, '0');
+  return h ? `${h}:${pad(mi)}:${pad(s)}` : `${mi}:${pad(s)}`;
+}
+
+async function withDurations(list) {
+  if (!list.length) return list;
+  const r = await ytFetch('videos', { part: 'contentDetails', id: list.map(v => v.id).join(',') });
+  if (!r.ok) return list;                       // a length is a nicety, not worth failing over
+  const byId = {};
+  for (const it of r.data.items || []) {
+    byId[it.id] = prettyDuration(it.contentDetails && it.contentDetails.duration);
+  }
+  return list.map(v => ({ ...v, dur: byId[v.id] || '' }));
+}
+
+const fromPlaylistItem = it => ({
+  id: it.snippet.resourceId ? it.snippet.resourceId.videoId : '',
+  title: it.snippet.title,
+  channel: it.snippet.videoOwnerChannelTitle || it.snippet.channelTitle || '',
+  thumb: it.snippet.thumbnails && it.snippet.thumbnails.medium ? it.snippet.thumbnails.medium.url : '',
+});
+
+/* what's on screen, so More knows where it got to */
+let ytPage = { kind: null, id: null, next: '', name: '' };
+
+function showVideos(list, heading, { append = false } = {}) {
+  $('#ytResultsHead').hidden = !list.length && !append;
+  $('#ytResultsHead').textContent = heading;
+  const html = list.map(videoTile).join('');
+  if (append) $('#ytResults').insertAdjacentHTML('beforeend', html);
+  else $('#ytResults').innerHTML = html;
+  $('#ytMore').hidden = !ytPage.next;
+}
+
 async function searchYouTube(term) {
   if (!term) return;
   if (!ytKey) return ytStatus('Add a YouTube API key first — see “Turning search on” below.');
   ytStatus('Searching…');
   $('#ytResults').innerHTML = '';
   $('#ytResultsHead').hidden = true;
+  $('#ytMore').hidden = true;
+  ytPage = { kind: null, id: null, next: '', name: '' };
 
-  const params = new URLSearchParams({
-    part: 'snippet', type: 'video', maxResults: '24', q: term, key: ytKey,
-  });
-  let data;
-  try {
-    const res = await fetch(`${YT_API}?${params}`);
-    data = await res.json().catch(() => null);
-    if (!res.ok) {
-      const reason = data && data.error && data.error.message ? data.error.message : 'HTTP ' + res.status;
-      // the two that actually happen, said in plain words
-      if (/quota/i.test(reason)) return ytStatus("That key's daily search quota is used up — it resets at midnight Pacific time.");
-      if (res.status === 400 || res.status === 403) return ytStatus(`YouTube refused the key: ${reason}`);
-      throw new Error(reason);
-    }
-  } catch {
-    return ytStatus("Couldn't reach YouTube — searching needs a connection.");
-  }
+  const r = await ytFetch('search', { part: 'snippet', type: 'video', maxResults: '24', q: term });
+  if (!r.ok) return ytStatus(r.message);
 
-  const out = (data.items || [])
+  let out = (r.data.items || [])
     .filter(it => it.id && it.id.videoId)
     .map(it => ({
       id: it.id.videoId,
@@ -1871,10 +1952,63 @@ async function searchYouTube(term) {
       thumb: it.snippet.thumbnails && it.snippet.thumbnails.medium
         ? it.snippet.thumbnails.medium.url : '',
     }));
+  out = await withDurations(out);
 
-  $('#ytResultsHead').hidden = !out.length;
-  $('#ytResults').innerHTML = out.map(videoTile).join('');
+  showVideos(out, 'Results');
   ytStatus(out.length ? `${out.length} video${out.length === 1 ? '' : 's'}` : 'Nothing found');
+}
+
+/* A playlist's contents cost one unit a page of fifty, against a hundred for
+   a single search — which is the whole reason browsing exists here. */
+async function openPlaylist(playlistId, name, { append = false } = {}) {
+  ytStatus(append ? 'Loading more…' : 'Opening…');
+  const params = { part: 'snippet', maxResults: '50', playlistId };
+  if (append && ytPage.next) params.pageToken = ytPage.next;
+  const r = await ytFetch('playlistItems', params);
+  if (!r.ok) return ytStatus(r.message);
+
+  let out = (r.data.items || []).map(fromPlaylistItem).filter(v => v.id);
+  out = await withDurations(out);
+  ytPage = { kind: 'playlist', id: playlistId, next: r.data.nextPageToken || '',
+    name: name || ytPage.name || 'Playlist' };
+  showVideos(out, ytPage.name, { append });
+  ytStatus(append
+    ? `${out.length} more`
+    : `${out.length} video${out.length === 1 ? '' : 's'} in ${ytPage.name}`);
+}
+
+/* A channel link can name the channel four different ways, and only one of
+   them is the id the API wants. The rest resolve for a single unit; if none
+   of them match, a search is the fallback and costs a hundred, so it says so. */
+async function openChannel(ref) {
+  ytStatus('Opening…');
+  const params = { part: 'snippet,contentDetails' };
+  if (ref.kind === 'id') params.id = ref.value;
+  else if (ref.kind === 'handle') params.forHandle = ref.value;
+  else params.forUsername = ref.value;
+
+  let r = await ytFetch('channels', params);
+  if (!r.ok) return ytStatus(r.message);
+  let ch = (r.data.items || [])[0];
+
+  if (!ch) {
+    // nothing matched cheaply, so fall back to the expensive way
+    ytStatus(`Couldn't resolve that channel directly — searching for it instead (costs more of your quota).`);
+    const s = await ytFetch('search', { part: 'snippet', type: 'channel', maxResults: '1', q: ref.value });
+    if (!s.ok) return ytStatus(s.message);
+    const hit = (s.data.items || [])[0];
+    if (!hit) return ytStatus(`No channel found for “${ref.value}”.`);
+    r = await ytFetch('channels', { part: 'snippet,contentDetails', id: hit.id.channelId });
+    if (!r.ok) return ytStatus(r.message);
+    ch = (r.data.items || [])[0];
+    if (!ch) return ytStatus(`No channel found for “${ref.value}”.`);
+  }
+
+  const uploads = ch.contentDetails && ch.contentDetails.relatedPlaylists
+    && ch.contentDetails.relatedPlaylists.uploads;
+  if (!uploads) return ytStatus("That channel doesn't publish an uploads list.");
+  ytPage.name = ch.snippet.title;
+  return openPlaylist(uploads, ch.snippet.title);
 }
 
 /* Play it in YouTube's own player, in place of the decks. */
@@ -1949,11 +2083,17 @@ $('#ytKeySave').addEventListener('click', async () => {
 });
 
 $('#ytAddLink').addEventListener('click', () => {
-  const raw = prompt('Paste a YouTube link');
+  const raw = prompt('Paste a YouTube link — a video, a playlist or a channel');
   if (raw === null) return;
-  const id = videoIdFrom(raw);
-  if (!id) return ytStatus("That doesn't look like a YouTube link.");
-  playVideo({ id, title: 'YouTube video', channel: '', thumb: '' });
+  const what = linkKind(raw);
+  if (!what) return ytStatus("That doesn't look like a YouTube link.");
+  if (what.kind === 'video') return playVideo({ id: what.value, title: 'YouTube video', channel: '', thumb: '' });
+  if (what.kind === 'playlist') return openPlaylist(what.value, 'Playlist');
+  return openChannel(what.ref);
+});
+
+$('#ytMore').addEventListener('click', () => {
+  if (ytPage.kind === 'playlist' && ytPage.next) openPlaylist(ytPage.id, ytPage.name, { append: true });
 });
 
 /* ───────────────────────── backup ─────────────────────────
