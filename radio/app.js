@@ -2105,20 +2105,52 @@ function playVideo(v) {
   render();
 }
 
-/* Android's own share sheet is the only chooser a web page can raise: the
-   browser will not say what is installed, so the phone is asked to offer
-   whatever can open the link and the choice is made there. Vanced, the
-   YouTube app, a browser — whatever is on the phone shows up, and Tunage
-   never learns which was picked. */
-const canChoose = () => typeof navigator.share === 'function';
+/* Android's Open-with chooser, reached the only way a web page can reach it:
+   an intent:// address. The browser still will not say what is installed —
+   it hands the address to Android, Android lists whatever can open it, and
+   the choice happens out there. A share sheet is not this: that offers apps
+   something to receive, where this offers apps a link to open.
+
+   Where intent:// means nothing — anything that isn't Android — the share
+   sheet is the nearest thing there is, so it stands in. */
+const isAndroid = () => /Android/i.test(navigator.userAgent || '');
+const canChoose = () => isAndroid() || typeof navigator.share === 'function';
+
+/* https://host/path?q  →  intent://host/path?q#Intent;…;end, carrying the
+   original address as the fallback for a phone with nothing that handles it. */
+function intentUrlFor(httpsUrl) {
+  let u;
+  try { u = new URL(httpsUrl); } catch { return null; }
+  return `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=https;` +
+    'action=android.intent.action.VIEW;' +
+    `S.browser_fallback_url=${encodeURIComponent(httpsUrl)};end`;
+}
 
 async function chooseApp() {
   if (!nowVideo) return;
   const url = $('#ytOpen').getAttribute('href');
+
+  const intent = isAndroid() ? intentUrlFor(url) : null;
+  if (intent) {
+    /* A new tab, so that a phone with no handler lands on the fallback there
+       rather than throwing Tunage off the screen. */
+    const a = document.createElement('a');
+    a.href = intent;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    return;
+  }
+
+  if (typeof navigator.share !== 'function') {
+    return ytStatus('This device offers no chooser — Open in YouTube still works.');
+  }
   try {
     await navigator.share({ url, title: nowVideo.title || 'YouTube' });
   } catch (err) {
-    // dismissing the sheet is not a failure worth reporting
+    // backing out is a choice, not a fault
     if (err && err.name === 'AbortError') return;
     ytStatus("This browser wouldn't open the chooser — Open in YouTube still works.");
   }
