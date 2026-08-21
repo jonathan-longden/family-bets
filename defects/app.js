@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 12';
+var BUILD = '2026-08-21 · 13';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -597,9 +597,11 @@ function analyse(blob) {
                    .filter(Boolean)
                    .filter(function (f) { return f.conf == null || f.conf >= RF_CONF; });
     if (raw.length && !preds.length) {
-      return scanSay('<b>The model gave nothing usable.</b> It returned ' + raw.length +
-        ' result' + (raw.length === 1 ? '' : 's') + ', none with a box this app could measure. ' +
-        'Nothing is proposed — score it on the matrix yourself.', 'none');
+      noteRaw(raw, out.w, out.h);
+      return scanSay('<b>The model gave nothing usable.</b> ' + esc(describeRaw(raw)) +
+        '. Frame ' + out.w + '×' + out.h + '. Nothing is proposed — score it yourself. ' +
+        '<span class="caveat">This is in the JSON export, so it can be diagnosed without ' +
+        'another drive.</span>', 'none');
     }
     if (!preds.length) {
       return scanSay('<b>Nothing identified.</b> Either there is no defect in the frame or the ' +
@@ -656,6 +658,44 @@ function whyLocal(e) {
   return 'The model failed while running.' + (msg ? ' (' + msg + ')' : '');
 }
 
+
+/* Describes what actually came back, in a line short enough to read off a
+   phone. Refusing to act on nonsense keeps the log honest but says nothing
+   about why, and guessing the cause costs a deploy and a drive each time. The
+   shape the library builds is fixed — class, confidence, bbox — so when the
+   numbers inside it are wrong it is the model's output layout that does not
+   match what the library expects, and the ranges here are what say which. */
+function describeRaw(raw) {
+  if (!raw || !raw.length) return 'nothing at all';
+  var n = raw.length, first = raw[0] || {};
+  var keys = Object.keys(first).join(', ') || 'no keys';
+  var box = first.bbox;
+  var lo = Infinity, hi = -Infinity, withBox = 0;
+  raw.forEach(function (p) {
+    var c = +(p && p.confidence);
+    if (isFinite(c)) { lo = Math.min(lo, c); hi = Math.max(hi, c); }
+    if (p && p.bbox && isFinite(+p.bbox.width)) withBox++;
+  });
+  var conf = isFinite(lo) ? (lo === hi ? String(round4(lo)) : round4(lo) + ' to ' + round4(hi))
+                          : 'none reported';
+  return n + ' result' + (n === 1 ? '' : 's') + '; keys [' + keys + ']; confidence ' + conf +
+         '; ' + withBox + ' with a measurable box' +
+         (box ? '; first box ' + round4(box.width) + '×' + round4(box.height) +
+                ' at ' + round4(box.x) + ',' + round4(box.y) : '; first has no box');
+}
+function round4(v) {
+  var n = +v;
+  if (!isFinite(n)) return String(v);
+  return Math.abs(n) >= 1000 ? Math.round(n) : Math.round(n * 10000) / 10000;
+}
+
+/* Kept so the next export carries it, rather than needing another drive. */
+var lastRaw = null;
+function noteRaw(raw, w, h) {
+  lastRaw = { at: new Date().toISOString(), frame: w + '×' + h,
+              summary: describeRaw(raw),
+              first: raw && raw.length ? JSON.parse(JSON.stringify(raw[0])) : null };
+}
 
 /* ---------- taking the model at less than its word ----------
 
@@ -847,7 +887,9 @@ function look() {
       /* Nothing measurable came back. Saying so beats writing down a guess, and
          a survey that quietly logged guesses is what produced a morning of
          two-hour emergencies. */
+      noteRaw(raw, out.w, out.h);
       hud('Model output unusable', 'bad');
+      toast(describeRaw(raw) + '. Frame ' + out.w + '×' + out.h + '.');
       return tick();
     }
     if (!hits.length) return hud('Watching');
@@ -1172,7 +1214,9 @@ $('bJson').addEventListener('click', function () {
       })).then(function (wrongRows) {
         dl('defects-' + stamp() + '.json', new Blob([JSON.stringify({
           defects: rows,
-          notDefects: wrongRows       // the examples a retrain would need
+          notDefects: wrongRows,      // the examples a retrain would need
+          model: { id: RF_MODEL, version: RF_VERSION, build: BUILD },
+          lastUnusableOutput: lastRaw // what the model returned when it made no sense
         }, null, 2)], { type: 'application/json' }));
       });
     });

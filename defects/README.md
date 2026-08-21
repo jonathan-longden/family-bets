@@ -88,6 +88,19 @@ the most serious category it has, silently, in a tool whose output is a response
 time. Every entry now carries the box it was measured from, so a wrong one can
 be taken apart afterwards rather than guessed at.
 
+### When it says the output is unusable
+
+It also says what came back: how many results, which keys they carried, the
+range of the confidences, and how many had a box that could be measured. The
+same summary, the frame size, and one result verbatim go into the JSON export
+under `lastUnusableOutput`, alongside the model id and the build.
+
+That is there because the shape the library builds is fixed — class, confidence,
+bbox — so when the numbers inside it are wrong, it is the model's output layout
+that does not match what the library expects. Which model to try instead is a
+guess, and every guess otherwise costs a deploy and a drive. The ranges say
+which.
+
 ## Shadows
 
 Tree shadows across a carriageway are what this model gets wrong, and it is
