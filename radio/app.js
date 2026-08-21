@@ -1891,6 +1891,11 @@ function playVideo(v) {
        allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
   $('#ytNowTitle').textContent = v.title;
   $('#ytNowChannel').textContent = v.channel || 'YouTube';
+  /* A plain link out. The phone decides what opens a YouTube address — which
+     may well be a YouTube app rather than a browser — and that app brings
+     whatever it brings: an account, background playback, the lot. Tunage
+     hands over the address and stops there. */
+  $('#ytOpen').href = `https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}`;
   $('#npTitle').textContent = v.title;
   $('#npArtist').textContent = v.channel || 'YouTube';
   render();
