@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 11';
+var BUILD = '2026-08-21 · 12';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -478,13 +478,24 @@ var BANDS = [
   { max: 1.01, word: 'very large',       imp: 5, prb: 4 }
 ];
 
+/* Returns null for anything that is not a real fraction of the frame.
+
+   This used to end with "return the last band" — the largest one — and every
+   comparison against NaN is false, so a share the app had failed to compute
+   fell straight through to "very large", scored 5 by 4, gained a point for
+   being one of several, and was written into the log as an Emergency needing
+   attention in two hours. A whole survey came back that way, including a
+   photograph of the inside of a van. Not knowing has to mean not knowing. */
 function bandFor(share) {
+  if (typeof share !== 'number' || !isFinite(share) || share <= 0 || share > 1) return null;
   for (var i = 0; i < BANDS.length; i++) if (share < BANDS[i].max) return BANDS[i];
   return BANDS[BANDS.length - 1];
 }
 
 function proposal(det) {
-  var b = bandFor(det.share), imp = b.imp, prb = b.prb, why = [];
+  var b = bandFor(det && det.share);
+  if (!b) return null;                       // no share, no score
+  var imp = b.imp, prb = b.prb, why = [];
   why.push(det.count > 1 ? det.count + ' defects found' : 'one defect found');
   why.push(b.word + ' — ' + Math.round(det.share * 100) + '% of the frame');
   if (S.foot && imp > 1) {
@@ -507,18 +518,31 @@ function propose() {
 }
 
 function paintProposal() {
-  var d = S.det, p = proposal(d), n = p.imp * p.prb, c = category(n);
+  var d = S.det, p = proposal(d);
+  if (!p) {
+    return scanSay('<b>Found something, but could not measure it.</b> Without its size on the ' +
+                   'frame there is no honest score to propose — score it on the matrix ' +
+                   'yourself.', 'none');
+  }
+  var n = p.imp * p.prb, c = category(n);
   selectCell(p.imp, p.prb);
   S.by = 'app';
   verdict();
   var what = d.cls ? typeFor(d.cls).toLowerCase() : 'a defect';
-  scanSay('<b>' + Math.round(d.conf * 100) + '% sure that is ' +
-          (what === 'ironwork' ? 'ironwork' : 'a pothole') + '.</b> ' +
+  var noun = what === 'ironwork' ? 'ironwork' : 'a pothole';
+  scanSay('<b>' + (d.conf == null ? 'That looks like ' + noun + '.'
+                                  : Math.round(d.conf * 100) + '% sure that is ' + noun + '.') + '</b> ' +
           p.why.join(', ') + '. Proposed ' + p.imp + ' × ' + p.prb + ' = ' + n +
           ', ' + c.k + '.<br><span class="caveat">A photograph has no scale in it: this ' +
           'assumes you are standing over the defect with the phone pointed down, and it is ' +
           'measured from a box drawn round the hole, which is generous. It says nothing about ' +
           'depth, traffic or footfall. Check the cell before saving.</span>', 'hit');
+}
+
+/* The model's confidence is shown only when it is one. */
+function sureness(conf) {
+  return conf == null ? 'How sure it is was not reported. '
+                      : Math.round(conf * 100) + '% sure. ';
 }
 
 function scanSay(html, cls) {
@@ -568,23 +592,28 @@ function analyse(blob) {
     });
   }).then(function (out) {
     if (!out || S.shot !== mine) return;
-    var preds = (out.preds || []).filter(function (p) {
-      return (p.confidence == null || p.confidence >= RF_CONF) && known(p.class);
-    });
+    var raw = out.preds || [];
+    var preds = raw.map(function (p) { return usableFind(p, out.w, out.h); })
+                   .filter(Boolean)
+                   .filter(function (f) { return f.conf == null || f.conf >= RF_CONF; });
+    if (raw.length && !preds.length) {
+      return scanSay('<b>The model gave nothing usable.</b> It returned ' + raw.length +
+        ' result' + (raw.length === 1 ? '' : 's') + ', none with a box this app could measure. ' +
+        'Nothing is proposed — score it on the matrix yourself.', 'none');
+    }
     if (!preds.length) {
       return scanSay('<b>Nothing identified.</b> Either there is no defect in the frame or the ' +
                      'model cannot see it. Nothing is proposed — score it yourself.', 'none');
     }
     var best = preds.reduce(function (a, b) {
-      return (b.confidence || 0) > (a.confidence || 0) ? b : a;
+      return (b.conf || 0) > (a.conf || 0) ? b : a;
     });
-    var box = best.bbox || best;
+    var box = best.box;
 
-    if (typeFor(best.class) === 'Ironwork') {
+    if (typeFor(best.cls) === 'Ironwork') {
       $('fType').value = 'Ironwork';
-      return scanSay('<b>That is ironwork, not a pothole.</b> ' +
-        Math.round((best.confidence == null ? 1 : best.confidence) * 100) +
-        '% sure. A cover is only a defect if it is sunken, proud, rocking or cracked, and a ' +
+      return scanSay('<b>That is ironwork, not a pothole.</b> ' + sureness(best.conf) +
+        'A cover is only a defect if it is sunken, proud, rocking or cracked, and a ' +
         'photograph does not say which — so nothing is proposed. The type is set; score it ' +
         'yourself if it is defective.', 'none');
     }
@@ -596,17 +625,15 @@ function analyse(blob) {
     sc.width = out.w; sc.height = out.h;
     var sctx = sc.getContext('2d', { willReadFrequently: true });
     sctx.drawImage(out.bmp, 0, 0);
-    var bad = rejectReason(sctx, out.w, out.h,
-      { x: box.x, y: box.y, w: box.width, h: box.height });
+    var bad = rejectReason(sctx, out.w, out.h, box);
     if (bad) {
       return scanSay('<b>That looks like a shadow.</b> The model found something, but it is ' +
                      bad + '. Nothing is proposed — if it is a real defect, score it yourself.',
                      'none');
     }
-    var share = (box.width * box.height) / (out.w * out.h);
-    S.det = { conf: best.confidence == null ? 1 : best.confidence, share: share,
-              count: preds.length, cls: best.class };
-    $('fType').value = typeFor(best.class);
+    S.det = { conf: best.conf, share: best.share, count: preds.length,
+              cls: best.cls, box: box };
+    $('fType').value = typeFor(best.cls);
     paintProposal();
   }).catch(function (e) {
     if (S.shot !== mine) return;
@@ -629,6 +656,32 @@ function whyLocal(e) {
   return 'The model failed while running.' + (msg ? ' (' + msg + ')' : '');
 }
 
+
+/* ---------- taking the model at less than its word ----------
+
+   What comes back is not always usable, and the app has no business guessing
+   when it is not. A run of this produced twenty boxes per frame with scores of
+   1.004 and, once, 5323169.5 — a confidence is a number between nought and one,
+   so those are not confidences, and a threshold set against them filtered
+   nothing. Every field is therefore checked before it is believed, and a find
+   that fails is dropped rather than repaired. */
+function usableFind(p, w, h) {
+  if (!p || !known(p.class)) return null;
+  var box = p.bbox;
+  if (!box) return null;
+  var bw = +box.width, bh = +box.height, bx = +box.x, by = +box.y;
+  if (![bw, bh, bx, by].every(isFinite) || bw <= 0 || bh <= 0) return null;
+  if (!isFinite(w) || !isFinite(h) || w <= 0 || h <= 0) return null;
+  var share = (bw * bh) / (w * h);
+  if (!isFinite(share) || share <= 0 || share > 1) return null;
+  /* A confidence outside nought to one is not a confidence. The find is still
+     usable — the box is sound — but nothing may be claimed about how sure the
+     model is, and it cannot be thresholded on. */
+  var c = +p.confidence;
+  var conf = (isFinite(c) && c >= 0 && c <= 1) ? c : null;
+  return { cls: p.class, conf: conf, share: share,
+           box: { x: bx, y: by, w: bw, h: bh } };
+}
 
 /* ---------- telling a shadow from a hole ----------
 
@@ -786,9 +839,17 @@ function look() {
       });
     });
   }).then(function (out) {
-    var hits = out.preds.filter(function (p) {
-      return (p.confidence == null || p.confidence >= SURVEY_CONF) && known(p.class);
-    });
+    var raw = out.preds || [];
+    var hits = raw.map(function (p) { return usableFind(p, out.w, out.h); })
+                  .filter(Boolean)
+                  .filter(function (f) { return f.conf == null || f.conf >= SURVEY_CONF; });
+    if (raw.length && !hits.length) {
+      /* Nothing measurable came back. Saying so beats writing down a guess, and
+         a survey that quietly logged guesses is what produced a morning of
+         two-hour emergencies. */
+      hud('Model output unusable', 'bad');
+      return tick();
+    }
     if (!hits.length) return hud('Watching');
     var v = $('vid'), c = $('shot');
     var scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
@@ -796,13 +857,12 @@ function look() {
     var ctx = c.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(v, 0, 0, c.width, c.height);
     var k = c.width / out.w;
-    hits = hits.filter(function (p) {
-      var b = p.bbox || p;
+    hits = hits.filter(function (f) {
       return !rejectReason(ctx, c.width, c.height,
-        { x: b.x * k, y: b.y * k, w: b.width * k, h: b.height * k });
+        { x: f.box.x * k, y: f.box.y * k, w: f.box.w * k, h: f.box.h * k });
     });
     if (!hits.length) return hud('Shadow, not a defect');
-    var holes = hits.filter(function (p) { return typeFor(p.class) === 'Pothole'; });
+    var holes = hits.filter(function (f) { return typeFor(f.cls) === 'Pothole'; });
     if (!holes.length) return hud('Ironwork — sound cover, not logged');
     if (alreadyLogged()) return hud('Same defect — not logged again');
     return logFind(holes, out, c);
@@ -817,14 +877,14 @@ function look() {
 /* Writes the entry with no one looking, which is exactly why it is marked as
    such: the log has to keep saying which scores a person stood over. */
 function logFind(hits, out, c) {
-  var best = hits.reduce(function (a, b) { return (b.confidence || 0) > (a.confidence || 0) ? b : a; });
-  var box = best.bbox || best;
-  var det = { conf: best.confidence == null ? 1 : best.confidence,
-              share: (box.width * box.height) / (out.w * out.h),
-              count: hits.length, cls: best.class };
+  var best = hits.reduce(function (a, b) { return (b.conf || 0) > (a.conf || 0) ? b : a; });
+  var det = { conf: best.conf, share: best.share, count: hits.length,
+              cls: best.cls, box: best.box };
   var was = S.det; S.det = det;                 // proposal() reads the current find
-  var p = proposal(det), n = p.imp * p.prb, cat = category(n);
+  var p = proposal(det);
   S.det = was;
+  if (!p) { hud('Found something, could not measure it', 'bad'); return Promise.resolve(); }
+  var n = p.imp * p.prb, cat = category(n);
 
   return new Promise(function (resolve) {
     c.toBlob(function (blob) {
@@ -836,7 +896,8 @@ function logFind(hits, out, c) {
         surface: S.foot ? 'Footway/cycleway' : 'Carriageway',
         scoredBy: 'survey, unconfirmed',
         detConf: det.conf, detShare: det.share, detCount: det.count,
-        type: typeFor(best.class), note: '',
+        detBox: det.box,          // kept so a wrong entry can be diagnosed later
+        type: typeFor(best.cls), note: '',
         lat: f ? f.lat : null, lon: f ? f.lon : null,
         acc: f ? Math.round(f.acc) : null, fixAge: f ? f.age : null
       };
@@ -846,8 +907,9 @@ function logFind(hits, out, c) {
         $('hudCount').textContent = survey.logged + ' logged';
         render();
         hud('Watching');
-        toast('Logged ' + typeFor(best.class).toLowerCase() + ' — ' + cat.k +
-            ' (' + Math.round(det.conf * 100) + '% sure). Unconfirmed.');
+        toast('Logged ' + typeFor(best.cls).toLowerCase() + ' — ' + cat.k +
+            (det.conf == null ? '' : ' (' + Math.round(det.conf * 100) + '% sure)') +
+            '. Unconfirmed.');
         resolve();
       }, function () {
         hud('Could not write it down', 'bad');
@@ -909,9 +971,11 @@ function render() {
     } else { loc = 'No GPS fix'; }
     var how = it.scoredBy ? esc(it.scoredBy) : 'inspector';
     if (it.amendedAt) how += ' · <span class="amended">amended</span>';
-    if (it.detConf != null) {
-      how += ' · model ' + Math.round(it.detConf * 100) + '% sure, ' +
-             Math.round(it.detShare * 100) + '% of frame';
+    if (it.detConf != null && it.detConf >= 0 && it.detConf <= 1) {
+      how += ' · model ' + Math.round(it.detConf * 100) + '% sure';
+      if (it.detShare != null) how += ', ' + Math.round(it.detShare * 100) + '% of frame';
+    } else if (it.detShare != null) {
+      how += ' · model, ' + Math.round(it.detShare * 100) + '% of frame';
     }
     /* Gauged depth is real measured data. The fields that collected it are gone,
        but an entry that already carries one still shows it. */
