@@ -299,6 +299,12 @@ is allowed to play YouTube. Nothing is downloaded, and nothing is stripped
 to audio: the view counts, the ads and the creator's terms all stay where
 they belong.
 
+**Open in YouTube** hands the video to whatever app your phone uses for
+YouTube links. It's an ordinary link — the phone decides what opens it, and
+that app brings whatever it brings: your account, background playback, the
+lot. Handy when you want to carry on listening with the screen off, which
+an embedded player can't do.
+
 ### Turning search on
 
 Radio and podcasts have open directories. YouTube doesn't — searching it
@@ -332,7 +338,8 @@ link, a Shorts link, or the bare video id.
 - **It stops when you leave the app.** YouTube's embedded player doesn't
   play in the background on a phone — that's YouTube's rule for embeds, not
   something Tunage can or should work around. Music and radio are the parts
-  that keep playing with the screen off.
+  that keep playing with the screen off; for a video, **Open in YouTube**
+  hands it to an app that can.
 - **A video and a record can't both be on.** Starting one closes the other,
   the same way a station does.
 
