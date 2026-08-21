@@ -304,7 +304,8 @@ function deletePlaylist(plId) {
 
 /* What's on air: everything, or one playlist in its own order. */
 function pool(source = settings.source) {
-  if (source === 'radio' || source === 'podcasts') return [];   // not tracks
+  // none of these are tracks
+  if (source === 'radio' || source === 'podcasts' || source === 'youtube') return [];
   const playable = t => t && !t.unplayable;
   const pl = source.startsWith('pl:') ? playlistById(source.slice(3)) : null;
   if (!pl) return lib.filter(playable);
@@ -605,6 +606,7 @@ let playing = false;
 async function playTrack(track, { fade = false } = {}) {
   if (!track) return;
   if (onAir()) stopStation();                    // a record and a station can't both be on
+  stopVideo();                                   // nor a record and a video
   await ensureAudioGraph();
   finishFade();                          // never start on top of a blend in progress
 
@@ -1385,6 +1387,7 @@ function renderRadio() {
    can do neither, so the seek bar and skip buttons stand down for one. */
 async function playStream(item) {
   stopAll();                                   // the decks stand down
+  stopVideo();
   nowStream = item;
   document.body.classList.add('on-air');
   document.body.classList.toggle('is-live', item.kind === 'station');
@@ -1751,6 +1754,203 @@ $('#feedSave').addEventListener('click', async () => {
 });
 
 
+
+/* ───────────────────────── YouTube ─────────────────────────
+
+   Video, so it plays where you can see it rather than on a deck. Playback is
+   YouTube's own embedded player in an iframe: that is the only way a web page
+   is allowed to play YouTube, and it keeps the count, the ads and the
+   creator's terms where they belong. Nothing is downloaded and nothing is
+   stripped to audio.
+
+   Searching is the part that needs a key. YouTube has no open directory the
+   way Radio Browser and iTunes do, so a search costs an API key — and this
+   app is a public page, where a key of ours would be a key everyone had.
+   So you bring your own, it stays on your device, and without one the
+   section still plays anything you paste a link to. */
+
+const YT_KEY = 'ytKey';
+const VIDEOS_KEY = 'videos';
+const YT_API = 'https://www.googleapis.com/youtube/v3/search';
+
+let ytKey = '';
+let videos = [];             // [{ id, title, channel, thumb }]
+let nowVideo = null;
+
+const saveVideos = () => store.setPref(VIDEOS_KEY, videos).catch(() => {});
+const watching = () => !!nowVideo;
+const isSavedVideo = id => videos.some(v => v.id === id);
+
+/* watch?v=, youtu.be/, /shorts/, /embed/, or someone pasting the bare id */
+function videoIdFrom(text) {
+  const s = (text || '').trim();
+  if (/^[\w-]{11}$/.test(s)) return s;
+  let u;
+  try { u = new URL(s); } catch { return null; }
+  if (!/(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/.test(u.hostname)) return null;
+  if (u.hostname.endsWith('youtu.be')) {
+    const id = u.pathname.slice(1).split('/')[0];
+    return /^[\w-]{11}$/.test(id) ? id : null;
+  }
+  const v = u.searchParams.get('v');
+  if (v && /^[\w-]{11}$/.test(v)) return v;
+  const m = u.pathname.match(/\/(?:embed|shorts|v)\/([\w-]{11})/);
+  return m ? m[1] : null;
+}
+
+function ytStatus(text) {
+  const el = $('#ytStatus');
+  el.hidden = !text;
+  el.textContent = text || '';
+}
+
+function videoTile(v) {
+  const art = v.thumb
+    ? `<img src="${esc(v.thumb)}" alt="" loading="lazy" onerror="this.remove()" />`
+    : esc((v.title || '?').trim()[0].toUpperCase());
+  const saved = isSavedVideo(v.id);
+  return `
+    <button class="tile wide ${nowVideo && nowVideo.id === v.id ? 'on' : ''}"
+            data-video='${esc(JSON.stringify(v))}'>
+      <span class="tile-art wide">
+        ${art}
+        <span class="tile-save ${saved ? 'on' : ''}" data-save="1" role="button"
+              aria-label="${saved ? 'Remove from saved' : 'Save this video'}">
+          <svg class="ic"><use href="#i-heart"/></svg>
+        </span>
+      </span>
+      <b>${esc(v.title)}</b>
+      <span>${esc(v.channel || 'YouTube')}</span>
+    </button>`;
+}
+
+function renderYouTube() {
+  const panel = $('#youtubePanel');
+  if (!panel) return;
+  panel.hidden = settings.source !== 'youtube';
+  $('#ytSavedHead').hidden = !videos.length;
+  $('#ytSaved').innerHTML = videos.map(videoTile).join('');
+  $('#ytKeyState').textContent = ytKey
+    ? 'A key is saved on this device — search is on.'
+    : 'No key yet, so search is off. You can still paste a video link below.';
+  $('#ytSearch').disabled = !ytKey;
+  $('#ytGo').disabled = !ytKey;
+}
+
+async function searchYouTube(term) {
+  if (!term) return;
+  if (!ytKey) return ytStatus('Add a YouTube API key first — see “Turning search on” below.');
+  ytStatus('Searching…');
+  $('#ytResults').innerHTML = '';
+  $('#ytResultsHead').hidden = true;
+
+  const params = new URLSearchParams({
+    part: 'snippet', type: 'video', maxResults: '24', q: term, key: ytKey,
+  });
+  let data;
+  try {
+    const res = await fetch(`${YT_API}?${params}`);
+    data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const reason = data && data.error && data.error.message ? data.error.message : 'HTTP ' + res.status;
+      // the two that actually happen, said in plain words
+      if (/quota/i.test(reason)) return ytStatus("That key's daily search quota is used up — it resets at midnight Pacific time.");
+      if (res.status === 400 || res.status === 403) return ytStatus(`YouTube refused the key: ${reason}`);
+      throw new Error(reason);
+    }
+  } catch {
+    return ytStatus("Couldn't reach YouTube — searching needs a connection.");
+  }
+
+  const out = (data.items || [])
+    .filter(it => it.id && it.id.videoId)
+    .map(it => ({
+      id: it.id.videoId,
+      title: it.snippet.title,
+      channel: it.snippet.channelTitle,
+      thumb: it.snippet.thumbnails && it.snippet.thumbnails.medium
+        ? it.snippet.thumbnails.medium.url : '',
+    }));
+
+  $('#ytResultsHead').hidden = !out.length;
+  $('#ytResults').innerHTML = out.map(videoTile).join('');
+  ytStatus(out.length ? `${out.length} video${out.length === 1 ? '' : 's'}` : 'Nothing found');
+}
+
+/* Play it in YouTube's own player, in place of the decks. */
+function playVideo(v) {
+  stopAll();
+  if (onAir()) stopStation();
+  nowVideo = v;
+  document.body.classList.add('watching');
+  $('#ytPlayer').hidden = false;
+  const src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(v.id)}` +
+    '?autoplay=1&playsinline=1&rel=0';
+  $('#ytFrame').innerHTML =
+    `<iframe src="${esc(src)}" title="${esc(v.title)}" allow="autoplay; encrypted-media; picture-in-picture"
+       allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
+  $('#ytNowTitle').textContent = v.title;
+  $('#ytNowChannel').textContent = v.channel || 'YouTube';
+  $('#npTitle').textContent = v.title;
+  $('#npArtist').textContent = v.channel || 'YouTube';
+  render();
+}
+
+function stopVideo() {
+  if (!nowVideo) return;
+  nowVideo = null;
+  $('#ytFrame').innerHTML = '';        // removing the iframe is what stops it
+  $('#ytPlayer').hidden = true;
+  document.body.classList.remove('watching');
+  render();
+}
+
+function saveVideo(v) {
+  if (isSavedVideo(v.id)) videos = videos.filter(x => x.id !== v.id);
+  else videos.push(v);
+  saveVideos();
+  renderYouTube();
+  renderSources();                                        // the chip counts them
+  $('#ytResults').innerHTML = $('#ytResults').innerHTML;   // refresh the hearts
+  toast(isSavedVideo(v.id) ? `Saved ${v.title}` : `Removed ${v.title}`);
+}
+
+/* ── wiring ── */
+
+$('#ytGo').addEventListener('click', () => searchYouTube($('#ytSearch').value.trim()));
+$('#ytSearch').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); searchYouTube(e.target.value.trim()); }
+});
+
+function onVideoClick(e) {
+  const tile = e.target.closest('.tile');
+  if (!tile) return;
+  let v;
+  try { v = JSON.parse(tile.dataset.video); } catch { return; }
+  if (e.target.closest('[data-save]')) saveVideo(v);
+  else playVideo(v);
+}
+$('#ytSaved').addEventListener('click', onVideoClick);
+$('#ytResults').addEventListener('click', onVideoClick);
+$('#ytStop').addEventListener('click', stopVideo);
+
+$('#ytKeySave').addEventListener('click', async () => {
+  const val = $('#ytKeyInput').value.trim();
+  ytKey = val;
+  await store.setPref(YT_KEY, ytKey).catch(() => {});
+  $('#ytKeyInput').value = '';
+  renderYouTube();
+  ytStatus(ytKey ? 'Key saved — search is on.' : 'Key cleared.');
+});
+
+$('#ytAddLink').addEventListener('click', () => {
+  const raw = prompt('Paste a YouTube link');
+  if (raw === null) return;
+  const id = videoIdFrom(raw);
+  if (!id) return ytStatus("That doesn't look like a YouTube link.");
+  playVideo({ id, title: 'YouTube video', channel: '', thumb: '' });
+});
+
 /* ───────────────────────── backup ─────────────────────────
 
    Playlists, saved stations and subscriptions live in this browser and
@@ -1785,6 +1985,9 @@ function buildBackup() {
     stations,
     podcasts,
     episodePos,
+    // saved videos travel; the API key deliberately does not, so a backup file
+    // can be handed around without handing over a credential
+    videos,
     // enough to put loudness measurements back without re-analysing everything
     library: lib.map(t => ({ ...slim(t), gain: t.gain, lufs: t.lufs, peak: t.peak,
       unplayable: t.unplayable || undefined })),
@@ -1826,7 +2029,8 @@ async function importBackup(file) {
   }
 
   const here = new Map(lib.map(t => [trackKey(t), t]));
-  let addedPlaylists = 0, matched = 0, missing = 0, addedStations = 0, addedShows = 0, measured = 0;
+  let addedPlaylists = 0, matched = 0, missing = 0, addedStations = 0, addedShows = 0,
+    addedVideos = 0, measured = 0;
 
   for (const saved of data.playlists) {
     const ids = [];
@@ -1854,6 +2058,11 @@ async function importBackup(file) {
     if (!show || !show.feed || podcasts.some(x => x.feed === show.feed)) continue;
     podcasts.push(show);
     addedShows++;
+  }
+  for (const v of data.videos || []) {
+    if (!v || !v.id || videos.some(x => x.id === v.id)) continue;
+    videos.push(v);
+    addedVideos++;
   }
 
   if (data.episodePos && typeof data.episodePos === 'object') {
@@ -1884,6 +2093,7 @@ async function importBackup(file) {
   savePlaylists();
   saveStations();
   savePodcasts();
+  saveVideos();
   store.setPref(EPISODES_KEY, episodePos).catch(() => {});
   rebuildQueue();
   render();
@@ -1893,6 +2103,7 @@ async function importBackup(file) {
   if (matched) bits.push(`${matched} track${matched === 1 ? '' : 's'} matched`);
   if (addedStations) bits.push(`${addedStations} station${addedStations === 1 ? '' : 's'}`);
   if (addedShows) bits.push(`${addedShows} show${addedShows === 1 ? '' : 's'}`);
+  if (addedVideos) bits.push(`${addedVideos} video${addedVideos === 1 ? '' : 's'}`);
   if (measured) bits.push(`${measured} volume reading${measured === 1 ? '' : 's'}`);
   backupStatus((bits.length ? 'Restored ' + bits.join(', ') + '.' : 'Nothing new to restore.') +
     (missing ? ` ${missing} playlist track${missing === 1 ? '' : 's'} not in your library — ` +
@@ -2246,7 +2457,7 @@ async function runPendingCommand() {
   // ?open=radio jumps straight to a section without playing anything — that's
   // what the icon's long-press shortcuts use.
   const open = params && params.get('open');
-  if (open === 'radio' || open === 'podcasts' || open === 'tunage') {
+  if (open === 'radio' || open === 'podcasts' || open === 'youtube' || open === 'tunage') {
     settings.source = open;
     saveSettings();
     rebuildQueue();
@@ -2342,6 +2553,7 @@ function render() {
   renderDecks();
   renderRadio();
   renderPodcasts();
+  renderYouTube();
   renderSources();
   renderQueue();
   renderPlaylist();
@@ -2633,6 +2845,8 @@ function renderSources() {
       ? `${stations.length} saved` : 'live stations') +
     chip('podcasts', 'Podcasts', podcasts.length
       ? `${podcasts.length} subscribed` : 'shows and episodes') +
+    chip('youtube', 'YouTube', videos.length
+      ? `${videos.length} saved` : 'search and watch') +
     '<button class="source new" data-source="new"><b>+ New</b><span>playlist</span></button>';
 }
 
@@ -2706,7 +2920,8 @@ $('#sources').addEventListener('click', e => {
   rebuildQueue();
   render();
   // these are sections to browse, not something to start playing on its own
-  if (settings.source === 'radio' || settings.source === 'podcasts') return;
+  if (settings.source === 'radio' || settings.source === 'podcasts' ||
+      settings.source === 'youtube') return;
   if (onAir()) stopStation();
   // picking a playlist means that playlist's music, right now
   if (!pool().length) { stopAll(); toast(emptyMessage()); render(); return; }
@@ -3023,6 +3238,15 @@ document.addEventListener('keydown', e => {
     podcasts = [];
     episodePos = {};
   }
+  try {
+    const savedVideos = await store.getPref(VIDEOS_KEY);
+    videos = Array.isArray(savedVideos) ? savedVideos : [];
+    ytKey = (await store.getPref(YT_KEY)) || '';
+  } catch {
+    videos = [];
+    ytKey = '';
+  }
+
   // a playlist deleted on another tab shouldn't leave us pointing at nothing
   if (settings.source.startsWith('pl:') && !currentPlaylist()) settings.source = 'tunage';
   rebuildQueue();
