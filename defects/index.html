@@ -65,6 +65,8 @@
 <section class="panel" id="p-score" hidden>
   <div class="stage" style="aspect-ratio:auto"><img id="prev" alt="Captured defect" style="width:100%;display:block"></div>
 
+  <div class="scan" id="scan" hidden></div>
+
   <h2 style="margin:18px 0 8px;font-size:19px">Risk matrix</h2>
   <p class="hint" style="margin-top:0">Tap impact down the side, probability across the top.</p>
 
@@ -76,6 +78,7 @@
     <div>
       <div class="cat" id="vCat">Not scored</div>
       <div class="resp" id="vResp">Select impact and probability</div>
+      <div class="by" id="vBy" hidden></div>
     </div>
     <div class="score" id="vScore">—</div>
   </div>
@@ -87,25 +90,6 @@
       <button type="button" id="segFoot" aria-pressed="false">Footway / cycleway</button>
     </div>
   </label>
-
-  <label class="fld">
-    <span class="cap">Depth at deepest point (mm)</span>
-    <input type="number" id="fDepth" inputmode="numeric" placeholder="Gauge reading">
-    <span class="hint">Measured, not estimated. Leave blank if not gauged — it will be recorded as unmeasured.</span>
-  </label>
-
-  <label class="fld">
-    <span class="cap">Wider than a tyre</span>
-    <div class="seg">
-      <button type="button" id="segW1" aria-pressed="false">Yes</button>
-      <button type="button" id="segW0" aria-pressed="false">No</button>
-    </div>
-  </label>
-
-  <div class="esc">
-    <div class="ttl">Cat 1 escalation test</div>
-    <div class="out" id="escOut">Enter depth and width to test.</div>
-  </div>
 
   <label class="fld">
     <span class="cap">Defect type</span>

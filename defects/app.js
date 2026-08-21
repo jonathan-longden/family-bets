@@ -15,8 +15,18 @@ var STALE_MS = 30000;   // a fix older than this is called out, not trusted quie
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
 var MAX_EDGE = 1600;    // longest side of a saved photograph
 
-var S = { imp: 0, prob: 0, foot: false, wide: null,
-          shot: null, shotFix: null, prevUrl: null, gps: null, items: [] };
+/* Hosted detection. The key is Roboflow's publishable workspace key, which is
+   meant to sit in client code — it can run inference and nothing else. The
+   model is a public instance-segmentation model: it returns a polygon rather
+   than a box, so the defect's share of the frame is its actual outline and not
+   the rectangle around it. */
+var RF_MODEL = 'pothole-detection-o4ys9/2';
+var RF_KEY = 'rf_pxctFcweYjTPKQwCJgjKpHcWSpz1';
+var RF_CONF = 0.40;     // below this the model is guessing
+var RF_TIMEOUT = 12000; // a lay-by with one bar should not hang the capture
+
+var S = { imp: 0, prob: 0, foot: false, by: null,
+          shot: null, shotFix: null, prevUrl: null, gps: null, det: null, items: [] };
 var stream = null, watchId = null, ageTimer = null, urls = [], lbUrl = null;
 
 /* ---------- store ---------- */
@@ -116,7 +126,7 @@ function buildMatrix() {
   g.innerHTML = h;
   g.addEventListener('click', function (e) {
     var b = e.target.closest('.cell'); if (!b) return;
-    S.imp = +b.dataset.i; S.prob = +b.dataset.p;
+    S.imp = +b.dataset.i; S.prob = +b.dataset.p; S.by = 'person';
     [].forEach.call(g.querySelectorAll('.cell'), function (c) {
       c.setAttribute('aria-pressed', c === b ? 'true' : 'false');
     });
@@ -128,6 +138,15 @@ function clearMatrix() {
   [].forEach.call($('mx').querySelectorAll('.cell'), function (c) {
     c.setAttribute('aria-pressed', 'false');
   });
+}
+
+function selectCell(i, p) {
+  var b = $('mx').querySelector('.cell[data-i="' + i + '"][data-p="' + p + '"]');
+  if (!b) return;
+  [].forEach.call($('mx').querySelectorAll('.cell'), function (c) {
+    c.setAttribute('aria-pressed', c === b ? 'true' : 'false');
+  });
+  S.imp = i; S.prob = p;
 }
 
 function category(n) {
@@ -150,26 +169,13 @@ function verdict() {
     $('vScore').textContent = n; $('vCat').textContent = c.k; $('vResp').textContent = c.r;
     if (c.c) v.classList.add(c.c);
   }
-  escalation();   // the escalation test stands on depth and width, not on the score
+  var by = $('vBy');
+  by.hidden = !n || !S.by;
+  if (n && S.by) {
+    by.textContent = S.by === 'app' ? 'Proposed by the app — tap any cell to overrule'
+                                    : 'Your score';
+  }
 }
-
-/* ---------- Cat 1 escalation ---------- */
-function escalation() {
-  var d = parseFloat($('fDepth').value), lim = S.foot ? 20 : 40, o = $('escOut');
-  var parts = [], pass = 0, total = 2;
-  if (isNaN(d)) { parts.push('<span class="no">Depth not measured — cannot test.</span>'); }
-  else if (d >= lim) { parts.push('<span class="yes">Depth ' + d + 'mm meets the ' + lim + 'mm limit.</span>'); pass++; }
-  else { parts.push('<span class="no">Depth ' + d + 'mm is under the ' + lim + 'mm limit.</span>'); }
-  if (S.wide === null) { parts.push('<span class="no">Width not stated.</span>'); }
-  else if (S.wide) { parts.push('<span class="yes">Wider than a tyre.</span>'); pass++; }
-  else { parts.push('<span class="no">Not wider than a tyre.</span>'); }
-  var concl;
-  if (pass === total) concl = '<br><b style="color:#fff">Both limbs met — escalates to Category 1.</b>';
-  else if (isNaN(d) || S.wide === null) concl = '<br>Incomplete — gauge it on site before escalating.';
-  else concl = '<br>Does not escalate on this test.';
-  o.innerHTML = parts.join(' ') + concl;
-}
-$('fDepth').addEventListener('input', escalation);
 
 /* ---------- segmented controls ---------- */
 function seg(a, b, fn) {
@@ -180,8 +186,9 @@ function seg(a, b, fn) {
     b.setAttribute('aria-pressed', 'true'); a.setAttribute('aria-pressed', 'false'); fn(false);
   });
 }
-seg($('segCar'), $('segFoot'), function (isCar) { S.foot = !isCar; escalation(); });
-seg($('segW1'), $('segW0'), function (y) { S.wide = y; escalation(); });
+/* Changing the surface changes what the same hole means, so the proposal is
+   recomputed rather than left showing a score for the other surface. */
+seg($('segCar'), $('segFoot'), function (isCar) { S.foot = !isCar; propose(); });
 
 /* ---------- camera ---------- */
 $('bStart').addEventListener('click', async function () {
@@ -288,14 +295,13 @@ $('bShot').addEventListener('click', function () {
     S.prevUrl = URL.createObjectURL(blob);
     $('prev').src = S.prevUrl;
 
-    S.imp = 0; S.prob = 0; S.wide = null;
-    $('fDepth').value = ''; $('fNote').value = ''; $('fType').selectedIndex = 0;
-    $('segW1').setAttribute('aria-pressed', 'false');
-    $('segW0').setAttribute('aria-pressed', 'false');
+    S.imp = 0; S.prob = 0; S.by = null; S.det = null;
+    $('fNote').value = ''; $('fType').selectedIndex = 0;
     clearMatrix();
     verdict();
     paintFixNote();
     show('score');
+    analyse(blob);
   }, 'image/jpeg', 0.82);
 });
 
@@ -330,12 +336,15 @@ function discard() {
 
 $('bSave').addEventListener('click', function () {
   if (!S.imp || !S.prob) { alert('Score it on the matrix first.'); return; }
-  var n = S.imp * S.prob, c = category(n), d = parseFloat($('fDepth').value), f = S.shotFix;
+  var n = S.imp * S.prob, c = category(n), f = S.shotFix;
   var e = {
     id: nextId(), t: new Date().toISOString(), img: S.shot,
     imp: S.imp, prob: S.prob, score: n, cat: c.k, resp: c.r, key: c.key,
     surface: S.foot ? 'Footway/cycleway' : 'Carriageway',
-    depth: isNaN(d) ? null : d, wide: S.wide,
+    scoredBy: S.by === 'app' ? 'app proposal, accepted' : 'inspector',
+    detConf: S.det ? S.det.conf : null,
+    detShare: S.det ? S.det.share : null,
+    detCount: S.det ? S.det.count : null,
     type: $('fType').value, note: $('fNote').value.trim(),
     lat: f ? f.lat : null, lon: f ? f.lon : null,
     acc: f ? Math.round(f.acc) : null, fixAge: f ? f.age : null
@@ -352,6 +361,134 @@ $('bSave').addEventListener('click', function () {
           'Export what is already in the log before carrying on.');
   });
 });
+
+/* ---------- what the photograph can and cannot say ----------
+
+   The model finds the defect and outlines it. What it cannot do is tell you how
+   big the thing actually is: a small hole photographed from close up fills the
+   frame exactly like a large one photographed from further back, and one
+   photograph has no scale in it. So the share of the frame is only a proxy, and
+   it is only worth anything under the assumption the app states on screen —
+   that you are standing over the defect with the phone pointed down, which is
+   how these photographs get taken.
+
+   Nothing here estimates depth. Nothing here knows the speed limit, the traffic
+   or the footfall, and those are half of what probability means. The score is
+   therefore a proposal with its reasoning shown, and one tap overrules it. */
+
+var BANDS = [
+  { max: 0.02, word: 'barely registers', imp: 1, prb: 1 },
+  { max: 0.06, word: 'small',            imp: 2, prb: 2 },
+  { max: 0.15, word: 'moderate',         imp: 3, prb: 3 },
+  { max: 0.30, word: 'large',            imp: 4, prb: 4 },
+  { max: 1.01, word: 'very large',       imp: 5, prb: 4 }
+];
+
+function bandFor(share) {
+  for (var i = 0; i < BANDS.length; i++) if (share < BANDS[i].max) return BANDS[i];
+  return BANDS[BANDS.length - 1];
+}
+
+/* Shoelace over the mask, so the share of the frame is the defect's outline
+   rather than the rectangle around it — a long thin edge failure and a round
+   hole with the same bounding box are not the same defect. */
+function polyShare(pts, w, h) {
+  if (!pts || pts.length < 3 || !w || !h) return null;
+  var a = 0;
+  for (var i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    a += (pts[j].x + pts[i].x) * (pts[j].y - pts[i].y);
+  }
+  return Math.abs(a / 2) / (w * h);
+}
+
+function proposal(det) {
+  var b = bandFor(det.share), imp = b.imp, prb = b.prb, why = [];
+  why.push(det.count > 1 ? det.count + ' defects found' : 'one defect found');
+  why.push(b.word + ' — ' + Math.round(det.share * 100) + '% of the frame');
+  if (S.foot && imp > 1) {
+    imp = Math.min(5, imp + 1); prb = Math.min(4, prb + 1);
+    why.push('on a footway, where it is a trip rather than a jolt and everyone walks the width');
+  } else {
+    why.push('on a carriageway');
+  }
+  if (det.count >= 3) {
+    prb = Math.min(5, prb + 1);
+    why.push('a cluster is harder to steer around');
+  }
+  return { imp: imp, prb: prb, why: why };
+}
+
+function scanSay(html, cls) {
+  var n = $('scan'); n.hidden = false; n.className = 'scan' + (cls ? ' ' + cls : '');
+  n.innerHTML = html;
+}
+
+function analyse(blob) {
+  if (!navigator.onLine) {
+    return scanSay('<b>No signal.</b> The photograph could not be checked, so nothing is ' +
+                   'proposed. Score it on the matrix yourself.', 'idle');
+  }
+  scanSay('<b>Looking at the photograph…</b>', 'idle');
+  var mine = blob;   // a second capture while this is in flight must win
+  toBase64(blob).then(function (b64) {
+    var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, RF_TIMEOUT);
+    return fetch('https://detect.roboflow.com/' + RF_MODEL +
+                 '?api_key=' + RF_KEY + '&confidence=' + Math.round(RF_CONF * 100), {
+      method: 'POST', body: b64, signal: ctl.signal,
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+    }).then(function (r) {
+      clearTimeout(timer);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    });
+  }).then(function (out) {
+    if (S.shot !== mine) return;         // a newer capture has taken over
+    var preds = (out && out.predictions) || [];
+    if (!preds.length) {
+      return scanSay('<b>No pothole identified.</b> Either there is not one in the frame or the ' +
+                     'model cannot see it. Nothing is proposed — score it yourself.', 'none');
+    }
+    var iw = out.image ? out.image.width : 0, ih = out.image ? out.image.height : 0;
+    var best = preds.reduce(function (a, b) { return b.confidence > a.confidence ? b : a; });
+    var share = polyShare(best.points, iw, ih);
+    if (share == null && iw && ih) share = (best.width * best.height) / (iw * ih);
+    S.det = { conf: best.confidence, share: share, count: preds.length };
+    paintProposal();
+  }).catch(function (e) {
+    if (S.shot !== mine) return;
+    scanSay('<b>Could not check the photograph.</b> ' +
+            (e && e.name === 'AbortError' ? 'The request timed out.' : 'The service did not answer.') +
+            ' Nothing is proposed — score it on the matrix yourself.', 'none');
+  });
+}
+
+/* Recomputed whenever the surface changes, because the same hole on a footway
+   is a different score from the same hole on a carriageway. */
+function propose() {
+  if (S.det) paintProposal();
+}
+
+function paintProposal() {
+  var d = S.det, p = proposal(d), n = p.imp * p.prb, c = category(n);
+  selectCell(p.imp, p.prb);
+  S.by = 'app';
+  verdict();
+  scanSay('<b>' + Math.round(d.conf * 100) + '% sure that is a pothole.</b> ' +
+          p.why.join(', ') + '. Proposed ' + p.imp + ' × ' + p.prb + ' = ' + n +
+          ', ' + c.k + '.<br><span class="caveat">A photograph has no scale in it: this ' +
+          'assumes you are standing over the defect with the phone pointed down. It says ' +
+          'nothing about depth, traffic or footfall. Check the cell before saving.</span>',
+          'hit');
+}
+
+function toBase64(blob) {
+  return new Promise(function (resolve, reject) {
+    var fr = new FileReader();
+    fr.onload = function () { resolve(String(fr.result).split(',')[1]); };
+    fr.onerror = function () { reject(fr.error); };
+    fr.readAsDataURL(blob);
+  });
+}
 
 /* ---------- log ---------- */
 function esc(s) {
@@ -376,8 +513,14 @@ function render() {
         flag += ' <span class="flag">fix ' + it.fixAge + 's old</span>';
       }
     } else { loc = 'No GPS fix'; }
-    var dep = (it.depth != null) ? it.depth + 'mm at deepest point' : 'Depth not measured';
-    var w = (it.wide === null) ? 'width not stated' : (it.wide ? 'wider than a tyre' : 'not wider than a tyre');
+    var how = it.scoredBy ? esc(it.scoredBy) : 'inspector';
+    if (it.detConf != null) {
+      how += ' · model ' + Math.round(it.detConf * 100) + '% sure, ' +
+             Math.round(it.detShare * 100) + '% of frame';
+    }
+    /* Gauged depth is real measured data. The fields that collected it are gone,
+       but an entry that already carries one still shows it. */
+    var dep = (it.depth != null) ? it.depth + 'mm at deepest point (gauged)' : null;
     var src = '';
     if (it.img) { src = URL.createObjectURL(it.img); urls.push(src); }
     return '<div class="item ' + it.key + '">' +
@@ -386,7 +529,7 @@ function render() {
       '<div class="body"><div class="top"><span class="cat">' + esc(it.cat) + '</span>' +
       '<span class="sc">' + it.imp + ' × ' + it.prob + ' = ' + it.score + '</span></div>' +
       '<div class="det">' + esc(it.resp) + ' · ' + esc(it.type) + ' · ' + esc(it.surface) + '<br>' +
-      esc(dep) + ', ' + esc(w) + '<br>' + esc(loc) + flag + '<br>' +
+      (dep ? esc(dep) + '<br>' : '') + how + '<br>' + esc(loc) + flag + '<br>' +
       new Date(it.t).toLocaleString() +
       (it.note ? '<br>' + esc(it.note) : '') + '</div>' +
       '<button class="del" data-id="' + it.id + '">Remove</button></div></div>';
@@ -454,13 +597,20 @@ function q(v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"
 function stamp() { return new Date().toISOString().slice(0, 10); }
 
 $('bCsv').addEventListener('click', function () {
+  /* Depth and width are no longer collected, but an export that silently
+     dropped them would lose measurements taken before they went. The columns
+     appear only while some entry still has one. */
+  var old = S.items.some(function (i) { return i.depth != null || i.wide != null; });
   var head = ['timestamp', 'latitude', 'longitude', 'gps_accuracy_m', 'gps_fix_age_s',
     'defect_type', 'surface', 'impact', 'probability', 'risk_factor', 'category', 'response_time',
-    'depth_mm_deepest', 'wider_than_tyre', 'notes'];
+    'scored_by', 'model_confidence', 'model_share_of_frame', 'model_detections']
+    .concat(old ? ['depth_mm_deepest', 'wider_than_tyre'] : []).concat(['notes']);
   var rows = S.items.map(function (i) {
     return [i.t, i.lat, i.lon, i.acc, i.fixAge, i.type, i.surface,
-      i.imp, i.prob, i.score, i.cat, i.resp, i.depth,
-      i.wide === null ? '' : (i.wide ? 'yes' : 'no'), i.note].map(q).join(',');
+      i.imp, i.prob, i.score, i.cat, i.resp,
+      i.scoredBy || 'inspector', i.detConf, i.detShare, i.detCount]
+      .concat(old ? [i.depth, i.wide === null || i.wide === undefined ? '' : (i.wide ? 'yes' : 'no')] : [])
+      .concat([i.note]).map(q).join(',');
   });
   /* The BOM is what stops Excel turning a road name with an accent in it into
      mojibake when the file is double-clicked. */

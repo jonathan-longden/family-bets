@@ -20,8 +20,9 @@ pot live, connect it to a free Firebase Realtime Database.
 >   and it comes back finished, tuned and levelled for release, without
 >   the audio leaving the device.
 > - **[Defect Log](defects/)** (`/defects/`) — photograph a highway
->   defect, score it on the risk matrix, and keep the coordinates and the
->   measurements with the photograph. Works with no signal.
+>   defect and it finds the pothole, proposes a cell on the risk matrix
+>   with its reasoning shown, and keeps the coordinates with the
+>   photograph. The log works with no signal; the detection needs one.
 >
 > All five are separate PWAs with the same no-build setup.
 
