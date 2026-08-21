@@ -198,6 +198,34 @@ textarea{min-height:70px;resize:vertical}
 .empty .disp{font-size:19px;color:#EEF1F5;margin-bottom:7px}
 .empty p{font-size:14px;margin:0;line-height:1.5}
 
+/* ---- map ---- */
+#map{height:min(62vh,520px);border:1px solid var(--line);border-radius:6px;background:var(--tar2)}
+.leaflet-container{background:var(--tar2);font-family:var(--body)}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:var(--tar2);color:#EEF1F5;
+  border:1px solid var(--line)}
+.leaflet-popup-content{font-size:13px;line-height:1.5;margin:11px 13px}
+.leaflet-popup-content b{font-family:var(--disp);font-size:15px;letter-spacing:.04em}
+.leaflet-control-attribution{background:rgba(20,22,26,.85)!important;color:var(--refl)!important}
+.leaflet-control-attribution a{color:var(--refl)!important}
+
+/* A pin says its category by colour, and whether anyone stood over it by
+   whether it is filled. A guess and a judgement must not look alike. */
+.mappin,.pin{display:inline-block;width:14px;height:14px;border-radius:50%;
+  border:2px solid #14161A;box-shadow:0 0 0 1px rgba(255,255,255,.5)}
+.mappin.kem,.pin.kem{background:var(--r1)}
+.mappin.k1,.pin.k1{background:var(--mark-w)}
+.mappin.k2,.pin.k2{background:var(--mark-y)}
+.mappin.k3,.pin.k3{background:var(--r4)}
+.mappin.k0,.pin.k0{background:var(--refl)}
+.mappin.unconf,.pin.unconf{background:transparent;border-color:var(--hiviz);
+  box-shadow:0 0 0 1px rgba(255,255,255,.35)}
+
+.mapbar{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  flex-wrap:wrap;margin-top:12px}
+.mapbar .btn{width:auto;margin-top:0;padding:11px 16px;font-size:15px}
+.key{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--refl)}
+.key span{display:flex;align-items:center;gap:5px}
+
 /* ---- full-size photo ---- */
 .lightbox{position:fixed;inset:0;z-index:50;background:rgba(10,11,13,.96);
   display:flex;align-items:center;justify-content:center;padding:16px}

@@ -264,6 +264,37 @@ escalation test that stood on them has gone with them. Entries saved before
 that change keep their gauged depth, still show it in the log, and still export
 it — the CSV carries those two columns for as long as any entry has one.
 
+## The map
+
+A third tab puts every located defect on a map. Pins are coloured by category,
+and a survey find nobody has confirmed is drawn hollow rather than filled — a
+map that showed a guess and a judgement as the same mark would be worse than no
+map. Tap one for its category, type, surface, coordinates, three-word address
+where there is one, and when it was logged.
+
+Leaflet is vendored, so the map is part of the app and runs with no signal. Its
+tiles are not: they come from OpenStreetMap as you pan, and are cached as they
+arrive. Ground you have already looked at stays available offline; ground you
+have not comes up blank until there is a signal. The app says so on the screen
+rather than leaving you to wonder why a map is empty in a lay-by.
+
+## what3words
+
+Off unless you turn it on, because it is a paid service and the key is yours,
+not the app's. Get one at developer.what3words.com and paste it into the field
+at the bottom of the log; it stays on the device. With no key nothing changes
+and entries carry coordinates as they always did.
+
+The lookup happens once, when an entry is saved: a three-word address for a
+fixed point never changes, so there is nothing to refresh and no reason to spend
+a call on it twice. It needs a signal, which coordinates do not, so it is never
+allowed to hold up or fail a save — the entry is written first and the words are
+added afterwards if they arrive. Entries already in the log are left as they
+are; only new ones are looked up.
+
+Addresses show in the log, in a pin's popup, and in a `what3words` column in the
+CSV.
+
 ## Storage and export
 
 Everything is on the one device, in that browser. Clearing the browser's site

@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 14';
+var BUILD = '2026-08-21 · 15';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -454,6 +454,7 @@ $('bSave').addEventListener('click', function () {
   var saved = dbBroken ? Promise.resolve() : putEntry(e);
   saved.then(function () {
     S.items.unshift(e);
+    addWords(e);
     S.shot = null; S.shotFix = null;
     if (S.prevUrl) { URL.revokeObjectURL(S.prevUrl); S.prevUrl = null; }
     render(); show('log');
@@ -956,6 +957,7 @@ function logFind(hits, out, c) {
       };
       (dbBroken ? Promise.resolve() : putEntry(e)).then(function () {
         S.items.unshift(e);
+        addWords(e);
         survey.logged++; survey.last = { at: Date.now(), gps: S.gps ? { lat: S.gps.lat, lon: S.gps.lon } : null };
         $('hudCount').textContent = survey.logged + ' logged';
         render();
@@ -999,6 +1001,140 @@ $('bSurvey').addEventListener('click', startSurvey);
 $('bEnd').addEventListener('click', endSurvey);
 $('bFull').addEventListener('click', goFull);
 
+/* ---------- the map ----------
+
+   Leaflet and its tiles are not the same thing. The library is part of the app
+   and works with no signal; the tiles are fetched as you pan and are not, so
+   ground already looked at stays available through the same cache that serves
+   the app, and ground that has not been comes up blank. That is worth saying on
+   screen rather than leaving someone to wonder why a map is empty in a lay-by.
+
+   Pins are coloured by category and hollowed when the entry is a survey find
+   nobody has confirmed, because a map that shows a guess and a judgement as the
+   same mark is worse than no map. */
+var map = null, pins = null, mapReady = null;
+
+function loadMap() {
+  if (mapReady) return mapReady;
+  mapReady = new Promise(function (resolve, reject) {
+    var sc = document.createElement('script');
+    sc.src = './vendor/leaflet.js';
+    sc.onload = resolve;
+    sc.onerror = function () { mapReady = null; reject(new Error('leaflet did not load')); };
+    document.head.appendChild(sc);
+  }).then(function () {
+    map = L.map('map', { attributionControl: true });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+    pins = L.layerGroup().addTo(map);
+    map.setView([53.0, -1.1], 6);
+    return map;
+  });
+  return mapReady;
+}
+
+function located() {
+  return S.items.filter(function (i) { return i.lat != null && i.lon != null; });
+}
+
+function pinFor(it) {
+  var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
+  return L.divIcon({
+    className: '',
+    html: '<i class="mappin ' + it.key + (unconfirmed ? ' unconf' : '') + '"></i>',
+    iconSize: [18, 18], iconAnchor: [9, 9]
+  });
+}
+
+function drawMap() {
+  var rows = located();
+  $('mapEmpty').hidden = !!rows.length;
+  $('map').style.display = rows.length ? '' : 'none';
+  $('bFit').disabled = !rows.length;
+  if (!rows.length) return Promise.resolve();
+  return loadMap().then(function () {
+    map.invalidateSize();
+    pins.clearLayers();
+    rows.forEach(function (it) {
+      var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
+      var where = (it.w3w ? '///' + esc(it.w3w) + '<br>' : '') +
+                  it.lat.toFixed(5) + ', ' + it.lon.toFixed(5) +
+                  (it.acc != null ? ' (±' + it.acc + 'm)' : '');
+      L.marker([it.lat, it.lon], { icon: pinFor(it) })
+        .bindPopup('<b>' + esc(it.cat) + '</b><br>' + esc(it.type) + ' · ' + esc(it.surface) +
+                   '<br>' + where + '<br>' + new Date(it.t).toLocaleString() +
+                   (unconfirmed ? '<br><em>Unconfirmed survey find</em>' : ''))
+        .addTo(pins);
+    });
+    fitMap();
+  }).catch(function () {
+    $('mapEmpty').hidden = false;
+    $('mapEmpty').innerHTML = '<div class="disp">The map would not load</div>' +
+      '<p>Its library is part of the app, so this is not about signal.</p>';
+    $('map').style.display = 'none';
+  });
+}
+
+function fitMap() {
+  var rows = located();
+  if (!map || !rows.length) return;
+  var b = L.latLngBounds(rows.map(function (i) { return [i.lat, i.lon]; }));
+  map.fitBounds(b, { padding: [40, 40], maxZoom: 17 });
+}
+$('bFit').addEventListener('click', fitMap);
+
+/* ---------- what3words ----------
+
+   A paid service, so the key is the user's and lives on their device rather
+   than in this page. Without one, nothing changes and entries carry
+   coordinates as they always did. The lookup happens once, when an entry is
+   saved, because a three-word address for a fixed point never changes — there
+   is nothing to refresh and no reason to spend a call twice on it.
+
+   It needs a signal, which coordinates do not, so it is never allowed to hold
+   up or fail a save: the entry is written first and the words are added to it
+   afterwards if they arrive. */
+var W3W_KEY_STORE = 'deflog.w3w';
+
+function w3wKey() {
+  try { return localStorage.getItem(W3W_KEY_STORE) || ''; } catch (e) { return ''; }
+}
+
+function words(lat, lon) {
+  var key = w3wKey();
+  if (!key || lat == null || lon == null || !navigator.onLine) return Promise.resolve(null);
+  var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 8000);
+  return fetch('https://api.what3words.com/v3/convert-to-3wa?coordinates=' +
+               encodeURIComponent(lat + ',' + lon) + '&key=' + encodeURIComponent(key), {
+    signal: ctl.signal
+  }).then(function (r) {
+    clearTimeout(timer);
+    return r.ok ? r.json() : null;
+  }).then(function (j) {
+    return j && j.words ? j.words : null;
+  }).catch(function () { clearTimeout(timer); return null; });
+}
+
+/* Written to the entry after the fact, so a slow or refused lookup costs the
+   log nothing. */
+function addWords(entry) {
+  if (entry.w3w || entry.lat == null) return;
+  words(entry.lat, entry.lon).then(function (w) {
+    if (!w) return;
+    entry.w3w = w;
+    (dbBroken ? Promise.resolve() : putEntry(entry)).then(render, function () {});
+  });
+}
+
+$('w3wKey').value = w3wKey();
+$('w3wKey').addEventListener('change', function () {
+  var v = this.value.trim();
+  try { v ? localStorage.setItem(W3W_KEY_STORE, v) : localStorage.removeItem(W3W_KEY_STORE); }
+  catch (e) {}
+});
+
 /* ---------- log ---------- */
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function (m) {
@@ -1022,6 +1158,7 @@ function render() {
         flag += ' <span class="flag">fix ' + it.fixAge + 's old</span>';
       }
     } else { loc = 'No GPS fix'; }
+    if (it.w3w) loc = '///' + esc(it.w3w) + ' · ' + loc;
     var how = it.scoredBy ? esc(it.scoredBy) : 'inspector';
     if (it.amendedAt) how += ' · <span class="amended">amended</span>';
     if (it.detConf != null && it.detConf >= 0 && it.detConf <= 1) {
@@ -1184,13 +1321,13 @@ $('bCsv').addEventListener('click', function () {
   var head = ['timestamp', 'latitude', 'longitude', 'gps_accuracy_m', 'gps_fix_age_s',
     'defect_type', 'surface', 'impact', 'probability', 'risk_factor', 'category', 'response_time',
     'scored_by', 'model_confidence', 'model_share_of_frame', 'model_detections']
-    .concat(old ? ['depth_mm_deepest', 'wider_than_tyre'] : []).concat(['notes']);
+    .concat(old ? ['depth_mm_deepest', 'wider_than_tyre'] : []).concat(['what3words', 'notes']);
   var rows = S.items.map(function (i) {
     return [i.t, i.lat, i.lon, i.acc, i.fixAge, i.type, i.surface,
       i.imp, i.prob, i.score, i.cat, i.resp,
       i.scoredBy || 'inspector', i.detConf, i.detShare, i.detCount]
       .concat(old ? [i.depth, i.wide === null || i.wide === undefined ? '' : (i.wide ? 'yes' : 'no')] : [])
-      .concat([i.note]).map(q).join(',');
+      .concat([i.w3w ? '///' + i.w3w : '', i.note]).map(q).join(',');
   });
   /* The BOM is what stops Excel turning a road name with an accent in it into
      mojibake when the file is double-clicked. */
@@ -1239,10 +1376,15 @@ $('bJson').addEventListener('click', function () {
 /* ---------- tabs ---------- */
 function show(which) {
   $('p-cap').hidden = (which !== 'cap'); $('p-score').hidden = (which !== 'score');
-  $('p-log').hidden = (which !== 'log');
+  $('p-log').hidden = (which !== 'log'); $('p-map').hidden = (which !== 'map');
   $('t-cap').setAttribute('aria-selected', which === 'cap');
   $('t-log').setAttribute('aria-selected', which === 'log');
+  $('t-map').setAttribute('aria-selected', which === 'map');
   window.scrollTo(0, 0);
+  /* Leaflet is only fetched when a map is actually asked for, and it has to
+     measure a container that is on screen, so this happens here rather than at
+     startup. */
+  if (which === 'map') drawMap();
 }
 
 /* Leaving the scoring step throws the photograph away, so it asks first —
@@ -1256,6 +1398,7 @@ function leaveScore() {
 }
 $('t-cap').addEventListener('click', function () { if (leaveScore()) show('cap'); });
 $('t-log').addEventListener('click', function () { if (leaveScore()) show('log'); });
+$('t-map').addEventListener('click', function () { if (leaveScore()) show('map'); });
 
 /* The camera light staying on after the phone goes in a pocket is both a
    battery drain and a thing people reasonably object to. */
