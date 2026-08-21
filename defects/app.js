@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 5';
+var BUILD = '2026-08-21 · 6';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -470,6 +470,23 @@ function analyse(blob) {
     paintProposal();
   }).catch(function (e) {
     if (S.shot !== mine) return;
+    /* A request the browser stopped and a request that never got out both
+       arrive here as the same bare TypeError — the browser will not say which,
+       on purpose. Asking again with the reply waived tells them apart: if that
+       one comes back, the service is reachable and the problem is that it will
+       not let a web page read its answer. */
+    if (e && !e.status && e.name !== 'AbortError') {
+      return reachable().then(function (yes) {
+        scanSay('<b>Could not check the photograph.</b> ' +
+          (yes
+            ? 'The service was reached, but it will not let a web page read its ' +
+              'answer. That is a setup problem in how this app talks to the model — ' +
+              'more signal will not fix it.'
+            : 'The request never left the phone — there is no route to the service ' +
+              'from here.') +
+          ' Nothing is proposed — score it on the matrix yourself.', 'none');
+      });
+    }
     scanSay('<b>Could not check the photograph.</b> ' + why(e) +
             ' Nothing is proposed — score it on the matrix yourself.', 'none');
   });
@@ -513,6 +530,19 @@ function why(e) {
   return 'The request never got a reply — no route to the service, or the browser ' +
          'refused the response as cross-origin. (' + (e.name || 'error') +
          (e.message ? ': ' + String(e.message).slice(0, 120) : '') + ')';
+}
+
+/* A no-cors request is answered with a sealed reply: nothing can be read out
+   of it, which is exactly why it settles the question. It resolving means the
+   request reached the service and came back; it failing means it never got
+   there at all. Cheap, and it costs no inference. */
+function reachable() {
+  var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 6000);
+  return fetch('https://detect.roboflow.com/' + RF_MODEL + '?api_key=' + RF_KEY, {
+    method: 'POST', mode: 'no-cors', body: 'probe', signal: ctl.signal,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  }).then(function () { clearTimeout(timer); return true; },
+          function () { clearTimeout(timer); return false; });
 }
 
 function toBase64(blob) {
