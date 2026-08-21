@@ -166,4 +166,6 @@ textarea{min-height:70px;resize:vertical}
   border-radius:0 5px 5px 0;font-size:13.5px;line-height:1.55;margin-top:16px;color:#C9D0DA}
 .note b{color:#fff}
 .err{border-left-color:var(--r1)}
+footer .build{display:inline-block;margin-top:8px;font-family:var(--disp);
+  letter-spacing:.06em;opacity:.65}
 footer{padding:22px 16px 30px;color:var(--refl);font-size:12px;line-height:1.6;text-align:center}
