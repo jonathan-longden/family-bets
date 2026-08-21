@@ -43,9 +43,14 @@
     <span class="logo"><svg class="ic"><use href="#i-disc"/></svg></span>
     <span>Tunage</span>
   </div>
-  <button id="sleepBtn" class="icon-btn" title="Sleep timer" aria-label="Sleep timer">
-    <svg class="ic"><use href="#i-moon"/></svg>
-  </button>
+  <div class="top-actions">
+    <button id="voiceBtn" class="icon-btn mic" title="Speak a command" aria-label="Speak a command" hidden>
+      <svg class="ic"><use href="#i-mic"/></svg>
+    </button>
+    <button id="sleepBtn" class="icon-btn" title="Sleep timer" aria-label="Sleep timer">
+      <svg class="ic"><use href="#i-moon"/></svg>
+    </button>
+  </div>
 </header>
 
 <nav class="sources" id="sources" aria-label="What to play"></nav>
@@ -122,7 +127,6 @@
       <button id="prevBtn" class="icon-btn" aria-label="Previous"><svg class="ic"><use href="#i-prev"/></svg></button>
       <button id="playBtn" class="play-btn" aria-label="Play"><svg class="ic"><use href="#i-play"/></svg></button>
       <button id="nextBtn" class="icon-btn" aria-label="Next"><svg class="ic"><use href="#i-next"/></svg></button>
-      <button id="voiceBtn" class="icon-btn mic" aria-label="Speak a command" hidden><svg class="ic"><use href="#i-mic"/></svg></button>
     </div>
     <p class="hint said" id="voiceSaid" hidden></p>
 
