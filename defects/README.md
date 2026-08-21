@@ -62,6 +62,13 @@ app is explicit on screen that the cell wants checking before you save.
 Detection needs a signal. With none, the matrix is simply blank and you score
 it yourself — everything else in the app still works offline.
 
+When a check fails, the panel says which of three things went wrong: the
+request never got a reply (no route, or a cross-origin refusal), the service
+refused it (with the status and whatever the server itself said), or it timed
+out. They are different problems with different fixes, and a screen that
+collapses them into "the service did not answer" leaves you guessing at one the
+server already explained.
+
 ## The matrix
 
 Risk factor is impact × probability, and the category follows the number:

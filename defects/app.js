@@ -438,8 +438,17 @@ function analyse(blob) {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     }).then(function (r) {
       clearTimeout(timer);
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
+      if (r.ok) return r.json();
+      /* Roboflow puts the actual reason in the body — a rejected key, a model
+         the key cannot reach. Swallowing it and saying "did not answer" is how
+         you end up guessing at a failure the server already explained. */
+      return r.text().then(function (body) {
+        var msg = '';
+        try { var j = JSON.parse(body); msg = j.message || j.error || ''; } catch (e) { msg = body; }
+        var err = new Error('HTTP ' + r.status + (msg ? ': ' + String(msg).slice(0, 200) : ''));
+        err.status = r.status;
+        throw err;
+      });
     });
   }).then(function (out) {
     if (S.shot !== mine) return;         // a newer capture has taken over
@@ -456,8 +465,7 @@ function analyse(blob) {
     paintProposal();
   }).catch(function (e) {
     if (S.shot !== mine) return;
-    scanSay('<b>Could not check the photograph.</b> ' +
-            (e && e.name === 'AbortError' ? 'The request timed out.' : 'The service did not answer.') +
+    scanSay('<b>Could not check the photograph.</b> ' + why(e) +
             ' Nothing is proposed — score it on the matrix yourself.', 'none');
   });
 }
@@ -479,6 +487,27 @@ function paintProposal() {
           'assumes you are standing over the defect with the phone pointed down. It says ' +
           'nothing about depth, traffic or footfall. Check the cell before saving.</span>',
           'hit');
+}
+
+/* Three failures look identical from the outside and have nothing in common:
+   the request never arrived, the service refused it, or it took too long. Each
+   one is said in its own words, with whatever the server itself reported, so a
+   failure in a lay-by is diagnosable from the screen rather than from a guess. */
+function why(e) {
+  if (!e) return 'The reason was not reported.';
+  if (e.name === 'AbortError') return 'It took longer than ' + (RF_TIMEOUT / 1000) + ' seconds and was given up on.';
+  if (e.status) {
+    var extra = e.status === 401 || e.status === 403
+      ? ' The key was refused for this model — that is a setup problem, not a signal problem.'
+      : (e.status === 404 ? ' The model was not found at that address.' : '');
+    var m = String(e.message);
+    return 'The service refused it — ' + m + (/[.!?]$/.test(m) ? '' : '.') + extra;
+  }
+  /* fetch rejects with a TypeError and no detail for a request the browser
+     itself stopped: no route, or a cross-origin reply it would not hand over. */
+  return 'The request never got a reply — no route to the service, or the browser ' +
+         'refused the response as cross-origin. (' + (e.name || 'error') +
+         (e.message ? ': ' + String(e.message).slice(0, 120) : '') + ')';
 }
 
 function toBase64(blob) {
