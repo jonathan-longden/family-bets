@@ -1,15 +1,21 @@
-/* Hearing yourself while you record.
+/* Hearing yourself while you record — in tune.
 
    This is the take chain rebuilt out of the browser's own audio nodes so it
    can run live: the same high pass, the same tone moves, a de-esser split
-   across a crossover and a compressor holding the level. Tuning isn't in here
-   — pitch correction needs to see a whole note before it knows what to do
-   with it, so it belongs to the take, not to the monitor.
+   across a crossover, a compressor holding the level, a little room. In the
+   middle of it sits the live tuner, an audio-thread worklet doing the same
+   grain-by-grain correction the finished take gets, about 36 ms behind you.
+
+   What gets recorded is never this signal. The take is captured dry, straight
+   off the microphone, and tuned afterwards with the whole performance in front
+   of it — so nothing in here can spoil one.
 
    Use headphones. Monitoring through speakers puts the microphone back in the
    room with itself, and the room will win. */
 
-export function createMonitor(ctx, settings) {
+import { scaleMask } from './analyse.js';
+
+export async function createMonitor(ctx, settings, onLatency) {
   const input = ctx.createGain();
   const output = ctx.createGain();
 
@@ -40,7 +46,22 @@ export function createMonitor(ctx, settings) {
   const dry = ctx.createGain(), wet = ctx.createGain();
   const verb = ctx.createConvolver();
 
-  input.connect(hp1); hp1.connect(hp2); hp2.connect(mud); mud.connect(box);
+  /* The tuner goes after the high pass — rumble is the one thing that reliably
+     confuses a pitch detector — and before everything that shapes the tone. */
+  let tuner = null;
+  try {
+    await ctx.audioWorklet.addModule('live-tuner-processor.js');
+    tuner = new AudioWorkletNode(ctx, 'live-tuner');
+    tuner.port.onmessage = e => {
+      if (e.data && e.data.type === 'latency' && onLatency) onLatency(e.data.seconds);
+    };
+  } catch {
+    tuner = null;                 // no worklet: the tone chain, and no tuning
+  }
+
+  input.connect(hp1); hp1.connect(hp2);
+  if (tuner) { hp2.connect(tuner); tuner.connect(mud); } else { hp2.connect(mud); }
+  mud.connect(box);
   box.connect(pres); pres.connect(air); air.connect(warm); warm.connect(split);
   split.connect(lowA); lowA.connect(lowB); lowB.connect(merge);
   split.connect(hiA); hiA.connect(hiB); hiB.connect(ess); ess.connect(merge);
@@ -76,7 +97,22 @@ export function createMonitor(ctx, settings) {
 
   let lastSize = -1;
 
+  function updateTuning(st) {
+    if (!tuner) return;
+    tuner.port.postMessage({
+      type: 'settings',
+      on: st.tune > 1,
+      strength: (st.tune || 0) / 100,
+      speedMs: st.tuneSpeed || 10,
+      maxCents: st.tuneMaxCents || 200,
+      minConf: st.tuneMinConf || 0.5,
+      a4: st.a4 || 440,
+      scale: st.keyMode && st.keyMode !== 'chromatic' ? scaleMask(st.keyTonic, st.keyMode) : null,
+    });
+  }
+
   function update(st) {
+    updateTuning(st);
     const t = ctx.currentTime, at = (p, v) => p.setTargetAtTime(v, t, 0.02);
     at(hp1.frequency, st.eq.hp); at(hp2.frequency, st.eq.hp);
     at(mud.gain, st.eq.mud); at(box.gain, st.eq.box);
@@ -111,8 +147,13 @@ export function createMonitor(ctx, settings) {
 
   return {
     input, output, update,
+    tuning: !!tuner,
     dispose() {
-      try { input.disconnect(); output.disconnect(); } catch { /* already gone */ }
+      try {
+        input.disconnect();
+        output.disconnect();
+        if (tuner) tuner.disconnect();
+      } catch { /* already gone */ }
     },
   };
 }
