@@ -299,11 +299,17 @@ is allowed to play YouTube. Nothing is downloaded, and nothing is stripped
 to audio: the view counts, the ads and the creator's terms all stay where
 they belong.
 
-**Choose app** hands the link to your phone's own share sheet, so you pick
-which app opens it — the YouTube app, a browser, or whatever else you have
-installed. A web page can't see what's on your phone, so the phone does the
-offering and Tunage never learns what you chose. The button only appears
-where the phone provides a chooser.
+**Choose app** raises Android's **Open with** list, so you pick which app
+opens the video — a YouTube app, a browser, whatever you have. It works by
+handing Android an `intent://` address rather than an ordinary link, which
+is what makes the phone offer a choice instead of going straight to its
+usual handler. Tunage never learns what's installed or what you picked.
+
+One thing to know: **if you've already set a default app for YouTube links,
+Android opens it without asking.** That's Android's rule, not something a
+page can override — clear the default under Settings if you want the list
+back. On anything that isn't Android there's no such chooser, so the share
+sheet stands in.
 
 If you always want the same app, it's less work to tell Android once:
 **Settings → Apps → Default apps → Opening links**, pick your app and allow
