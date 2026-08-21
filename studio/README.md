@@ -35,15 +35,32 @@ device.
   de-esser idle gives you exactly the signal that went in.
 - **Evens the level.** Two compressors — one slow for the shape of the
   performance, one quick for the peaks — set from the take's own crest factor.
-- **Tunes it.** The voice is cut into grains, one per glottal pulse, and laid
-  back down at the spacing the right note asks for. The grains themselves
-  aren't stretched, so the formants survive and it still sounds like you
-  rather than like a chipmunk. Only the slow part of the error is corrected,
-  so vibrato and slides live through it.
+- **Tunes it, properly.** Straight out of the box every note is put *on* the
+  note — the whole way, not most of the way, with nothing to set. The voice is
+  cut into grains, one per glottal pulse, and laid back down at the spacing the
+  right note asks for. The grains themselves aren't stretched, so the formants
+  survive and it still sounds like you rather than like a chipmunk.
+
+  One switch on the take says how hard, and it opens on the answer you almost
+  certainly want:
+
+  | | |
+  |---|---|
+  | **Locked** *(default)* | Every note pinned. A take sung 34 cents flat comes back within about 3 cents of the note. This is the sound people mean by auto-tune. |
+  | **Natural** | The drift corrected, the scoops and slides left where you sang them. |
+  | **Off** | Your pitch, untouched. |
+
+  Pick one and every take after it is treated the same, so it's a setting
+  rather than a chore. Anything with notes in it is tuned, including a fast
+  melody that never sits still; only a take that is plainly somebody *talking*
+  opens on Off, because pitch correction on speech is what makes people sound
+  like robots.
 - **Knows the key.** The notes you sang are matched against the classic
   key profiles, and the tuning snaps inside that key rather than to every
-  semitone there is — much kinder to a performance. If the key isn't clear it
-  says so and snaps to the nearest note instead. You can override it.
+  semitone there is — much kinder to a performance. If the key isn't clear
+  enough to trust it snaps to the nearest note of any kind instead, since hard
+  tuning to the wrong scale is worse than not tuning at all. You can override
+  it.
 - **Sings to a backing.** Add a track — any audio file — and it plays while
   you record, so you have something to sing to. The take is lined up against
   it automatically, round-trip latency included: the app knows when it started

@@ -9,7 +9,7 @@
    and the heavy arithmetic happens in a worker. Works with the network off. */
 
 import { wavBlob, decodeWav, peaksOf } from './audio/wav.js';
-import { TARGETS } from './audio/process.js';
+import { TARGETS, TUNE_MODES } from './audio/process.js';
 import { detectPitch, hzToMidi, noteLabel, NOTE_NAMES } from './audio/analyse.js';
 import { createMonitor } from './audio/monitor.js';
 
@@ -113,6 +113,7 @@ const prefs = Object.assign({
   deviceId: '',
   backingId: '',
   backingLevel: 0.85,
+  tuneMode: 'auto',      // 'auto' until you say otherwise, then it stays said
 }, JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'));
 
 const savePrefs = () => localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
@@ -166,6 +167,7 @@ function handleEngine(msg) {
     showStats();
     buildControls();
     fillBackingPanel();
+    paintTuneMode();
     if (cur.wantRender) { cur.wantRender = false; renderTake(); }
     return;
   }
@@ -176,6 +178,7 @@ function handleEngine(msg) {
     cur.manual = new Set();
     buildControls();
     fillBackingPanel();
+    paintTuneMode();
     renderTake();
     return;
   }
@@ -235,7 +238,7 @@ function sendToEngine(cur, thenRender) {
   const copy = Float32Array.from(cur.raw.channels[0]);
   engine.post({
     type: 'prepare', id: cur.meta.id, samples: copy, sampleRate: cur.raw.sampleRate,
-    a4: prefs.a4, targetName: prefs.targetName,
+    a4: prefs.a4, targetName: prefs.targetName, tuneMode: prefs.tuneMode,
   }, [copy.buffer]);
 }
 
@@ -920,6 +923,8 @@ function openTakeView() {
   showNotes();
   showStats();
   buildControls();
+  fillBackingPanel();
+  paintTuneMode();
   drawWave();
   show('take');
 }
@@ -937,7 +942,7 @@ function showStats() {
   const box = $('#stats');
   if (!r) { box.innerHTML = ''; return; }
   const bits = [
-    ['Voice', r.material === 'sung' ? 'sung' : 'spoken'],
+    ['Voice', r.material === 'melodic' ? 'melodic' : r.material],
     ['Key', r.key && r.key.mode !== 'chromatic' ? r.key.name : '—'],
     ['Off by', r.pitch.medianHz ? Math.round(r.pitch.offCents) + '¢' : '—'],
     ['Room', Math.round(r.snrDb) + ' dB down'],
@@ -945,6 +950,43 @@ function showStats() {
     ['Now', cur.meta.lufs != null ? cur.meta.lufs.toFixed(1) + ' LUFS' : '—'],
   ];
   box.innerHTML = bits.map(([k, v]) => `<div class="stat"><b>${esc(v)}</b><span>${esc(k)}</span></div>`).join('');
+}
+
+/* Tuning is the one decision worth putting in front of someone, and it comes
+   already made: locked, unless the take is plainly somebody talking. Pick a
+   different answer once and every take after this one is treated the same,
+   which is the difference between a setting and a chore. */
+function paintTuneMode() {
+  const cur = state.cur;
+  const st = cur && cur.settings;
+  const mode = st ? st.tuneMode : 'locked';
+  for (const b of $$('#tuneMode button')) b.classList.toggle('is-on', b.dataset.mode === mode);
+  const blurb = $('#tuneBlurb');
+  if (!st) { blurb.textContent = TUNE_MODES.locked.blurb; return; }
+  if (mode === 'custom') { blurb.textContent = 'Your own numbers, from the sliders below.'; return; }
+  const spoken = cur.report && cur.report.material === 'spoken';
+  blurb.textContent = (TUNE_MODES[mode] || TUNE_MODES.locked).blurb +
+    (mode === 'off' && spoken ? ' This one sounds like talking, so it was left alone.' : '');
+}
+
+function setTuneMode(mode) {
+  const cur = state.cur;
+  if (!cur || !cur.settings || !TUNE_MODES[mode]) return;
+  const t = TUNE_MODES[mode];
+  Object.assign(cur.settings, {
+    tuneMode: mode,
+    tune: t.strength,
+    tuneSpeed: t.speedMs,
+    tuneDeadband: t.deadband,
+    tuneMaxCents: t.maxCents,
+    tuneMinConf: t.minConf,
+  });
+  cur.manual.add('tune');
+  prefs.tuneMode = mode;                 // and every take from here on
+  savePrefs();
+  paintTuneMode();
+  buildControls();
+  renderSoon();
 }
 
 /* ───────────────────────── waveform ───────────────────────── */
@@ -1268,6 +1310,7 @@ function buildControls() {
     el.addEventListener('input', () => {
       st[key] = Number(el.value);
       manual.add(key);
+      if (key === 'tune' || key === 'tuneSpeed') { st.tuneMode = 'custom'; paintTuneMode(); }
       const spec = CONTROLS.find(c => c.key === key);
       const val = el.closest('.ctl').querySelector('.ctl-val');
       val.textContent = st[key] + spec.unit;
@@ -1447,6 +1490,11 @@ $('#ab').addEventListener('click', e => {
   setHearing(b.dataset.src);
 });
 
+$('#tuneMode').addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b) setTuneMode(b.dataset.mode);
+});
+
 $('#matchBox').addEventListener('change', e => {
   state.match = e.target.checked;
   if (state.playing) restartPlayback();
@@ -1474,7 +1522,7 @@ $('#takeName').addEventListener('change', async e => {
 $('#autoBtn').addEventListener('click', () => {
   const cur = state.cur;
   if (!cur) return;
-  engine.post({ type: 'auto', id: cur.meta.id, targetName: prefs.targetName });
+  engine.post({ type: 'auto', id: cur.meta.id, targetName: prefs.targetName, tuneMode: prefs.tuneMode });
 });
 
 $('#exportBtn').addEventListener('click', exportTake);
