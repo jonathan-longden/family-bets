@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 9';
+var BUILD = '2026-08-21 · 10';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -54,6 +54,9 @@ var NEAR_M = 20;         // a find this close to one already logged is the same 
 var QUIET_MS = 45000;    // with no fix, this long before the same view counts again
 var TEX_MIN = 1.18;      // below this the dark patch is grained like the road around it
 var ASPECT_MAX = 4.5;    // a band far longer than it is wide is a shadow, not a hole
+
+var TYPES = ['Pothole', 'Edge deterioration', 'Spalled crack / material loss',
+             'Ironwork', 'Street furniture', 'Other'];
 
 var S = { imp: 0, prob: 0, foot: false, by: null,
           shot: null, shotFix: null, prevUrl: null, gps: null, det: null, items: [] };
@@ -229,7 +232,25 @@ function seg(a, b, fn) {
 }
 /* Changing the surface changes what the same hole means, so the proposal is
    recomputed rather than left showing a score for the other surface. */
-seg($('segCar'), $('segFoot'), function (isCar) { S.foot = !isCar; propose(); });
+seg($('segCar'), $('segFoot'), function (isCar) { S.foot = !isCar; propose(); paintSurface(); });
+seg($('segSurvCar'), $('segSurvFoot'), function (isCar) { S.foot = !isCar; paintSurface(); });
+
+/* The surface was only ever settable on the scoring screen, so a survey — which
+   never goes near it — recorded every find as carriageway whatever it was
+   walking down. It is one setting shared by both, shown wherever it applies. */
+function paintSurface() {
+  var foot = S.foot;
+  $('hudSurface').textContent = foot ? 'Footway' : 'Carriageway';
+  $('segCar').setAttribute('aria-pressed', String(!foot));
+  $('segFoot').setAttribute('aria-pressed', String(foot));
+  $('segSurvCar').setAttribute('aria-pressed', String(!foot));
+  $('segSurvFoot').setAttribute('aria-pressed', String(foot));
+}
+
+$('hudSurface').addEventListener('click', function () {
+  S.foot = !S.foot; paintSurface();
+  toast('Now recording finds as ' + (S.foot ? 'footway' : 'carriageway') + '.');
+});
 
 /* ---------- camera ---------- */
 $('bStart').addEventListener('click', function () { openCamera(true); });
@@ -253,7 +274,8 @@ async function openCamera(byTap) {
     $('vid').srcObject = stream; $('badge').textContent = 'Live';
     $('bStart').hidden = true; $('capRow').hidden = false; $('rec').hidden = false;
     $('camNote').hidden = true;
-    $('bSurvey').hidden = false;
+    $('bSurvey').hidden = false; $('survSurface').hidden = false;
+    paintSurface();
     startGps();
   } catch (e) {
     /* Opening without being asked is allowed to fail quietly: some browsers
@@ -277,7 +299,7 @@ function stopAll() {
   S.gps = null;
   $('badge').textContent = 'Camera off'; $('bStart').hidden = false;
   $('capRow').hidden = true; $('rec').hidden = true; $('gpsBox').hidden = true;
-  $('bSurvey').hidden = true;
+  $('bSurvey').hidden = true; $('survSurface').hidden = true;
   primer();
 }
 
@@ -694,6 +716,7 @@ function startSurvey() {
   survey.on = true; survey.logged = 0; survey.last = null;
   document.body.classList.add('surveying');
   $('hud').hidden = false; $('bSurvey').hidden = true;
+  paintSurface();
   $('hudCount').textContent = '0 logged';
   hud(worker ? 'Watching' : 'Downloading the model…');
   if (!S.gps) toast('No GPS fix yet — without one the survey cannot tell a new defect from the last.');
@@ -710,7 +733,7 @@ function endSurvey() {
   clearTimeout(survey.timer); survey.timer = null;
   document.body.classList.remove('surveying');
   $('hud').hidden = true;
-  $('bSurvey').hidden = !stream;
+  $('bSurvey').hidden = !stream; $('survSurface').hidden = !stream;
   exitFull();
   if (survey.logged) toast('');
 }
@@ -850,6 +873,7 @@ function render() {
       }
     } else { loc = 'No GPS fix'; }
     var how = it.scoredBy ? esc(it.scoredBy) : 'inspector';
+    if (it.amendedAt) how += ' · <span class="amended">amended</span>';
     if (it.detConf != null) {
       how += ' · model ' + Math.round(it.detConf * 100) + '% sure, ' +
              Math.round(it.detShare * 100) + '% of frame';
@@ -868,9 +892,19 @@ function render() {
       (dep ? esc(dep) + '<br>' : '') + how + '<br>' + esc(loc) + flag + '<br>' +
       new Date(it.t).toLocaleString() +
       (it.note ? '<br>' + esc(it.note) : '') + '</div>' +
-      '<div class="acts"><button class="del" data-id="' + it.id + '">Remove</button>' +
-      '<button class="del wrong" data-id="' + it.id + '">Not a defect</button></div>' +
-      '</div></div>';
+      '<div class="acts"><button class="del amend-open" data-id="' + it.id + '">Amend</button>' +
+      '<button class="del wrong" data-id="' + it.id + '">Not a defect</button>' +
+      '<button class="del remove" data-id="' + it.id + '">Remove</button></div>' +
+      '<div class="amend" id="am' + it.id + '" hidden>' +
+      '<select class="amType">' + TYPES.map(function (t) {
+        return '<option' + (t === it.type ? ' selected' : '') + '>' + t + '</option>';
+      }).join('') + '</select>' +
+      '<select class="amSurface">' +
+      ['Carriageway', 'Footway/cycleway'].map(function (v) {
+        return '<option' + (v === it.surface ? ' selected' : '') + '>' + v + '</option>';
+      }).join('') + '</select>' +
+      '<button class="amSave" data-id="' + it.id + '">Save the correction</button>' +
+      '</div></div></div>';
   }).join('');
   quota();
 }
@@ -878,6 +912,39 @@ function render() {
 $('list').addEventListener('click', function (e) {
   var full = e.target.closest('.thumb');
   if (full) return openFull(+full.dataset.full);
+
+  /* A cover called a pothole is a real thing in the wrong words, not a false
+     find — deleting it loses a defect, so it can be put right instead. */
+  var open = e.target.closest('.amend-open');
+  if (open) {
+    var panel = $('am' + open.dataset.id);
+    if (panel) panel.hidden = !panel.hidden;
+    return;
+  }
+
+  var sv = e.target.closest('.amSave');
+  if (sv) {
+    var sid = +sv.dataset.id, box = $('am' + sid);
+    var sit = S.items.filter(function (x) { return x.id === sid; })[0];
+    if (!sit || !box) return;
+    var wasFoot = sit.surface === 'Footway/cycleway';
+    sit.type = box.querySelector('.amType').value;
+    sit.surface = box.querySelector('.amSurface').value;
+    sit.amendedAt = new Date().toISOString();
+    /* Moving a find between surfaces changes what it means, so an app-proposed
+       score is recomputed rather than left describing the other surface. A
+       score a person chose is theirs and is left alone. */
+    var nowFoot = sit.surface === 'Footway/cycleway';
+    if (nowFoot !== wasFoot && sit.detShare != null && sit.scoredBy !== 'inspector') {
+      var keep = S.foot; S.foot = nowFoot;
+      var p = proposal({ share: sit.detShare, count: sit.detCount || 1, conf: sit.detConf });
+      S.foot = keep;
+      var c2 = category(p.imp * p.prb);
+      sit.imp = p.imp; sit.prob = p.prb; sit.score = p.imp * p.prb;
+      sit.cat = c2.k; sit.resp = c2.r; sit.key = c2.key;
+    }
+    return (dbBroken ? Promise.resolve() : putEntry(sit)).then(render, render);
+  }
 
   var w = e.target.closest('.wrong');
   if (w) {
@@ -893,7 +960,7 @@ $('list').addEventListener('click', function (e) {
     return done.then(render, render);
   }
 
-  var b = e.target.closest('.del'); if (!b) return;
+  var b = e.target.closest('.del.remove'); if (!b) return;
   var id = +b.dataset.id;
   var it = S.items.filter(function (x) { return x.id === id; })[0];
   if (!confirm('Remove this ' + (it ? it.cat.toLowerCase() : 'entry') + ' and its photograph? ' +
@@ -1045,7 +1112,8 @@ window.addEventListener('pagehide', stopAll);
 
 /* ---------- go ---------- */
 $('build').textContent = BUILD;
-buildMatrix(); verdict();
+$('fType').innerHTML = TYPES.map(function (t) { return '<option>' + t + '</option>'; }).join('');
+buildMatrix(); verdict(); paintSurface();
 
 openDb().then(function (d) {
   db = d;

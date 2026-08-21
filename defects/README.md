@@ -43,6 +43,10 @@ afterwards.
 
 Some things about it are worth knowing before trusting it:
 
+- **Set the surface before you set off.** Every find is recorded against it,
+  and it changes the score — the same hole on a footway is a trip rather than a
+  jolt. It is one setting shared with the scoring screen, shown on the survey
+  screen and tappable on the heads-up display while a run is going on.
 - **Entries are marked unconfirmed.** Nobody looked at them. They are saved as
   `survey, unconfirmed` and read that way in the log and the CSV, so they never
   pass for a category an inspector stood over. Treat them as a list of places
@@ -83,6 +87,18 @@ and not a cure, and it cuts both ways: **a real hole in deep shade looks smooth
 and can be waved through as a shadow.** In a survey that is a miss. In a
 deliberate capture the app says what it decided and leaves you free to score it
 anyway.
+
+## Putting an entry right
+
+The model has one class, so everything it finds is offered as a pothole. An
+inspection cover, a gully grate or a worn joint is a real defect in the wrong
+words — deleting it loses a defect, so entries can be amended instead. **Amend**
+sets the type and the surface, marks the entry as amended, and where the score
+was the app's proposal rather than yours, moving it between surfaces re-scores
+it. A score you chose is yours and is left alone.
+
+Three things can be done with an entry, in rising order of finality: amend it,
+mark it as not a defect (which keeps it as a correction), or remove it outright.
 
 ## Teaching it
 

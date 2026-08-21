@@ -44,6 +44,7 @@
       <div class="hud-bar">
         <span class="hud-state" id="hudState">Survey</span>
         <span class="hud-count" id="hudCount">0 logged</span>
+        <button type="button" class="hud-surface" id="hudSurface">Carriageway</button>
       </div>
       <div class="hud-toast" id="hudToast" hidden></div>
       <div class="hud-bottom">
@@ -58,6 +59,15 @@
     <button class="btn ghost" id="bStop">Stop</button>
     <button class="btn" id="bShot">Capture defect</button>
   </div>
+  <label class="fld" id="survSurface" hidden>
+    <span class="cap">What you are surveying</span>
+    <div class="seg">
+      <button type="button" id="segSurvCar" aria-pressed="true">Carriageway</button>
+      <button type="button" id="segSurvFoot" aria-pressed="false">Footway / cycleway</button>
+    </div>
+    <span class="hint">Every find is recorded against this, so set it before you set off. It
+      also changes the score: the same hole on a footway is a trip, not a jolt.</span>
+  </label>
   <button class="btn ghost" id="bSurvey" hidden>Start survey — log defects hands-free</button>
 
   <div class="meta" id="gpsBox" hidden>
