@@ -200,6 +200,7 @@ $('bStart').addEventListener('click', async function () {
     }
     $('vid').srcObject = stream; $('badge').textContent = 'Live';
     $('bStart').hidden = true; $('capRow').hidden = false; $('rec').hidden = false;
+    $('camNote').hidden = true;
     startGps();
   } catch (e) {
     note('Camera did not open: ' + e.name + '. If this is not an https address, that is why.', true);
@@ -217,12 +218,25 @@ function stopAll() {
   S.gps = null;
   $('badge').textContent = 'Camera off'; $('bStart').hidden = false;
   $('capRow').hidden = true; $('rec').hidden = true; $('gpsBox').hidden = true;
+  primer();
 }
+
+/* The panel under the buttons is pre-flight advice — how to get the camera and
+   the location open. Once both are open it has nothing left to say and is a
+   screenful of text between you and the road, so it goes when the camera comes
+   up and returns when the camera stops. Problems reclaim the same space. */
+var PRIMER = $('camNote').innerHTML;
 
 function note(msg, isErr) {
   var n = $('camNote');
   n.innerHTML = '<b>' + (isErr ? 'Problem.' : 'Note.') + '</b> ' + msg;
   n.classList.toggle('err', !!isErr);
+  n.hidden = false;
+}
+
+function primer() {
+  var n = $('camNote');
+  n.innerHTML = PRIMER; n.classList.remove('err'); n.hidden = false;
 }
 
 /* ---------- gps ---------- */
@@ -250,6 +264,10 @@ function startGps() {
     paintFix();
   }, function () {
     $('recTxt').textContent = 'GPS denied'; $('rec').className = 'rec none'; S.gps = null;
+    $('gpsBox').hidden = true;
+    note('Location was refused, so captures will be saved with no coordinates. ' +
+         'Allow it for this site in the browser settings, then stop and start the ' +
+         'camera again. Until then, put the road name in the notes.', true);
   }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
   ageTimer = setInterval(paintFix, 2000);
 }
