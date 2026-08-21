@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 10';
+var BUILD = '2026-08-21 · 11';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -34,8 +34,27 @@ var MAX_EDGE = 1600;    // longest side of a saved photograph
    architectures only — so the defect arrives as a box rather than an outline,
    and the share of the frame is measured from that. A box is generous around
    an irregular hole, which makes the size band read slightly high. */
-var RF_MODEL = 'cv-helmet-combined-dataset-rf4bc';
-var RF_VERSION = 1;
+/* Two classes, 17,497 images, yolov8s. The previous model knew only "pothole",
+   so an inspection cover came back as a pothole and there was nothing the app
+   could do about it but let you correct the entry afterwards. This one tells
+   them apart, which is the difference between a log you have to fix and a log
+   you have to check. */
+var RF_MODEL = 'pothole-fine-tuning-ghl9u';
+var RF_VERSION = 2;
+
+/* What the model's own words mean in the log.
+
+   The important thing about the second class is that it is not a defect. The
+   model finds ironwork, not broken ironwork — and a sound cover is simply part
+   of the road. Its value here is negative: knowing a dark round thing is a
+   cover is what stops it being written down as a hole. A survey that logged
+   every manhole it drove over would bury the finds that matter, so ironwork is
+   recognised and passed over. Whether a cover is sunken, proud, rocking or
+   cracked is a thing a person decides on site, not something a photograph
+   carries. */
+var CLASS_TYPE = { pothole: 'Pothole', manhole: 'Ironwork' };
+function typeFor(cls) { return CLASS_TYPE[String(cls || '').toLowerCase()] || 'Other'; }
+function known(cls) { return CLASS_TYPE.hasOwnProperty(String(cls || '').toLowerCase()); }
 var RF_KEY = 'rf_pxctFcweYjTPKQwCJgjKpHcWSpz1';
 var RF_CONF = 0.40;     // below this the model is guessing
 
@@ -492,7 +511,9 @@ function paintProposal() {
   selectCell(p.imp, p.prb);
   S.by = 'app';
   verdict();
-  scanSay('<b>' + Math.round(d.conf * 100) + '% sure that is a pothole.</b> ' +
+  var what = d.cls ? typeFor(d.cls).toLowerCase() : 'a defect';
+  scanSay('<b>' + Math.round(d.conf * 100) + '% sure that is ' +
+          (what === 'ironwork' ? 'ironwork' : 'a pothole') + '.</b> ' +
           p.why.join(', ') + '. Proposed ' + p.imp + ' × ' + p.prb + ' = ' + n +
           ', ' + c.k + '.<br><span class="caveat">A photograph has no scale in it: this ' +
           'assumes you are standing over the defect with the phone pointed down, and it is ' +
@@ -548,17 +569,25 @@ function analyse(blob) {
   }).then(function (out) {
     if (!out || S.shot !== mine) return;
     var preds = (out.preds || []).filter(function (p) {
-      return (p.confidence == null || p.confidence >= RF_CONF) &&
-             /pothole/i.test(p.class || '');
+      return (p.confidence == null || p.confidence >= RF_CONF) && known(p.class);
     });
     if (!preds.length) {
-      return scanSay('<b>No pothole identified.</b> Either there is not one in the frame or the ' +
+      return scanSay('<b>Nothing identified.</b> Either there is no defect in the frame or the ' +
                      'model cannot see it. Nothing is proposed — score it yourself.', 'none');
     }
     var best = preds.reduce(function (a, b) {
       return (b.confidence || 0) > (a.confidence || 0) ? b : a;
     });
     var box = best.bbox || best;
+
+    if (typeFor(best.class) === 'Ironwork') {
+      $('fType').value = 'Ironwork';
+      return scanSay('<b>That is ironwork, not a pothole.</b> ' +
+        Math.round((best.confidence == null ? 1 : best.confidence) * 100) +
+        '% sure. A cover is only a defect if it is sunken, proud, rocking or cracked, and a ' +
+        'photograph does not say which — so nothing is proposed. The type is set; score it ' +
+        'yourself if it is defective.', 'none');
+    }
 
     /* The same shadow test the survey uses, except here somebody is looking, so
        it says what it decided and leaves the matrix alone rather than deciding
@@ -575,7 +604,9 @@ function analyse(blob) {
                      'none');
     }
     var share = (box.width * box.height) / (out.w * out.h);
-    S.det = { conf: best.confidence == null ? 1 : best.confidence, share: share, count: preds.length };
+    S.det = { conf: best.confidence == null ? 1 : best.confidence, share: share,
+              count: preds.length, cls: best.class };
+    $('fType').value = typeFor(best.class);
     paintProposal();
   }).catch(function (e) {
     if (S.shot !== mine) return;
@@ -756,7 +787,7 @@ function look() {
     });
   }).then(function (out) {
     var hits = out.preds.filter(function (p) {
-      return (p.confidence == null || p.confidence >= SURVEY_CONF) && /pothole/i.test(p.class || '');
+      return (p.confidence == null || p.confidence >= SURVEY_CONF) && known(p.class);
     });
     if (!hits.length) return hud('Watching');
     var v = $('vid'), c = $('shot');
@@ -771,8 +802,10 @@ function look() {
         { x: b.x * k, y: b.y * k, w: b.width * k, h: b.height * k });
     });
     if (!hits.length) return hud('Shadow, not a defect');
+    var holes = hits.filter(function (p) { return typeFor(p.class) === 'Pothole'; });
+    if (!holes.length) return hud('Ironwork — sound cover, not logged');
     if (alreadyLogged()) return hud('Same defect — not logged again');
-    return logFind(hits, out, c);
+    return logFind(holes, out, c);
   }).catch(function (e) {
     hud('Look failed', 'bad');
     toast(whyLocal(e));
@@ -787,7 +820,8 @@ function logFind(hits, out, c) {
   var best = hits.reduce(function (a, b) { return (b.confidence || 0) > (a.confidence || 0) ? b : a; });
   var box = best.bbox || best;
   var det = { conf: best.confidence == null ? 1 : best.confidence,
-              share: (box.width * box.height) / (out.w * out.h), count: hits.length };
+              share: (box.width * box.height) / (out.w * out.h),
+              count: hits.length, cls: best.class };
   var was = S.det; S.det = det;                 // proposal() reads the current find
   var p = proposal(det), n = p.imp * p.prb, cat = category(n);
   S.det = was;
@@ -802,7 +836,7 @@ function logFind(hits, out, c) {
         surface: S.foot ? 'Footway/cycleway' : 'Carriageway',
         scoredBy: 'survey, unconfirmed',
         detConf: det.conf, detShare: det.share, detCount: det.count,
-        type: 'Pothole', note: '',
+        type: typeFor(best.class), note: '',
         lat: f ? f.lat : null, lon: f ? f.lon : null,
         acc: f ? Math.round(f.acc) : null, fixAge: f ? f.age : null
       };
@@ -812,7 +846,8 @@ function logFind(hits, out, c) {
         $('hudCount').textContent = survey.logged + ' logged';
         render();
         hud('Watching');
-        toast('Logged — ' + cat.k + ' (' + Math.round(det.conf * 100) + '% sure). Unconfirmed.');
+        toast('Logged ' + typeFor(best.class).toLowerCase() + ' — ' + cat.k +
+            ' (' + Math.round(det.conf * 100) + '% sure). Unconfirmed.');
         resolve();
       }, function () {
         hud('Could not write it down', 'bad');

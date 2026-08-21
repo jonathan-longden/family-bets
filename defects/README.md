@@ -88,6 +88,21 @@ and can be waved through as a shadow.** In a survey that is a miss. In a
 deliberate capture the app says what it decided and leaves you free to score it
 anyway.
 
+## Ironwork
+
+The model knows two things: potholes and manholes. The second matters because
+of what it is **not** — a sound cover is part of the road, not a defect. Its
+value is negative: knowing a dark round thing is a cover is what stops it being
+written down as a hole, which is what the previous single-class model did every
+time.
+
+So ironwork is recognised and passed over. A survey does not log it — one that
+wrote down every manhole it drove over would bury the finds that matter. Point
+the camera at one deliberately and the app names it, sets the defect type, and
+proposes no score, because whether a cover is sunken, proud, rocking or cracked
+is decided on site and is not in the photograph. Score it yourself if it is
+defective.
+
 ## Putting an entry right
 
 The model has one class, so everything it finds is offered as a pothole. An
@@ -226,8 +241,9 @@ data takes the log with it, and there is no copy anywhere else.
   is the whole round.
 
 The detection model is a public one on Roboflow Universe
-(`cvhelmet/cv-helmet-combined-dataset-rf4bc`, a single pothole class over 5,482
-images), loaded by Roboflow's browser library, which is vendored at
+(`pothole-model-for-zed-cameras/pothole-fine-tuning-ghl9u` v2 — two classes,
+`pothole` and `manhole`, over 17,497 images, yolov8s), loaded by Roboflow's
+browser library, which is vendored at
 `vendor/inference.es.js` rather than pulled from a CDN so that the app depends
 on nothing but itself. It is six megabytes and is deliberately not precached:
 the first visit should not pay for it before the camera opens.
