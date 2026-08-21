@@ -1922,6 +1922,13 @@ const fromPlaylistItem = it => ({
 /* what's on screen, so More knows where it got to */
 let ytPage = { kind: null, id: null, next: '', name: '' };
 
+function clearRefRows() {
+  $('#ytChannelsHead').hidden = true;
+  $('#ytChannels').innerHTML = '';
+  $('#ytListsHead').hidden = true;
+  $('#ytLists').innerHTML = '';
+}
+
 function showVideos(list, heading, { append = false } = {}) {
   $('#ytResultsHead').hidden = !list.length && !append;
   $('#ytResultsHead').textContent = heading;
@@ -1940,28 +1947,72 @@ async function searchYouTube(term) {
   $('#ytMore').hidden = true;
   ytPage = { kind: null, id: null, next: '', name: '' };
 
-  const r = await ytFetch('search', { part: 'snippet', type: 'video', maxResults: '24', q: term });
+  /* No type filter, so the one search that costs 100 units comes back with
+     channels and playlists as well as videos — and those are the doors into
+     browsing, which costs about one. Paying for a search should buy more
+     than a page of videos. */
+  const r = await ytFetch('search', { part: 'snippet', maxResults: '25', q: term });
   if (!r.ok) return ytStatus(r.message);
 
-  let out = (r.data.items || [])
-    .filter(it => it.id && it.id.videoId)
-    .map(it => ({
-      id: it.id.videoId,
-      title: it.snippet.title,
-      channel: it.snippet.channelTitle,
-      thumb: it.snippet.thumbnails && it.snippet.thumbnails.medium
-        ? it.snippet.thumbnails.medium.url : '',
-    }));
-  out = await withDurations(out);
+  const videos = [], channels = [], lists = [];
+  for (const it of r.data.items || []) {
+    const kind = it.id && it.id.kind;
+    const thumb = it.snippet.thumbnails && it.snippet.thumbnails.medium
+      ? it.snippet.thumbnails.medium.url : '';
+    if (kind === 'youtube#video' && it.id.videoId) {
+      videos.push({ id: it.id.videoId, title: it.snippet.title,
+        channel: it.snippet.channelTitle, thumb });
+    } else if (kind === 'youtube#channel' && it.id.channelId) {
+      channels.push({ kind: 'channel', id: it.id.channelId, title: it.snippet.title,
+        sub: 'Channel', thumb });
+    } else if (kind === 'youtube#playlist' && it.id.playlistId) {
+      lists.push({ kind: 'playlist', id: it.id.playlistId, title: it.snippet.title,
+        sub: it.snippet.channelTitle || 'Playlist', thumb });
+    }
+  }
 
-  showVideos(out, 'Results');
-  ytStatus(out.length ? `${out.length} video${out.length === 1 ? '' : 's'}` : 'Nothing found');
+  $('#ytChannelsHead').hidden = !channels.length;
+  $('#ytChannels').innerHTML = channels.map(refTile).join('');
+  $('#ytListsHead').hidden = !lists.length;
+  $('#ytLists').innerHTML = lists.map(refTile).join('');
+  showVideos(await withDurations(videos), 'Videos');
+
+  const bits = [];
+  if (videos.length) bits.push(`${videos.length} video${videos.length === 1 ? '' : 's'}`);
+  if (channels.length) bits.push(`${channels.length} channel${channels.length === 1 ? '' : 's'}`);
+  if (lists.length) bits.push(`${lists.length} playlist${lists.length === 1 ? '' : 's'}`);
+  ytStatus(bits.length
+    ? bits.join(' · ') + ' — opening a channel or playlist costs a fraction of another search'
+    : 'Nothing found');
+}
+
+/* A channel or a playlist: tapping it browses, it doesn't play. */
+function refTile(x) {
+  const art = x.thumb
+    ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" onerror="this.remove()" />`
+    : esc((x.title || '?').trim()[0].toUpperCase());
+  return `
+    <button class="tile" data-ref='${esc(JSON.stringify(x))}'>
+      <span class="tile-art${x.kind === 'channel' ? ' round' : ''}">${art}</span>
+      <b>${esc(x.title)}</b>
+      <span>${esc(x.sub)}</span>
+    </button>`;
+}
+
+function onRefClick(e) {
+  const tile = e.target.closest('.tile');
+  if (!tile) return;
+  let x;
+  try { x = JSON.parse(tile.dataset.ref); } catch { return; }
+  if (x.kind === 'channel') openChannel({ kind: 'id', value: x.id });
+  else openPlaylist(x.id, x.title);
 }
 
 /* A playlist's contents cost one unit a page of fifty, against a hundred for
    a single search — which is the whole reason browsing exists here. */
 async function openPlaylist(playlistId, name, { append = false } = {}) {
   ytStatus(append ? 'Loading more…' : 'Opening…');
+  if (!append) clearRefRows();       // browsing replaces the search that led here
   const params = { part: 'snippet', maxResults: '50', playlistId };
   if (append && ytPage.next) params.pageToken = ytPage.next;
   const r = await ytFetch('playlistItems', params);
@@ -2069,6 +2120,8 @@ function onVideoClick(e) {
   if (e.target.closest('[data-save]')) saveVideo(v);
   else playVideo(v);
 }
+$('#ytChannels').addEventListener('click', onRefClick);
+$('#ytLists').addEventListener('click', onRefClick);
 $('#ytSaved').addEventListener('click', onVideoClick);
 $('#ytResults').addEventListener('click', onVideoClick);
 $('#ytStop').addEventListener('click', stopVideo);
