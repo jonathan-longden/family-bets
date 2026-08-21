@@ -14,21 +14,30 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 6';
+var BUILD = '2026-08-21 · 7';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
 var MAX_EDGE = 1600;    // longest side of a saved photograph
 
-/* Hosted detection. The key is Roboflow's publishable workspace key, which is
-   meant to sit in client code — it can run inference and nothing else. The
-   model is a public instance-segmentation model: it returns a polygon rather
-   than a box, so the defect's share of the frame is its actual outline and not
-   the rectangle around it. */
-var RF_MODEL = 'pothole-detection-o4ys9/2';
+/* Detection runs on the phone.
+
+   The obvious way — post the photograph to the hosted inference API — is a
+   dead end from a page: the service answers, and the browser will not let a web
+   page read what it said. That is not a bug to work around; that API is not
+   meant to be called from a page at all. This SDK is the way that is, and it
+   works differently: the model is downloaded once and run here, so the only
+   thing crossing the network is the weights, and after that a capture is
+   checked with no signal at all.
+
+   Running here also rules out segmentation — the SDK carries detection
+   architectures only — so the defect arrives as a box rather than an outline,
+   and the share of the frame is measured from that. A box is generous around
+   an irregular hole, which makes the size band read slightly high. */
+var RF_MODEL = 'cv-helmet-combined-dataset-rf4bc';
+var RF_VERSION = 1;
 var RF_KEY = 'rf_pxctFcweYjTPKQwCJgjKpHcWSpz1';
 var RF_CONF = 0.40;     // below this the model is guessing
-var RF_TIMEOUT = 12000; // a lay-by with one bar should not hang the capture
 
 var S = { imp: 0, prob: 0, foot: false, by: null,
           shot: null, shotFix: null, prevUrl: null, gps: null, det: null, items: [] };
@@ -394,18 +403,6 @@ function bandFor(share) {
   return BANDS[BANDS.length - 1];
 }
 
-/* Shoelace over the mask, so the share of the frame is the defect's outline
-   rather than the rectangle around it — a long thin edge failure and a round
-   hole with the same bounding box are not the same defect. */
-function polyShare(pts, w, h) {
-  if (!pts || pts.length < 3 || !w || !h) return null;
-  var a = 0;
-  for (var i = 0, j = pts.length - 1; i < pts.length; j = i++) {
-    a += (pts[j].x + pts[i].x) * (pts[j].y - pts[i].y);
-  }
-  return Math.abs(a / 2) / (w * h);
-}
-
 function proposal(det) {
   var b = bandFor(det.share), imp = b.imp, prb = b.prb, why = [];
   why.push(det.count > 1 ? det.count + ' defects found' : 'one defect found');
@@ -423,75 +420,6 @@ function proposal(det) {
   return { imp: imp, prb: prb, why: why };
 }
 
-function scanSay(html, cls) {
-  var n = $('scan'); n.hidden = false; n.className = 'scan' + (cls ? ' ' + cls : '');
-  n.innerHTML = html;
-}
-
-function analyse(blob) {
-  if (!navigator.onLine) {
-    return scanSay('<b>No signal.</b> The photograph could not be checked, so nothing is ' +
-                   'proposed. Score it on the matrix yourself.', 'idle');
-  }
-  scanSay('<b>Looking at the photograph…</b>', 'idle');
-  var mine = blob;   // a second capture while this is in flight must win
-  toBase64(blob).then(function (b64) {
-    var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, RF_TIMEOUT);
-    return fetch('https://detect.roboflow.com/' + RF_MODEL +
-                 '?api_key=' + RF_KEY + '&confidence=' + Math.round(RF_CONF * 100), {
-      method: 'POST', body: b64, signal: ctl.signal,
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-    }).then(function (r) {
-      clearTimeout(timer);
-      if (r.ok) return r.json();
-      /* Roboflow puts the actual reason in the body — a rejected key, a model
-         the key cannot reach. Swallowing it and saying "did not answer" is how
-         you end up guessing at a failure the server already explained. */
-      return r.text().then(function (body) {
-        var msg = '';
-        try { var j = JSON.parse(body); msg = j.message || j.error || ''; } catch (e) { msg = body; }
-        var err = new Error('HTTP ' + r.status + (msg ? ': ' + String(msg).slice(0, 200) : ''));
-        err.status = r.status;
-        throw err;
-      });
-    });
-  }).then(function (out) {
-    if (S.shot !== mine) return;         // a newer capture has taken over
-    var preds = (out && out.predictions) || [];
-    if (!preds.length) {
-      return scanSay('<b>No pothole identified.</b> Either there is not one in the frame or the ' +
-                     'model cannot see it. Nothing is proposed — score it yourself.', 'none');
-    }
-    var iw = out.image ? out.image.width : 0, ih = out.image ? out.image.height : 0;
-    var best = preds.reduce(function (a, b) { return b.confidence > a.confidence ? b : a; });
-    var share = polyShare(best.points, iw, ih);
-    if (share == null && iw && ih) share = (best.width * best.height) / (iw * ih);
-    S.det = { conf: best.confidence, share: share, count: preds.length };
-    paintProposal();
-  }).catch(function (e) {
-    if (S.shot !== mine) return;
-    /* A request the browser stopped and a request that never got out both
-       arrive here as the same bare TypeError — the browser will not say which,
-       on purpose. Asking again with the reply waived tells them apart: if that
-       one comes back, the service is reachable and the problem is that it will
-       not let a web page read its answer. */
-    if (e && !e.status && e.name !== 'AbortError') {
-      return reachable().then(function (yes) {
-        scanSay('<b>Could not check the photograph.</b> ' +
-          (yes
-            ? 'The service was reached, but it will not let a web page read its ' +
-              'answer. That is a setup problem in how this app talks to the model — ' +
-              'more signal will not fix it.'
-            : 'The request never left the phone — there is no route to the service ' +
-              'from here.') +
-          ' Nothing is proposed — score it on the matrix yourself.', 'none');
-      });
-    }
-    scanSay('<b>Could not check the photograph.</b> ' + why(e) +
-            ' Nothing is proposed — score it on the matrix yourself.', 'none');
-  });
-}
-
 /* Recomputed whenever the surface changes, because the same hole on a footway
    is a different score from the same hole on a carriageway. */
 function propose() {
@@ -506,53 +434,94 @@ function paintProposal() {
   scanSay('<b>' + Math.round(d.conf * 100) + '% sure that is a pothole.</b> ' +
           p.why.join(', ') + '. Proposed ' + p.imp + ' × ' + p.prb + ' = ' + n +
           ', ' + c.k + '.<br><span class="caveat">A photograph has no scale in it: this ' +
-          'assumes you are standing over the defect with the phone pointed down. It says ' +
-          'nothing about depth, traffic or footfall. Check the cell before saving.</span>',
-          'hit');
+          'assumes you are standing over the defect with the phone pointed down, and it is ' +
+          'measured from a box drawn round the hole, which is generous. It says nothing about ' +
+          'depth, traffic or footfall. Check the cell before saving.</span>', 'hit');
 }
 
-/* Three failures look identical from the outside and have nothing in common:
-   the request never arrived, the service refused it, or it took too long. Each
-   one is said in its own words, with whatever the server itself reported, so a
-   failure in a lay-by is diagnosable from the screen rather than from a guess. */
-function why(e) {
-  if (!e) return 'The reason was not reported.';
-  if (e.name === 'AbortError') return 'It took longer than ' + (RF_TIMEOUT / 1000) + ' seconds and was given up on.';
-  if (e.status) {
-    var extra = e.status === 401 || e.status === 403
-      ? ' The key was refused for this model — that is a setup problem, not a signal problem.'
-      : (e.status === 404 ? ' The model was not found at that address.' : '');
-    var m = String(e.message);
-    return 'The service refused it — ' + m + (/[.!?]$/.test(m) ? '' : '.') + extra;
+function scanSay(html, cls) {
+  var n = $('scan'); n.hidden = false; n.className = 'scan' + (cls ? ' ' + cls : '');
+  n.innerHTML = html;
+}
+
+/* The engine and the model are loaded once and kept. Loading is the slow part
+   — weights over mobile data — so it is done on the first capture rather than
+   on page load, and every capture after that is local and quick. */
+var engine = null, worker = null, loading = null;
+
+function loadModel() {
+  if (loading) return loading;
+  loading = import('./vendor/inference.es.js').then(function (m) {
+    engine = new m.InferenceEngine();
+    return engine.startWorker(RF_MODEL, RF_VERSION, RF_KEY).then(function (id) {
+      worker = id;
+      return m;
+    });
+  }).catch(function (e) {
+    loading = null;   // a failure must not poison every later capture
+    throw e;
+  });
+  return loading;
+}
+
+function analyse(blob) {
+  var mine = blob;   // a second capture while this is in flight must win
+  var ready = !!worker;
+  if (!ready && !navigator.onLine) {
+    return scanSay('<b>No signal, and the model is not downloaded yet.</b> It is fetched once, ' +
+                   'on the first check, and kept afterwards — so this works in a lay-by only ' +
+                   'after it has run somewhere with a signal. Score it on the matrix yourself.',
+                   'idle');
   }
-  /* fetch rejects with a TypeError and no detail for a request the browser
-     itself stopped: no route, or a cross-origin reply it would not hand over. */
-  return 'The request never got a reply — no route to the service, or the browser ' +
-         'refused the response as cross-origin. (' + (e.name || 'error') +
-         (e.message ? ': ' + String(e.message).slice(0, 120) : '') + ')';
-}
+  scanSay(ready ? '<b>Looking at the photograph…</b>'
+                : '<b>Downloading the model…</b> This happens once. Later checks need no signal.',
+          'idle');
 
-/* A no-cors request is answered with a sealed reply: nothing can be read out
-   of it, which is exactly why it settles the question. It resolving means the
-   request reached the service and came back; it failing means it never got
-   there at all. Cheap, and it costs no inference. */
-function reachable() {
-  var ctl = new AbortController(), timer = setTimeout(function () { ctl.abort(); }, 6000);
-  return fetch('https://detect.roboflow.com/' + RF_MODEL + '?api_key=' + RF_KEY, {
-    method: 'POST', mode: 'no-cors', body: 'probe', signal: ctl.signal,
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-  }).then(function () { clearTimeout(timer); return true; },
-          function () { clearTimeout(timer); return false; });
-}
-
-function toBase64(blob) {
-  return new Promise(function (resolve, reject) {
-    var fr = new FileReader();
-    fr.onload = function () { resolve(String(fr.result).split(',')[1]); };
-    fr.onerror = function () { reject(fr.error); };
-    fr.readAsDataURL(blob);
+  loadModel().then(function (m) {
+    if (S.shot !== mine) return null;
+    return createImageBitmap(blob).then(function (bmp) {
+      return engine.infer(worker, new m.CVImage(bmp)).then(function (preds) {
+        return { preds: preds, w: bmp.width, h: bmp.height };
+      });
+    });
+  }).then(function (out) {
+    if (!out || S.shot !== mine) return;
+    var preds = (out.preds || []).filter(function (p) {
+      return (p.confidence == null || p.confidence >= RF_CONF) &&
+             /pothole/i.test(p.class || '');
+    });
+    if (!preds.length) {
+      return scanSay('<b>No pothole identified.</b> Either there is not one in the frame or the ' +
+                     'model cannot see it. Nothing is proposed — score it yourself.', 'none');
+    }
+    var best = preds.reduce(function (a, b) {
+      return (b.confidence || 0) > (a.confidence || 0) ? b : a;
+    });
+    var box = best.bbox || best;
+    var share = (box.width * box.height) / (out.w * out.h);
+    S.det = { conf: best.confidence == null ? 1 : best.confidence, share: share, count: preds.length };
+    paintProposal();
+  }).catch(function (e) {
+    if (S.shot !== mine) return;
+    scanSay('<b>Could not check the photograph.</b> ' + whyLocal(e) +
+            ' Nothing is proposed — score it on the matrix yourself.', 'none');
   });
 }
+
+/* Three things can fail and they are not the same problem: the library did not
+   load from this site, the model would not start, or the run itself broke. */
+function whyLocal(e) {
+  var msg = e && e.message ? String(e.message).slice(0, 200) : '';
+  if (!worker && !engine) {
+    return 'The detection library would not load from this site.' + (msg ? ' (' + msg + ')' : '');
+  }
+  if (!worker) {
+    return 'The model would not start — that is the model or the key, not the signal.' +
+           (msg ? ' (' + msg + ')' : '');
+  }
+  return 'The model failed while running.' + (msg ? ' (' + msg + ')' : '');
+}
+
 
 /* ---------- log ---------- */
 function esc(s) {

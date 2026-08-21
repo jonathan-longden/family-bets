@@ -1,4 +1,4 @@
-const CACHE_NAME = 'defect-log-v2';
+const CACHE_NAME = 'defect-log-v3';
 const FILES_TO_CACHE = [
   './',
   './index.html',
@@ -8,6 +8,9 @@ const FILES_TO_CACHE = [
   './icon-192.png',
   './icon-512.png',
 ];
+/* The detection library is six megabytes. Precaching it would make the first
+   visit pay for it before the camera even opens, so it is left to be cached the
+   first time a capture actually needs it — after which it is there offline. */
 const NET_TIMEOUT = 4000;
 const FONT_HOSTS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 
