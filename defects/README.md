@@ -66,6 +66,28 @@ Some things about it are worth knowing before trusting it:
   gesture, so the button is that gesture. The viewfinder fills the screen
   without it either way.
 
+## Not knowing means not knowing
+
+A find is believed only once every part of it has been checked: a class the app
+has a type for, a box with a real position and a real size, and a share of the
+frame that is a fraction between nought and one. Anything failing that is
+dropped, not repaired, and if a frame produces results but none of them survive,
+the app says so and writes down nothing.
+
+This is here because of what happened without it. A survey returned twenty
+results a frame carrying scores of 1.004 — and once 5,323,169.5, which is not a
+confidence — and no measurable boxes. The share came out as not-a-number, every
+comparison against not-a-number is false, and the band lookup ended with "return
+the largest band". So an unmeasurable nothing scored impact 5, probability 4,
+gained a point for being one of several, and was written into the log as an
+**Emergency requiring attention within two hours**. Five of them, including a
+photograph of the inside of a van.
+
+The failure was not the model's. The app turned "I could not measure this" into
+the most serious category it has, silently, in a tool whose output is a response
+time. Every entry now carries the box it was measured from, so a wrong one can
+be taken apart afterwards rather than guessed at.
+
 ## Shadows
 
 Tree shadows across a carriageway are what this model gets wrong, and it is
