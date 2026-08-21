@@ -606,7 +606,6 @@ let playing = false;
 async function playTrack(track, { fade = false } = {}) {
   if (!track) return;
   if (onAir()) stopStation();                    // a record and a station can't both be on
-  stopVideo();                                   // nor a record and a video
   await ensureAudioGraph();
   finishFade();                          // never start on top of a blend in progress
 
@@ -1387,7 +1386,6 @@ function renderRadio() {
    can do neither, so the seek bar and skip buttons stand down for one. */
 async function playStream(item) {
   stopAll();                                   // the decks stand down
-  stopVideo();
   nowStream = item;
   document.body.classList.add('on-air');
   document.body.classList.toggle('is-live', item.kind === 'station');
@@ -1757,367 +1755,25 @@ $('#feedSave').addEventListener('click', async () => {
 
 /* ───────────────────────── YouTube ─────────────────────────
 
-   Video, so it plays where you can see it rather than on a deck. Playback is
-   YouTube's own embedded player in an iframe: that is the only way a web page
-   is allowed to play YouTube, and it keeps the count, the ads and the
-   creator's terms where they belong. Nothing is downloaded and nothing is
-   stripped to audio.
+   A launcher, not a player. An embedded player stops the moment you leave the
+   page and carries none of your account, so trying to be a YouTube client in
+   here was always the worse version of an app already on the phone. This hands
+   the address over and gets out of the way.
 
-   Searching is the part that needs a key. YouTube has no open directory the
-   way Radio Browser and iTunes do, so a search costs an API key — and this
-   app is a public page, where a key of ours would be a key everyone had.
-   So you bring your own, it stays on your device, and without one the
-   section still plays anything you paste a link to. */
+   intent:// is how a web page reaches Android's Open-with list; everywhere else
+   an ordinary link goes to whatever handles YouTube. */
 
-const YT_KEY = 'ytKey';
-const VIDEOS_KEY = 'videos';
+const YT_HOME = 'https://www.youtube.com/';
 
-let ytKey = '';
-let videos = [];             // [{ id, title, channel, thumb }]
-let nowVideo = null;
-
-const saveVideos = () => store.setPref(VIDEOS_KEY, videos).catch(() => {});
-const watching = () => !!nowVideo;
-const isSavedVideo = id => videos.some(v => v.id === id);
-
-/* watch?v=, youtu.be/, /shorts/, /embed/, or someone pasting the bare id */
-function videoIdFrom(text) {
-  const s = (text || '').trim();
-  if (/^[\w-]{11}$/.test(s)) return s;
-  let u;
-  try { u = new URL(s); } catch { return null; }
-  if (!/(^|\.)(youtube\.com|youtube-nocookie\.com|youtu\.be)$/.test(u.hostname)) return null;
-  if (u.hostname.endsWith('youtu.be')) {
-    const id = u.pathname.slice(1).split('/')[0];
-    return /^[\w-]{11}$/.test(id) ? id : null;
-  }
-  const v = u.searchParams.get('v');
-  if (v && /^[\w-]{11}$/.test(v)) return v;
-  const m = u.pathname.match(/\/(?:embed|shorts|v)\/([\w-]{11})/);
-  return m ? m[1] : null;
-}
-
-/* A YouTube address names one of three things, and telling them apart is
-   what makes the cheap calls reachable: a playlist or a channel costs a
-   single unit to open, against a hundred for one search. */
-function linkKind(text) {
-  const s = (text || '').trim();
-  const vid = videoIdFrom(s);
-  let u;
-  try { u = new URL(s); } catch { u = null; }
-
-  if (u && /(^|\.)(youtube\.com|youtube-nocookie\.com)$/.test(u.hostname)) {
-    const list = u.searchParams.get('list');
-    // watch?v=…&list=… is a video playing from a playlist: the video wins
-    if (list && !vid) return { kind: 'playlist', value: list };
-
-    const path = u.pathname.replace(/\/+$/, '');
-    let m;
-    if ((m = path.match(/^\/channel\/(UC[\w-]{20,})$/))) return { kind: 'channel', ref: { kind: 'id', value: m[1] } };
-    if ((m = path.match(/^\/@([\w.-]+)$/)))               return { kind: 'channel', ref: { kind: 'handle', value: '@' + m[1] } };
-    if ((m = path.match(/^\/user\/([\w.-]+)$/)))          return { kind: 'channel', ref: { kind: 'username', value: m[1] } };
-    if ((m = path.match(/^\/c\/([\w.-]+)$/)))             return { kind: 'channel', ref: { kind: 'handle', value: '@' + m[1] } };
-  }
-
-  if (vid) return { kind: 'video', value: vid };
-  // a bare playlist id, pasted on its own
-  if (/^(PL|UU|LL|FL|OL)[\w-]{10,}$/.test(s)) return { kind: 'playlist', value: s };
-  return null;
-}
+const isAndroid = () => /Android/i.test(navigator.userAgent || '');
 
 function ytStatus(text) {
   const el = $('#ytStatus');
+  if (!el) return;
   el.hidden = !text;
   el.textContent = text || '';
 }
 
-function videoTile(v) {
-  const art = v.thumb
-    ? `<img src="${esc(v.thumb)}" alt="" loading="lazy" onerror="this.remove()" />`
-    : esc((v.title || '?').trim()[0].toUpperCase());
-  const saved = isSavedVideo(v.id);
-  return `
-    <button class="tile wide ${nowVideo && nowVideo.id === v.id ? 'on' : ''}"
-            data-video='${esc(JSON.stringify(v))}'>
-      <span class="tile-art wide">
-        ${art}
-        <span class="tile-save ${saved ? 'on' : ''}" data-save="1" role="button"
-              aria-label="${saved ? 'Remove from saved' : 'Save this video'}">
-          <svg class="ic"><use href="#i-heart"/></svg>
-        </span>
-      </span>
-      <b>${esc(v.title)}</b>
-      <span>${esc(v.channel || 'YouTube')}${v.dur ? ' · ' + esc(v.dur) : ''}</span>
-    </button>`;
-}
-
-function renderYouTube() {
-  const panel = $('#youtubePanel');
-  if (!panel) return;
-  panel.hidden = settings.source !== 'youtube';
-  $('#ytSavedHead').hidden = !videos.length;
-  $('#ytSaved').innerHTML = videos.map(videoTile).join('');
-  $('#ytKeyState').textContent = ytKey
-    ? 'A key is saved on this device — search is on.'
-    : 'No key yet, so search is off. You can still paste a video link below.';
-  $('#ytSearch').disabled = !ytKey;
-  $('#ytGo').disabled = !ytKey;
-}
-
-const YT_ROOT = 'https://www.googleapis.com/youtube/v3';
-const YT_API = `${YT_ROOT}/search`;
-
-/* One door to the API, so every call reports a refusal the same way.
-   Returns { ok, data, message }. */
-async function ytFetch(path, params) {
-  if (!ytKey) return { ok: false, message: 'Add a YouTube API key first — see “Turning search on” below.' };
-  const q = new URLSearchParams({ ...params, key: ytKey });
-  let res, data;
-  try {
-    res = await fetch(`${YT_ROOT}/${path}?${q}`);
-    data = await res.json().catch(() => null);
-  } catch {
-    return { ok: false, message: "Couldn't reach YouTube — this part needs a connection." };
-  }
-  if (!res.ok) {
-    const reason = data && data.error && data.error.message ? data.error.message : 'HTTP ' + res.status;
-    if (/quota/i.test(reason)) {
-      return { ok: false, message: "That key's daily quota is used up — it resets at midnight Pacific time. " +
-        'Opening a channel or playlist link costs a hundredth of a search, if you want to go easier on it.' };
-    }
-    if (res.status === 400 || res.status === 403) return { ok: false, message: `YouTube refused the key: ${reason}` };
-    return { ok: false, message: `YouTube said no: ${reason}` };
-  }
-  return { ok: true, data };
-}
-
-/* PT1H2M3S → 1:02:03. Search results don't carry a length; videos.list does,
-   at one unit for fifty of them, so it's worth the extra call. */
-function prettyDuration(iso) {
-  const m = /^P(?:\d+D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(iso || '');
-  if (!m) return '';
-  const [h, mi, s] = [Number(m[1] || 0), Number(m[2] || 0), Number(m[3] || 0)];
-  const pad = n => String(n).padStart(2, '0');
-  return h ? `${h}:${pad(mi)}:${pad(s)}` : `${mi}:${pad(s)}`;
-}
-
-async function withDurations(list) {
-  if (!list.length) return list;
-  const r = await ytFetch('videos', { part: 'contentDetails', id: list.map(v => v.id).join(',') });
-  if (!r.ok) return list;                       // a length is a nicety, not worth failing over
-  const byId = {};
-  for (const it of r.data.items || []) {
-    byId[it.id] = prettyDuration(it.contentDetails && it.contentDetails.duration);
-  }
-  return list.map(v => ({ ...v, dur: byId[v.id] || '' }));
-}
-
-const fromPlaylistItem = it => ({
-  id: it.snippet.resourceId ? it.snippet.resourceId.videoId : '',
-  title: it.snippet.title,
-  channel: it.snippet.videoOwnerChannelTitle || it.snippet.channelTitle || '',
-  thumb: it.snippet.thumbnails && it.snippet.thumbnails.medium ? it.snippet.thumbnails.medium.url : '',
-});
-
-/* what's on screen, so More knows where it got to */
-let ytPage = { kind: null, id: null, next: '', name: '' };
-
-function clearRefRows() {
-  $('#ytChannelsHead').hidden = true;
-  $('#ytChannels').innerHTML = '';
-  $('#ytListsHead').hidden = true;
-  $('#ytLists').innerHTML = '';
-}
-
-function showVideos(list, heading, { append = false } = {}) {
-  $('#ytResultsHead').hidden = !list.length && !append;
-  $('#ytResultsHead').textContent = heading;
-  const html = list.map(videoTile).join('');
-  if (append) $('#ytResults').insertAdjacentHTML('beforeend', html);
-  else $('#ytResults').innerHTML = html;
-  $('#ytMore').hidden = !ytPage.next;
-}
-
-async function searchYouTube(term) {
-  if (!term) return;
-  if (!ytKey) return ytStatus('Add a YouTube API key first — see “Turning search on” below.');
-  ytStatus('Searching…');
-  $('#ytResults').innerHTML = '';
-  $('#ytResultsHead').hidden = true;
-  $('#ytMore').hidden = true;
-  ytPage = { kind: null, id: null, next: '', name: '' };
-
-  /* No type filter, so the one search that costs 100 units comes back with
-     channels and playlists as well as videos — and those are the doors into
-     browsing, which costs about one. Paying for a search should buy more
-     than a page of videos. */
-  const r = await ytFetch('search', { part: 'snippet', maxResults: '25', q: term });
-  if (!r.ok) return ytStatus(r.message);
-
-  const videos = [], channels = [], lists = [];
-  for (const it of r.data.items || []) {
-    const kind = it.id && it.id.kind;
-    const thumb = it.snippet.thumbnails && it.snippet.thumbnails.medium
-      ? it.snippet.thumbnails.medium.url : '';
-    if (kind === 'youtube#video' && it.id.videoId) {
-      videos.push({ id: it.id.videoId, title: it.snippet.title,
-        channel: it.snippet.channelTitle, thumb });
-    } else if (kind === 'youtube#channel' && it.id.channelId) {
-      channels.push({ kind: 'channel', id: it.id.channelId, title: it.snippet.title,
-        sub: 'Channel', thumb });
-    } else if (kind === 'youtube#playlist' && it.id.playlistId) {
-      lists.push({ kind: 'playlist', id: it.id.playlistId, title: it.snippet.title,
-        sub: it.snippet.channelTitle || 'Playlist', thumb });
-    }
-  }
-
-  $('#ytChannelsHead').hidden = !channels.length;
-  $('#ytChannels').innerHTML = channels.map(refTile).join('');
-  $('#ytListsHead').hidden = !lists.length;
-  $('#ytLists').innerHTML = lists.map(refTile).join('');
-  showVideos(await withDurations(videos), 'Videos');
-
-  const bits = [];
-  if (videos.length) bits.push(`${videos.length} video${videos.length === 1 ? '' : 's'}`);
-  if (channels.length) bits.push(`${channels.length} channel${channels.length === 1 ? '' : 's'}`);
-  if (lists.length) bits.push(`${lists.length} playlist${lists.length === 1 ? '' : 's'}`);
-  ytStatus(bits.length
-    ? bits.join(' · ') + ' — opening a channel or playlist costs a fraction of another search'
-    : 'Nothing found');
-}
-
-/* Every channel's uploads live in a playlist whose id is the channel's with
-   UC swapped for UU. That equivalence is what lets a channel be played with
-   no API key: no lookup, just the same string. */
-const uploadsIdFor = channelId =>
-  /^UC[\w-]{20,}$/.test(channelId || '') ? 'UU' + channelId.slice(2) : null;
-
-function playPlaylist(listId, name) {
-  playVideo({ id: '', list: listId, title: name || 'Playlist', channel: 'YouTube', thumb: '' });
-}
-
-/* A channel or a playlist: tapping it browses, it doesn't play. */
-function refTile(x) {
-  const art = x.thumb
-    ? `<img src="${esc(x.thumb)}" alt="" loading="lazy" onerror="this.remove()" />`
-    : esc((x.title || '?').trim()[0].toUpperCase());
-  return `
-    <button class="tile" data-ref='${esc(JSON.stringify(x))}'>
-      <span class="tile-art${x.kind === 'channel' ? ' round' : ''}">${art}</span>
-      <b>${esc(x.title)}</b>
-      <span>${esc(x.sub)}</span>
-    </button>`;
-}
-
-function onRefClick(e) {
-  const tile = e.target.closest('.tile');
-  if (!tile) return;
-  let x;
-  try { x = JSON.parse(tile.dataset.ref); } catch { return; }
-  if (x.kind === 'channel') openChannel({ kind: 'id', value: x.id });
-  else openPlaylist(x.id, x.title);
-}
-
-/* A playlist's contents cost one unit a page of fifty, against a hundred for
-   a single search — which is the whole reason browsing exists here. */
-async function openPlaylist(playlistId, name, { append = false } = {}) {
-  ytStatus(append ? 'Loading more…' : 'Opening…');
-  if (!append) clearRefRows();       // browsing replaces the search that led here
-  const params = { part: 'snippet', maxResults: '50', playlistId };
-  if (append && ytPage.next) params.pageToken = ytPage.next;
-  const r = await ytFetch('playlistItems', params);
-  if (!r.ok) return ytStatus(r.message);
-
-  let out = (r.data.items || []).map(fromPlaylistItem).filter(v => v.id);
-  out = await withDurations(out);
-  ytPage = { kind: 'playlist', id: playlistId, next: r.data.nextPageToken || '',
-    name: name || ytPage.name || 'Playlist' };
-  showVideos(out, ytPage.name, { append });
-  ytStatus(append
-    ? `${out.length} more`
-    : `${out.length} video${out.length === 1 ? '' : 's'} in ${ytPage.name}`);
-}
-
-/* A channel link can name the channel four different ways, and only one of
-   them is the id the API wants. The rest resolve for a single unit; if none
-   of them match, a search is the fallback and costs a hundred, so it says so. */
-async function openChannel(ref) {
-  ytStatus('Opening…');
-  const params = { part: 'snippet,contentDetails' };
-  if (ref.kind === 'id') params.id = ref.value;
-  else if (ref.kind === 'handle') params.forHandle = ref.value;
-  else params.forUsername = ref.value;
-
-  let r = await ytFetch('channels', params);
-  if (!r.ok) return ytStatus(r.message);
-  let ch = (r.data.items || [])[0];
-
-  if (!ch) {
-    // nothing matched cheaply, so fall back to the expensive way
-    ytStatus(`Couldn't resolve that channel directly — searching for it instead (costs more of your quota).`);
-    const s = await ytFetch('search', { part: 'snippet', type: 'channel', maxResults: '1', q: ref.value });
-    if (!s.ok) return ytStatus(s.message);
-    const hit = (s.data.items || [])[0];
-    if (!hit) return ytStatus(`No channel found for “${ref.value}”.`);
-    r = await ytFetch('channels', { part: 'snippet,contentDetails', id: hit.id.channelId });
-    if (!r.ok) return ytStatus(r.message);
-    ch = (r.data.items || [])[0];
-    if (!ch) return ytStatus(`No channel found for “${ref.value}”.`);
-  }
-
-  const uploads = ch.contentDetails && ch.contentDetails.relatedPlaylists
-    && ch.contentDetails.relatedPlaylists.uploads;
-  if (!uploads) return ytStatus("That channel doesn't publish an uploads list.");
-  ytPage.name = ch.snippet.title;
-  return openPlaylist(uploads, ch.snippet.title);
-}
-
-/* Play it in YouTube's own player, in place of the decks. */
-function playVideo(v) {
-  stopAll();
-  if (onAir()) stopStation();
-  nowVideo = v;
-  document.body.classList.add('watching');
-  $('#ytPlayer').hidden = false;
-  /* A playlist plays as videoseries, which needs no API key at all — YouTube's
-     own player walks the list. A key buys the tiles, the lengths and the
-     saving; it was never what playing needed. */
-  const src = v.list
-    ? `https://www.youtube-nocookie.com/embed/videoseries?list=${encodeURIComponent(v.list)}` +
-      '&autoplay=1&playsinline=1&rel=0'
-    : `https://www.youtube-nocookie.com/embed/${encodeURIComponent(v.id)}` +
-      '?autoplay=1&playsinline=1&rel=0';
-  $('#ytFrame').innerHTML =
-    `<iframe src="${esc(src)}" title="${esc(v.title)}" allow="autoplay; encrypted-media; picture-in-picture"
-       allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
-  $('#ytNowTitle').textContent = v.title;
-  $('#ytNowChannel').textContent = v.channel || 'YouTube';
-  /* A plain link out. The phone decides what opens a YouTube address — which
-     may well be a YouTube app rather than a browser — and that app brings
-     whatever it brings: an account, background playback, the lot. Tunage
-     hands over the address and stops there. */
-  $('#ytChoose').hidden = !canChoose();
-  $('#ytOpen').href = v.list
-    ? `https://www.youtube.com/playlist?list=${encodeURIComponent(v.list)}`
-    : `https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}`;
-  $('#npTitle').textContent = v.title;
-  $('#npArtist').textContent = v.channel || 'YouTube';
-  render();
-}
-
-/* Android's Open-with chooser, reached the only way a web page can reach it:
-   an intent:// address. The browser still will not say what is installed —
-   it hands the address to Android, Android lists whatever can open it, and
-   the choice happens out there. A share sheet is not this: that offers apps
-   something to receive, where this offers apps a link to open.
-
-   Where intent:// means nothing — anything that isn't Android — the share
-   sheet is the nearest thing there is, so it stands in. */
-const isAndroid = () => /Android/i.test(navigator.userAgent || '');
-const canChoose = () => isAndroid() || typeof navigator.share === 'function';
-
-/* https://host/path?q  →  intent://host/path?q#Intent;…;end, carrying the
-   original address as the fallback for a phone with nothing that handles it. */
 function intentUrlFor(httpsUrl) {
   let u;
   try { u = new URL(httpsUrl); } catch { return null; }
@@ -2126,119 +1782,24 @@ function intentUrlFor(httpsUrl) {
     `S.browser_fallback_url=${encodeURIComponent(httpsUrl)};end`;
 }
 
-async function chooseApp() {
-  if (!nowVideo) return;
-  const url = $('#ytOpen').getAttribute('href');
-
-  const intent = isAndroid() ? intentUrlFor(url) : null;
-  if (intent) {
-    /* A new tab, so that a phone with no handler lands on the fallback there
-       rather than throwing Tunage off the screen. */
-    const a = document.createElement('a');
-    a.href = intent;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    return;
-  }
-
-  if (typeof navigator.share !== 'function') {
-    return ytStatus('This device offers no chooser — Open in YouTube still works.');
-  }
-  try {
-    await navigator.share({ url, title: nowVideo.title || 'YouTube' });
-  } catch (err) {
-    // backing out is a choice, not a fault
-    if (err && err.name === 'AbortError') return;
-    ytStatus("This browser wouldn't open the chooser — Open in YouTube still works.");
-  }
+function openYouTubeApp() {
+  const intent = isAndroid() ? intentUrlFor(YT_HOME) : null;
+  const a = document.createElement('a');
+  a.href = intent || YT_HOME;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  ytStatus('');
 }
 
-function stopVideo() {
-  if (!nowVideo) return;
-  nowVideo = null;
-  $('#ytFrame').innerHTML = '';        // removing the iframe is what stops it
-  $('#ytPlayer').hidden = true;
-  document.body.classList.remove('watching');
-  render();
+function renderYouTube() {
+  const panel = $('#youtubePanel');
+  if (panel) panel.hidden = settings.source !== 'youtube';
 }
 
-function saveVideo(v) {
-  if (isSavedVideo(v.id)) videos = videos.filter(x => x.id !== v.id);
-  else videos.push(v);
-  saveVideos();
-  renderYouTube();
-  renderSources();                                        // the chip counts them
-  $('#ytResults').innerHTML = $('#ytResults').innerHTML;   // refresh the hearts
-  toast(isSavedVideo(v.id) ? `Saved ${v.title}` : `Removed ${v.title}`);
-}
-
-/* ── wiring ── */
-
-$('#ytGo').addEventListener('click', () => searchYouTube($('#ytSearch').value.trim()));
-$('#ytSearch').addEventListener('keydown', e => {
-  if (e.key === 'Enter') { e.preventDefault(); searchYouTube(e.target.value.trim()); }
-});
-
-function onVideoClick(e) {
-  const tile = e.target.closest('.tile');
-  if (!tile) return;
-  let v;
-  try { v = JSON.parse(tile.dataset.video); } catch { return; }
-  if (e.target.closest('[data-save]')) saveVideo(v);
-  else playVideo(v);
-}
-$('#ytChannels').addEventListener('click', onRefClick);
-$('#ytLists').addEventListener('click', onRefClick);
-$('#ytSaved').addEventListener('click', onVideoClick);
-$('#ytResults').addEventListener('click', onVideoClick);
-$('#ytStop').addEventListener('click', stopVideo);
-$('#ytChoose').addEventListener('click', chooseApp);
-
-$('#ytKeySave').addEventListener('click', async () => {
-  const val = $('#ytKeyInput').value.trim();
-  ytKey = val;
-  await store.setPref(YT_KEY, ytKey).catch(() => {});
-  $('#ytKeyInput').value = '';
-  renderYouTube();
-  ytStatus(ytKey ? 'Key saved — search is on.' : 'Key cleared.');
-});
-
-$('#ytAddLink').addEventListener('click', () => {
-  const raw = prompt('Paste a YouTube link — a video, a playlist or a channel');
-  if (raw === null) return;
-  const what = linkKind(raw);
-  if (!what) return ytStatus("That doesn't look like a YouTube link.");
-  if (what.kind === 'video') {
-    return playVideo({ id: what.value, title: 'YouTube video', channel: '', thumb: '' });
-  }
-
-  if (what.kind === 'playlist') {
-    // with a key you get the tiles; without one it still plays, start to finish
-    if (!ytKey) {
-      ytStatus('Playing the whole playlist. Add a key if you want to see what is in it first.');
-      return playPlaylist(what.value, 'Playlist');
-    }
-    return openPlaylist(what.value, 'Playlist');
-  }
-
-  if (!ytKey) {
-    const uploads = what.ref.kind === 'id' ? uploadsIdFor(what.ref.value) : null;
-    if (uploads) {
-      ytStatus("Playing that channel's uploads. Add a key if you want to see them listed.");
-      return playPlaylist(uploads, 'Channel uploads');
-    }
-    return ytStatus('A @handle link needs a key to look the channel up. A ' +
-      'youtube.com/channel/UC… link works without one.');
-  }
-  return openChannel(what.ref);
-});
-
-$('#ytMore').addEventListener('click', () => {
-  if (ytPage.kind === 'playlist' && ytPage.next) openPlaylist(ytPage.id, ytPage.name, { append: true });
-});
+$('#ytOpenApp').addEventListener('click', openYouTubeApp);
 
 /* ───────────────────────── backup ─────────────────────────
 
@@ -2274,9 +1835,6 @@ function buildBackup() {
     stations,
     podcasts,
     episodePos,
-    // saved videos travel; the API key deliberately does not, so a backup file
-    // can be handed around without handing over a credential
-    videos,
     // enough to put loudness measurements back without re-analysing everything
     library: lib.map(t => ({ ...slim(t), gain: t.gain, lufs: t.lufs, peak: t.peak,
       unplayable: t.unplayable || undefined })),
@@ -2319,7 +1877,7 @@ async function importBackup(file) {
 
   const here = new Map(lib.map(t => [trackKey(t), t]));
   let addedPlaylists = 0, matched = 0, missing = 0, addedStations = 0, addedShows = 0,
-    addedVideos = 0, measured = 0;
+    measured = 0;
 
   for (const saved of data.playlists) {
     const ids = [];
@@ -2347,11 +1905,6 @@ async function importBackup(file) {
     if (!show || !show.feed || podcasts.some(x => x.feed === show.feed)) continue;
     podcasts.push(show);
     addedShows++;
-  }
-  for (const v of data.videos || []) {
-    if (!v || !v.id || videos.some(x => x.id === v.id)) continue;
-    videos.push(v);
-    addedVideos++;
   }
 
   if (data.episodePos && typeof data.episodePos === 'object') {
@@ -2382,7 +1935,6 @@ async function importBackup(file) {
   savePlaylists();
   saveStations();
   savePodcasts();
-  saveVideos();
   store.setPref(EPISODES_KEY, episodePos).catch(() => {});
   rebuildQueue();
   render();
@@ -2392,7 +1944,6 @@ async function importBackup(file) {
   if (matched) bits.push(`${matched} track${matched === 1 ? '' : 's'} matched`);
   if (addedStations) bits.push(`${addedStations} station${addedStations === 1 ? '' : 's'}`);
   if (addedShows) bits.push(`${addedShows} show${addedShows === 1 ? '' : 's'}`);
-  if (addedVideos) bits.push(`${addedVideos} video${addedVideos === 1 ? '' : 's'}`);
   if (measured) bits.push(`${measured} volume reading${measured === 1 ? '' : 's'}`);
   backupStatus((bits.length ? 'Restored ' + bits.join(', ') + '.' : 'Nothing new to restore.') +
     (missing ? ` ${missing} playlist track${missing === 1 ? '' : 's'} not in your library — ` +
@@ -3134,8 +2685,7 @@ function renderSources() {
       ? `${stations.length} saved` : 'live stations') +
     chip('podcasts', 'Podcasts', podcasts.length
       ? `${podcasts.length} subscribed` : 'shows and episodes') +
-    chip('youtube', 'YouTube', videos.length
-      ? `${videos.length} saved` : 'search and watch') +
+    chip('youtube', 'YouTube', 'opens your app') +
     '<button class="source new" data-source="new"><b>+ New</b><span>playlist</span></button>';
 }
 
@@ -3527,15 +3077,6 @@ document.addEventListener('keydown', e => {
     podcasts = [];
     episodePos = {};
   }
-  try {
-    const savedVideos = await store.getPref(VIDEOS_KEY);
-    videos = Array.isArray(savedVideos) ? savedVideos : [];
-    ytKey = (await store.getPref(YT_KEY)) || '';
-  } catch {
-    videos = [];
-    ytKey = '';
-  }
-
   // a playlist deleted on another tab shouldn't leave us pointing at nothing
   if (settings.source.startsWith('pl:') && !currentPlaylist()) settings.source = 'tunage';
   rebuildQueue();

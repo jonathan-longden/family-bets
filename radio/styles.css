@@ -498,53 +498,6 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 .tile-save .ic { width: 14px; height: 14px; }
 .tile-save.on { color: var(--hot); }
 
-/* ── watching something ──
-   Video needs to be looked at, so it takes the space the decks were using and
-   the transport controls stand down: the player in the frame is YouTube's,
-   with YouTube's own buttons, and a second set beneath it would only lie. */
-
-.video { margin: 0 0 12px; }
-
-.video-frame {
-  position: relative; width: 100%; aspect-ratio: 16 / 9;
-  border-radius: 14px; overflow: hidden; background: #000;
-  border: 1px solid var(--line);
-}
-.video-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-
-/* Title and buttons sit side by side while the title has room for it, and
-   the buttons drop to their own line rather than squeezing a long title
-   into a three-word column. */
-.video-meta {
-  display: flex; align-items: center; gap: 10px; margin-top: 10px;
-  flex-wrap: wrap;
-}
-.video-words { flex: 1 1 190px; min-width: 0; }
-.video-btns { display: flex; gap: 6px; margin-left: auto; }
-.video-btns .chip { text-decoration: none; white-space: nowrap; }
-
-.video-title {
-  font-weight: 700; font-size: 15px; line-height: 1.3;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.video-channel { font-size: 13px; color: var(--ink-dim); margin-top: 2px; }
-
-body.watching .decks,
-body.watching .mixer,
-body.watching .meta,
-body.watching .seek,
-body.watching .controls,
-body.watching .toggles,
-body.watching #queuePanel { display: none !important; }
-
-/* a video thumbnail is a landscape picture, not a square badge */
-/* a channel is a person or a logo, which reads as a circle */
-.tile-art.round { border-radius: 50%; }
-
-.tile.wide { width: 168px; }
-.tile-art.wide { width: 168px; height: 95px; border-radius: 12px; }
-
 /* ── the on-air card ── */
 
 .onair {

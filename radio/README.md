@@ -56,9 +56,8 @@ download), and it keeps them rolling.
   connection, unlike everything else here.
 - **Podcasts.** Search for a show, subscribe, and pick an episode. Episodes
   can be seeked, skip in 30-second jumps, and remember where you got to.
-- **YouTube.** Search it and watch it here, in YouTube's own player. Save
-  the ones you come back to. Needs a connection and, for searching, a free
-  API key of your own — see below.
+- **YouTube.** One button that opens YouTube in the app you already use for
+  it, where your account and background playback come along.
 - **Backup.** Save everything that isn't the music itself — playlists,
   saved stations, subscriptions, loudness readings — to a small file you
   keep, and restore it later or on another device.
@@ -289,122 +288,22 @@ pretending it worked.
 
 ## YouTube
 
-The **YouTube** chip opens a section for video. Search, tap a result, and it
-plays at the top of the page where the decks usually are — the turntables
-and transport controls stand down, because the player in the frame is
-YouTube's own and has its own buttons. **Close** puts the decks back.
+The **YouTube** chip holds one button: **Open YouTube app**. It hands YouTube
+to whatever app your phone uses for it, and gets out of the way.
 
-Playback is the official embedded player, which is the only way a web page
-is allowed to play YouTube. Nothing is downloaded, and nothing is stripped
-to audio: the view counts, the ads and the creator's terms all stay where
-they belong.
+That's deliberate. An embedded player inside a web page stops the moment you
+leave the page, carries none of your account, and can't play with the screen
+off — so an in-app YouTube was always going to be the worse version of the
+app already on your phone. Handing it over is the honest answer.
 
-**Choose app** raises Android's **Open with** list, so you pick which app
-opens the video — a YouTube app, a browser, whatever you have. It works by
-handing Android an `intent://` address rather than an ordinary link, which
-is what makes the phone offer a choice instead of going straight to its
-usual handler. Tunage never learns what's installed or what you picked.
+On Android the button uses an `intent://` address, which is what makes the
+phone offer its **Open with** list rather than going straight to a default.
+If your phone asks which app to use, pick the one you want and tick
+**Always** to stop it asking. To change it later:
+**Settings → Apps → Default apps → Opening links**.
 
-One thing to know: **if you've already set a default app for YouTube links,
-Android opens it without asking.** That's Android's rule, not something a
-page can override — clear the default under Settings if you want the list
-back. On anything that isn't Android there's no such chooser, so the share
-sheet stands in.
-
-If you always want the same app, it's less work to tell Android once:
-**Settings → Apps → Default apps → Opening links**, pick your app and allow
-it to open `youtube.com` links. **Open in YouTube** then goes straight
-there with no chooser at all.
-
-**Open in YouTube** hands the video to whatever app your phone uses for
-YouTube links. It's an ordinary link — the phone decides what opens it, and
-that app brings whatever it brings: your account, background playback, the
-lot. Handy when you want to carry on listening with the screen off, which
-an embedded player can't do.
-
-### Turning search on
-
-Radio and podcasts have open directories. YouTube doesn't — searching it
-needs an API key. Tunage is a public page, so a key built into it would be
-a key everybody shared, drained and revoked within a week. You bring your
-own instead. It's stored on your device and never goes anywhere except to
-YouTube, with your searches.
-
-It's free:
-
-1. **console.cloud.google.com** → create a project
-2. **APIs & Services** → enable **YouTube Data API v3**
-3. **Credentials** → **Create credentials** → **API key**
-4. Paste it into **Turning search on** in the YouTube panel
-
-Worth restricting the key to that one API while you're in there. Saving an
-empty box clears it again.
-
-The free allowance works out at about **100 searches a day**, resetting at
-midnight Pacific time. Run out and Tunage says so rather than failing
-silently.
-
-### What works with no key at all
-
-Playing never needed a key — the key is only for searching and listing.
-**Open a YouTube link** without one takes:
-
-| Paste | What happens |
-| --- | --- |
-| a video link | plays it — `watch?v=`, `youtu.be`, Shorts, or a bare id |
-| a **playlist** link | plays the whole playlist, YouTube's player walking the list |
-| a `youtube.com/channel/UC…` link | plays that channel's uploads, newest first |
-
-The channel trick is that a channel's uploads always live in a playlist
-whose id is the channel's with `UC` swapped for `UU` — the same string, so
-nothing needs looking up. A `/@handle` link is the one that can't be done
-without a key, because the handle has to be resolved to an id first, and
-the app says so rather than failing quietly.
-
-What a key adds is *seeing* rather than playing: the tiles, the thumbnails,
-the lengths, saving individual videos, and search.
-
-One search returns **videos, channels and playlists** — it comes back in
-three rows. Tapping a channel or a playlist opens it for about a hundredth
-of what the search cost, which is rather the point: you pay once to find
-something, then browse it for nearly nothing.
-
-### Browsing costs a fraction of searching
-
-A search costs **100 units** of the daily 10,000. Opening a **playlist** or a
-**channel** costs about **2** — the same key that manages a hundred searches
-a day manages thousands of these. So **Open a YouTube link** takes more than
-videos:
-
-| Paste | What happens |
-| --- | --- |
-| a video link | plays it |
-| a playlist link | lists everything in it, 50 at a time |
-| a channel link | lists that channel's uploads, newest first |
-
-Channel links work in all four shapes YouTube uses — `/channel/UC…`,
-`/@handle`, `/c/name` and `/user/name`. The first three resolve for a single
-unit. If none of them match, it falls back to a search and says so, because
-that one does cost you 100.
-
-Each video shows its length, which a search result doesn't carry — that's a
-separate lookup, and it covers fifty videos for one unit.
-
-### What it can't do
-
-- **It doesn't work offline.** Video comes from YouTube. Your own music is
-  unaffected and carries on.
-- **It stops when you leave the app.** YouTube's embedded player doesn't
-  play in the background on a phone — that's YouTube's rule for embeds, not
-  something Tunage can or should work around. Music and radio are the parts
-  that keep playing with the screen off; for a video, **Open in YouTube**
-  hands it to an app that can.
-- **A video and a record can't both be on.** Starting one closes the other,
-  the same way a station does.
-
-Saved videos go into your backup file. **The API key deliberately doesn't**,
-so a backup can be passed between your own devices, or anywhere else,
-without handing over a credential. You re-enter the key once per device.
+Everywhere else it's an ordinary link to youtube.com, which goes wherever
+that platform sends YouTube links.
 
 ## Backup
 
