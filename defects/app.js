@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 13';
+var BUILD = '2026-08-21 · 14';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -39,6 +39,14 @@ var MAX_EDGE = 1600;    // longest side of a saved photograph
    could do about it but let you correct the entry afterwards. This one tells
    them apart, which is the difference between a log you have to fix and a log
    you have to check. */
+/* Two ways to name a model, and they are not equivalent. A project slug and a
+   version number ask for "whatever is deployed on that version", and a version
+   can carry more than one — so the library can be handed a model whose head it
+   is not decoding, which is what returns twenty boxless results with scores of
+   1.004. A model id names one model exactly. The library's own documentation
+   calls the first legacy and the second the way to do it, so a model id is used
+   when there is one and the old call is the fallback. */
+var RF_MODEL_ID = '';                          // '<workspace>/<model-slug>'
 var RF_MODEL = 'pothole-fine-tuning-ghl9u';
 var RF_VERSION = 2;
 
@@ -559,7 +567,10 @@ function loadModel() {
   if (loading) return loading;
   loading = import('./vendor/inference.es.js').then(function (m) {
     engine = new m.InferenceEngine();
-    return engine.startWorker(RF_MODEL, RF_VERSION, RF_KEY).then(function (id) {
+    var start = (RF_MODEL_ID && engine.startWorkerByModelId)
+      ? engine.startWorkerByModelId(RF_MODEL_ID, RF_KEY)
+      : engine.startWorker(RF_MODEL, RF_VERSION, RF_KEY);
+    return start.then(function (id) {
       worker = id;
       return m;
     });
@@ -1215,7 +1226,9 @@ $('bJson').addEventListener('click', function () {
         dl('defects-' + stamp() + '.json', new Blob([JSON.stringify({
           defects: rows,
           notDefects: wrongRows,      // the examples a retrain would need
-          model: { id: RF_MODEL, version: RF_VERSION, build: BUILD },
+          model: { id: RF_MODEL_ID || (RF_MODEL + '/' + RF_VERSION),
+                   loadedBy: RF_MODEL_ID ? 'model id' : 'project and version',
+                   build: BUILD },
           lastUnusableOutput: lastRaw // what the model returned when it made no sense
         }, null, 2)], { type: 'application/json' }));
       });
