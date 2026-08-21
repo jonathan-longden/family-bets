@@ -67,21 +67,6 @@
       </div>
     </div>
 
-    <div class="video" id="ytPlayer" hidden>
-      <div class="video-frame" id="ytFrame"></div>
-      <div class="video-meta">
-        <div class="video-words">
-          <div class="video-title" id="ytNowTitle"></div>
-          <div class="video-channel" id="ytNowChannel"></div>
-        </div>
-        <span class="video-btns">
-          <button class="chip" id="ytChoose" hidden>Choose app</button>
-          <a class="chip" id="ytOpen" href="#" target="_blank" rel="noopener noreferrer">Open in YouTube</a>
-          <button class="chip" id="ytStop">Close</button>
-        </span>
-      </div>
-    </div>
-
     <div class="decks" id="decks">
       <div class="deck" data-deck="0">
         <div class="turntable">
@@ -185,58 +170,21 @@
 
   <!-- ───────────── radio ───────────── -->
   <!-- ───────────── youtube ───────────── -->
+  <!-- ───────────── youtube ─────────────
+       A launcher, not a player: one button that hands YouTube to the app you
+       already use for it. -->
   <section class="panel radio-panel" id="youtubePanel" hidden>
     <h2><svg class="ic"><use href="#i-yt"/></svg> YouTube</h2>
-    <p class="hint">Search YouTube and watch it here. It plays in YouTube's own
-      player, so this part needs a connection — your own music carries on
-      offline.</p>
+    <p class="hint">Opens YouTube in the app you use for it, where you get your
+      own account and playback that carries on with the screen off.</p>
 
-    <div class="row">
-      <input id="ytSearch" type="search" placeholder="Search YouTube" autocomplete="off"
-             aria-label="Search YouTube" />
-      <button class="btn" id="ytGo">Search</button>
-    </div>
+    <button class="btn wide" id="ytOpenApp">
+      <svg class="ic"><use href="#i-yt"/></svg> Open YouTube app</button>
     <p class="hint" id="ytStatus" hidden></p>
 
-    <h3 class="sub" id="ytSavedHead" hidden>Saved</h3>
-    <div class="tiles" id="ytSaved"></div>
-
-    <h3 class="sub" id="ytChannelsHead" hidden>Channels</h3>
-    <div class="tiles" id="ytChannels"></div>
-
-    <h3 class="sub" id="ytListsHead" hidden>Playlists</h3>
-    <div class="tiles" id="ytLists"></div>
-
-    <h3 class="sub" id="ytResultsHead" hidden>Results</h3>
-    <div class="tiles" id="ytResults"></div>
-    <button class="btn ghost wide" id="ytMore" hidden>Load more</button>
-
-    <button class="btn ghost wide" id="ytAddLink">Open a YouTube link</button>
-    <p class="hint">A video link plays it. A <b>playlist</b> or <b>channel</b> link opens
-      everything in it — and costs about a hundredth of what a search costs, so it's the
-      way to make a key last.</p>
-
-    <details class="voice-help">
-      <summary>Turning search on</summary>
-      <p class="hint" id="ytKeyState"></p>
-      <p class="hint">YouTube has no open directory the way radio and podcasts do —
-        searching it needs an API key. Tunage is a public page, so a key built
-        into it would be a key everybody shared: you bring your own instead. It
-        is stored on this device only, and never leaves it except to ask
-        YouTube for search results.</p>
-      <p class="hint">Get one free at
-        <b>console.cloud.google.com</b> → new project → <b>APIs &amp; Services</b> →
-        enable <b>YouTube Data API v3</b> → <b>Credentials</b> → <b>Create
-        credentials</b> → <b>API key</b>. Worth restricting it to that one API
-        while you're there.</p>
-      <div class="row">
-        <input id="ytKeyInput" type="password" placeholder="Paste your API key"
-               autocomplete="off" aria-label="YouTube API key" />
-        <button class="btn" id="ytKeySave">Save</button>
-      </div>
-      <p class="hint">The free allowance is about 100 searches a day, which resets
-        at midnight Pacific time. Saving an empty box clears the key.</p>
-    </details>
+    <p class="hint">If your phone asks which app to use, pick the one you want —
+      and tick <b>Always</b> to stop it asking. To change it later:
+      <b>Settings → Apps → Default apps → Opening links</b>.</p>
   </section>
 
   <section class="panel radio-panel" id="radioPanel" hidden>
