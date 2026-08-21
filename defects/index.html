@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Defect Log</title>
+<meta name="description" content="Photograph a highway defect, score it on the risk matrix and keep the coordinates with it. Works with no signal.">
+<meta name="theme-color" content="#14161A">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Defect Log">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="tape"></div>
+<header>
+  <h1>Defect Log</h1>
+  <span class="sub">Highway screening</span>
+</header>
+
+<nav role="tablist">
+  <button role="tab" id="t-cap" aria-selected="true" aria-controls="p-cap">Capture</button>
+  <button role="tab" id="t-log" aria-selected="false" aria-controls="p-log">Log<span class="count" id="cnt">0</span></button>
+</nav>
+
+<main>
+<!-- ================= CAPTURE ================= -->
+<section class="panel" id="p-cap" role="tabpanel" aria-labelledby="t-cap">
+  <div class="stage">
+    <video id="vid" playsinline muted autoplay></video>
+    <canvas class="shot" id="shot"></canvas>
+    <div class="badge" id="badge">Camera off</div>
+    <div class="rec" id="rec" hidden><i class="dot live"></i><span id="recTxt">GPS</span></div>
+  </div>
+
+  <button class="btn" id="bStart">Start camera</button>
+  <div class="row" id="capRow" hidden>
+    <button class="btn ghost" id="bStop">Stop</button>
+    <button class="btn" id="bShot">Capture defect</button>
+  </div>
+
+  <div class="meta" id="gpsBox" hidden>
+    <div><span>Latitude</span><b id="mLat">—</b></div>
+    <div><span>Longitude</span><b id="mLon">—</b></div>
+    <div><span>Accuracy</span><b id="mAcc">—</b></div>
+    <div><span>Fix age</span><b id="mAge">—</b></div>
+  </div>
+
+  <div class="note" id="camNote">
+    <b>Before you start.</b> The camera needs a secure (https) address — it will not open from a file
+    opened directly off the phone. Location is requested separately; allow it and every capture is
+    tagged with coordinates, which is the gap in your current footage.
+  </div>
+</section>
+
+<!-- ================= SCORE (after capture) ================= -->
+<section class="panel" id="p-score" hidden>
+  <div class="stage" style="aspect-ratio:auto"><img id="prev" alt="Captured defect" style="width:100%;display:block"></div>
+
+  <h2 style="margin:18px 0 8px;font-size:19px">Risk matrix</h2>
+  <p class="hint" style="margin-top:0">Tap impact down the side, probability across the top.</p>
+
+  <div class="matrix">
+    <div class="mgrid" id="mx"></div>
+  </div>
+
+  <div class="verdict" id="verd">
+    <div>
+      <div class="cat" id="vCat">Not scored</div>
+      <div class="resp" id="vResp">Select impact and probability</div>
+    </div>
+    <div class="score" id="vScore">—</div>
+  </div>
+
+  <label class="fld">
+    <span class="cap">Location type</span>
+    <div class="seg">
+      <button type="button" id="segCar" aria-pressed="true">Carriageway</button>
+      <button type="button" id="segFoot" aria-pressed="false">Footway / cycleway</button>
+    </div>
+  </label>
+
+  <label class="fld">
+    <span class="cap">Depth at deepest point (mm)</span>
+    <input type="number" id="fDepth" inputmode="numeric" placeholder="Gauge reading">
+    <span class="hint">Measured, not estimated. Leave blank if not gauged — it will be recorded as unmeasured.</span>
+  </label>
+
+  <label class="fld">
+    <span class="cap">Wider than a tyre</span>
+    <div class="seg">
+      <button type="button" id="segW1" aria-pressed="false">Yes</button>
+      <button type="button" id="segW0" aria-pressed="false">No</button>
+    </div>
+  </label>
+
+  <div class="esc">
+    <div class="ttl">Cat 1 escalation test</div>
+    <div class="out" id="escOut">Enter depth and width to test.</div>
+  </div>
+
+  <label class="fld">
+    <span class="cap">Defect type</span>
+    <select id="fType">
+      <option>Pothole</option>
+      <option>Edge deterioration</option>
+      <option>Spalled crack / material loss</option>
+      <option>Ironwork</option>
+      <option>Street furniture</option>
+      <option>Other</option>
+    </select>
+  </label>
+
+  <label class="fld">
+    <span class="cap">Notes</span>
+    <textarea id="fNote" placeholder="Road name, lane, landmark, anything the photo doesn't show"></textarea>
+  </label>
+
+  <div class="fixnote" id="fixNote" hidden></div>
+
+  <div class="row">
+    <button class="btn ghost" id="bDiscard">Discard</button>
+    <button class="btn" id="bSave">Save to log</button>
+  </div>
+</section>
+
+<!-- ================= LOG ================= -->
+<section class="panel" id="p-log" role="tabpanel" aria-labelledby="t-log" hidden>
+  <div id="list"></div>
+  <div class="empty" id="empty">
+    <div class="disp">Nothing logged yet</div>
+    <p>Captured defects appear here once you've scored and saved them.</p>
+  </div>
+  <div class="row" id="expRow" hidden>
+    <button class="btn ghost" id="bCsv">Export CSV</button>
+    <button class="btn ghost" id="bJson">Export JSON</button>
+  </div>
+  <button class="btn ghost" id="bClear" hidden style="margin-top:10px;color:#C8323C">Clear log</button>
+  <div class="note" id="saveNote" hidden>
+    <b>Storage.</b> Entries are kept on this device only, photographs included. CSV carries the data
+    and coordinates; JSON carries the photos too, so export that if you need the images.
+    <span id="quota"></span>
+  </div>
+</section>
+</main>
+
+<!-- full-size photo -->
+<div class="lightbox" id="lb" hidden>
+  <img id="lbImg" alt="Captured defect, full size">
+  <button class="lbclose" id="lbClose" aria-label="Close">Close</button>
+</div>
+
+<footer>
+  Screening aid, not an inspection. Every entry is one you confirmed.<br>
+  Depth is never estimated from an image.
+</footer>
+
+<script src="app.js" defer></script>
+</body>
+</html>
