@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 8';
+var BUILD = '2026-08-21 · 9';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -49,9 +49,11 @@ var RF_CONF = 0.40;     // below this the model is guessing
    without GPS says so. SURVEY_CONF is higher than the deliberate-capture
    threshold because nobody is looking at these before they land. */
 var SURVEY_MS = 1200;    // between looks; faster mainly costs battery
-var SURVEY_CONF = 0.55;  // unattended entries should be surer than watched ones
+var SURVEY_CONF = 0.65;  // unattended entries should be surer than watched ones
 var NEAR_M = 20;         // a find this close to one already logged is the same defect
 var QUIET_MS = 45000;    // with no fix, this long before the same view counts again
+var TEX_MIN = 1.18;      // below this the dark patch is grained like the road around it
+var ASPECT_MAX = 4.5;    // a band far longer than it is wide is a shadow, not a hole
 
 var S = { imp: 0, prob: 0, foot: false, by: null,
           shot: null, shotFix: null, prevUrl: null, gps: null, det: null, items: [] };
@@ -61,24 +63,29 @@ var stream = null, watchId = null, ageTimer = null, urls = [], lbUrl = null;
 /* IndexedDB, with the whole thing degrading to memory if the browser won't
    give us one (private windows, storage switched off). The difference from the
    prototype is that the degradation is announced. */
-var DB_NAME = 'deflog', STORE = 'defects', db = null, dbBroken = false;
+var DB_NAME = 'deflog', STORE = 'defects', WRONG = 'wrong', db = null, dbBroken = false;
 
 function openDb() {
   return new Promise(function (resolve, reject) {
     if (!self.indexedDB) return reject(new Error('no IndexedDB'));
-    var req = indexedDB.open(DB_NAME, 1);
+    var req = indexedDB.open(DB_NAME, 2);
     req.onupgradeneeded = function () {
-      req.result.createObjectStore(STORE, { keyPath: 'id' });
+      var d = req.result;
+      if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE, { keyPath: 'id' });
+      /* Corrections live beside the log rather than in it. A thing you have said
+         is not a defect must never read as a defect, and deleting it outright
+         throws away the only examples a retrain could learn this from. */
+      if (!d.objectStoreNames.contains(WRONG)) d.createObjectStore(WRONG, { keyPath: 'id' });
     };
     req.onsuccess = function () { resolve(req.result); };
     req.onerror = function () { reject(req.error); };
   });
 }
 
-function tx(mode, fn) {
+function tx(mode, fn, store) {
   return new Promise(function (resolve, reject) {
     if (!db) return reject(new Error('no store'));
-    var t = db.transaction(STORE, mode), out = fn(t.objectStore(STORE));
+    var t = db.transaction(store || STORE, mode), out = fn(t.objectStore(store || STORE));
     t.oncomplete = function () { resolve(out && out.result); };
     t.onerror = function () { reject(t.error); };
     t.onabort = function () { reject(t.error); };
@@ -88,6 +95,12 @@ function tx(mode, fn) {
 function putEntry(e) { return tx('readwrite', function (s) { return s.put(e); }); }
 function delEntry(id) { return tx('readwrite', function (s) { return s.delete(id); }); }
 function clearEntries() { return tx('readwrite', function (s) { return s.clear(); }); }
+function putWrong(e) { return tx('readwrite', function (s) { return s.put(e); }, WRONG); }
+function allWrong() {
+  return tx('readonly', function (s) { return s.getAll(); }, WRONG)
+    .then(function (r) { return r || []; }, function () { return []; });
+}
+
 function allEntries() {
   return tx('readonly', function (s) { return s.getAll(); }).then(function (rows) {
     return (rows || []).sort(function (a, b) { return b.id - a.id; });   // newest first
@@ -507,7 +520,7 @@ function analyse(blob) {
     if (S.shot !== mine) return null;
     return createImageBitmap(blob).then(function (bmp) {
       return engine.infer(worker, new m.CVImage(bmp)).then(function (preds) {
-        return { preds: preds, w: bmp.width, h: bmp.height };
+        return { preds: preds, w: bmp.width, h: bmp.height, bmp: bmp };
       });
     });
   }).then(function (out) {
@@ -524,6 +537,21 @@ function analyse(blob) {
       return (b.confidence || 0) > (a.confidence || 0) ? b : a;
     });
     var box = best.bbox || best;
+
+    /* The same shadow test the survey uses, except here somebody is looking, so
+       it says what it decided and leaves the matrix alone rather than deciding
+       for them. */
+    var sc = document.createElement('canvas');
+    sc.width = out.w; sc.height = out.h;
+    var sctx = sc.getContext('2d', { willReadFrequently: true });
+    sctx.drawImage(out.bmp, 0, 0);
+    var bad = rejectReason(sctx, out.w, out.h,
+      { x: box.x, y: box.y, w: box.width, h: box.height });
+    if (bad) {
+      return scanSay('<b>That looks like a shadow.</b> The model found something, but it is ' +
+                     bad + '. Nothing is proposed — if it is a real defect, score it yourself.',
+                     'none');
+    }
     var share = (box.width * box.height) / (out.w * out.h);
     S.det = { conf: best.confidence == null ? 1 : best.confidence, share: share, count: preds.length };
     paintProposal();
@@ -548,6 +576,83 @@ function whyLocal(e) {
   return 'The model failed while running.' + (msg ? ' (' + msg + ')' : '');
 }
 
+
+/* ---------- telling a shadow from a hole ----------
+
+   Tree shadows across a carriageway are what this model gets wrong, and it is
+   easy to see why: a dark irregular patch on tarmac is the thing it was trained
+   to find. Raising the threshold does not help, because the model is as sure
+   about the shadow as about the hole.
+
+   What separates them is not darkness, it is texture. A shadow is the road with
+   the light turned down — the same chippings, the same grain, scaled. A hole
+   breaks the surface: a rim, broken edges, loose material. So the question is
+   not "is this dark" but "is this darker AND rougher than what surrounds it".
+   Roughness measured against its own brightness survives the dimming, which is
+   the whole point — a shadow's matches the road's, a hole's does not.
+
+   This is a filter, not a cure, and it cuts both ways: a hole in deep shade
+   looks smooth and can be waved through as a shadow. A deliberate capture is
+   therefore told what happened and left free to score it anyway. */
+
+function roughness(data, w, h, x0, y0, x1, y1, skipBox) {
+  var n = 0, sum = 0, sumsq = 0;
+  x0 = Math.max(0, x0 | 0); y0 = Math.max(0, y0 | 0);
+  x1 = Math.min(w, x1 | 0); y1 = Math.min(h, y1 | 0);
+  for (var y = y0; y < y1; y += 2) {
+    for (var x = x0; x < x1; x += 2) {
+      if (skipBox && x >= skipBox[0] && x < skipBox[2] && y >= skipBox[1] && y < skipBox[3]) continue;
+      var i = (y * w + x) * 4;
+      var l = 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+      n++; sum += l; sumsq += l * l;
+    }
+  }
+  if (n < 24) return null;
+  var mean = sum / n, varr = Math.max(0, sumsq / n - mean * mean);
+  return { mean: mean, sd: Math.sqrt(varr) };
+}
+
+/* How much rougher the patch is than its surroundings, each measured against
+   its own brightness. About 1 means "the same surface, dimmer" — a shadow. */
+function textureRatio(ctx, cw, ch, box) {
+  var x0 = box.x - box.w / 2, y0 = box.y - box.h / 2;
+  var x1 = x0 + box.w, y1 = y0 + box.h;
+  var padX = box.w * 0.6, padY = box.h * 0.6, img;
+  try { img = ctx.getImageData(0, 0, cw, ch); } catch (e) { return null; }
+  /* Sample the middle of the box, not its edge. A detection box never lands
+     exactly on the edge of the thing it found, so its border carries a rim of
+     the surrounding road — and a rim of bright road inside a dark patch is a
+     second population that inflates the spread and makes every shadow look
+     broken-up. Insetting throws the boundary away and measures the surface. */
+  var insetX = box.w * 0.15, insetY = box.h * 0.15;
+  var inside = roughness(img.data, cw, ch, x0 + insetX, y0 + insetY, x1 - insetX, y1 - insetY, null);
+  var around = roughness(img.data, cw, ch, x0 - padX, y0 - padY, x1 + padX, y1 + padY,
+                         [x0 | 0, y0 | 0, x1 | 0, y1 | 0]);
+  if (!inside || !around || inside.mean < 4 || around.mean < 4) return null;
+  var cvIn = inside.sd / inside.mean, cvOut = around.sd / around.mean;
+  if (!cvOut) return null;
+  /* "Darker at all" is not a shadow — two samples of the same tarmac differ by
+     a percent or two, and calling that a shadow throws away real defects. A
+     shadow is substantially darker. */
+  return { ratio: cvIn / cvOut, darker: inside.mean < around.mean * 0.85 };
+}
+
+/* A pothole is roughly compact. A shadow thrown across a road by a tree or a
+   pole is a band, far longer than it is wide. */
+function tooElongated(box) {
+  var a = box.w / box.h;
+  return a > ASPECT_MAX || a < 1 / ASPECT_MAX;
+}
+
+/* null when the find survives, otherwise why it was thrown out. */
+function rejectReason(ctx, cw, ch, box) {
+  if (tooElongated(box)) return 'a band far longer than it is wide, which is a shadow shape';
+  var t = textureRatio(ctx, cw, ch, box);
+  if (t && t.darker && t.ratio < TEX_MIN) {
+    return 'darker than the road around it but grained exactly like it — a shadow, not a hole';
+  }
+  return null;
+}
 
 /* ---------- survey ---------- */
 var survey = { on: false, busy: false, timer: null, logged: 0, last: null };
@@ -630,9 +735,21 @@ function look() {
     var hits = out.preds.filter(function (p) {
       return (p.confidence == null || p.confidence >= SURVEY_CONF) && /pothole/i.test(p.class || '');
     });
-    if (hits.length && !alreadyLogged()) return logFind(hits, out);
-    if (hits.length) hud('Same defect — not logged again');
-    else hud('Watching');
+    if (!hits.length) return hud('Watching');
+    var v = $('vid'), c = $('shot');
+    var scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
+    c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
+    var ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(v, 0, 0, c.width, c.height);
+    var k = c.width / out.w;
+    hits = hits.filter(function (p) {
+      var b = p.bbox || p;
+      return !rejectReason(ctx, c.width, c.height,
+        { x: b.x * k, y: b.y * k, w: b.width * k, h: b.height * k });
+    });
+    if (!hits.length) return hud('Shadow, not a defect');
+    if (alreadyLogged()) return hud('Same defect — not logged again');
+    return logFind(hits, out, c);
   }).catch(function (e) {
     hud('Look failed', 'bad');
     toast(whyLocal(e));
@@ -643,13 +760,7 @@ function look() {
 
 /* Writes the entry with no one looking, which is exactly why it is marked as
    such: the log has to keep saying which scores a person stood over. */
-function logFind(hits, out) {
-  var v = $('vid'), c = $('shot');
-  var scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
-  c.width = Math.round(v.videoWidth * scale);
-  c.height = Math.round(v.videoHeight * scale);
-  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-
+function logFind(hits, out, c) {
   var best = hits.reduce(function (a, b) { return (b.confidence || 0) > (a.confidence || 0) ? b : a; });
   var box = best.bbox || best;
   var det = { conf: best.confidence == null ? 1 : best.confidence,
@@ -757,7 +868,9 @@ function render() {
       (dep ? esc(dep) + '<br>' : '') + how + '<br>' + esc(loc) + flag + '<br>' +
       new Date(it.t).toLocaleString() +
       (it.note ? '<br>' + esc(it.note) : '') + '</div>' +
-      '<button class="del" data-id="' + it.id + '">Remove</button></div></div>';
+      '<div class="acts"><button class="del" data-id="' + it.id + '">Remove</button>' +
+      '<button class="del wrong" data-id="' + it.id + '">Not a defect</button></div>' +
+      '</div></div>';
   }).join('');
   quota();
 }
@@ -765,6 +878,21 @@ function render() {
 $('list').addEventListener('click', function (e) {
   var full = e.target.closest('.thumb');
   if (full) return openFull(+full.dataset.full);
+
+  var w = e.target.closest('.wrong');
+  if (w) {
+    var wid = +w.dataset.id;
+    var wit = S.items.filter(function (x) { return x.id === wid; })[0];
+    if (!wit) return;
+    if (!confirm('Mark this as not a defect? It leaves the log and is kept as a ' +
+                 'correction, so it can be used to teach the model.')) return;
+    S.items = S.items.filter(function (x) { return x.id !== wid; });
+    wit.markedWrongAt = new Date().toISOString();
+    var done = dbBroken ? Promise.resolve()
+      : putWrong(wit).then(function () { return delEntry(wid); });
+    return done.then(render, render);
+  }
+
   var b = e.target.closest('.del'); if (!b) return;
   var id = +b.dataset.id;
   var it = S.items.filter(function (x) { return x.id === id; })[0];
@@ -804,6 +932,14 @@ function quota() {
       'and will be gone when the tab closes. Export before you finish.</b>';
     return;
   }
+  allWrong().then(function (w) {
+    var n = $('wrongCount');
+    if (!n) return;
+    n.hidden = !w.length;
+    n.innerHTML = '<b>' + w.length + ' correction' + (w.length === 1 ? '' : 's') + ' kept.</b> ' +
+      'Things you marked as not a defect. They are in the JSON export, which is what a ' +
+      'retrain would be fed — the app cannot teach the model on its own.';
+  });
   if (!navigator.storage || !navigator.storage.estimate) { el.textContent = ''; return; }
   navigator.storage.estimate().then(function (q) {
     if (!q || !q.quota) { el.textContent = ''; return; }
@@ -856,8 +992,24 @@ $('bJson').addEventListener('click', function () {
       fr.readAsDataURL(it.img);      // photographs travel as data URLs, as before
     });
   })).then(function (rows) {
-    dl('defects-' + stamp() + '.json',
-       new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' }));
+    return allWrong().then(function (wrong) {
+      return Promise.all(wrong.map(function (it) {
+        var out = {};
+        for (var k in it) if (k !== 'img') out[k] = it[k];
+        if (!it.img) { out.img = null; return Promise.resolve(out); }
+        return new Promise(function (resolve) {
+          var fr = new FileReader();
+          fr.onload = function () { out.img = fr.result; resolve(out); };
+          fr.onerror = function () { out.img = null; resolve(out); };
+          fr.readAsDataURL(it.img);
+        });
+      })).then(function (wrongRows) {
+        dl('defects-' + stamp() + '.json', new Blob([JSON.stringify({
+          defects: rows,
+          notDefects: wrongRows       // the examples a retrain would need
+        }, null, 2)], { type: 'application/json' }));
+      });
+    });
   }).then(function () { btn.disabled = false; }, function () { btn.disabled = false; });
 });
 
