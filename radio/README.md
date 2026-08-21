@@ -331,6 +331,11 @@ silently.
 YouTube link** takes a `watch?v=` link, a `youtu.be` short link, a Shorts
 link, or a bare video id.
 
+One search returns **videos, channels and playlists** — it comes back in
+three rows. Tapping a channel or a playlist opens it for about a hundredth
+of what the search cost, which is rather the point: you pay once to find
+something, then browse it for nearly nothing.
+
 ### Browsing costs a fraction of searching
 
 A search costs **100 units** of the daily 10,000. Opening a **playlist** or a

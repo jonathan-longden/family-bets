@@ -539,6 +539,9 @@ body.watching .toggles,
 body.watching #queuePanel { display: none !important; }
 
 /* a video thumbnail is a landscape picture, not a square badge */
+/* a channel is a person or a logo, which reads as a circle */
+.tile-art.round { border-radius: 50%; }
+
 .tile.wide { width: 168px; }
 .tile-art.wide { width: 168px; height: 95px; border-radius: 12px; }
 
