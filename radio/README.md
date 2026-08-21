@@ -327,9 +327,25 @@ The free allowance works out at about **100 searches a day**, resetting at
 midnight Pacific time. Run out and Tunage says so rather than failing
 silently.
 
-**Without a key** the section still plays anything you paste: **Open a
-YouTube link** takes a `watch?v=` link, a `youtu.be` short link, a Shorts
-link, or a bare video id.
+### What works with no key at all
+
+Playing never needed a key — the key is only for searching and listing.
+**Open a YouTube link** without one takes:
+
+| Paste | What happens |
+| --- | --- |
+| a video link | plays it — `watch?v=`, `youtu.be`, Shorts, or a bare id |
+| a **playlist** link | plays the whole playlist, YouTube's player walking the list |
+| a `youtube.com/channel/UC…` link | plays that channel's uploads, newest first |
+
+The channel trick is that a channel's uploads always live in a playlist
+whose id is the channel's with `UC` swapped for `UU` — the same string, so
+nothing needs looking up. A `/@handle` link is the one that can't be done
+without a key, because the handle has to be resolved to an id first, and
+the app says so rather than failing quietly.
+
+What a key adds is *seeing* rather than playing: the tiles, the thumbnails,
+the lengths, saving individual videos, and search.
 
 One search returns **videos, channels and playlists** — it comes back in
 three rows. Tapping a channel or a playlist opens it for about a hundredth

@@ -1986,6 +1986,16 @@ async function searchYouTube(term) {
     : 'Nothing found');
 }
 
+/* Every channel's uploads live in a playlist whose id is the channel's with
+   UC swapped for UU. That equivalence is what lets a channel be played with
+   no API key: no lookup, just the same string. */
+const uploadsIdFor = channelId =>
+  /^UC[\w-]{20,}$/.test(channelId || '') ? 'UU' + channelId.slice(2) : null;
+
+function playPlaylist(listId, name) {
+  playVideo({ id: '', list: listId, title: name || 'Playlist', channel: 'YouTube', thumb: '' });
+}
+
 /* A channel or a playlist: tapping it browses, it doesn't play. */
 function refTile(x) {
   const art = x.thumb
@@ -2069,8 +2079,14 @@ function playVideo(v) {
   nowVideo = v;
   document.body.classList.add('watching');
   $('#ytPlayer').hidden = false;
-  const src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(v.id)}` +
-    '?autoplay=1&playsinline=1&rel=0';
+  /* A playlist plays as videoseries, which needs no API key at all — YouTube's
+     own player walks the list. A key buys the tiles, the lengths and the
+     saving; it was never what playing needed. */
+  const src = v.list
+    ? `https://www.youtube-nocookie.com/embed/videoseries?list=${encodeURIComponent(v.list)}` +
+      '&autoplay=1&playsinline=1&rel=0'
+    : `https://www.youtube-nocookie.com/embed/${encodeURIComponent(v.id)}` +
+      '?autoplay=1&playsinline=1&rel=0';
   $('#ytFrame').innerHTML =
     `<iframe src="${esc(src)}" title="${esc(v.title)}" allow="autoplay; encrypted-media; picture-in-picture"
        allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>`;
@@ -2080,7 +2096,9 @@ function playVideo(v) {
      may well be a YouTube app rather than a browser — and that app brings
      whatever it brings: an account, background playback, the lot. Tunage
      hands over the address and stops there. */
-  $('#ytOpen').href = `https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}`;
+  $('#ytOpen').href = v.list
+    ? `https://www.youtube.com/playlist?list=${encodeURIComponent(v.list)}`
+    : `https://www.youtube.com/watch?v=${encodeURIComponent(v.id)}`;
   $('#npTitle').textContent = v.title;
   $('#npArtist').textContent = v.channel || 'YouTube';
   render();
@@ -2140,8 +2158,28 @@ $('#ytAddLink').addEventListener('click', () => {
   if (raw === null) return;
   const what = linkKind(raw);
   if (!what) return ytStatus("That doesn't look like a YouTube link.");
-  if (what.kind === 'video') return playVideo({ id: what.value, title: 'YouTube video', channel: '', thumb: '' });
-  if (what.kind === 'playlist') return openPlaylist(what.value, 'Playlist');
+  if (what.kind === 'video') {
+    return playVideo({ id: what.value, title: 'YouTube video', channel: '', thumb: '' });
+  }
+
+  if (what.kind === 'playlist') {
+    // with a key you get the tiles; without one it still plays, start to finish
+    if (!ytKey) {
+      ytStatus('Playing the whole playlist. Add a key if you want to see what is in it first.');
+      return playPlaylist(what.value, 'Playlist');
+    }
+    return openPlaylist(what.value, 'Playlist');
+  }
+
+  if (!ytKey) {
+    const uploads = what.ref.kind === 'id' ? uploadsIdFor(what.ref.value) : null;
+    if (uploads) {
+      ytStatus("Playing that channel's uploads. Add a key if you want to see them listed.");
+      return playPlaylist(uploads, 'Channel uploads');
+    }
+    return ytStatus('A @handle link needs a key to look the channel up. A ' +
+      'youtube.com/channel/UC… link works without one.');
+  }
   return openChannel(what.ref);
 });
 
