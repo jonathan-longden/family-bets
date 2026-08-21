@@ -73,7 +73,7 @@ export function createEngine(post) {
         const samples = new Float32Array(msg.samples);
         const report = analyseVoice(samples, msg.sampleRate, { a4: msg.a4 || 440 });
         current = { id: msg.id, samples, sampleRate: msg.sampleRate, report };
-        const settings = autoSettings(report, { targetName: msg.targetName });
+        const settings = autoSettings(report, { targetName: msg.targetName, tuneMode: msg.tuneMode });
         const peaks = peaksOf(samples, 1200);
         post({ type: 'ready', id: msg.id, report: summarise(report), settings, peaks }, [peaks.buffer]);
         return;
@@ -111,7 +111,10 @@ export function createEngine(post) {
 
       if (msg.type === 'auto') {
         if (!current || current.id !== msg.id) { post({ type: 'need-samples', id: msg.id }); return; }
-        post({ type: 'settings', id: msg.id, settings: autoSettings(current.report, { targetName: msg.targetName }) });
+        post({
+          type: 'settings', id: msg.id,
+          settings: autoSettings(current.report, { targetName: msg.targetName, tuneMode: msg.tuneMode }),
+        });
         return;
       }
 

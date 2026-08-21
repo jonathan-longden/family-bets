@@ -19,6 +19,29 @@ import { hzToMidi, midiToHz, integratedLufs, truePeakDbFast, scaleMask, NOTE_NAM
 
 /* ───────────────────────── deciding what to do ───────────────────────── */
 
+/* How hard to tune, as three answers rather than a slider nobody should have
+   to find. Locked is the default and does what the words say: every note put
+   on the note, nothing left flat, no deadband and no half measures. Natural
+   corrects the drift and leaves the performance — the scoops, the slides, the
+   singer. Off is off. */
+export const TUNE_MODES = {
+  locked: {
+    label: 'Locked to the note',
+    blurb: 'Every note pinned. Nothing left flat.',
+    strength: 100, speedMs: 10, deadband: 0, maxCents: 200, minConf: 0.5,
+  },
+  natural: {
+    label: 'Natural',
+    blurb: 'The drift corrected, the slides and the scoops left where you sang them.',
+    strength: 72, speedMs: 90, deadband: 5, maxCents: 140, minConf: 0.62,
+  },
+  off: {
+    label: 'Off',
+    blurb: 'Your pitch, untouched.',
+    strength: 0, speedMs: 90, deadband: 5, maxCents: 140, minConf: 0.62,
+  },
+};
+
 export const TARGETS = {
   streaming: { label: 'Streaming (−14 LUFS)', lufs: -14, ceiling: -1 },
   podcast: { label: 'Podcast (−16 LUFS)', lufs: -16, ceiling: -1 },
@@ -27,7 +50,7 @@ export const TARGETS = {
 };
 
 export function autoSettings(report, wish = {}) {
-  const sung = report.material === 'sung';
+  const sung = report.material === 'sung' || report.material === 'melodic';
   const s = report.shape;
 
   /* Cleaning: how much room there is to take out. A take with 45 dB between
@@ -58,8 +81,21 @@ export function autoSettings(report, wish = {}) {
   const crest = report.peakDb - report.lufs;
   const compression = clamp(Math.round((crest - 9) / 14 * 100), 15, 95);
 
-  const tune = sung ? clamp(Math.round(clamp(report.pitch.offCents - 6, 0, 45) / 45 * 85 + 15), 0, 100) : 0;
-  const keyOk = report.key.confidence > 0.5 && report.key.mode !== 'chromatic';
+  /* Anything with notes in it gets tuned, and gets tuned properly. Only a
+     take that is plainly somebody talking is left alone — pitch correction on
+     speech is what makes people sound like robots — and even that is overruled
+     if the setting says to tune everything. */
+  let tuneMode = wish.tuneMode && wish.tuneMode !== 'auto'
+    ? wish.tuneMode
+    : (report.hasNotes && report.material !== 'spoken' ? 'locked' : 'off');
+  if (!TUNE_MODES[tuneMode]) tuneMode = 'locked';
+  if (tuneMode !== 'off' && !report.hasNotes) tuneMode = 'off';
+  const tuning = TUNE_MODES[tuneMode];
+
+  /* Snapping to a key only helps while the key is right. Hard tuning to the
+     wrong scale is worse than not tuning at all, so a shaky reading falls back
+     to the nearest note of any kind. */
+  const keyOk = report.key.confidence > 0.55 && report.key.mode !== 'chromatic';
 
   const target = TARGETS[wish.targetName || (sung ? 'streaming' : 'podcast')];
 
@@ -76,8 +112,12 @@ export function autoSettings(report, wish = {}) {
     presence: Math.round(eq.presence / 5.5 * 100),
     deEss,
     compression,
-    tune,
-    tuneSpeed: sung ? (report.pitch.steadiness > 0.6 ? 45 : 80) : 120,
+    tuneMode,
+    tune: tuning.strength,
+    tuneSpeed: tuning.speedMs,
+    tuneDeadband: tuning.deadband,
+    tuneMaxCents: tuning.maxCents,
+    tuneMinConf: tuning.minConf,
     keyMode: keyOk ? report.key.mode : 'chromatic',
     keyTonic: keyOk ? report.key.tonic : 0,
     a4: report.a4 || 440,
@@ -637,13 +677,19 @@ export function render(input, sr, st, report, onProgress = () => {}, backing = n
     const t = tune(x, sr, report.track, {
       strength: st.tune / 100,
       speedMs: st.tuneSpeed,
+      deadband: st.tuneDeadband,
+      maxCents: st.tuneMaxCents,
+      minConf: st.tuneMinConf,
       mask, a4: st.a4,
     });
     x = t.x;
+    const where = st.keyMode === 'chromatic' ? 'the nearest notes' : NOTE_NAMES[st.keyTonic] + ' ' + st.keyMode;
     notes.push({
       key: 'tune',
-      label: 'Tuned to ' + (st.keyMode === 'chromatic' ? 'the nearest notes' : NOTE_NAMES[st.keyTonic] + ' ' + st.keyMode),
-      detail: t.movedCents >= 1 ? 'moved ' + Math.round(t.movedCents) + ' cents on average' : 'barely needed it',
+      label: (st.tuneMode === 'locked' ? 'Locked to ' : 'Tuned to ') + where,
+      detail: t.movedCents >= 1
+        ? 'moved ' + Math.round(t.movedCents) + ' cents on average, over ' + t.notes + ' notes'
+        : 'you were already on it',
     });
   }
 

@@ -123,6 +123,18 @@
   </div>
   <label class="match"><input type="checkbox" id="matchBox" checked /> Match the levels when comparing</label>
 
+  <div class="tunerow">
+    <div class="tunerow-top">
+      <b>Tuning</b>
+      <div class="seg" id="tuneMode" role="group" aria-label="How hard to tune">
+        <button data-mode="locked">Locked</button>
+        <button data-mode="natural">Natural</button>
+        <button data-mode="off">Off</button>
+      </div>
+    </div>
+    <p class="tune-blurb" id="tuneBlurb">Every note pinned. Nothing left flat.</p>
+  </div>
+
   <div class="progress" id="progress" hidden>
     <div class="bar"><i id="progBar"></i></div>
     <span id="progWhat">working</span>

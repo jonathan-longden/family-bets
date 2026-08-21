@@ -215,6 +215,24 @@ select, input[type=text] {
 .stat b { display: block; font-size: 15px; font-variant-numeric: tabular-nums; }
 .stat span { font-size: 11px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .5px; }
 
+/* ───────────── how hard to tune ─────────────
+   The one decision worth putting in front of someone, already made. */
+
+.tunerow {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 12px; margin-bottom: 14px;
+}
+.tunerow-top { display: flex; align-items: center; gap: 12px; }
+.tunerow-top b { font-size: 14px; }
+
+.seg { flex: 1; display: flex; background: var(--bg-2); border-radius: 11px; padding: 3px; }
+.seg button {
+  appearance: none; cursor: pointer; flex: 1; border: 0; background: transparent;
+  color: var(--ink-dim); border-radius: 8px; padding: 8px 4px; font-weight: 700; font-size: 13px;
+}
+.seg button.is-on { background: var(--good); color: #06231A; }
+.tune-blurb { margin: 8px 2px 2px; font-size: 12px; color: var(--ink-faint); }
+
 /* ───────────── the sliders ───────────── */
 
 .tweak {

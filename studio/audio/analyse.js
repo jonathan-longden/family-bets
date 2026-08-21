@@ -480,14 +480,20 @@ export function analyseVoice(x, sr, opts = {}) {
   const snrDb = voiceDb - floorDb;
   const hum = detectHum(spec, sr, 2048);
 
-  /* Singing holds notes and roams over a wider range than talking does. Get
-     this wrong and speech comes back sounding like a robot, so the bar for
-     calling something sung is deliberately set high. */
+  /* Singing holds notes and roams over a wider range than talking does.
+
+     Three answers, not two. A held ballad is obviously sung and obviously
+     wants tuning; a flat piece of narration obviously doesn't. In between sits
+     everything sung fast — a busy melody, a rap, a line thrown away — which
+     has notes in it even though it never sits still, and calling that "speech"
+     is how a singer ends up with a take that was barely tuned at all. It gets
+     tuned like singing; only the clearly spoken is left alone. */
   const sungScore =
     (pitch.steadiness > 0.45 ? 1 : pitch.steadiness / 0.45) * 0.55 +
     clamp(pitch.rangeSemitones / 9, 0, 1) * 0.25 +
     clamp(pitch.voicedRatio / 0.6, 0, 1) * 0.20;
-  const material = sungScore > 0.62 ? 'sung' : 'spoken';
+  const material = sungScore > 0.55 ? 'sung' : sungScore > 0.28 ? 'melodic' : 'spoken';
+  const hasNotes = pitch.voicedRatio > 0.12 && pitch.medianHz > 0;
 
   return {
     sampleRate: sr,
@@ -510,6 +516,7 @@ export function analyseVoice(x, sr, opts = {}) {
     pitch,
     key,
     material,
+    hasNotes,
     sungScore,
     a4,
   };
