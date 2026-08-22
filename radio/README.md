@@ -321,6 +321,13 @@ another, since otherwise a page of four rows is four waits. And a host that
 has already refused a direct read isn't asked again that visit — learning
 it once is enough.
 
+**A blank cover is a signal.** Artwork is a plain image load with no
+cross-origin question attached to it, so if that fails as well the Archive
+isn't refusing the page — it can't be reached from that connection at all.
+The section checks and says so, because it matters more than the pictures:
+a chapter's audio comes straight from archive.org too, and no relay is
+going to carry that. On another network it works.
+
 Two details worth knowing:
 
 - **A book's chapters are kept once opened.** The Archive lists a book's
