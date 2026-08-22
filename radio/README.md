@@ -307,7 +307,10 @@ nothing here goes through a relay.
 Like Radio and Podcasts, the page opens onto rows rather than an empty
 search box: **Carry on listening** for chapters you're part way through,
 **Favourites** for the books you kept, a row drawn from the subjects you
-keep, and a few subjects to browse, rotated by the day.
+keep, and a few subjects to browse, rotated by the day. Every row that came
+from a directory ends with **View more**, which opens the rest of that row
+rather than leaving you to guess that a search would find more of the same.
+That goes for Radio and Podcasts too.
 
 If the Archive won't answer your browser directly — that is its call, not
 something a page can change — the request goes through the same relays the
@@ -321,25 +324,15 @@ another, since otherwise a page of four rows is four waits. And a host that
 has already refused a direct read isn't asked again that visit — learning
 it once is enough.
 
-**A blank cover is a signal.** Artwork is a plain image load with no
-cross-origin question attached to it, so if that fails as well the Archive
-isn't refusing the page — it can't be reached from that connection at all.
-The section checks with a one-pixel image and says so — in one line, with
-the rest behind a tap, because the full explanation is worth reading once
-and isn't worth the whole page every time. A cover that can't be fetched
-leaves the book's initial rather than an empty rectangle.
+**Chapters play from the Archive's storage nodes, not from `archive.org`.**
+The download address only redirects to a node named like
+`ia801604.us.archive.org`, and the metadata reply names that node outright,
+so going straight there skips a redirect — and where `archive.org` itself is
+blocked by name, as it is on plenty of home networks with a filter on the
+router, the nodes are usually left alone and the books play regardless.
 
-There is one thing left to try when that happens, and it's built in.
-`archive.org` doesn't serve files itself: it redirects to storage nodes
-named like `ia801604.us.archive.org`, and the metadata reply names the node
-outright. Chapters are played from the node directly, skipping the
-redirect — and where the main address is blocked by name, the nodes are
-often left alone. So the warning says to open a book and try a chapter,
-because that is the test that settles it. If a chapter plays, the block was
-only ever about the covers. If it doesn't, the whole Archive is blocked on
-that connection, and mobile data instead of wi-fi, another network, or a
-VPN will fix it — a filter on the router or from the provider is the usual
-cause.
+Cover art does come from `archive.org`, so on such a connection the tiles
+show each book's initial instead of its cover. That is all that is lost.
 
 Two details worth knowing:
 

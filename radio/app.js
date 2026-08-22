@@ -1383,14 +1383,23 @@ function buildShelves(box, plan) {
 
 const shelfRow = (box, key) => box.querySelector(`.tiles[data-row="${CSS.escape(key)}"]`);
 
-function putTiles(box, key, items, tileFn) {
+/* A row holds a handful of what there is. The tile on the end says so and
+   opens the rest, rather than leaving you to guess that a search would find
+   more of the same. */
+const moreTile = key => `
+  <button class="tile more" data-more="${esc(key)}">
+    <span class="tile-art"><svg class="ic"><use href="#i-next"/></svg></span>
+    <b>View more</b><span></span>
+  </button>`;
+
+function putTiles(box, key, items, tileFn, { more = false } = {}) {
   const row = shelfRow(box, key);
   if (!row) return;
   if (!items.length) return dropShelf(box, key);
-  const sig = items.map(i => i.id || i.url).join('|');
+  const sig = items.map(i => i.id || i.url).join('|') + (more ? '|+' : '');
   if (row.dataset.sig === sig) return;
   row.dataset.sig = sig;
-  row.innerHTML = items.map(tileFn).join('');
+  row.innerHTML = items.map(tileFn).join('') + (more ? moreTile(key) : '');
 }
 
 /* A row nobody could fill is a heading over nothing, so it goes. */
@@ -1487,7 +1496,7 @@ async function fillShelves(box, rows, load, { note = '', message = '', together 
     if (items && items.length) {
       served++;
       rememberShelf(row.key, items);
-      putTiles(box, row.key, items, row.tile);
+      putTiles(box, row.key, items, row.tile, { more: true });
       refreshTiles();
     } else if (shelfCache[row.key]) {
       served++;                                     // yesterday's is still up
@@ -1670,10 +1679,11 @@ async function stationShelf(row) {
 }
 
 let radioShelfSig = '';
+let radioPlan = [];
 
 function renderRadioShelves() {
   const box = $('#radioShelves');
-  const plan = radioShelfPlan();
+  const plan = radioPlan = radioShelfPlan();
   const sig = plan.map(r => r.key).join('|');
 
   if (sig !== radioShelfSig) {
@@ -1681,7 +1691,9 @@ function renderRadioShelves() {
     buildShelves(box, plan);
     // anything already cached paints before a single request goes out
     for (const row of plan) {
-      if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
+      if (!row.local && shelfCache[row.key]) {
+        putTiles(box, row.key, shelfCache[row.key].items, row.tile, { more: true });
+      }
     }
     fillShelves(box, plan.filter(r => !r.local), stationShelf, {
       note: '#radioRowsNote',
@@ -1781,10 +1793,7 @@ radioEl.addEventListener('pause', () => { if (onAir()) { playing = false; render
 radioEl.addEventListener('error', () => {
   if (!onAir()) return;
   // a chapter that won't play when the whole host is out of reach isn't a mystery
-  const fromArchive = nowStream && /archive\.org/.test(nowStream.url || '');
-  $('#onAirState').textContent = fromArchive && archiveReach === false
-    ? "The Archive is blocked on this connection"
-    : "That stream wouldn't play";
+  $('#onAirState').textContent = "That stream wouldn't play";
   playing = false;
   render();
 });
@@ -1823,7 +1832,17 @@ function onStationClick(e) {
 }
 $('#stationResults').addEventListener('click', onStationClick);
 $('#savedStations').addEventListener('click', onStationClick);
-$('#radioShelves').addEventListener('click', onStationClick);
+$('#radioShelves').addEventListener('click', e => {
+  const more = e.target.closest('[data-more]');
+  if (!more) return onStationClick(e);
+  const row = radioPlan.find(r => r.key === more.dataset.more);
+  if (!row) return;
+  $('#stationSearch').value = '';
+  $$('#genreChips .chip').forEach(c => c.classList.toggle('on', c.dataset.genre === row.tag));
+  searchStations(row.tag ? { tag: row.tag } : {});
+  $('#resultsHead').textContent = row.title;
+  $('#radioPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 
 $('#addStationUrl').addEventListener('click', () => {
   $('#stationErr').hidden = true;
@@ -2419,17 +2438,20 @@ async function podcastShelf(row) {
 }
 
 let podcastShelfSig = '';
+let podcastPlan = [];
 
 function renderPodcastShelves() {
   const box = $('#podcastShelves');
-  const plan = podcastShelfPlan();
+  const plan = podcastPlan = podcastShelfPlan();
   const sig = plan.map(r => r.key).join('|');
 
   if (sig !== podcastShelfSig) {
     podcastShelfSig = sig;
     buildShelves(box, plan);
     for (const row of plan) {
-      if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
+      if (!row.local && shelfCache[row.key]) {
+        putTiles(box, row.key, shelfCache[row.key].items, row.tile, { more: true });
+      }
     }
     fillShelves(box, plan.filter(r => !r.local), podcastShelf, {
       // its own line: an open show's status is about the show, not the rows
@@ -2492,6 +2514,15 @@ function onShowClick(e) {
 $('#podcastResults').addEventListener('click', onShowClick);
 $('#subscriptions').addEventListener('click', onShowClick);
 $('#podcastShelves').addEventListener('click', e => {
+  const more = e.target.closest('[data-more]');
+  if (more) {
+    const row = podcastPlan.find(r => r.key === more.dataset.more);
+    if (!row || !row.term) return;
+    $('#podcastSearch').value = row.term;
+    searchPodcasts(row.term);
+    $('#podcastPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
   // the Carry on listening row holds episodes; the rest hold shows
   const tile = e.target.closest('.tile[data-episode]');
   if (!tile) return onShowClick(e);
@@ -2562,59 +2593,12 @@ const BOOK_ROWS = [
   { term: 'subject:(fiction)', title: 'Fiction' },
   { term: 'subject:(detective)', title: 'Mystery' },
   { term: 'subject:(horror)', title: 'Horror' },
-  { term: 'subject:(children)', title: "Children's" },
-  { term: 'subject:(science fiction)', title: 'Science fiction' },
-  { term: 'subject:(history)', title: 'History' },
+  { term: 'subject:(biography) OR subject:(memoir)', title: 'True stories' },
+  { term: 'subject:(romance)', title: 'Sex and romance' },
+  { term: 'subject:(murder)', title: 'Murder mysteries' },
   { term: 'subject:(humor)', title: 'Humour' },
   { term: 'subject:(short stories)', title: 'Short stories' },
 ];
-
-/* A blank cover is worth reading. Artwork is a plain image load with no
-   cross-origin question attached, so if that fails too the Archive isn't
-   refusing us — it can't be reached from this connection at all. Which
-   matters more than the pictures: the chapter audio comes straight from
-   archive.org as well, and no relay is going to carry that. */
-let archiveReach = null;                // null until asked
-
-function archiveReachable() {
-  if (archiveReach !== null) return Promise.resolve(archiveReach);
-  return new Promise(resolve => {
-    const img = new Image();
-    let settled = false;
-    const done = ok => {
-      if (settled) return;
-      settled = true;
-      archiveReach = ok;
-      resolve(ok);
-    };
-    const timer = setTimeout(() => done(false), 8000);
-    img.onload = () => { clearTimeout(timer); done(true); };
-    img.onerror = () => { clearTimeout(timer); done(false); };
-    img.src = 'https://archive.org/favicon.ico?whoami=' + Date.now();
-  });
-}
-
-/* One line, with the rest behind a tap. The full explanation is worth having
-   once and worth reading once; it isn't worth the whole page every time. */
-async function checkArchive() {
-  const warn = $('#bookWarn');
-  if (!warn) return;
-  const ok = await archiveReachable();
-  warn.hidden = ok;
-  if (ok) $('#bookWarnDetail').hidden = true;
-  if (!ok) {
-    $('#bookWarnShort').textContent =
-      "The covers are blank because this connection can't reach archive.org.";
-    $('#bookWarnDetail').innerHTML =
-      'Browsing still works — a relay fetches the lists for you. Chapters are played ' +
-      "from the Archive's own storage servers rather than from archive.org, and those " +
-      'are often left alone where the main address is blocked, so open a book and try ' +
-      'one. If it plays, this is only about the covers. If it does not, the block ' +
-      'covers the whole Archive: mobile data instead of wi-fi, another network, or a ' +
-      'VPN will fix it, and a filter on your router or from your provider is the usual ' +
-      'cause.';
-  }
-}
 
 let books = [];                 // the ones you kept
 let bookLists = {};             // archive id → { at, chapters }
@@ -2675,13 +2659,19 @@ async function bookChapters(book, opts = {}) {
   const files = (got.data && got.data.files) || [];
   const node = archiveNode(got.data);
 
-  const best = new Map();                    // one file per recording
+  /* The Archive holds each recording several times over — 64kb, 128kb, ogg —
+     and they are separate files with separate names, so the name alone won't
+     tell you they are the same chapter. The title does, and where a file has
+     none, the name with its bitrate suffix taken off does. */
+  const best = new Map();
   const rank = f => /vbr/i.test(f.format) ? 3 : /128/.test(f.format) ? 2 : 1;
+  const sameAs = f => String(f.title || '').trim().toLowerCase() ||
+    f.name.replace(/\.[^.]+$/, '').replace(/[_-](\d+kb|vbr|ogg|mp3)$/i, '').toLowerCase();
   for (const f of files) {
     if (!f.name || !/mp3|ogg/i.test(f.format || '')) continue;
-    const stem = f.name.replace(/\.[^.]+$/, '');
-    const held = best.get(stem);
-    if (!held || rank(f) > rank(held)) best.set(stem, f);
+    const key = sameAs(f);
+    const held = best.get(key);
+    if (!held || rank(f) > rank(held)) best.set(key, f);
   }
 
   const chapters = [...best.values()]
@@ -2804,6 +2794,27 @@ async function searchBooks(term) {
   refreshTiles();
 }
 
+/* The whole of a row, rather than the handful that fits across a screen. */
+async function moreBooks(row) {
+  bookStatus(`More ${row.title.toLowerCase()}…`);
+  $('#bookResults').innerHTML = '';
+  $('#chapters').innerHTML = '';
+  $('#chaptersHead').hidden = true;
+  openBook = null;
+  let found;
+  try {
+    found = await archiveSearch(row.term, 40);
+  } catch (e) {
+    bookStatus("Couldn't reach the Internet Archive just now.",
+      e && e.message ? String(e.message) : '');
+    return;
+  }
+  $('#bookResults').innerHTML = found.map(bookTile).join('');
+  bookStatus(`${row.title} · ${found.length} book${found.length === 1 ? '' : 's'}`);
+  refreshTiles();
+  $('#bookPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function keepBook(book) {
   if (isKept(book.id)) books = books.filter(b => b.id !== book.id);
   else books.push(book);
@@ -2846,17 +2857,20 @@ function bookShelfPlan() {
 const bookShelf = row => archiveSearch(row.term);
 
 let bookShelfSig = '';
+let bookPlan = [];
 
 function renderBookShelves() {
   const box = $('#bookShelves');
-  const plan = bookShelfPlan();
+  const plan = bookPlan = bookShelfPlan();
   const sig = plan.map(r => r.key).join('|');
 
   if (sig !== bookShelfSig) {
     bookShelfSig = sig;
     buildShelves(box, plan);
     for (const row of plan) {
-      if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
+      if (!row.local && shelfCache[row.key]) {
+        putTiles(box, row.key, shelfCache[row.key].items, row.tile, { more: true });
+      }
     }
     fillShelves(box, plan.filter(r => !r.local), bookShelf, {
       together: true,
@@ -2874,19 +2888,12 @@ function renderBookShelves() {
 
 function renderBooks() {
   $('#bookPanel').hidden = settings.source !== 'books';
-  if (settings.source === 'books') checkArchive();
   $('#savedBooksHead').hidden = !books.length;
   $('#savedBooks').innerHTML = books.map(bookTile).join('');
   if (settings.source === 'books') renderBookShelves();
 }
 
 /* ── wiring ── */
-
-$('#bookWarnMore').addEventListener('click', () => {
-  const detail = $('#bookWarnDetail');
-  detail.hidden = !detail.hidden;
-  $('#bookWarnMore').textContent = detail.hidden ? 'Why?' : 'Hide';
-});
 
 $('#bookGo').addEventListener('click', () => searchBooks($('#bookSearch').value.trim()));
 $('#bookSearch').addEventListener('keydown', e => {
@@ -2915,6 +2922,12 @@ const playChapter = e => {
 $('#chapters').addEventListener('click', playChapter);
 
 $('#bookShelves').addEventListener('click', e => {
+  const more = e.target.closest('[data-more]');
+  if (more) {
+    const row = bookPlan.find(r => r.key === more.dataset.more);
+    if (row && row.term) moreBooks(row);
+    return;
+  }
   // the Carry on listening row holds chapters; the rest hold books
   if (e.target.closest('.tile[data-episode]')) {
     const tile = e.target.closest('.tile[data-episode]');
