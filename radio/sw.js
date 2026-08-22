@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tunage-cache-v24';
+const CACHE_NAME = 'tunage-cache-v25';
 const FILES_TO_CACHE = [
   './', './index.html', './styles.css', './app.js',
   './manifest.json', './icon-192.png', './icon-512.png',

@@ -1815,10 +1815,14 @@ function saveEpisodePos() {
   store.setPref(EPISODES_KEY, episodePos).catch(() => {});
 }
 
-function podcastStatus(text) {
+/* The detail line is what each attempt actually said. It reads as noise
+   until a show won't load, at which point it's the only thing that tells
+   you which of four different problems this is. */
+function podcastStatus(text, detail = '') {
   const el = $('#podcastStatus');
   el.hidden = !text;
-  el.textContent = text || '';
+  el.innerHTML = esc(text || '') +
+    (detail ? `<br><span class="why">Tried — ${esc(detail)}</span>` : '');
 }
 
 async function searchPodcasts(term) {
@@ -1923,8 +1927,11 @@ function parseFeed(xml) {
 const FEED_RELAYS = [
   { name: 'AllOrigins', url: u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}` },
   { name: 'CodeTabs', url: u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
+  // the same service, wrapped in JSON — it answers when the raw one won't
+  { name: 'AllOrigins (wrapped)', wrapped: true,
+    url: u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}` },
 ];
-const FEED_TIMEOUT = 12000;
+const FEED_TIMEOUT = 15000;
 const FEED_CACHE_TTL = 10 * 60 * 1000;
 const feedCache = new Map();            // this visit only — feeds change
 
@@ -1934,37 +1941,90 @@ async function getText(url, ms = FEED_TIMEOUT) {
   try {
     const res = await fetch(url, { signal: stop.signal,
       headers: { Accept: 'application/rss+xml, application/xml, text/xml, */*' } });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok) throw new Error(`answered ${res.status}`);
     const text = await res.text();
-    if (!text.trim()) throw new Error('empty');
+    if (!text.trim()) throw new Error('answered with nothing');
     return text;
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw new Error(`gave up after ${Math.round(ms / 1000)}s`);
+    throw e;
   } finally {
     clearTimeout(timer);
   }
 }
 
-/* Direct first, then a relay if that was refused. Returns how it was got so
-   the page can say so. */
+const looksLikeFeed = t => /<(\?xml|rss|feed)\b/i.test(t.slice(0, 2000));
+
+/* Relays that hand the file back inside JSON rather than as itself. */
+function unwrap(text) {
+  try {
+    const body = JSON.parse(text);
+    return typeof body.contents === 'string' ? body.contents : null;
+  } catch {
+    return null;
+  }
+}
+
+/* Direct first, then each relay in turn. Every attempt records what went
+   wrong, because "can't read feed" covers four different problems — the
+   publisher refusing the browser, the publisher refusing the relay, the
+   relay being busy, and the feed having moved — and they need different
+   answers. Returns how it was got, or the list of what happened. */
 async function fetchFeed(url, { onRelay = () => {} } = {}) {
   const held = feedCache.get(url);
   if (held && Date.now() - held.at < FEED_CACHE_TTL) return held.got;
 
-  let got = null;
-  try {
-    got = { xml: await getText(url), via: null };
-  } catch {}
+  const tried = [];
+  const attempt = async (label, from, relay) => {
+    try {
+      let text = await getText(from);
+      if (relay && relay.wrapped) {
+        const inner = unwrap(text);
+        if (inner === null) throw new Error('sent something that was not the feed');
+        text = inner;
+      }
+      if (!looksLikeFeed(text)) throw new Error('sent a page, not a feed');
+      return { xml: text, via: relay ? relay.name : null };
+    } catch (e) {
+      // a cross-origin refusal reaches script as a bare "Failed to fetch"
+      const why = !e || /failed to fetch|networkerror|load failed/i.test(e.message || '')
+        ? (relay ? 'could not be reached' : 'refused to be read by another site')
+        : e.message;
+      tried.push(`${label}: ${why}`);
+      return null;
+    }
+  };
+
+  let got = await attempt('direct', url, null);
 
   if (!got && settings.relayFeeds) {
     for (const relay of FEED_RELAYS) {
       onRelay(relay.name);
-      try {
-        got = { xml: await getText(relay.url(url)), via: relay.name };
-        break;
-      } catch {}
+      got = await attempt(relay.name, relay.url(url), relay);
+      if (got) break;
     }
   }
-  if (got) feedCache.set(url, { at: Date.now(), got });
-  return got;
+
+  if (got) {
+    feedCache.set(url, { at: Date.now(), got });
+    return got;
+  }
+  return { failed: true, tried };
+}
+
+/* A feed address goes stale — a show moves host and Apple's directory knows
+   before anything saved here does. Worth one lookup before giving up. */
+async function currentFeedUrl(show) {
+  if (!/^\d+$/.test(String(show.id || ''))) return null;
+  try {
+    const res = await fetch(`https://itunes.apple.com/lookup?id=${show.id}&entity=podcast`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    const found = (data.results || []).find(r => r.feedUrl);
+    return found && found.feedUrl !== show.feed ? found.feedUrl : null;
+  } catch {
+    return null;
+  }
 }
 
 async function openPodcast(show) {
@@ -1975,16 +2035,33 @@ async function openPodcast(show) {
   podcastStatus('Fetching episodes…');
 
   // a relay takes a moment longer, so say what's going on rather than sit there
-  const got = await fetchFeed(show.feed, {
-    onRelay: name => podcastStatus(`${show.name} blocks other sites from reading its ` +
-      `feed — asking ${name} to fetch it…`),
-  });
-  if (!got) {
+  const asking = name => podcastStatus(`${show.name} blocks other sites from reading its ` +
+    `feed — asking ${name} to fetch it…`);
+
+  let got = await fetchFeed(show.feed, { onRelay: asking });
+
+  // the address may simply have moved on since it was saved
+  if (got.failed) {
+    const moved = await currentFeedUrl(show);
+    if (moved) {
+      podcastStatus(`${show.name} has moved — trying its new address…`);
+      const second = await fetchFeed(moved, { onRelay: asking });
+      if (!second.failed) {
+        show.feed = moved;
+        const sub = podcasts.find(p => p.id === show.id);
+        if (sub) { sub.feed = moved; savePodcasts(); }
+        got = second;
+      }
+    }
+  }
+
+  if (got.failed) {
     podcastStatus(settings.relayFeeds
-      ? `Couldn't read ${show.name}'s feed, directly or through a relay. Either the ` +
-        'feed has moved or both relays are busy — worth another try in a minute.'
+      ? `Couldn't read ${show.name}'s feed. Its publisher is refusing the relays too, ` +
+        'which usually means it blocks anything that isn\'t a podcast app.'
       : `Couldn't read ${show.name}'s feed. This publisher doesn't let other sites ` +
-        'read it, and relaying is switched off.');
+        'read it, and relaying is switched off.',
+      got.tried.join(' · '));
     return;
   }
 
