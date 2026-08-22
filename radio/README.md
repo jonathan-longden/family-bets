@@ -311,7 +311,10 @@ recordings, a row drawn from the subjects you keep, and a few subjects
 rotated by the day.
 
 Every row that came from a directory ends with **View more**, which gives
-that category a page of its own — the section stands aside, the category
+that category a page of its own. The tiles the row was already showing go
+up straight away while the fuller list is fetched, so the page is never
+empty in front of you, and if the fetch fails they stay put with a note
+rather than being replaced by nothing — the section stands aside, the category
 fills the screen as a grid, and Back returns you to where you were. That
 goes for Radio and Podcasts too. **All categories** at the foot of the
 section lists every one of them, not only the few a page has room for.
