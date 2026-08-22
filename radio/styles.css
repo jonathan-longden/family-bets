@@ -500,6 +500,8 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 
 /* ── shelves: the rows a browse page opens onto ── */
 
+.why { display: inline-block; margin-top: 4px; font-size: 12px; opacity: .8; }
+
 .relay-note { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 2px; }
 .relay-note .chip { flex: 0 0 auto; cursor: pointer; }
 .relay-note span { flex: 1 1 auto; }

@@ -227,8 +227,13 @@ that, and is straight about it:
 - **A direct read is always tried first.** A feed that can be read stays
   between you and the publisher — nothing is sent anywhere else.
 - **Only a refused feed is relayed**, through
-  [AllOrigins](https://allorigins.win/) and then
-  [CodeTabs](https://codetabs.com/) if the first is busy.
+  [AllOrigins](https://allorigins.win/), then [CodeTabs](https://codetabs.com/),
+  then AllOrigins' JSON endpoint, which sometimes answers when its plain one
+  won't. A relay that sends back its own error page instead of a feed is
+  spotted and passed over.
+- **A feed address that has moved is followed.** If nothing can read it, Apple's
+  directory is asked for the show's current address and that is tried once;
+  a subscription is updated when the new one works.
 - **The page says when it used one**, and which — "this one blocks other
   sites, so it came through AllOrigins".
 - **It can be turned off.** The **Relay on / Relay off** chip in the
@@ -237,8 +242,17 @@ that, and is straight about it:
   did before.
 
 Feeds are held for ten minutes within a visit, so reopening a show doesn't
-send anyone back for the same file. If both relays are busy the page says
-that too, rather than failing quietly.
+send anyone back for the same file.
+
+**When it still can't be read, it says what happened.** "Can't read feed"
+covers four different problems — the publisher refusing the browser, the
+publisher refusing the relays as well, a relay being busy, and the feed
+having moved — and they don't have the same answer. Every attempt is listed
+under the message with what it actually said: *direct: refused to be read by
+another site · AllOrigins: answered 403 · CodeTabs: gave up after 15s*.
+
+Some publishers refuse anything that isn't a recognised podcast app, relay
+included. Nothing served from a static page can get round that one.
 
 ## Voice
 
