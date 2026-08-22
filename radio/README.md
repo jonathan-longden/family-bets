@@ -146,7 +146,14 @@ cued deck can't be scratched — there's nothing loaded on it to scratch.
 ## Radio
 
 The **Radio** chip, next to Everything and your playlists, is a separate
-section for live stations. Search by name, tap a genre, or add a station by
+section for live stations — and it looks like one. Opening it stands the
+turntables, the mixer and the transport down, along with the queue and the
+library, and gives the whole page over to rows of station artwork under
+their headings. It's a place to look through, not to mix on. Start a station
+and its card appears above the rows so you can see and stop what's playing;
+go back to Everything and the decks come straight back.
+
+Podcasts works the same way. Search by name, tap a genre, or add a station by
 its stream link. Save the ones you keep coming back to and they sit under
 **Your stations**.
 
