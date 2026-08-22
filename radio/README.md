@@ -306,11 +306,24 @@ nothing here goes through a relay.
 
 Like Radio and Podcasts, the page opens onto rows rather than an empty
 search box: **Carry on listening** for chapters you're part way through,
-**Favourites** for the books you kept, a row drawn from the subjects you
-keep, and a few subjects to browse, rotated by the day. Every row that came
-from a directory ends with **View more**, which opens the rest of that row
-rather than leaving you to guess that a search would find more of the same.
-That goes for Radio and Podcasts too.
+**Favourites** for the books you kept, **Recently added** for the newest
+recordings, a row drawn from the subjects you keep, and a few subjects
+rotated by the day.
+
+Every row that came from a directory ends with **View more**, which gives
+that category a page of its own — the section stands aside, the category
+fills the screen as a grid, and Back returns you to where you were. That
+goes for Radio and Podcasts too. **All categories** at the foot of the
+section lists every one of them, not only the few a page has room for.
+
+### What "up to date" can mean here
+
+Copyright is the limit, not the app. A book still in print isn't free to
+give away, so nothing here pretends to offer this year's bestsellers. The
+source is widened past LibriVox to the Archive's broader spoken-word
+collection, which carries whatever its readers have released freely, and
+**Recently added** sorts by when a recording was published rather than by
+how often it has been downloaded. That is the honest version of new.
 
 If the Archive won't answer your browser directly — that is its call, not
 something a page can change — the request goes through the same relays the

@@ -1708,7 +1708,7 @@ function renderRadioShelves() {
 }
 
 function renderRadio() {
-  $('#radioPanel').hidden = settings.source !== 'radio';
+  $('#radioPanel').hidden = settings.source !== 'radio' || !!category;
   $('#savedHead').hidden = !stations.length;
   $('#savedStations').innerHTML = stations.map(stationTile).join('');
   if (!$('#genreChips').children.length) {
@@ -1837,11 +1837,19 @@ $('#radioShelves').addEventListener('click', e => {
   if (!more) return onStationClick(e);
   const row = radioPlan.find(r => r.key === more.dataset.more);
   if (!row) return;
-  $('#stationSearch').value = '';
-  $$('#genreChips .chip').forEach(c => c.classList.toggle('on', c.dataset.genre === row.tag));
-  searchStations(row.tag ? { tag: row.tag } : {});
-  $('#resultsHead').textContent = row.title;
-  $('#radioPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  openCategory({
+    kind: 'station', title: row.title, noun: 'station',
+    load: async () => {
+      const params = new URLSearchParams({
+        limit: '40', hidebroken: 'true', order: 'clickcount', reverse: 'true',
+      });
+      if (row.tag) params.set('tag', row.tag);
+      const res = await fetch(`${RADIO_API}?${params}`, { headers: { Accept: 'application/json' } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const list = await res.json();
+      return playableStations(Array.isArray(list) ? list : []).out;
+    },
+  });
 });
 
 $('#addStationUrl').addEventListener('click', () => {
@@ -2496,7 +2504,7 @@ function renderPodcastShelves() {
 }
 
 function renderPodcasts() {
-  $('#podcastPanel').hidden = settings.source !== 'podcasts';
+  $('#podcastPanel').hidden = settings.source !== 'podcasts' || !!category;
   $('#subsHead').hidden = !podcasts.length;
   $('#subscriptions').innerHTML = podcasts.map(showTile).join('');
   $('#relayBtn').classList.toggle('on', settings.relayFeeds);
@@ -2547,9 +2555,15 @@ $('#podcastShelves').addEventListener('click', e => {
   if (more) {
     const row = podcastPlan.find(r => r.key === more.dataset.more);
     if (!row || !row.term) return;
-    $('#podcastSearch').value = row.term;
-    searchPodcasts(row.term);
-    $('#podcastPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    openCategory({
+      kind: 'show', title: row.title, noun: 'show',
+      load: async () => {
+        const params = new URLSearchParams({ media: 'podcast', limit: '40', term: row.term });
+        const res = await fetch(`${PODCAST_API}?${params}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return showsFrom(await res.json());
+      },
+    });
     return;
   }
   // the Carry on listening row holds episodes; the rest hold shows
@@ -2616,9 +2630,15 @@ const BOOK_LISTS_MAX = 20;
 const ARCHIVE_SEARCH = 'https://archive.org/advancedsearch.php';
 const ARCHIVE_META = 'https://archive.org/metadata/';
 const ARCHIVE_ART = 'https://archive.org/services/img/';
-const LIBRIVOX = 'collection:(librivoxaudio)';
+/* LibriVox is the bulk of it, but the Archive's wider spoken-word collection
+   carries newer recordings too — anything its readers have released freely.
+   Copyright is the limit here, not the app: a book still in print is not
+   free to give away, and nothing pretends otherwise. What "up to date" can
+   honestly mean is the newest recordings, which is what Recently added is. */
+const LIBRIVOX = 'collection:(librivoxaudio OR audio_bookspoetry)';
 
 const BOOK_ROWS = [
+  { term: '*', title: 'Recently added', sort: 'addeddate desc' },
   { term: 'subject:(fiction)', title: 'Fiction' },
   { term: 'subject:(detective)', title: 'Mystery' },
   { term: 'subject:(horror)', title: 'Horror' },
@@ -2627,6 +2647,9 @@ const BOOK_ROWS = [
   { term: 'subject:(murder)', title: 'Murder mysteries' },
   { term: 'subject:(humor)', title: 'Humour' },
   { term: 'subject:(short stories)', title: 'Short stories' },
+  { term: 'subject:(adventure)', title: 'Adventure' },
+  { term: 'subject:(ghost)', title: 'Ghost stories' },
+  { term: 'subject:(classics)', title: 'Classics' },
 ];
 
 let books = [];                 // the ones you kept
@@ -2646,14 +2669,14 @@ function bookStatus(text, detail = '') {
 /* The Archive's own search, which answers in JSON and allows a browser to
    read it. Everything is scoped to LibriVox so nothing turns up that isn't
    a book read aloud. */
-async function archiveSearch(query, rows = 14) {
+async function archiveSearch(query, rows = 14, sort = 'downloads desc') {
   const params = new URLSearchParams({
-    q: `${LIBRIVOX} AND (${query})`,
+    q: query === '*' ? LIBRIVOX : `${LIBRIVOX} AND (${query})`,
     rows: String(rows), page: '1', output: 'json',
   });
   ['identifier', 'title', 'creator', 'subject', 'downloads']
     .forEach(f => params.append('fl[]', f));
-  params.append('sort[]', 'downloads desc');
+  params.append('sort[]', sort);
 
   const got = await fetchJson(`${ARCHIVE_SEARCH}?${params}`);
   if (got.failed) throw new Error(got.tried.join(' · '));
@@ -2823,27 +2846,6 @@ async function searchBooks(term) {
   refreshTiles();
 }
 
-/* The whole of a row, rather than the handful that fits across a screen. */
-async function moreBooks(row) {
-  bookStatus(`More ${row.title.toLowerCase()}…`);
-  $('#bookResults').innerHTML = '';
-  $('#chapters').innerHTML = '';
-  $('#chaptersHead').hidden = true;
-  openBook = null;
-  let found;
-  try {
-    found = await archiveSearch(row.term, 40);
-  } catch (e) {
-    bookStatus("Couldn't reach the Internet Archive just now.",
-      e && e.message ? String(e.message) : '');
-    return;
-  }
-  $('#bookResults').innerHTML = found.map(bookTile).join('');
-  bookStatus(`${row.title} · ${found.length} book${found.length === 1 ? '' : 's'}`);
-  refreshTiles();
-  $('#bookPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 function keepBook(book) {
   if (isKept(book.id)) books = books.filter(b => b.id !== book.id);
   else books.push(book);
@@ -2872,8 +2874,12 @@ function bookShelfPlan() {
       note: `because you keep ${taste}`, term: `subject:(${taste})`, tile: bookTile });
   }
 
+  plan.push({ key: 'book:row:Recently added', title: 'Recently added',
+    term: '*', sort: 'addeddate desc', tile: bookTile });
+  used.add('*');
+
   const start = dayOfYear() % BOOK_ROWS.length;
-  for (let i = 0; i < BOOK_ROWS.length && used.size < 4; i++) {
+  for (let i = 0; i < BOOK_ROWS.length && used.size < 5; i++) {
     const row = BOOK_ROWS[(start + i) % BOOK_ROWS.length];
     if (used.has(row.term)) continue;
     used.add(row.term);
@@ -2883,7 +2889,7 @@ function bookShelfPlan() {
   return plan;
 }
 
-const bookShelf = row => archiveSearch(row.term);
+const bookShelf = row => archiveSearch(row.term, 14, row.sort || 'downloads desc');
 
 let bookShelfSig = '';
 let bookPlan = [];
@@ -2916,7 +2922,7 @@ function renderBookShelves() {
 }
 
 function renderBooks() {
-  $('#bookPanel').hidden = settings.source !== 'books';
+  $('#bookPanel').hidden = settings.source !== 'books' || !!category;
   $('#savedBooksHead').hidden = !books.length;
   $('#savedBooks').innerHTML = books.map(bookTile).join('');
   if (settings.source === 'books') renderBookShelves();
@@ -2954,7 +2960,12 @@ $('#bookShelves').addEventListener('click', e => {
   const more = e.target.closest('[data-more]');
   if (more) {
     const row = bookPlan.find(r => r.key === more.dataset.more);
-    if (row && row.term) moreBooks(row);
+    if (row && row.term) {
+      openCategory({
+        kind: 'book', title: row.title, noun: 'book',
+        load: () => archiveSearch(row.term, 40, row.sort || 'downloads desc'),
+      });
+    }
     return;
   }
   // the Carry on listening row holds chapters; the rest hold books
@@ -2966,6 +2977,91 @@ $('#bookShelves').addEventListener('click', e => {
       sub: ch.show || 'Audiobook', url: ch.url, art: ch.art || '' });
   }
   onBookClick(e);
+});
+
+
+/* ───────────────────────── a category on its own page ─────────────────────
+
+   A row shows what fits across a phone. View more opens the whole of it
+   here: the section stands aside, the category gets the page, and Back
+   returns to where you were. One panel serves all three sections — a grid
+   of tiles is a grid of tiles, and only what fills it and what a tap does
+   differ. */
+
+let category = null;            // { kind, title, load } while one is open
+
+const CATEGORY_TILE = {
+  book: b => bookTile(b),
+  station: st => stationTile(st),
+  show: sh => showTile(sh),
+};
+
+function categoryStatus(text, detail = '') {
+  const el = $('#categoryStatus');
+  el.hidden = !text;
+  el.innerHTML = esc(text || '') +
+    (detail ? `<br><span class="why">${esc(detail)}</span>` : '');
+}
+
+async function openCategory(spec) {
+  category = spec;
+  $('#categoryTitle').textContent = spec.title;
+  $('#categoryTiles').innerHTML = shelfSkeleton(8);
+  categoryStatus('');
+  render();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  let items;
+  try {
+    items = await spec.load();
+  } catch (e) {
+    $('#categoryTiles').innerHTML = '';
+    categoryStatus("Couldn't fetch this just now — it needs a connection.",
+      e && e.message ? String(e.message) : '');
+    return;
+  }
+  if (category !== spec) return;              // you left while it was fetching
+
+  const tile = CATEGORY_TILE[spec.kind] || (x => bookTile(x));
+  $('#categoryTiles').innerHTML = items.map(tile).join('');
+  categoryStatus(items.length
+    ? `${items.length} ${spec.noun || 'result'}${items.length === 1 ? '' : 's'}`
+    : 'Nothing found');
+  refreshTiles();
+}
+
+function closeCategory() {
+  category = null;
+  $('#categoryTiles').innerHTML = '';
+  render();
+}
+
+$('#categoryBack').addEventListener('click', closeCategory);
+
+$('#categoryTiles').addEventListener('click', e => {
+  if (!category) return;
+  if (category.kind === 'station') return onStationClick(e);
+  if (category.kind === 'show') return onShowClick(e);
+  onBookClick(e);
+});
+
+/* Every category, not only the few a page has room for. */
+$('#allCategories').addEventListener('click', () => {
+  $('#categoryList').innerHTML = BOOK_ROWS
+    .map((row, i) => `<button class="chip" data-cat="${i}">${esc(row.title)}</button>`).join('');
+  openSheet('#categorySheet');
+});
+
+$('#categoryList').addEventListener('click', e => {
+  const chip = e.target.closest('[data-cat]');
+  if (!chip) return;
+  const row = BOOK_ROWS[Number(chip.dataset.cat)];
+  if (!row) return;
+  closeSheets();
+  openCategory({
+    kind: 'book', title: row.title, noun: 'book',
+    load: () => archiveSearch(row.term, 40, row.sort || 'downloads desc'),
+  });
 });
 
 
@@ -3576,6 +3672,7 @@ function render() {
   }
 
   renderDecks();
+  $('#categoryPanel').hidden = !category;
   renderRadio();
   renderPodcasts();
   renderBooks();
@@ -3949,6 +4046,7 @@ $('#sources').addEventListener('click', e => {
   if (btn.dataset.source === 'new') return openPlaylistSheet({ mode: 'new' });
 
   settings.source = btn.dataset.source;
+  category = null;
   saveSettings();
   rebuildQueue();
   render();
