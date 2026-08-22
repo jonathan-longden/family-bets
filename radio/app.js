@@ -2028,7 +2028,32 @@ const RELAY_TIMEOUT = 45000;            // a relay carrying the whole file
 const HEDGE_AFTER = 6000;               // how long one relay gets on its own
 const FEED_CACHE_TTL = 10 * 60 * 1000;
 const feedCache = new Map();            // this visit only — feeds change
-const refusedDirect = new Set();        // hosts that won't be read by a browser
+
+/* Hosts that won't be read directly, remembered across launches.
+
+   A host that refuses says so in milliseconds. A host that is blocked —
+   by a filter on the router, say — says nothing at all, and the request
+   sits there until it times out. Learning that once per app launch meant
+   paying for it again on every launch, which is what made the books slow
+   to arrive. It is kept for half a day, because a different network on the
+   same phone deserves a fresh try. */
+const REFUSED_KEY = 'nonstop.refusedDirect';
+const REFUSED_TTL = 12 * 60 * 60 * 1000;
+
+const refusedDirect = new Map(Object.entries((() => {
+  try { return JSON.parse(localStorage.getItem(REFUSED_KEY) || '{}') || {}; }
+  catch { return {}; }
+})()));
+
+const refusesDirect = host =>
+  refusedDirect.has(host) && Date.now() - refusedDirect.get(host) < REFUSED_TTL;
+
+function rememberRefusal(host) {
+  refusedDirect.set(host, Date.now());
+  try {
+    localStorage.setItem(REFUSED_KEY, JSON.stringify(Object.fromEntries(refusedDirect)));
+  } catch {}
+}
 
 async function getText(url, ms = FEED_TIMEOUT, stop = new AbortController()) {
   const timer = setTimeout(() => stop.abort(), ms);
@@ -2061,7 +2086,10 @@ async function fetchJson(url, opts = {}) {
      every relay for every row is the way to be rate-limited by all of them.
      One at a time per row, with the rows themselves running together. */
   const got = await fetchFeed(url, { ...opts, valid: looksLikeJson, wants: 'catalogue',
-    patience: opts.patience || CATALOGUE_TIMEOUT, hedgeAfter: Infinity });
+    patience: opts.patience || CATALOGUE_TIMEOUT, hedgeAfter: Infinity,
+    // a catalogue that is going to answer answers quickly; one that is blocked
+    // never does, and four seconds is long enough to find that out
+    directPatience: 4000 });
   if (got.failed) return got;
   try {
     return { data: JSON.parse(got.body), via: got.via };
@@ -2086,7 +2114,8 @@ function unwrap(text) {
    relay being busy, and the feed having moved — and they need different
    answers. Returns how it was got, or the list of what happened. */
 async function fetchFeed(url, { onRelay = () => {}, valid = looksLikeFeed,
-  wants = 'feed', patience = RELAY_TIMEOUT, hedgeAfter = HEDGE_AFTER } = {}) {
+  wants = 'feed', patience = RELAY_TIMEOUT, hedgeAfter = HEDGE_AFTER,
+  directPatience = FEED_TIMEOUT } = {}) {
   const held = feedCache.get(url);
   if (held && Date.now() - held.at < FEED_CACHE_TTL) return held.got;
 
@@ -2117,11 +2146,11 @@ async function fetchFeed(url, { onRelay = () => {}, valid = looksLikeFeed,
   let host = '';
   try { host = new URL(url).origin; } catch {}
   let got = null;
-  if (host && refusedDirect.has(host)) {
-    tried.push('direct: refused earlier in this visit');
+  if (host && refusesDirect(host)) {
+    tried.push('direct: would not be read, earlier');
   } else {
-    got = await attempt('direct', url, null, FEED_TIMEOUT);
-    if (!got && host) refusedDirect.add(host);
+    got = await attempt('direct', url, null, directPatience);
+    if (!got && host) rememberRefusal(host);
   }
 
   /* One relay gets the job on its own, since that is usually enough and
