@@ -1722,13 +1722,38 @@ function renderRadio() {
 /* One player for anything that isn't a record: a live station, or a podcast
    episode. An episode can be seeked and remembers where you got to; a station
    can do neither, so the seek bar and skip buttons stand down for one. */
+/* A chapter of a book you own has no address — its url is the key it is
+   stored under, and the audio element needs a real one, made fresh each time
+   and let go of when the next thing starts. */
+let ownURL = '';
+function dropOwnURL() {
+  if (!ownURL) return;
+  URL.revokeObjectURL(ownURL);
+  ownURL = '';
+}
+
 async function playStream(item) {
   stopAll();                                   // the decks stand down
+  dropOwnURL();
+
+  let src = item.url;
+  if (String(item.url).startsWith(OWN)) {
+    const blob = await store.getAudio(item.url).catch(() => null);
+    if (!blob) { toast("That chapter's audio isn't on this device any more"); return; }
+    src = ownURL = URL.createObjectURL(blob);
+  }
+
   nowStream = item;
   rememberPlay(item);
   document.body.classList.add('on-air');
   document.body.classList.toggle('is-live', item.kind === 'station');
-  radioEl.src = item.url;
+
+  /* Where you got to, put back before the audio is handed over rather than
+     after. A file already on the device reports its length the instant it is
+     loaded, and a listener attached afterwards has already missed it — which
+     is how a book you own would forget your place while a podcast, coming
+     down a wire, remembered it. */
+  radioEl.src = src;
 
   $('#onAir').hidden = false;
   $('#onAirName').textContent = item.name;
@@ -1776,6 +1801,7 @@ function stopStation() {
   radioEl.pause();
   radioEl.removeAttribute('src');
   radioEl.load();
+  dropOwnURL();
   nowStream = null;
   playing = false;
   document.body.classList.remove('on-air', 'is-live');
@@ -2751,17 +2777,152 @@ async function bookChapters(book, opts = {}) {
   return chapters.length ? chapters : null;
 }
 
+/* ── books you already own ──
+
+   The Archive only has what is out of copyright, which leaves out nearly
+   everything anybody buys. A book you own is files on your device, so it goes
+   in the way your music does: copied into the app's own storage, listed
+   beside the free ones, and remembered where you got to. Nothing leaves the
+   device — the files are not uploaded anywhere, and they play with no
+   connection at all.
+
+   A chapter of one of these has no address to play from, so its url is the
+   key it is stored under. Everything that keys off a url — where you got to,
+   what you were last listening to — then works on it unchanged, and keeps
+   working across a reload, which a blob address would not. */
+
+const OWN_BOOKS_KEY = 'ownBooks';
+const OWN = 'own:';
+let ownBooks = [];
+const saveOwnBooks = () => store.setPref(OWN_BOOKS_KEY, ownBooks).catch(() => {});
+const ownBook = id => ownBooks.find(b => b.id === id);
+
+let pendingOwn = null;                    // files waiting to be given a name
+
+/* Named parts sort the way a person would read them: 2 before 10. */
+const partOrder = (a, b) => String(a.webkitRelativePath || a.name)
+  .localeCompare(String(b.webkitRelativePath || b.name), undefined, { numeric: true });
+
+async function pickedOwnBook(fileList) {
+  const files = [...fileList].filter(isAudio).sort(partOrder);
+  if (!files.length) { toast('No audio files in that lot'); return; }
+
+  /* Whatever the files already say about themselves is a better first guess
+     than an empty box: the album tag, or the folder they came out of. */
+  const tags = await readTags(files[0]).catch(() => ({}));
+  const folder = String(files[0].webkitRelativePath || '').split('/')[0];
+  /* A part number leading the filename names the part, not the book. An
+     album tag is already the book's own name, so that is left alone — some
+     books are called 1984. */
+  const fromName = (fromFilename(files[0].name).title || '')
+    .replace(/^\s*\d{1,3}[\s._-]+(?=\S)/, '');
+  pendingOwn = files;
+  $('#ownName').value = tags.album || folder || fromName;
+  $('#ownAuthor').value = tags.artist || '';
+  $('#ownCount').textContent =
+    `${files.length} file${files.length === 1 ? '' : 's'} · ` +
+    mb(files.reduce((n, f) => n + f.size, 0));
+  $('#ownErr').hidden = true;
+  $('#ownProgress').innerHTML = '';
+  openSheet('#ownBookSheet');
+}
+
+async function saveOwnBook() {
+  const files = pendingOwn || [];
+  const name = $('#ownName').value.trim();
+  const err = $('#ownErr');
+  if (!files.length) { closeSheets(); return; }
+  if (!name) { err.textContent = 'Give the book a name first.'; err.hidden = false; return; }
+  err.hidden = true;
+  await askToPersist();
+
+  const book = { id: OWN + uid(), own: true, name, art: '',
+    author: $('#ownAuthor').value.trim() || 'Your own copy', added: Date.now() };
+  const chapters = [];
+  let stopped = '';
+
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    $('#ownProgress').innerHTML =
+      `<p class="hint">Saving <b>${esc(f.name)}</b> — ${i + 1} of ${files.length}</p>` +
+      `<div class="bar"><i style="width:${Math.round((i / files.length) * 100)}%"></i></div>`;
+    await new Promise(r => setTimeout(r, 0));            // let the bar paint
+
+    const key = `${book.id}:${i}`;
+    try {
+      await store.putAudio(key, f);
+    } catch (e) {
+      /* An audiobook is big, and a phone fills up. What went in already is a
+         book worth keeping, so it is kept — just a shorter one, and said so. */
+      stopped = /quota/i.test((e && e.name) + ' ' + (e && e.message))
+        ? 'this device ran out of space' : "some of it wouldn't save";
+      break;
+    }
+    const tags = await readTags(f).catch(() => ({}));
+    chapters.push({ title: tags.title || fromFilename(f.name).title || f.name,
+      url: key, number: i + 1, duration: '' });
+  }
+
+  if (!chapters.length) {
+    err.textContent = stopped ? `Nothing could be saved — ${stopped}.` : "That wouldn't save.";
+    err.hidden = false;
+    $('#ownProgress').innerHTML = '';
+    return;
+  }
+
+  book.chapters = chapters;
+  ownBooks = [book, ...ownBooks];
+  saveOwnBooks();
+  pendingOwn = null;
+  closeSheets();
+  renderBooks();
+  refreshTiles();
+  toast(stopped
+    ? `Added ${chapters.length} of ${files.length} — ${stopped}`
+    : `Added ${book.name} · ${chapterCount(chapters.length)}`);
+  openBookChapters(book);
+}
+
+/* Removing one takes the audio with it — that is the whole point of it, and
+   leaving hundreds of megabytes behind on a phone would be rude. */
+async function forgetOwnBook(book) {
+  const held = ownBook(book.id);
+  if (!held) return;
+  for (const ch of held.chapters) {
+    if (nowStream && nowStream.url === ch.url) stopStation();
+    await store.delAudio(ch.url).catch(() => {});
+    delete episodePos[ch.url];
+  }
+  recentChapters = recentChapters.filter(ch => !String(ch.url).startsWith(book.id));
+  saveRecents();
+  ownBooks = ownBooks.filter(b => b.id !== book.id);
+  saveOwnBooks();
+  if (openBook && openBook.id === book.id) {
+    openBook = null;
+    $('#chapters').innerHTML = '';
+    $('#chaptersHead').hidden = true;
+    $('#forgetBook').hidden = true;
+  }
+  renderBooks();
+  render();
+  refreshStorage();
+  toast(`Removed ${held.name}`);
+}
+
 function bookTile(book) {
   const kept = isKept(book.id);
+  /* One of your own is already yours — there is nothing for a heart to do on
+     it, and it carries no cover art either. */
+  const heart = book.own ? '' : `
+        <span class="tile-save ${kept ? 'on' : ''}" data-keep="1" role="button"
+              aria-label="${kept ? 'Remove from your books' : 'Keep this book'}">
+          <svg class="ic"><use href="#i-heart"/></svg>
+        </span>`;
   return `
     <button class="tile" data-book='${esc(JSON.stringify(book))}'>
       <span class="tile-art" style="background:linear-gradient(150deg,hsl(${hueOf(book.id)} 45% 40%),hsl(${(hueOf(book.id) + 40) % 360} 40% 26%))">
         <span class="tile-letter">${esc((book.name || '?').trim()[0].toUpperCase())}</span>
-        <img src="${esc(book.art)}" alt="" loading="lazy" onerror="this.remove()" />
-        <span class="tile-save ${kept ? 'on' : ''}" data-keep="1" role="button"
-              aria-label="${kept ? 'Remove from your books' : 'Keep this book'}">
-          <svg class="ic"><use href="#i-heart"/></svg>
-        </span>
+        ${book.art ? `<img src="${esc(book.art)}" alt="" loading="lazy" onerror="this.remove()" />` : ''}${heart}
       </span>
       <b>${esc(book.name)}</b>
       <span>${esc(book.author || 'Audiobook')}</span>
@@ -2797,6 +2958,15 @@ async function openBookChapters(book) {
   openBook = book;
   $('#chaptersHead').hidden = false;
   $('#chaptersHead').textContent = book.name;
+  $('#forgetBook').hidden = !book.own;
+
+  // one of your own is already here, in full — there is nothing to fetch
+  if (book.own) {
+    const held = ownBook(book.id) || book;
+    renderChapters(held, held.chapters || []);
+    bookStatus(`${chapterCount((held.chapters || []).length)} · on this device`);
+    return;
+  }
 
   const held = bookLists[book.id];
   if (held && held.chapters.length) {
@@ -2928,6 +3098,8 @@ function renderBookShelves() {
 
 function renderBooks() {
   $('#bookPanel').hidden = settings.source !== 'books' || !!category;
+  $('#ownBooksHead').hidden = !ownBooks.length;
+  $('#ownBooks').innerHTML = ownBooks.map(bookTile).join('');
   $('#savedBooksHead').hidden = !books.length;
   $('#savedBooks').innerHTML = books.map(bookTile).join('');
   if (settings.source === 'books') renderBookShelves();
@@ -2950,6 +3122,17 @@ function onBookClick(e) {
 }
 $('#bookResults').addEventListener('click', onBookClick);
 $('#savedBooks').addEventListener('click', onBookClick);
+$('#ownBooks').addEventListener('click', onBookClick);
+
+$('#addOwnBook').addEventListener('click', () => $('#bookFiles').click());
+$('#bookFiles').addEventListener('change', e => {
+  pickedOwnBook(e.target.files);
+  e.target.value = '';
+});
+$('#ownSave').addEventListener('click', saveOwnBook);
+$('#forgetBook').addEventListener('click', () => {
+  if (openBook && openBook.own) forgetOwnBook(openBook);
+});
 
 const playChapter = e => {
   const li = e.target.closest('li[data-episode]');
@@ -4410,6 +4593,13 @@ document.addEventListener('keydown', e => {
     stations = Array.isArray(savedStations) ? savedStations : [];
   } catch {
     stations = [];
+  }
+
+  try {
+    const own = await store.getPref(OWN_BOOKS_KEY);
+    ownBooks = Array.isArray(own) ? own.filter(b => b && Array.isArray(b.chapters)) : [];
+  } catch {
+    ownBooks = [];
   }
 
   try {
