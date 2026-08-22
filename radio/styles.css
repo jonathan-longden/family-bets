@@ -500,6 +500,8 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 
 /* ── shelves: the rows a browse page opens onto ── */
 
+.version { font-size: 11px; color: var(--ink-dim); opacity: .7; margin-top: 6px; }
+
 .hint.warn {
   border-left: 3px solid var(--hot); padding-left: 10px; margin: 10px 0 2px;
   color: var(--ink);
