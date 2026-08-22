@@ -1170,8 +1170,12 @@ function renderFolder(permission = 'granted') {
   const box = $('#folderSync');
   if (!box) return;
   if (!canWatchFolder()) {
-    box.innerHTML = `<p class="hint">This browser can't keep a folder linked. ` +
-      `On a computer, Chrome or Edge can — everywhere else, "Choose a folder" above imports the lot in one go.</p>`;
+    box.innerHTML = `<p class="hint">This browser can't watch a folder for new music — ` +
+      (isPhone()
+        ? 'no phone browser can, and none can go looking through your storage either. ' +
+          'Choosing the files yourself is the way in, and a whole folder goes in at once.'
+        : 'Chrome or Edge on a computer can. "Choose a folder" above imports the lot in one go.') +
+      '</p>';
     return;
   }
   if (!folderHandle) {
@@ -2943,6 +2947,27 @@ function onTrackListClick(e) {
 $('#library').addEventListener('click', onTrackListClick);
 
 /* adding music */
+/* A phone cannot pick a folder. webkitdirectory is a desktop thing — the
+   property exists on Android, which makes feature detection lie, but the
+   picker there hands back nothing. So on a phone the button is taken away
+   and Choose files is pointed at the way that actually works: open the
+   picker, select the lot, one import.
+
+   Scanning storage without being asked isn't on offer anywhere. No browser
+   will let a page read a device's files; it only ever sees what's handed to
+   it, which is the whole reason a web app can be trusted with a music
+   library in the first place. */
+const isPhone = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+
+if (isPhone()) {
+  $('#pickFolder').hidden = true;
+  $('#dropTitle').textContent = 'Add your music';   // nothing gets dragged on a phone
+  $('#dropHint').innerHTML =
+    'Tap <b>Choose files</b>, then select everything you want — most file ' +
+    'pickers have a <b>Select all</b> in their menu, and a whole folder comes ' +
+    'in at once. It is all copied into the app, so it plays offline.';
+}
+
 $('#pickFiles').addEventListener('click', () => $('#fileInput').click());
 $('#pickFolder').addEventListener('click', () => $('#folderInput').click());
 $('#fileInput').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });

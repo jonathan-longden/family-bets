@@ -69,12 +69,21 @@ download), and it keeps them rolling.
 
 Open the app and use **Add music**:
 
-- **Choose files** — pick one or many audio files.
-- **Choose a folder** — grab an entire music folder in one go.
+- **Choose files** — pick one or many audio files. On a phone this is the
+  one that matters: open the picker, use its **Select all**, and a whole
+  folder goes in at once.
+- **Choose a folder** — a computer only; `webkitdirectory` isn't something
+  phone browsers do, so the button isn't shown there.
 - **Drag and drop** — files or whole folders, on a computer.
 - **From a link** — paste a direct link to an audio file you're allowed to
   download. It's fetched once and saved on the device, so it plays offline
   from then on.
+
+**Tunage can't go looking for your music by itself.** No browser lets a page
+read a device's storage — it only ever sees files you hand it. That's the
+same rule that makes a web app safe to point at a music library, and there's
+no permission that turns it off. Picking the files is the way in, and it's
+a one-time job: they're copied into the app and stay there.
 
 MP3, M4A, AAC, OGG, Opus, WAV and FLAC all work, as far as the browser
 supports them. Files never leave the device — there's no server involved.
