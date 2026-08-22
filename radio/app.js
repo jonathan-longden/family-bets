@@ -238,6 +238,7 @@ const settings = {
   crossfade: stored.crossfade !== false,
   level: stored.level !== false,
   autoListen: stored.autoListen !== false,
+  relayFeeds: stored.relayFeeds !== false,
 };
 const saveSettings = () => localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
 
@@ -1905,6 +1906,67 @@ function parseFeed(xml) {
   return { title: text(channel, 'title'), art: showArt || '', episodes };
 }
 
+/* ── reading a feed that doesn't want to be read ──
+
+   A podcast's feed is a plain XML file, but the browser will only hand it
+   over if the publisher's server says other sites may read it. Plenty don't
+   — not as a policy, just because nobody set the header — so the feed comes
+   back blocked even though the episodes themselves play perfectly.
+
+   Without a server of our own the only way round it is to ask someone whose
+   server does send the header to fetch the file and pass it on. That is what
+   a relay is. It's tried only after a direct read has failed, so feeds that
+   are readable stay between you and the publisher, and it can be turned off
+   — a relay operator can see which show you opened. Two are tried in turn so
+   one being down or busy isn't the end of it. */
+
+const FEED_RELAYS = [
+  { name: 'AllOrigins', url: u => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}` },
+  { name: 'CodeTabs', url: u => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(u)}` },
+];
+const FEED_TIMEOUT = 12000;
+const FEED_CACHE_TTL = 10 * 60 * 1000;
+const feedCache = new Map();            // this visit only — feeds change
+
+async function getText(url, ms = FEED_TIMEOUT) {
+  const stop = new AbortController();
+  const timer = setTimeout(() => stop.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: stop.signal,
+      headers: { Accept: 'application/rss+xml, application/xml, text/xml, */*' } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    if (!text.trim()) throw new Error('empty');
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/* Direct first, then a relay if that was refused. Returns how it was got so
+   the page can say so. */
+async function fetchFeed(url, { onRelay = () => {} } = {}) {
+  const held = feedCache.get(url);
+  if (held && Date.now() - held.at < FEED_CACHE_TTL) return held.got;
+
+  let got = null;
+  try {
+    got = { xml: await getText(url), via: null };
+  } catch {}
+
+  if (!got && settings.relayFeeds) {
+    for (const relay of FEED_RELAYS) {
+      onRelay(relay.name);
+      try {
+        got = { xml: await getText(relay.url(url)), via: relay.name };
+        break;
+      } catch {}
+    }
+  }
+  if (got) feedCache.set(url, { at: Date.now(), got });
+  return got;
+}
+
 async function openPodcast(show) {
   openShow = show;
   $('#episodesHead').hidden = false;
@@ -1912,26 +1974,29 @@ async function openPodcast(show) {
   $('#episodes').innerHTML = '';
   podcastStatus('Fetching episodes…');
 
-  let xml;
-  try {
-    const res = await fetch(show.feed);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    xml = await res.text();
-  } catch {
-    podcastStatus(`Couldn't read ${show.name}'s feed. Plenty of podcast feeds don't let ` +
-      'other sites read them from a browser, and without a server of our own there ' +
-      'is no way round it.');
+  // a relay takes a moment longer, so say what's going on rather than sit there
+  const got = await fetchFeed(show.feed, {
+    onRelay: name => podcastStatus(`${show.name} blocks other sites from reading its ` +
+      `feed — asking ${name} to fetch it…`),
+  });
+  if (!got) {
+    podcastStatus(settings.relayFeeds
+      ? `Couldn't read ${show.name}'s feed, directly or through a relay. Either the ` +
+        'feed has moved or both relays are busy — worth another try in a minute.'
+      : `Couldn't read ${show.name}'s feed. This publisher doesn't let other sites ` +
+        'read it, and relaying is switched off.');
     return;
   }
 
-  const feed = parseFeed(xml);
+  const feed = parseFeed(got.xml);
   if (!feed || !feed.episodes.length) {
     podcastStatus(`Nothing playable found in ${show.name}'s feed.`);
     return;
   }
   if (!show.art && feed.art) show.art = feed.art;
 
-  podcastStatus(`${feed.episodes.length} episode${feed.episodes.length === 1 ? '' : 's'}`);
+  podcastStatus(`${feed.episodes.length} episode${feed.episodes.length === 1 ? '' : 's'}` +
+    (got.via ? ` · this one blocks other sites, so it came through ${got.via}` : ''));
   $('#episodes').innerHTML = feed.episodes.map(ep => {
     const at = Number(episodePos[ep.url]) || 0;
     const when = ep.date ? new Date(ep.date) : null;
@@ -2060,6 +2125,8 @@ function renderPodcasts() {
   $('#podcastPanel').hidden = settings.source !== 'podcasts';
   $('#subsHead').hidden = !podcasts.length;
   $('#subscriptions').innerHTML = podcasts.map(showTile).join('');
+  $('#relayBtn').classList.toggle('on', settings.relayFeeds);
+  $('#relayBtn').textContent = settings.relayFeeds ? 'Relay on' : 'Relay off';
   if (settings.source === 'podcasts') renderPodcastShelves();
   refreshTiles();
 }
@@ -2074,6 +2141,17 @@ function subscribe(show) {
 }
 
 /* ── wiring ── */
+
+$('#relayBtn').addEventListener('click', () => {
+  settings.relayFeeds = !settings.relayFeeds;
+  saveSettings();
+  feedCache.clear();                 // so the next open actually re-decides
+  renderPodcasts();
+  toast(settings.relayFeeds
+    ? 'Feeds that block other sites will be relayed'
+    : 'Feeds that block other sites will be left unread');
+  if (openShow) openPodcast(openShow);
+});
 
 $('#podcastGo').addEventListener('click', () => searchPodcasts($('#podcastSearch').value.trim()));
 $('#podcastSearch').addEventListener('keydown', e => {

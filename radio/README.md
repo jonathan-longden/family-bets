@@ -213,13 +213,32 @@ An episode isn't a live stream, so it behaves like one: the seek bar works,
 the skip buttons jump back 15 seconds and forward 30, and where you got to
 is remembered — come back later and it picks up from there.
 
-**Some feeds can't be read.** A podcast's feed has to allow other sites to
-fetch it, and plenty don't. Without a server of our own there's no way
-round that, so those shows say so plainly instead of failing quietly. The
-episode audio itself almost always plays — it's reading the list of
-episodes that can be refused. If a show you follow won't load, its feed
-address can still be added by hand under **Add a show by its feed
-address**, though the same restriction applies.
+### Feeds that block other sites
+
+A podcast's feed is a plain XML file, but a browser will only hand it over
+if the publisher's server says other sites may read it. Plenty don't — not
+as a policy, just because nobody ever set the header — so the feed comes
+back refused even though the episodes themselves play perfectly.
+
+Without a server of our own the only way round it is to ask someone whose
+server does send that header to fetch the file and pass it on. Tunage does
+that, and is straight about it:
+
+- **A direct read is always tried first.** A feed that can be read stays
+  between you and the publisher — nothing is sent anywhere else.
+- **Only a refused feed is relayed**, through
+  [AllOrigins](https://allorigins.win/) and then
+  [CodeTabs](https://codetabs.com/) if the first is busy.
+- **The page says when it used one**, and which — "this one blocks other
+  sites, so it came through AllOrigins".
+- **It can be turned off.** The **Relay on / Relay off** chip in the
+  Podcasts section sits next to a plain statement of the trade: a relay can
+  see which show you opened. Off means blocked feeds simply say so, as they
+  did before.
+
+Feeds are held for ten minutes within a visit, so reopening a show doesn't
+send anyone back for the same file. If both relays are busy the page says
+that too, rather than failing quietly.
 
 ## Voice
 
