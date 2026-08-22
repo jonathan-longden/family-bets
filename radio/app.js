@@ -1446,7 +1446,18 @@ function refreshTiles() {
 /* Directory rows are fetched one after another rather than all at once —
    these are volunteer-run services, and a row landing at a time reads
    better than five rows appearing together anyway. */
-async function fillShelves(box, rows, load, { onEmpty = () => {}, together = false } = {}) {
+/* Why a section has no rows is about the rows, and belongs on a line of its
+   own — the status above it is busy saying what happened to whatever you
+   opened. */
+function rowsNote(where, text, detail = '') {
+  const el = $(where);
+  if (!el) return;
+  el.hidden = !text;
+  el.innerHTML = esc(text || '') +
+    (detail ? `<br><span class="why">Tried — ${esc(detail)}</span>` : '');
+}
+
+async function fillShelves(box, rows, load, { note = '', message = '', together = false } = {}) {
   let why = '', served = 0;
 
   /* Rows are fetched one after another by default — these are volunteer-run
@@ -1487,7 +1498,9 @@ async function fillShelves(box, rows, load, { onEmpty = () => {}, together = fal
   /* Nothing to browse at all tells you nothing about why on its own — and a
      row of your own further up the page doesn't answer it either. Whoever
      owns the section gets to say what happened. */
-  if (rows.length && !served) onEmpty(why);
+  if (!note) return;
+  if (rows.length && !served) rowsNote(note, message, why);
+  else rowsNote(note, '');                 // there is something to look at again
 }
 
 
@@ -1671,8 +1684,9 @@ function renderRadioShelves() {
       if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
     }
     fillShelves(box, plan.filter(r => !r.local), stationShelf, {
-      onEmpty: () => radioStatus("Couldn't reach the station directory, so there are " +
-        'no rows to browse. Searching and your own stations still work.'),
+      note: '#radioRowsNote',
+      message: "Couldn't reach the station directory, so there are no rows to browse. " +
+        'Searching and your own stations still work.',
     });
   }
 
@@ -2418,8 +2432,10 @@ function renderPodcastShelves() {
       if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
     }
     fillShelves(box, plan.filter(r => !r.local), podcastShelf, {
-      onEmpty: () => podcastStatus("Couldn't reach the podcast directory, so there are " +
-        'no rows to browse. Searching and your subscriptions still work.'),
+      // its own line: an open show's status is about the show, not the rows
+      note: '#podcastRowsNote',
+      message: "Couldn't reach the podcast directory, so there are no rows to browse. " +
+        'Searching and your subscriptions still work.',
     });
   }
 
@@ -2578,21 +2594,25 @@ function archiveReachable() {
   });
 }
 
+/* One line, with the rest behind a tap. The full explanation is worth having
+   once and worth reading once; it isn't worth the whole page every time. */
 async function checkArchive() {
   const warn = $('#bookWarn');
   if (!warn) return;
   const ok = await archiveReachable();
   warn.hidden = ok;
+  if (ok) $('#bookWarnDetail').hidden = true;
   if (!ok) {
-    warn.innerHTML = "This connection can't reach <b>archive.org</b> at all — not just " +
-      'for reading its catalogue, which is why the covers are blank. Browsing still ' +
-      'works: a relay fetches the lists for you.' +
-      '<br><br>Chapters are played from the Archive\'s own storage servers rather than ' +
-      'from archive.org, and those are often left alone where the main address is ' +
-      'blocked — so open a book and try one. If it plays, this is only about the ' +
-      "covers. If it doesn't, the block covers the whole Archive, and another network, " +
-      'mobile data instead of wi-fi, or a VPN will fix it. A filter on your router or ' +
-      'from your provider is the usual cause.';
+    $('#bookWarnShort').textContent =
+      "The covers are blank because this connection can't reach archive.org.";
+    $('#bookWarnDetail').innerHTML =
+      'Browsing still works — a relay fetches the lists for you. Chapters are played ' +
+      "from the Archive's own storage servers rather than from archive.org, and those " +
+      'are often left alone where the main address is blocked, so open a book and try ' +
+      'one. If it plays, this is only about the covers. If it does not, the block ' +
+      'covers the whole Archive: mobile data instead of wi-fi, another network, or a ' +
+      'VPN will fix it, and a filter on your router or from your provider is the usual ' +
+      'cause.';
   }
 }
 
@@ -2689,6 +2709,7 @@ function bookTile(book) {
   return `
     <button class="tile" data-book='${esc(JSON.stringify(book))}'>
       <span class="tile-art" style="background:linear-gradient(150deg,hsl(${hueOf(book.id)} 45% 40%),hsl(${(hueOf(book.id) + 40) % 360} 40% 26%))">
+        <span class="tile-letter">${esc((book.name || '?').trim()[0].toUpperCase())}</span>
         <img src="${esc(book.art)}" alt="" loading="lazy" onerror="this.remove()" />
         <span class="tile-save ${kept ? 'on' : ''}" data-keep="1" role="button"
               aria-label="${kept ? 'Remove from your books' : 'Keep this book'}">
@@ -2839,9 +2860,10 @@ function renderBookShelves() {
     }
     fillShelves(box, plan.filter(r => !r.local), bookShelf, {
       together: true,
-      onEmpty: why => bookStatus("Couldn't reach the Internet Archive, so there is " +
-        'nothing to show here yet. Search still works if it comes back, and books ' +
-        'you have already opened are still here.', why),
+      note: '#bookRowsNote',
+      message: "Couldn't reach the Internet Archive, so there is nothing to browse here " +
+        'yet. Search still works if it comes back, and books you have already opened ' +
+        'are still here.',
     });
   }
 
@@ -2859,6 +2881,12 @@ function renderBooks() {
 }
 
 /* ── wiring ── */
+
+$('#bookWarnMore').addEventListener('click', () => {
+  const detail = $('#bookWarnDetail');
+  detail.hidden = !detail.hidden;
+  $('#bookWarnMore').textContent = detail.hidden ? 'Why?' : 'Hide';
+});
 
 $('#bookGo').addEventListener('click', () => searchBooks($('#bookSearch').value.trim()));
 $('#bookSearch').addEventListener('keydown', e => {

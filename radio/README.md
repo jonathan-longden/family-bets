@@ -324,7 +324,10 @@ it once is enough.
 **A blank cover is a signal.** Artwork is a plain image load with no
 cross-origin question attached to it, so if that fails as well the Archive
 isn't refusing the page — it can't be reached from that connection at all.
-The section checks with a one-pixel image and says so.
+The section checks with a one-pixel image and says so — in one line, with
+the rest behind a tap, because the full explanation is worth reading once
+and isn't worth the whole page every time. A cover that can't be fetched
+leaves the book's initial rather than an empty rectangle.
 
 There is one thing left to try when that happens, and it's built in.
 `archive.org` doesn't serve files itself: it redirects to storage nodes

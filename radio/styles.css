@@ -481,6 +481,11 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
   font-size: 26px; font-weight: 800; color: #12100C;
 }
 .tile-art img { width: 100%; height: 100%; object-fit: cover; }
+/* the letter sits in the same cell as the artwork, so a cover that can't be
+   fetched leaves the book's initial rather than an empty rectangle */
+.tile-art > img,
+.tile-art > .tile-letter { grid-area: 1 / 1; }
+.tile-letter { color: rgba(255,255,255,.82); }
 .tile.on .tile-art { box-shadow: 0 4px 12px rgba(0,0,0,.45), 0 0 0 2px var(--accent); }
 .tile b {
   font-size: 12px; font-weight: 600; line-height: 1.25;
