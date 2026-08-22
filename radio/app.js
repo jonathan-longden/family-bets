@@ -306,7 +306,7 @@ function deletePlaylist(plId) {
 /* What's on air: everything, or one playlist in its own order. */
 function pool(source = settings.source) {
   // none of these are tracks
-  if (source === 'radio' || source === 'podcasts' || source === 'youtube') return [];
+  if (source === 'radio' || source === 'podcasts') return [];
   const playable = t => t && !t.unplayable && !t.missing;
   const pl = source.startsWith('pl:') ? playlistById(source.slice(3)) : null;
   if (!pl) return lib.filter(playable);
@@ -1786,54 +1786,6 @@ $('#feedSave').addEventListener('click', async () => {
 
 
 
-/* ───────────────────────── YouTube ─────────────────────────
-
-   A launcher, not a player. An embedded player stops the moment you leave the
-   page and carries none of your account, so trying to be a YouTube client in
-   here was always the worse version of an app already on the phone. This hands
-   the address over and gets out of the way.
-
-   intent:// is how a web page reaches Android's Open-with list; everywhere else
-   an ordinary link goes to whatever handles YouTube. */
-
-const YT_HOME = 'https://www.youtube.com/';
-
-const isAndroid = () => /Android/i.test(navigator.userAgent || '');
-
-function ytStatus(text) {
-  const el = $('#ytStatus');
-  if (!el) return;
-  el.hidden = !text;
-  el.textContent = text || '';
-}
-
-function intentUrlFor(httpsUrl) {
-  let u;
-  try { u = new URL(httpsUrl); } catch { return null; }
-  return `intent://${u.host}${u.pathname}${u.search}#Intent;scheme=https;` +
-    'action=android.intent.action.VIEW;' +
-    `S.browser_fallback_url=${encodeURIComponent(httpsUrl)};end`;
-}
-
-function openYouTubeApp() {
-  const intent = isAndroid() ? intentUrlFor(YT_HOME) : null;
-  const a = document.createElement('a');
-  a.href = intent || YT_HOME;
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  ytStatus('');
-}
-
-function renderYouTube() {
-  const panel = $('#youtubePanel');
-  if (panel) panel.hidden = settings.source !== 'youtube';
-}
-
-$('#ytOpenApp').addEventListener('click', openYouTubeApp);
-
 /* ───────────────────────── backup ─────────────────────────
 
    Playlists, saved stations and subscriptions live in this browser and
@@ -2330,7 +2282,7 @@ async function runPendingCommand() {
   // ?open=radio jumps straight to a section without playing anything — that's
   // what the icon's long-press shortcuts use.
   const open = params && params.get('open');
-  if (open === 'radio' || open === 'podcasts' || open === 'youtube' || open === 'tunage') {
+  if (open === 'radio' || open === 'podcasts' || open === 'tunage') {
     settings.source = open;
     saveSettings();
     rebuildQueue();
@@ -2426,7 +2378,6 @@ function render() {
   renderDecks();
   renderRadio();
   renderPodcasts();
-  renderYouTube();
   renderSources();
   renderQueue();
   renderPlaylist();
@@ -2718,7 +2669,6 @@ function renderSources() {
       ? `${stations.length} saved` : 'live stations') +
     chip('podcasts', 'Podcasts', podcasts.length
       ? `${podcasts.length} subscribed` : 'shows and episodes') +
-    chip('youtube', 'YouTube', 'opens your app') +
     '<button class="source new" data-source="new"><b>+ New</b><span>playlist</span></button>';
 }
 
@@ -2800,8 +2750,7 @@ $('#sources').addEventListener('click', e => {
   rebuildQueue();
   render();
   // these are sections to browse, not something to start playing on its own
-  if (settings.source === 'radio' || settings.source === 'podcasts' ||
-      settings.source === 'youtube') return;
+  if (settings.source === 'radio' || settings.source === 'podcasts') return;
   if (onAir()) stopStation();
   // picking a playlist means that playlist's music, right now
   if (!pool().length) { stopAll(); toast(emptyMessage()); render(); return; }

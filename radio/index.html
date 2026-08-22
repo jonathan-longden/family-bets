@@ -34,7 +34,6 @@
     <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3m6-3a6 6 0 0 1-5 5.9V20h3v2H8v-2h3v-3.1A6 6 0 0 1 6 11h2a4 4 0 0 0 8 0z"/></symbol>
     <symbol id="i-radio" viewBox="0 0 24 24"><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6m6.4-4.4-1.4 1.4a7 7 0 0 1 0 10l1.4 1.4a9 9 0 0 0 0-12.8M7 6 5.6 4.6a9 9 0 0 0 0 12.8L7 16a7 7 0 0 1 0-10M20.9 1.7l-1.4 1.4a12 12 0 0 1 0 17l1.4 1.4a14 14 0 0 0 0-19.8M4.5 3.1 3.1 1.7a14 14 0 0 0 0 19.8l1.4-1.4a12 12 0 0 1 0-17"/></symbol>
     <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21S3.5 15.4 3.5 9.6A5.1 5.1 0 0 1 12 6.2a5.1 5.1 0 0 1 8.5 3.4C20.5 15.4 12 21 12 21"/></symbol>
-    <symbol id="i-yt" viewBox="0 0 24 24"><path d="M23 12s0-3.5-.4-5.2a2.9 2.9 0 0 0-2-2C18.8 4.3 12 4.3 12 4.3s-6.8 0-8.6.5a2.9 2.9 0 0 0-2 2C1 8.5 1 12 1 12s0 3.5.4 5.2a2.9 2.9 0 0 0 2 2c1.8.5 8.6.5 8.6.5s6.8 0 8.6-.5a2.9 2.9 0 0 0 2-2C23 15.5 23 12 23 12M9.8 15.4V8.6l5.7 3.4z"/></symbol>
     <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.6 13.4a4 4 0 0 1 0-5.7l2.8-2.8a4 4 0 0 1 5.7 5.7l-1.4 1.4-1.4-1.4 1.4-1.4a2 2 0 0 0-2.8-2.8L12 9.1a2 2 0 0 0 0 2.8zm2.8-2.8a4 4 0 0 1 0 5.7l-2.8 2.8a4 4 0 0 1-5.7-5.7l1.4-1.4 1.4 1.4-1.4 1.4a2 2 0 0 0 2.8 2.8l2.9-2.7a2 2 0 0 0 0-2.8z"/></symbol>
   </defs>
 </svg>
@@ -169,24 +168,6 @@
   </section>
 
   <!-- ───────────── radio ───────────── -->
-  <!-- ───────────── youtube ───────────── -->
-  <!-- ───────────── youtube ─────────────
-       A launcher, not a player: one button that hands YouTube to the app you
-       already use for it. -->
-  <section class="panel radio-panel" id="youtubePanel" hidden>
-    <h2><svg class="ic"><use href="#i-yt"/></svg> YouTube</h2>
-    <p class="hint">Opens YouTube in the app you use for it, where you get your
-      own account and playback that carries on with the screen off.</p>
-
-    <button class="btn wide" id="ytOpenApp">
-      <svg class="ic"><use href="#i-yt"/></svg> Open YouTube app</button>
-    <p class="hint" id="ytStatus" hidden></p>
-
-    <p class="hint">If your phone asks which app to use, pick the one you want —
-      and tick <b>Always</b> to stop it asking. To change it later:
-      <b>Settings → Apps → Default apps → Opening links</b>.</p>
-  </section>
-
   <section class="panel radio-panel" id="radioPanel" hidden>
     <h2><svg class="ic"><use href="#i-radio"/></svg> Radio</h2>
     <p class="hint">Live stations from around the world. This part needs a

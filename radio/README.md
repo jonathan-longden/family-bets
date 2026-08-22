@@ -56,8 +56,6 @@ download), and it keeps them rolling.
   connection, unlike everything else here.
 - **Podcasts.** Search for a show, subscribe, and pick an episode. Episodes
   can be seeked, skip in 30-second jumps, and remember where you got to.
-- **YouTube.** One button that opens YouTube in the app you already use for
-  it, where your account and background playback come along.
 - **Backup.** Save everything that isn't the music itself — playlists,
   saved stations, subscriptions, loudness readings — to a small file you
   keep, and restore it later or on another device.
@@ -294,25 +292,6 @@ One more thing worth knowing: a browser won't always let a page opened by a
 shortcut start playing without you touching it. When that happens Tunage
 loads with the track or station ready and says *tap play* rather than
 pretending it worked.
-
-## YouTube
-
-The **YouTube** chip holds one button: **Open YouTube app**. It hands YouTube
-to whatever app your phone uses for it, and gets out of the way.
-
-That's deliberate. An embedded player inside a web page stops the moment you
-leave the page, carries none of your account, and can't play with the screen
-off — so an in-app YouTube was always going to be the worse version of the
-app already on your phone. Handing it over is the honest answer.
-
-On Android the button uses an `intent://` address, which is what makes the
-phone offer its **Open with** list rather than going straight to a default.
-If your phone asks which app to use, pick the one you want and tick
-**Always** to stop it asking. To change it later:
-**Settings → Apps → Default apps → Opening links**.
-
-Everywhere else it's an ordinary link to youtube.com, which goes wherever
-that platform sends YouTube links.
 
 ## Backup
 
