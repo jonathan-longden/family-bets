@@ -249,6 +249,7 @@ let recent = [];           // ids kept out of the next reshuffle
 let sleep = { mode: null, until: 0 };
 let playlists = [];        // [{ id, name, tracks: [trackId], created }]
 let search = '';           // what's typed in the library search box
+let storeOk = true;        // false when the database wouldn't open at all
 
 const byId = id => lib.find(t => t.id === id);
 
@@ -306,7 +307,7 @@ function deletePlaylist(plId) {
 function pool(source = settings.source) {
   // none of these are tracks
   if (source === 'radio' || source === 'podcasts' || source === 'youtube') return [];
-  const playable = t => t && !t.unplayable;
+  const playable = t => t && !t.unplayable && !t.missing;
   const pl = source.startsWith('pl:') ? playlistById(source.slice(3)) : null;
   if (!pl) return lib.filter(playable);
   return pl.tracks.map(byId).filter(playable);
@@ -591,6 +592,11 @@ function releaseDeck(d) {
 async function loadInto(d, track) {
   const blob = await store.getAudio(track.id);
   if (!blob) throw new Error('missing audio');
+  loadFailures = 0;
+  if (track.missing) {                       // it reads again, so stop calling it missing
+    delete track.missing;
+    store.putTrack(track).catch(() => {});
+  }
   if (d.url) URL.revokeObjectURL(d.url);
   d.url = URL.createObjectURL(blob);
   d.id = track.id;
@@ -616,7 +622,7 @@ async function playTrack(track, { fade = false } = {}) {
     try {
       await loadInto(incoming, track);
     } catch {
-      return dropMissing(track);
+      return skipUnloadable(track);
     }
     setLevel(incoming, 0);
     fading = true;
@@ -633,7 +639,7 @@ async function playTrack(track, { fade = false } = {}) {
     try {
       await loadInto(incoming, track);
     } catch {
-      return dropMissing(track);
+      return skipUnloadable(track);
     }
     setLevel(incoming, 1);
     const outgoing = deck();
@@ -658,17 +664,39 @@ async function playTrack(track, { fade = false } = {}) {
   updateMediaSession();
 }
 
-/* Two very different failures used to land here together. A file whose audio
-   has actually gone is worth removing; a file this browser simply can't decode
-   — a FLAC in Safari, say — is still perfectly good music on another device, so
-   deleting it would be destroying something the listener still owns. */
-function dropMissing(track) {
-  toast('That file has gone — removed');
-  lib = lib.filter(t => t.id !== track.id);
-  playlists.forEach(pl => { pl.tracks = pl.tracks.filter(x => x !== track.id); });
-  savePlaylists();
-  store.delTrack(track.id).catch(() => {});
-  store.delAudio(track.id).catch(() => {});      // don't leave the bytes behind
+/* A track that won't load is skipped, never deleted.
+
+   This used to remove the track and its audio outright, on the reasoning that
+   a file whose audio has gone is worth clearing away. The reasoning was wrong,
+   because it could not tell that case apart from the database simply being
+   unavailable for a moment — and a transaction can abort for reasons that have
+   nothing to do with the file: storage pressure, a version change pending in
+   another tab, the moment after a service worker takes over. It then called
+   next(), which loaded the next track, which failed the same way. One bad
+   moment at startup could walk the whole library, deleting as it went.
+
+   Nothing here deletes now. A library row is a few hundred bytes; keeping one
+   that can't currently be read costs nothing, and it means no failure can
+   silently destroy a collection. Deleting stays where it belongs: on the
+   button the listener presses. */
+
+let loadFailures = 0;          // consecutive, reset by any track that does load
+
+function skipUnloadable(track) {
+  track.missing = true;
+  store.putTrack(track).catch(() => {});     // best effort; a skip survives a reload
+  loadFailures++;
+
+  if (loadFailures >= 3) {
+    // something bigger than one file is wrong — stop rather than walk the library
+    stopAll();
+    rebuildQueue();
+    render();
+    toast("Can't read the music store just now — nothing has been deleted. Try reopening Tunage.");
+    return;
+  }
+
+  toast(`Skipping ${track.title || track.file} — its audio wouldn't load`);
   rebuildQueue();
   render();
   next();
@@ -746,6 +774,7 @@ function stopAll() {
 }
 
 function emptyMessage() {
+  if (!storeOk) return "Couldn't open the music store — nothing has been lost, try reopening Tunage";
   if (!lib.length) return 'Add a few tracks first — then this never stops';
   if (!pool().length) return 'This playlist is empty — add tracks from Your music';
   return '';
@@ -2721,9 +2750,10 @@ function trackRow(t, { inPlaylist = false } = {}) {
     ? '<button class="mini" data-act="unpl">Remove</button>'
     : '<button class="mini add" data-act="addpl" aria-label="Add to a playlist">+ Playlist</button>' +
       '<button class="mini danger" data-act="del" aria-label="Delete"><svg class="ic"><use href="#i-trash"/></svg></button>';
-  const note = t.unplayable ? " · can't play in this browser" : '';
+  const note = t.unplayable ? " · can't play in this browser"
+    : t.missing ? " · audio wouldn't load — still here, not deleted" : '';
   return `
-    <li data-id="${t.id}" class="${t.unplayable ? 'unplayable' : ''}">
+    <li data-id="${t.id}" class="${t.unplayable || t.missing ? 'unplayable' : ''}">
       <span class="dot" style="background:hsl(${hueOf(t.id)} 60% 55%)"></span>
       <span class="who" data-act="play">
         <b>${esc(t.title || t.file)}</b>
@@ -2744,6 +2774,13 @@ function renderLibrary() {
       || (a.title || '').localeCompare(b.title || ''));
   $('#library').innerHTML = list.map(t => trackRow(t)).join('');
   $('#libEmpty').hidden = !!lib.length;
+  if (!storeOk) {
+    $('#libEmpty').hidden = false;
+    $('#libEmpty').textContent =
+      "Couldn't open the music store on this device, so nothing can be listed. " +
+      'Your music has not been deleted — close Tunage and open it again. ' +
+      "Don't add it all over again: if it is still there, you would end up with two of everything.";
+  }
   $('#libNoMatch').hidden = !(search && lib.length && !list.length);
   $('#libSearch').hidden = lib.length < 2;
   $('#libCount').textContent = !lib.length ? ''
@@ -3075,7 +3112,12 @@ document.addEventListener('keydown', e => {
   try {
     lib = (await store.allTracks()).sort((a, b) => a.added - b.added);
   } catch {
-    toast("This browser wouldn't open the music store — try leaving private mode");
+    /* An unreadable store is not an empty one, and the difference matters: told
+       "add a few tracks first", anyone would add them again — on top of a
+       library that is still there, unreadable for the moment. So it says what
+       actually happened and offers another go. */
+    storeOk = false;
+    toast("Couldn't open the music store — your music is still there");
   }
 
   try {

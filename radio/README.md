@@ -347,6 +347,28 @@ from an old phone can be folded into a device already in use.
 Loudness readings ride along too, so a restored library doesn't have to
 re-measure everything it already knew.
 
+## Nothing deletes your music but you
+
+Updating the app never touches what you've stored. The files, playlists,
+stations and subscriptions live in the browser's own storage, and deploying
+a new version replaces the app's code beside them — it can't reach them.
+
+The app itself only deletes on the button you press. A track whose audio
+won't load is **skipped and kept**, marked *audio wouldn't load* in the
+list, and put back in the rotation the moment it reads again. That's
+deliberate: a failed read can mean the file has gone, or it can mean the
+database was busy for a second, and the two are indistinguishable from
+inside. Guessing "gone" and deleting is the guess that loses music you own,
+so it isn't made.
+
+If several tracks in a row fail to load, Tunage stops rather than working
+through the library, and says so.
+
+**An unreadable store is not an empty one.** If the database won't open at
+all, the app says exactly that instead of showing an empty library — because
+an empty library invites you to add everything again, and if the music is
+still down there you'd end up with two of everything.
+
 ## Files a browser can't play
 
 Browsers don't all support the same formats — Safari won't decode FLAC, for
