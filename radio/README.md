@@ -309,6 +309,11 @@ search box: **Carry on listening** for chapters you're part way through,
 **Favourites** for the books you kept, a row drawn from the subjects you
 keep, and a few subjects to browse, rotated by the day.
 
+If the Archive won't answer your browser directly — that is its call, not
+something a page can change — the request goes through the same relays the
+podcast feeds use. And if nothing answers at all, the section says so
+rather than showing an empty page: a blank one tells you nothing about why.
+
 Two details worth knowing:
 
 - **A book's chapters are kept once opened.** The Archive lists a book's

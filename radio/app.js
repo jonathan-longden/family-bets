@@ -1446,19 +1446,32 @@ function refreshTiles() {
 /* Directory rows are fetched one after another rather than all at once —
    these are volunteer-run services, and a row landing at a time reads
    better than five rows appearing together anyway. */
-async function fillShelves(box, rows, load) {
+async function fillShelves(box, rows, load, { onEmpty = () => {} } = {}) {
+  let why = '', served = 0;
   for (const row of rows) {
-    if (shelfFresh(row.key)) continue;              // already on the page from the cache
+    if (shelfFresh(row.key)) { served++; continue; }   // already up, from the cache
     let items = null;
-    try { items = await load(row); } catch { items = null; }
+    try {
+      items = await load(row);
+    } catch (e) {
+      items = null;
+      if (e && e.message) why = String(e.message);
+    }
     if (items && items.length) {
+      served++;
       rememberShelf(row.key, items);
       putTiles(box, row.key, items, row.tile);
       refreshTiles();
-    } else if (!shelfCache[row.key]) {
-      dropShelf(box, row.key);                      // nothing cached to fall back on
+    } else if (shelfCache[row.key]) {
+      served++;                                     // yesterday's is still up
+    } else {
+      dropShelf(box, row.key);                      // nothing to fall back on
     }
   }
+  /* Nothing to browse at all tells you nothing about why on its own — and a
+     row of your own further up the page doesn't answer it either. Whoever
+     owns the section gets to say what happened. */
+  if (rows.length && !served) onEmpty(why);
 }
 
 
@@ -1641,7 +1654,10 @@ function renderRadioShelves() {
     for (const row of plan) {
       if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
     }
-    fillShelves(box, plan.filter(r => !r.local), stationShelf);
+    fillShelves(box, plan.filter(r => !r.local), stationShelf, {
+      onEmpty: () => radioStatus("Couldn't reach the station directory, so there are " +
+        'no rows to browse. Searching and your own stations still work.'),
+    });
   }
 
   for (const row of plan) {
@@ -1978,6 +1994,21 @@ async function getText(url, ms = FEED_TIMEOUT, stop = new AbortController()) {
 }
 
 const looksLikeFeed = t => /<(\?xml|rss|feed)\b/i.test(t.slice(0, 2000));
+const looksLikeJson = t => /^\s*[[{]/.test(t);
+
+/* The Internet Archive's catalogue has the same trouble a podcast feed can:
+   whether a browser may read it is the server's call, and if it says no
+   there is nothing to be done from the page itself. So it goes through the
+   same route — directly first, then the relays. */
+async function fetchJson(url, opts = {}) {
+  const got = await fetchFeed(url, { ...opts, valid: looksLikeJson, wants: 'catalogue' });
+  if (got.failed) return got;
+  try {
+    return { data: JSON.parse(got.body), via: got.via };
+  } catch {
+    return { failed: true, tried: [...(got.tried || []), 'the answer was not readable'] };
+  }
+}
 
 /* Relays that hand the file back inside JSON rather than as itself. */
 function unwrap(text) {
@@ -1994,7 +2025,8 @@ function unwrap(text) {
    publisher refusing the browser, the publisher refusing the relay, the
    relay being busy, and the feed having moved — and they need different
    answers. Returns how it was got, or the list of what happened. */
-async function fetchFeed(url, { onRelay = () => {} } = {}) {
+async function fetchFeed(url, { onRelay = () => {}, valid = looksLikeFeed,
+  wants = 'feed' } = {}) {
   const held = feedCache.get(url);
   if (held && Date.now() - held.at < FEED_CACHE_TTL) return held.got;
 
@@ -2004,11 +2036,11 @@ async function fetchFeed(url, { onRelay = () => {} } = {}) {
       let text = await getText(from, ms, stop);
       if (relay && relay.wrapped) {
         const inner = unwrap(text);
-        if (inner === null) throw new Error('sent something that was not the feed');
+        if (inner === null) throw new Error(`sent something that was not the ${wants}`);
         text = inner;
       }
-      if (!looksLikeFeed(text)) throw new Error('sent a page, not a feed');
-      return { xml: text, via: relay ? relay.name : null };
+      if (!valid(text)) throw new Error(`sent a page, not a ${wants}`);
+      return { body: text, xml: text, via: relay ? relay.name : null };
     } catch (e) {
       // a cross-origin refusal reaches script as a bare "Failed to fetch"
       const why = !e || /failed to fetch|networkerror|load failed/i.test(e.message || '')
@@ -2344,7 +2376,10 @@ function renderPodcastShelves() {
     for (const row of plan) {
       if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
     }
-    fillShelves(box, plan.filter(r => !r.local), podcastShelf);
+    fillShelves(box, plan.filter(r => !r.local), podcastShelf, {
+      onEmpty: () => podcastStatus("Couldn't reach the podcast directory, so there are " +
+        'no rows to browse. Searching and your subscriptions still work.'),
+    });
   }
 
   for (const row of plan) {
@@ -2503,9 +2538,9 @@ async function archiveSearch(query, rows = 14) {
     .forEach(f => params.append('fl[]', f));
   params.append('sort[]', 'downloads desc');
 
-  const res = await fetch(`${ARCHIVE_SEARCH}?${params}`);
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = await res.json();
+  const got = await fetchJson(`${ARCHIVE_SEARCH}?${params}`);
+  if (got.failed) throw new Error(got.tried.join(' · '));
+  const data = got.data;
   const docs = (data && data.response && data.response.docs) || [];
   return docs.filter(d => d.identifier).map(d => ({
     id: d.identifier,
@@ -2520,10 +2555,9 @@ async function archiveSearch(query, rows = 14) {
    several encodings of the same recording — one is picked per chapter so a
    book doesn't turn up three times over. */
 async function bookChapters(book) {
-  const res = await fetch(ARCHIVE_META + encodeURIComponent(book.id));
-  if (!res.ok) throw new Error('HTTP ' + res.status);
-  const data = await res.json();
-  const files = (data && data.files) || [];
+  const got = await fetchJson(ARCHIVE_META + encodeURIComponent(book.id));
+  if (got.failed) throw new Error(got.tried.join(' · '));
+  const files = (got.data && got.data.files) || [];
 
   const best = new Map();                    // one file per recording
   const rank = f => /vbr/i.test(f.format) ? 3 : /128/.test(f.format) ? 2 : 1;
@@ -2634,9 +2668,10 @@ async function searchBooks(term) {
   let found;
   try {
     found = await archiveSearch(`title:(${term}) OR creator:(${term})`, 24);
-  } catch {
+  } catch (e) {
     bookStatus("Couldn't reach the Internet Archive — this part needs a connection. " +
-      'Books you have already opened are still here.');
+      'Books you have already opened are still here.',
+      e && e.message ? String(e.message) : '');
     return;
   }
   $('#bookResults').innerHTML = found.map(bookTile).join('');
@@ -2699,7 +2734,11 @@ function renderBookShelves() {
     for (const row of plan) {
       if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
     }
-    fillShelves(box, plan.filter(r => !r.local), bookShelf);
+    fillShelves(box, plan.filter(r => !r.local), bookShelf, {
+      onEmpty: why => bookStatus("Couldn't reach the Internet Archive, so there is " +
+        'nothing to show here yet. Search still works if it comes back, and books ' +
+        'you have already opened are still here.', why),
+    });
   }
 
   for (const row of plan) {
