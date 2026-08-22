@@ -56,9 +56,12 @@ download), and it keeps them rolling.
   connection, unlike everything else here.
 - **Podcasts.** Search for a show, subscribe, and pick an episode. Episodes
   can be seeked, skip in 30-second jumps, and remember where you got to.
+- **Audiobooks.** Free public-domain books read aloud, from the LibriVox
+  collection at the Internet Archive. Keep the ones you're reading and pick
+  a chapter; chapters seek and remember where you got to, like episodes.
 - **Backup.** Save everything that isn't the music itself — playlists,
-  saved stations, subscriptions, loudness readings — to a small file you
-  keep, and restore it later or on another device.
+  saved stations, subscriptions, kept books, loudness readings — to a small
+  file you keep, and restore it later or on another device.
 - **Voice.** Tap the microphone and say what you want — *play Capital FM*,
   *play my Night Shift playlist*, *next*. With one shortcut set up on your
   phone, *"Hey Siri, Tunage"* works from the lock screen.
@@ -286,6 +289,36 @@ from. A show you can play beats a show you can't.
 That leaves one case with no answer: a show that isn't in Apple's directory
 *and* whose publisher won't be read. Nothing served from a static page can
 get round that one.
+
+## Audiobooks
+
+The **Audiobooks** chip opens a section built the same way as Podcasts,
+because a book behaves like a show: you find it, keep the ones you're
+reading, and pick a chapter that remembers where you got to. Chapters play
+on the same element an episode does, so the seek bar and the skip buttons
+work exactly as they do there.
+
+The books come from the [LibriVox](https://librivox.org/) collection at the
+[Internet Archive](https://archive.org/) — public domain, read by
+volunteers, free to anyone. No account and no key, and unlike most podcast
+publishers the Archive lets a browser read its catalogue directly, so
+nothing here goes through a relay.
+
+Like Radio and Podcasts, the page opens onto rows rather than an empty
+search box: **Carry on listening** for chapters you're part way through,
+**Favourites** for the books you kept, a row drawn from the subjects you
+keep, and a few subjects to browse, rotated by the day.
+
+Two details worth knowing:
+
+- **A book's chapters are kept once opened.** The Archive lists a book's
+  files once and they don't change, so a book you have opened lists
+  instantly ever after — and with no connection at all.
+- **One file per recording.** The Archive usually holds the same chapter
+  several times over in different encodings; the best of each is picked so
+  a book doesn't list three times its length.
+
+Kept books go into the backup alongside your stations and subscriptions.
 
 ## Voice
 

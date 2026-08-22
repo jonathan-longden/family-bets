@@ -1327,6 +1327,7 @@ const RECENT_MAX = 12;
 let shelfCache = {};                    // key → { at, items }
 let recentStations = [];
 let recentEpisodes = [];
+let recentChapters = [];
 
 const shelfFresh = key =>
   shelfCache[key] && Date.now() - shelfCache[key].at < SHELF_TTL;
@@ -1341,8 +1342,8 @@ function rememberShelf(key, items) {
 }
 
 const saveRecents = () =>
-  store.setPref(RECENT_KEY, { stations: recentStations, episodes: recentEpisodes })
-    .catch(() => {});
+  store.setPref(RECENT_KEY, { stations: recentStations, episodes: recentEpisodes,
+    chapters: recentChapters }).catch(() => {});
 
 /* What you last had on, newest first and one entry per thing. */
 function rememberPlay(item) {
@@ -1351,9 +1352,16 @@ function rememberPlay(item) {
       favicon: item.art || '', tags: item.sub || '', country: '' },
     ...recentStations.filter(s => s.url !== item.url)].slice(0, RECENT_MAX);
   } else if (item.kind === 'episode') {
-    recentEpisodes = [{ id: item.url, title: item.name, url: item.url,
-      show: item.sub || 'Podcast', art: item.art || '' },
-    ...recentEpisodes.filter(e => e.url !== item.url)].slice(0, RECENT_MAX);
+    const one = { id: item.url, title: item.name, url: item.url,
+      show: item.sub || (item.from === 'book' ? 'Audiobook' : 'Podcast'),
+      art: item.art || '' };
+    if (item.from === 'book') {
+      recentChapters = [one, ...recentChapters.filter(e => e.url !== item.url)]
+        .slice(0, RECENT_MAX);
+    } else {
+      recentEpisodes = [one, ...recentEpisodes.filter(e => e.url !== item.url)]
+        .slice(0, RECENT_MAX);
+    }
   } else return;
   saveRecents();
 }
@@ -1414,6 +1422,16 @@ function refreshTiles() {
       const subbed = isSubscribed(show.feed);
       heart.classList.toggle('on', subbed);
       heart.setAttribute('aria-label', subbed ? 'Unsubscribe' : 'Subscribe');
+    }
+  });
+  $$('.tile[data-book]').forEach(tile => {
+    let book;
+    try { book = JSON.parse(tile.dataset.book); } catch { return; }
+    const heart = tile.querySelector('[data-keep]');
+    if (heart) {
+      const kept = isKept(book.id);
+      heart.classList.toggle('on', kept);
+      heart.setAttribute('aria-label', kept ? 'Remove from your books' : 'Keep this book');
     }
   });
   $$('.tile[data-episode]').forEach(tile => {
@@ -2428,6 +2446,315 @@ $('#feedSave').addEventListener('click', async () => {
 
 
 
+/* ───────────────────────── audiobooks ─────────────────────────
+
+   The same shape as Podcasts, because a book behaves like a show: you find
+   it, keep the ones you're reading, and pick a chapter that remembers where
+   you got to. Chapters play on the same element as an episode, so the seek
+   bar and the skip buttons work exactly as they do there.
+
+   The books come from the LibriVox collection at the Internet Archive —
+   public domain, read by volunteers, free to anyone. No key, and the
+   Archive lets a browser read its catalogue directly, so unlike a podcast
+   feed there is nothing here that needs relaying. */
+
+const BOOKS_KEY = 'books';
+const BOOK_LISTS_KEY = 'bookChapters';
+const BOOK_LISTS_MAX = 20;
+const ARCHIVE_SEARCH = 'https://archive.org/advancedsearch.php';
+const ARCHIVE_META = 'https://archive.org/metadata/';
+const ARCHIVE_ART = 'https://archive.org/services/img/';
+const LIBRIVOX = 'collection:(librivoxaudio)';
+
+const BOOK_ROWS = [
+  { term: 'subject:(fiction)', title: 'Fiction' },
+  { term: 'subject:(detective)', title: 'Mystery' },
+  { term: 'subject:(poetry)', title: 'Poetry' },
+  { term: 'subject:(children)', title: "Children's" },
+  { term: 'subject:(science fiction)', title: 'Science fiction' },
+  { term: 'subject:(history)', title: 'History' },
+  { term: 'subject:(humor)', title: 'Humour' },
+  { term: 'subject:(short stories)', title: 'Short stories' },
+];
+
+let books = [];                 // the ones you kept
+let bookLists = {};             // archive id → { at, chapters }
+let openBook = null;
+
+const saveBooks = () => store.setPref(BOOKS_KEY, books).catch(() => {});
+const isKept = id => books.some(b => b.id === id);
+
+function bookStatus(text, detail = '') {
+  const el = $('#bookStatus');
+  el.hidden = !text;
+  el.innerHTML = esc(text || '') +
+    (detail ? `<br><span class="why">${esc(detail)}</span>` : '');
+}
+
+/* The Archive's own search, which answers in JSON and allows a browser to
+   read it. Everything is scoped to LibriVox so nothing turns up that isn't
+   a book read aloud. */
+async function archiveSearch(query, rows = 14) {
+  const params = new URLSearchParams({
+    q: `${LIBRIVOX} AND (${query})`,
+    rows: String(rows), page: '1', output: 'json',
+  });
+  ['identifier', 'title', 'creator', 'subject', 'downloads']
+    .forEach(f => params.append('fl[]', f));
+  params.append('sort[]', 'downloads desc');
+
+  const res = await fetch(`${ARCHIVE_SEARCH}?${params}`);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  const docs = (data && data.response && data.response.docs) || [];
+  return docs.filter(d => d.identifier).map(d => ({
+    id: d.identifier,
+    name: String(d.title || d.identifier).trim(),
+    author: [].concat(d.creator || []).filter(Boolean)[0] || 'Unknown author',
+    subject: [].concat(d.subject || []).filter(Boolean)[0] || '',
+    art: ARCHIVE_ART + d.identifier,
+  }));
+}
+
+/* One book's chapters. The Archive lists every file it holds, including
+   several encodings of the same recording — one is picked per chapter so a
+   book doesn't turn up three times over. */
+async function bookChapters(book) {
+  const res = await fetch(ARCHIVE_META + encodeURIComponent(book.id));
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  const files = (data && data.files) || [];
+
+  const best = new Map();                    // one file per recording
+  const rank = f => /vbr/i.test(f.format) ? 3 : /128/.test(f.format) ? 2 : 1;
+  for (const f of files) {
+    if (!f.name || !/mp3|ogg/i.test(f.format || '')) continue;
+    const stem = f.name.replace(/\.[^.]+$/, '');
+    const held = best.get(stem);
+    if (!held || rank(f) > rank(held)) best.set(stem, f);
+  }
+
+  const chapters = [...best.values()]
+    .sort((a, b) => (Number(a.track) || 0) - (Number(b.track) || 0)
+      || String(a.name).localeCompare(String(b.name), undefined, { numeric: true }))
+    .map((f, i) => ({
+      title: String(f.title || f.name.replace(/\.[^.]+$/, '').replace(/_/g, ' ')).trim(),
+      url: `https://archive.org/download/${encodeURIComponent(book.id)}/${encodeURIComponent(f.name)}`,
+      date: '',
+      duration: f.length && /:/.test(String(f.length)) ? String(f.length)
+        : (Number(f.length) ? mmss(Number(f.length)) : ''),
+      number: i + 1,
+    }));
+
+  return chapters.length ? chapters : null;
+}
+
+function bookTile(book) {
+  const kept = isKept(book.id);
+  return `
+    <button class="tile" data-book='${esc(JSON.stringify(book))}'>
+      <span class="tile-art" style="background:linear-gradient(150deg,hsl(${hueOf(book.id)} 45% 40%),hsl(${(hueOf(book.id) + 40) % 360} 40% 26%))">
+        <img src="${esc(book.art)}" alt="" loading="lazy" onerror="this.remove()" />
+        <span class="tile-save ${kept ? 'on' : ''}" data-keep="1" role="button"
+              aria-label="${kept ? 'Remove from your books' : 'Keep this book'}">
+          <svg class="ic"><use href="#i-heart"/></svg>
+        </span>
+      </span>
+      <b>${esc(book.name)}</b>
+      <span>${esc(book.author || 'Audiobook')}</span>
+    </button>`;
+}
+
+function keepChapters(book, chapters) {
+  bookLists[book.id] = { at: Date.now(), art: book.art, name: book.name,
+    author: book.author, chapters };
+  const keys = Object.keys(bookLists).sort((a, b) => bookLists[b].at - bookLists[a].at);
+  for (const old of keys.slice(BOOK_LISTS_MAX)) delete bookLists[old];
+  store.setPref(BOOK_LISTS_KEY, bookLists).catch(() => {});
+}
+
+function renderChapters(book, chapters) {
+  $('#chapters').innerHTML = chapters.map(ch => {
+    const at = Number(episodePos[ch.url]) || 0;
+    const bits = [ch.duration, at > 5 ? `${mmss(at)} in` : ''].filter(Boolean).join(' · ');
+    return `
+      <li data-episode='${esc(JSON.stringify({ ...ch, show: book.name, art: book.art }))}'>
+        <span class="who" data-act="play">
+          <b>${esc(ch.title)}</b>
+          <span>${esc(bits)}</span>
+        </span>
+        <button class="mini" data-act="play">Play</button>
+      </li>`;
+  }).join('');
+}
+
+const chapterCount = n => `${n} chapter${n === 1 ? '' : 's'}`;
+
+async function openBookChapters(book) {
+  openBook = book;
+  $('#chaptersHead').hidden = false;
+  $('#chaptersHead').textContent = book.name;
+
+  const held = bookLists[book.id];
+  if (held && held.chapters.length) {
+    renderChapters(book, held.chapters);
+    bookStatus(`${chapterCount(held.chapters.length)} · ${book.author}`);
+    return;                          // a book's chapters don't change
+  }
+
+  $('#chapters').innerHTML = '';
+  bookStatus(`Fetching ${book.name}…`);
+
+  let chapters = null;
+  try {
+    chapters = await bookChapters(book);
+  } catch (e) {
+    bookStatus(`Couldn't read the chapter list for ${book.name}.`,
+      e && e.message ? String(e.message) : '');
+    return;
+  }
+  if (!chapters) {
+    bookStatus(`Nothing playable found in ${book.name}.`);
+    return;
+  }
+
+  keepChapters(book, chapters);
+  bookStatus(`${chapterCount(chapters.length)} · ${book.author}`);
+  renderChapters(book, chapters);
+}
+
+async function searchBooks(term) {
+  if (!term) return;
+  bookStatus('Searching…');
+  $('#bookResults').innerHTML = '';
+  $('#chapters').innerHTML = '';
+  $('#chaptersHead').hidden = true;
+  openBook = null;
+
+  let found;
+  try {
+    found = await archiveSearch(`title:(${term}) OR creator:(${term})`, 24);
+  } catch {
+    bookStatus("Couldn't reach the Internet Archive — this part needs a connection. " +
+      'Books you have already opened are still here.');
+    return;
+  }
+  $('#bookResults').innerHTML = found.map(bookTile).join('');
+  bookStatus(found.length ? `${found.length} book${found.length === 1 ? '' : 's'}`
+    : 'Nothing found');
+  refreshTiles();
+}
+
+function keepBook(book) {
+  if (isKept(book.id)) books = books.filter(b => b.id !== book.id);
+  else books.push(book);
+  saveBooks();
+  renderBooks();
+  render();                          // the chip counts them
+  refreshTiles();
+  toast(isKept(book.id) ? `Kept ${book.name}` : `Removed ${book.name}`);
+}
+
+/* ── what the page opens onto ── */
+
+function bookShelfPlan() {
+  const plan = [];
+  if (recentChapters.length) {
+    plan.push({ key: 'book:recent', title: 'Carry on listening',
+      local: () => recentChapters, tile: episodeTile });
+  }
+
+  const used = new Set();
+  const taste = books.map(b => String(b.subject || '').trim().toLowerCase())
+    .filter(Boolean)[0];
+  if (taste) {
+    used.add(taste);
+    plan.push({ key: 'book:rec:' + taste, title: 'Recommended for you',
+      note: `because you keep ${taste}`, term: `subject:(${taste})`, tile: bookTile });
+  }
+
+  const start = dayOfYear() % BOOK_ROWS.length;
+  for (let i = 0; i < BOOK_ROWS.length && used.size < 5; i++) {
+    const row = BOOK_ROWS[(start + i) % BOOK_ROWS.length];
+    if (used.has(row.term)) continue;
+    used.add(row.term);
+    plan.push({ key: 'book:row:' + row.title, title: row.title,
+      term: row.term, tile: bookTile });
+  }
+  return plan;
+}
+
+const bookShelf = row => archiveSearch(row.term);
+
+let bookShelfSig = '';
+
+function renderBookShelves() {
+  const box = $('#bookShelves');
+  const plan = bookShelfPlan();
+  const sig = plan.map(r => r.key).join('|');
+
+  if (sig !== bookShelfSig) {
+    bookShelfSig = sig;
+    buildShelves(box, plan);
+    for (const row of plan) {
+      if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
+    }
+    fillShelves(box, plan.filter(r => !r.local), bookShelf);
+  }
+
+  for (const row of plan) {
+    if (row.local) putTiles(box, row.key, row.local(), row.tile);
+  }
+}
+
+function renderBooks() {
+  $('#bookPanel').hidden = settings.source !== 'books';
+  $('#savedBooksHead').hidden = !books.length;
+  $('#savedBooks').innerHTML = books.map(bookTile).join('');
+  if (settings.source === 'books') renderBookShelves();
+}
+
+/* ── wiring ── */
+
+$('#bookGo').addEventListener('click', () => searchBooks($('#bookSearch').value.trim()));
+$('#bookSearch').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); searchBooks(e.target.value.trim()); }
+});
+
+function onBookClick(e) {
+  const tile = e.target.closest('.tile[data-book]');
+  if (!tile) return;
+  let book;
+  try { book = JSON.parse(tile.dataset.book); } catch { return; }
+  if (e.target.closest('[data-keep]')) keepBook(book);
+  else openBookChapters(book);
+}
+$('#bookResults').addEventListener('click', onBookClick);
+$('#savedBooks').addEventListener('click', onBookClick);
+
+const playChapter = e => {
+  const li = e.target.closest('li[data-episode]');
+  if (!li || !e.target.closest('[data-act]')) return;
+  let ch;
+  try { ch = JSON.parse(li.dataset.episode); } catch { return; }
+  playStream({ kind: 'episode', from: 'book', name: ch.title,
+    sub: ch.show || 'Audiobook', url: ch.url, art: ch.art || '' });
+};
+$('#chapters').addEventListener('click', playChapter);
+
+$('#bookShelves').addEventListener('click', e => {
+  // the Carry on listening row holds chapters; the rest hold books
+  if (e.target.closest('.tile[data-episode]')) {
+    const tile = e.target.closest('.tile[data-episode]');
+    let ch;
+    try { ch = JSON.parse(tile.dataset.episode); } catch { return; }
+    return playStream({ kind: 'episode', from: 'book', name: ch.title,
+      sub: ch.show || 'Audiobook', url: ch.url, art: ch.art || '' });
+  }
+  onBookClick(e);
+});
+
+
 /* ───────────────────────── backup ─────────────────────────
 
    Playlists, saved stations and subscriptions live in this browser and
@@ -2461,6 +2788,7 @@ function buildBackup() {
     })),
     stations,
     podcasts,
+    books,
     episodePos,
     // enough to put loudness measurements back without re-analysing everything
     library: lib.map(t => ({ ...slim(t), gain: t.gain, lufs: t.lufs, peak: t.peak,
@@ -2504,7 +2832,7 @@ async function importBackup(file) {
 
   const here = new Map(lib.map(t => [trackKey(t), t]));
   let addedPlaylists = 0, matched = 0, missing = 0, addedStations = 0, addedShows = 0,
-    measured = 0;
+    addedBooks = 0, measured = 0;
 
   for (const saved of data.playlists) {
     const ids = [];
@@ -2532,6 +2860,11 @@ async function importBackup(file) {
     if (!show || !show.feed || podcasts.some(x => x.feed === show.feed)) continue;
     podcasts.push(show);
     addedShows++;
+  }
+  for (const book of data.books || []) {
+    if (!book || !book.id || books.some(x => x.id === book.id)) continue;
+    books.push(book);
+    addedBooks++;
   }
 
   if (data.episodePos && typeof data.episodePos === 'object') {
@@ -2562,6 +2895,7 @@ async function importBackup(file) {
   savePlaylists();
   saveStations();
   savePodcasts();
+  saveBooks();
   store.setPref(EPISODES_KEY, episodePos).catch(() => {});
   rebuildQueue();
   render();
@@ -2571,6 +2905,7 @@ async function importBackup(file) {
   if (matched) bits.push(`${matched} track${matched === 1 ? '' : 's'} matched`);
   if (addedStations) bits.push(`${addedStations} station${addedStations === 1 ? '' : 's'}`);
   if (addedShows) bits.push(`${addedShows} show${addedShows === 1 ? '' : 's'}`);
+  if (addedBooks) bits.push(`${addedBooks} book${addedBooks === 1 ? '' : 's'}`);
   if (measured) bits.push(`${measured} volume reading${measured === 1 ? '' : 's'}`);
   backupStatus((bits.length ? 'Restored ' + bits.join(', ') + '.' : 'Nothing new to restore.') +
     (missing ? ` ${missing} playlist track${missing === 1 ? '' : 's'} not in your library — ` +
@@ -2780,7 +3115,8 @@ async function runCommand(raw) {
   const track = findTrack(what);
   if (track) {
     if (onAir()) stopStation();
-    if (settings.source === 'radio' || settings.source === 'podcasts') {
+    if (settings.source === 'radio' || settings.source === 'podcasts' ||
+        settings.source === 'books') {
       settings.source = 'tunage';
       saveSettings();
       rebuildQueue();
@@ -2924,7 +3260,7 @@ async function runPendingCommand() {
   // ?open=radio jumps straight to a section without playing anything — that's
   // what the icon's long-press shortcuts use.
   const open = params && params.get('open');
-  if (open === 'radio' || open === 'podcasts' || open === 'tunage') {
+  if (open === 'radio' || open === 'podcasts' || open === 'books' || open === 'tunage') {
     settings.source = open;
     saveSettings();
     rebuildQueue();
@@ -3002,7 +3338,8 @@ function render() {
      rows of artwork the eye actually uses. What's on air keeps its card, so
      you can still see and stop what's playing. */
   document.body.classList.toggle('browse',
-    settings.source === 'radio' || settings.source === 'podcasts');
+    settings.source === 'radio' || settings.source === 'podcasts' ||
+    settings.source === 'books');
 
   $('#playBtn').innerHTML = `<svg class="ic"><use href="#i-${playing ? 'pause' : 'play'}"/></svg>`;
   $('#playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
@@ -3027,6 +3364,7 @@ function render() {
   renderDecks();
   renderRadio();
   renderPodcasts();
+  renderBooks();
   renderSources();
   renderQueue();
   renderPlaylist();
@@ -3318,6 +3656,8 @@ function renderSources() {
       ? `${stations.length} saved` : 'live stations') +
     chip('podcasts', 'Podcasts', podcasts.length
       ? `${podcasts.length} subscribed` : 'shows and episodes') +
+    chip('books', 'Audiobooks', books.length
+      ? `${books.length} kept` : 'free, read aloud') +
     '<button class="source new" data-source="new"><b>+ New</b><span>playlist</span></button>';
 }
 
@@ -3399,7 +3739,8 @@ $('#sources').addEventListener('click', e => {
   rebuildQueue();
   render();
   // these are sections to browse, not something to start playing on its own
-  if (settings.source === 'radio' || settings.source === 'podcasts') return;
+  if (settings.source === 'radio' || settings.source === 'podcasts' ||
+      settings.source === 'books') return;
   if (onAir()) stopStation();
   // picking a playlist means that playlist's music, right now
   if (!pool().length) { stopAll(); toast(emptyMessage()); render(); return; }
@@ -3739,10 +4080,12 @@ document.addEventListener('keydown', e => {
     const recent = await store.getPref(RECENT_KEY);
     recentStations = recent && Array.isArray(recent.stations) ? recent.stations : [];
     recentEpisodes = recent && Array.isArray(recent.episodes) ? recent.episodes : [];
+    recentChapters = recent && Array.isArray(recent.chapters) ? recent.chapters : [];
   } catch {
     shelfCache = {};
     recentStations = [];
     recentEpisodes = [];
+    recentChapters = [];
   }
 
   try {
@@ -3756,6 +4099,16 @@ document.addEventListener('keydown', e => {
     podcasts = [];
     episodePos = {};
     feedLists = {};
+  }
+
+  try {
+    const kept = await store.getPref(BOOKS_KEY);
+    books = Array.isArray(kept) ? kept : [];
+    const chapters = await store.getPref(BOOK_LISTS_KEY);
+    bookLists = (chapters && typeof chapters === 'object') ? chapters : {};
+  } catch {
+    books = [];
+    bookLists = {};
   }
   // a playlist deleted on another tab shouldn't leave us pointing at nothing
   if (settings.source.startsWith('pl:') && !currentPlaylist()) settings.source = 'tunage';
