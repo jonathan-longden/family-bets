@@ -241,8 +241,27 @@ that, and is straight about it:
   see which show you opened. Off means blocked feeds simply say so, as they
   did before.
 
-Feeds are held for ten minutes within a visit, so reopening a show doesn't
-send anyone back for the same file.
+### Big shows, slow relays
+
+A show with hundreds of episodes has a feed several megabytes long, and a
+free relay carrying all of that is slow rather than broken. Three things
+follow from that:
+
+- **A relay gets 45 seconds**, not 15. A refusal comes back in under a
+  second, so waiting longer only costs time when something really is
+  arriving.
+- **A second relay is brought in alongside the first** if it hasn't answered
+  within six seconds, rather than waiting for it to give up. Whichever
+  arrives first wins and the rest are called off — one long wait instead of
+  three.
+- **The episode list is kept.** A show that took half a minute opens
+  instantly the next time, and opens at all on a train. The saved list goes
+  up straight away while the feed is checked again, and if that check fails
+  it stays where it is with a note saying when it was saved, rather than
+  being replaced by an error.
+
+Feeds are also held for ten minutes within a visit, so reopening a show
+doesn't send anyone back for the same file.
 
 **When it still can't be read, it says what happened.** "Can't read feed"
 covers four different problems — the publisher refusing the browser, the

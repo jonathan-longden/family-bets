@@ -1931,12 +1931,18 @@ const FEED_RELAYS = [
   { name: 'AllOrigins (wrapped)', wrapped: true,
     url: u => `https://api.allorigins.win/get?url=${encodeURIComponent(u)}` },
 ];
-const FEED_TIMEOUT = 15000;
+/* A show with hundreds of episodes has a feed several megabytes long, and a
+   free relay pulling all of that down is slow rather than broken — the first
+   version gave up at 15 seconds and reported a working relay as a failure.
+   A refusal comes back in under a second, so waiting longer only costs time
+   when something really is arriving. */
+const FEED_TIMEOUT = 15000;             // reading it ourselves
+const RELAY_TIMEOUT = 45000;            // a relay carrying the whole file
+const HEDGE_AFTER = 6000;               // how long one relay gets on its own
 const FEED_CACHE_TTL = 10 * 60 * 1000;
 const feedCache = new Map();            // this visit only — feeds change
 
-async function getText(url, ms = FEED_TIMEOUT) {
-  const stop = new AbortController();
+async function getText(url, ms = FEED_TIMEOUT, stop = new AbortController()) {
   const timer = setTimeout(() => stop.abort(), ms);
   try {
     const res = await fetch(url, { signal: stop.signal,
@@ -1975,9 +1981,9 @@ async function fetchFeed(url, { onRelay = () => {} } = {}) {
   if (held && Date.now() - held.at < FEED_CACHE_TTL) return held.got;
 
   const tried = [];
-  const attempt = async (label, from, relay) => {
+  const attempt = async (label, from, relay, ms, stop) => {
     try {
-      let text = await getText(from);
+      let text = await getText(from, ms, stop);
       if (relay && relay.wrapped) {
         const inner = unwrap(text);
         if (inner === null) throw new Error('sent something that was not the feed');
@@ -1990,19 +1996,50 @@ async function fetchFeed(url, { onRelay = () => {} } = {}) {
       const why = !e || /failed to fetch|networkerror|load failed/i.test(e.message || '')
         ? (relay ? 'could not be reached' : 'refused to be read by another site')
         : e.message;
-      tried.push(`${label}: ${why}`);
+      if (!(stop && stop.signal.aborted && !/gave up/.test(why))) tried.push(`${label}: ${why}`);
       return null;
     }
   };
 
-  let got = await attempt('direct', url, null);
+  let got = await attempt('direct', url, null, FEED_TIMEOUT);
 
+  /* One relay gets the job on its own, since that is usually enough and
+     keeps the request in one place. If it hasn't answered in a few seconds
+     the next is brought in alongside rather than after it — with a big feed,
+     waiting for each in turn is three long waits instead of one. Whichever
+     arrives first wins and the rest are called off. */
   if (!got && settings.relayFeeds) {
-    for (const relay of FEED_RELAYS) {
-      onRelay(relay.name);
-      got = await attempt(relay.name, relay.url(url), relay);
-      if (got) break;
-    }
+    got = await new Promise(resolve => {
+      const stops = FEED_RELAYS.map(() => new AbortController());
+      let started = 0, running = 0, settled = false, timer = null;
+
+      const finish = value => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        stops.forEach(s => { try { s.abort(); } catch {} });
+        resolve(value);
+      };
+
+      const startNext = () => {
+        if (settled || started >= FEED_RELAYS.length) return;
+        const relay = FEED_RELAYS[started];
+        const stop = stops[started];
+        started++;
+        running++;
+        onRelay(relay.name);
+        attempt(relay.name, relay.url(url), relay, RELAY_TIMEOUT, stop).then(result => {
+          running--;
+          if (result) return finish(result);
+          if (started >= FEED_RELAYS.length && running === 0) return finish(null);
+          startNext();                       // one down, bring the next forward
+        });
+        clearTimeout(timer);
+        if (started < FEED_RELAYS.length) timer = setTimeout(startNext, HEDGE_AFTER);
+      };
+
+      startNext();
+    });
   }
 
   if (got) {
@@ -2027,16 +2064,77 @@ async function currentFeedUrl(show) {
   }
 }
 
+/* The list of episodes is kept, so a show that took half a minute to fetch
+   opens instantly the next time and still opens on a train. It's shown while
+   the feed is checked again, and if that check fails it stays rather than
+   being replaced by an error. */
+const EPISODES_CACHE_KEY = 'feedEpisodes';
+const EPISODES_CACHE_MAX = 20;
+let feedLists = {};                     // feed address → { at, art, episodes }
+
+function keepEpisodes(show, feed) {
+  feedLists[show.feed] = { at: Date.now(), art: feed.art || show.art || '',
+    episodes: feed.episodes };
+  const keys = Object.keys(feedLists).sort((a, b) => feedLists[b].at - feedLists[a].at);
+  for (const old of keys.slice(EPISODES_CACHE_MAX)) delete feedLists[old];
+  store.setPref(EPISODES_CACHE_KEY, feedLists).catch(() => {});
+}
+
+const ago = at => {
+  const mins = Math.round((Date.now() - at) / 60000);
+  if (mins < 2) return 'a moment ago';
+  if (mins < 60) return `${mins} minutes ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.round(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+};
+
+function renderEpisodes(show, episodes) {
+  $('#episodes').innerHTML = episodes.map(ep => {
+    const at = Number(episodePos[ep.url]) || 0;
+    const when = ep.date ? new Date(ep.date) : null;
+    const bits = [
+      when && !isNaN(when) ? when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '',
+      ep.duration,
+      at > 5 ? `${mmss(at)} in` : '',
+    ].filter(Boolean).join(' · ');
+    return `
+      <li data-episode='${esc(JSON.stringify({ ...ep, show: show.name, art: show.art }))}'>
+        <span class="who" data-act="play">
+          <b>${esc(ep.title)}</b>
+          <span>${esc(bits)}</span>
+        </span>
+        <button class="mini" data-act="play">Play</button>
+      </li>`;
+  }).join('');
+}
+
+const episodeCount = n => `${n} episode${n === 1 ? '' : 's'}`;
+
 async function openPodcast(show) {
   openShow = show;
   $('#episodesHead').hidden = false;
   $('#episodesHead').textContent = show.name;
-  $('#episodes').innerHTML = '';
-  podcastStatus('Fetching episodes…');
 
-  // a relay takes a moment longer, so say what's going on rather than sit there
-  const asking = name => podcastStatus(`${show.name} blocks other sites from reading its ` +
-    `feed — asking ${name} to fetch it…`);
+  // whatever was there last time goes up first, so the page is never empty
+  const held = feedLists[show.feed];
+  if (held && held.episodes.length) {
+    if (!show.art && held.art) show.art = held.art;
+    renderEpisodes(show, held.episodes);
+    podcastStatus(`${episodeCount(held.episodes.length)} · saved ${ago(held.at)} — ` +
+      'looking for newer ones…');
+  } else {
+    $('#episodes').innerHTML = '';
+    podcastStatus('Fetching episodes…');
+  }
+
+  /* A big feed through a relay takes a while, so say so rather than look
+     stuck. */
+  const asking = name => podcastStatus(held && held.episodes.length
+    ? `${episodeCount(held.episodes.length)} · saved ${ago(held.at)} — asking ${name} for newer ones…`
+    : `${show.name} blocks other sites from reading its feed — asking ${name} to ` +
+      'fetch it. A show with hundreds of episodes can take half a minute.');
 
   let got = await fetchFeed(show.feed, { onRelay: asking });
 
@@ -2056,43 +2154,34 @@ async function openPodcast(show) {
   }
 
   if (got.failed) {
-    podcastStatus(settings.relayFeeds
-      ? `Couldn't read ${show.name}'s feed. Its publisher is refusing the relays too, ` +
-        'which usually means it blocks anything that isn\'t a podcast app.'
-      : `Couldn't read ${show.name}'s feed. This publisher doesn't let other sites ` +
-        'read it, and relaying is switched off.',
-      got.tried.join(' · '));
+    if (held && held.episodes.length) {
+      podcastStatus(`${episodeCount(held.episodes.length)} · saved ${ago(held.at)}. ` +
+        "Couldn't check for newer ones just now.", got.tried.join(' · '));
+    } else {
+      podcastStatus(settings.relayFeeds
+        ? `Couldn't read ${show.name}'s feed. Its publisher is refusing the relays too, `
+          + "which usually means it blocks anything that isn't a podcast app."
+        : `Couldn't read ${show.name}'s feed. This publisher doesn't let other sites ` +
+          'read it, and relaying is switched off.',
+        got.tried.join(' · '));
+    }
     return;
   }
 
   const feed = parseFeed(got.xml);
   if (!feed || !feed.episodes.length) {
-    podcastStatus(`Nothing playable found in ${show.name}'s feed.`);
+    if (!(held && held.episodes.length)) {
+      podcastStatus(`Nothing playable found in ${show.name}'s feed.`);
+    }
     return;
   }
   if (!show.art && feed.art) show.art = feed.art;
+  keepEpisodes(show, feed);
 
-  podcastStatus(`${feed.episodes.length} episode${feed.episodes.length === 1 ? '' : 's'}` +
+  podcastStatus(`${episodeCount(feed.episodes.length)}` +
     (got.via ? ` · this one blocks other sites, so it came through ${got.via}` : ''));
-  $('#episodes').innerHTML = feed.episodes.map(ep => {
-    const at = Number(episodePos[ep.url]) || 0;
-    const when = ep.date ? new Date(ep.date) : null;
-    const bits = [
-      when && !isNaN(when) ? when.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '',
-      ep.duration,
-      at > 5 ? `${mmss(at)} in` : '',
-    ].filter(Boolean).join(' · ');
-    return `
-      <li data-episode='${esc(JSON.stringify({ ...ep, show: show.name, art: show.art }))}'>
-        <span class="who" data-act="play">
-          <b>${esc(ep.title)}</b>
-          <span>${esc(bits)}</span>
-        </span>
-        <button class="mini" data-act="play">Play</button>
-      </li>`;
-  }).join('');
+  renderEpisodes(show, feed.episodes);
 }
-
 
 /* ── what the page opens onto ──
 
@@ -3614,9 +3703,12 @@ document.addEventListener('keydown', e => {
     podcasts = Array.isArray(subs) ? subs : [];
     const pos = await store.getPref(EPISODES_KEY);
     episodePos = (pos && typeof pos === 'object') ? pos : {};
+    const lists = await store.getPref(EPISODES_CACHE_KEY);
+    feedLists = (lists && typeof lists === 'object') ? lists : {};
   } catch {
     podcasts = [];
     episodePos = {};
+    feedLists = {};
   }
   // a playlist deleted on another tab shouldn't leave us pointing at nothing
   if (settings.source.startsWith('pl:') && !currentPlaylist()) settings.source = 'tunage';
