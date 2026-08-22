@@ -317,6 +317,15 @@ something a page can change — the request goes through the same relays the
 podcast feeds use. And if nothing answers at all, the section says so
 rather than showing an empty page: a blank one tells you nothing about why.
 
+A host that refuses a direct read says so in milliseconds. A host that is
+*blocked* — by a filter on a router, say — says nothing at all, and the
+request sits there until it gives up. So a catalogue read waits four
+seconds rather than fifteen before going to a relay, and which hosts turned
+out to be unreadable is remembered for half a day, across launches. The
+first open on a blocked network costs one short wait; every one after that
+goes straight to a relay. Half a day, rather than for ever, because the
+same phone on a different network deserves a fresh try.
+
 Three things keep that from being a wait. A catalogue reply is kilobytes
 rather than the megabytes a podcast feed can be, so it gets twelve seconds
 rather than forty-five. The rows are fetched together instead of one after
