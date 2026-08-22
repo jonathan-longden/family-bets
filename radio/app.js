@@ -1496,7 +1496,7 @@ async function fillShelves(box, rows, load, { note = '', message = '', together 
     if (items && items.length) {
       served++;
       rememberShelf(row.key, items);
-      putTiles(box, row.key, items, row.tile, { more: true });
+      putTiles(box, row.key, items, row.tile, { more: row.more !== false });
       refreshTiles();
     } else if (shelfCache[row.key]) {
       served++;                                     // yesterday's is still up
@@ -1646,6 +1646,8 @@ function radioShelfPlan() {
       local: () => recentStations, tile: stationTile });
   }
 
+  plan.push({ ...PINNED_ROW });
+
   const taste = tasteTags();
   const used = new Set();
   if (taste[0]) {
@@ -1668,6 +1670,7 @@ function radioShelfPlan() {
 }
 
 async function stationShelf(row) {
+  if (row.key === PINNED_ROW.key) return pinnedShows();
   const params = new URLSearchParams({
     limit: '14', hidebroken: 'true', order: 'clickcount', reverse: 'true',
   });
@@ -1692,7 +1695,8 @@ function renderRadioShelves() {
     // anything already cached paints before a single request goes out
     for (const row of plan) {
       if (!row.local && shelfCache[row.key]) {
-        putTiles(box, row.key, shelfCache[row.key].items, row.tile, { more: true });
+        putTiles(box, row.key, shelfCache[row.key].items, row.tile,
+          { more: row.more !== false });
       }
     }
     fillShelves(box, plan.filter(r => !r.local), stationShelf, {
@@ -1833,6 +1837,16 @@ function onStationClick(e) {
 $('#stationResults').addEventListener('click', onStationClick);
 $('#savedStations').addEventListener('click', onStationClick);
 $('#radioShelves').addEventListener('click', e => {
+  /* The pinned row holds a show rather than a station. Playing it means
+     being in Podcasts, so tapping one takes you there. */
+  if (e.target.closest('.tile[data-show]')) {
+    if (!e.target.closest('[data-sub]')) {
+      settings.source = 'podcasts';
+      saveSettings();
+      render();
+    }
+    return onShowClick(e);
+  }
   const more = e.target.closest('[data-more]');
   if (!more) return onStationClick(e);
   const row = radioPlan.find(r => r.key === more.dataset.more);
@@ -2402,6 +2416,39 @@ async function openPodcast(show) {
    no honest chart to be had from a search directory, so nothing here claims
    to be one — the rows are named after what they actually are. */
 
+/* ── shows worth pinning ──
+
+   A syndicated radio show is a show first and a frequency second: which
+   station carries it depends on where you live, and the stations that do
+   carry it don't hand out a stream anybody else can play. What every one of
+   them does put out is the show's own feed, the morning's bits published as
+   they air. So a pin names the show and the directory finds it — by name
+   rather than by feed address, because feeds change hosts and names don't. */
+
+const PINNED_SHOWS = [
+  { term: 'Brooke and Jubal',
+    keep: /brooke|jubal|phone tap|second date|war of the roses/i },
+];
+
+/* Every pin, looked up and folded into one row. A show that turns up under
+   two pins is listed once. */
+async function pinnedShows() {
+  const lists = await Promise.all(PINNED_SHOWS.map(async pin => {
+    const params = new URLSearchParams({ media: 'podcast', limit: '20', term: pin.term });
+    const res = await fetch(`${PODCAST_API}?${params}`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return showsFrom(await res.json())
+      .filter(show => pin.keep.test(`${show.name} ${show.author}`));
+  }));
+  const seen = new Set();
+  return lists.flat().filter(show => !seen.has(show.feed) && seen.add(show.feed));
+}
+
+const PINNED_ROW = {
+  key: 'pinned:shows', title: 'Brooke & Jubal in the Morning',
+  note: 'today’s show, from its own feed', more: false, tile: showTile,
+};
+
 const PODCAST_ROWS = [
   { term: 'news', title: 'News' },
   { term: 'comedy', title: 'Comedy' },
@@ -2452,6 +2499,8 @@ function podcastShelfPlan() {
       local: () => recentEpisodes, tile: episodeTile });
   }
 
+  plan.push({ ...PINNED_ROW });
+
   const taste = tasteGenres();
   const used = new Set();
   if (taste[0]) {
@@ -2471,6 +2520,7 @@ function podcastShelfPlan() {
 }
 
 async function podcastShelf(row) {
+  if (row.key === PINNED_ROW.key) return pinnedShows();
   const params = new URLSearchParams({ media: 'podcast', limit: '14', term: row.term });
   const res = await fetch(`${PODCAST_API}?${params}`);
   if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -2491,7 +2541,8 @@ function renderPodcastShelves() {
     buildShelves(box, plan);
     for (const row of plan) {
       if (!row.local && shelfCache[row.key]) {
-        putTiles(box, row.key, shelfCache[row.key].items, row.tile, { more: true });
+        putTiles(box, row.key, shelfCache[row.key].items, row.tile,
+          { more: row.more !== false });
       }
     }
     fillShelves(box, plan.filter(r => !r.local), podcastShelf, {
@@ -2909,7 +2960,8 @@ function renderBookShelves() {
     buildShelves(box, plan);
     for (const row of plan) {
       if (!row.local && shelfCache[row.key]) {
-        putTiles(box, row.key, shelfCache[row.key].items, row.tile, { more: true });
+        putTiles(box, row.key, shelfCache[row.key].items, row.tile,
+          { more: row.more !== false });
       }
     }
     fillShelves(box, plan.filter(r => !r.local), bookShelf, {
