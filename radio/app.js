@@ -1766,7 +1766,11 @@ radioEl.addEventListener('waiting', () => { $('#onAirState').textContent = 'Buff
 radioEl.addEventListener('pause', () => { if (onAir()) { playing = false; render(); } });
 radioEl.addEventListener('error', () => {
   if (!onAir()) return;
-  $('#onAirState').textContent = "That stream wouldn't play";
+  // a chapter that won't play when the whole host is out of reach isn't a mystery
+  const fromArchive = nowStream && /archive\.org/.test(nowStream.url || '');
+  $('#onAirState').textContent = fromArchive && archiveReach === false
+    ? "archive.org can't be reached from here"
+    : "That stream wouldn't play";
   playing = false;
   render();
 });
@@ -2541,13 +2545,51 @@ const LIBRIVOX = 'collection:(librivoxaudio)';
 const BOOK_ROWS = [
   { term: 'subject:(fiction)', title: 'Fiction' },
   { term: 'subject:(detective)', title: 'Mystery' },
-  { term: 'subject:(poetry)', title: 'Poetry' },
+  { term: 'subject:(horror)', title: 'Horror' },
   { term: 'subject:(children)', title: "Children's" },
   { term: 'subject:(science fiction)', title: 'Science fiction' },
   { term: 'subject:(history)', title: 'History' },
   { term: 'subject:(humor)', title: 'Humour' },
   { term: 'subject:(short stories)', title: 'Short stories' },
 ];
+
+/* A blank cover is worth reading. Artwork is a plain image load with no
+   cross-origin question attached, so if that fails too the Archive isn't
+   refusing us — it can't be reached from this connection at all. Which
+   matters more than the pictures: the chapter audio comes straight from
+   archive.org as well, and no relay is going to carry that. */
+let archiveReach = null;                // null until asked
+
+function archiveReachable() {
+  if (archiveReach !== null) return Promise.resolve(archiveReach);
+  return new Promise(resolve => {
+    const img = new Image();
+    let settled = false;
+    const done = ok => {
+      if (settled) return;
+      settled = true;
+      archiveReach = ok;
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), 8000);
+    img.onload = () => { clearTimeout(timer); done(true); };
+    img.onerror = () => { clearTimeout(timer); done(false); };
+    img.src = 'https://archive.org/favicon.ico?whoami=' + Date.now();
+  });
+}
+
+async function checkArchive() {
+  const warn = $('#bookWarn');
+  if (!warn) return;
+  const ok = await archiveReachable();
+  warn.hidden = ok;
+  if (!ok) {
+    warn.textContent = "This connection can't reach archive.org at all — not just for " +
+      'reading its catalogue. Browsing works because a relay fetches the lists for you, ' +
+      'but a chapter comes straight from archive.org, so playing one probably will not ' +
+      'work here. On another network, or with a VPN, it should.';
+  }
+}
 
 let books = [];                 // the ones you kept
 let bookLists = {};             // archive id → { at, chapters }
@@ -2591,8 +2633,8 @@ async function archiveSearch(query, rows = 14) {
 /* One book's chapters. The Archive lists every file it holds, including
    several encodings of the same recording — one is picked per chapter so a
    book doesn't turn up three times over. */
-async function bookChapters(book) {
-  const got = await fetchJson(ARCHIVE_META + encodeURIComponent(book.id));
+async function bookChapters(book, opts = {}) {
+  const got = await fetchJson(ARCHIVE_META + encodeURIComponent(book.id), opts);
   if (got.failed) throw new Error(got.tried.join(' · '));
   const files = (got.data && got.data.files) || [];
 
@@ -2678,7 +2720,9 @@ async function openBookChapters(book) {
 
   let chapters = null;
   try {
-    chapters = await bookChapters(book);
+    chapters = await bookChapters(book, {
+      onRelay: name => bookStatus(`Fetching ${book.name} — asking ${name}…`),
+    });
   } catch (e) {
     bookStatus(`Couldn't read the chapter list for ${book.name}.`,
       e && e.message ? String(e.message) : '');
@@ -2786,6 +2830,7 @@ function renderBookShelves() {
 
 function renderBooks() {
   $('#bookPanel').hidden = settings.source !== 'books';
+  if (settings.source === 'books') checkArchive();
   $('#savedBooksHead').hidden = !books.length;
   $('#savedBooks').innerHTML = books.map(bookTile).join('');
   if (settings.source === 'books') renderBookShelves();
