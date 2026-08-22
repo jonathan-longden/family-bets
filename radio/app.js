@@ -4277,6 +4277,96 @@ try {
   if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock();
 } catch { /* not supported here, or nothing was locked */ }
 
+/* Updating without being asked twice.
+
+   The service worker already goes to the network first, so a deploy lands on
+   the next load — but "the next load" isn't what happens when an installed
+   app is resumed rather than opened, and nothing on the page ever said which
+   version was running. So: check for a new one on every load and whenever you
+   come back to it, and when one takes over, reload onto it. Not while
+   something is playing, though — an update is never worth cutting the music
+   off mid-track. */
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  const hadOne = !!navigator.serviceWorker.controller;
+  let swapping = false;
+
+  let told = false;
+
+  /* A version that has finished installing is sitting there waiting to be let
+     in. Let it in now, unless that would cut the music off. */
+  const letIn = worker => {
+    if (!worker || told) return;
+    told = true;
+    if (playing || onAir()) {
+      toast('A new version is ready — it will be there next time you open Tunage');
+      return;                                 // it takes over on the next launch
+    }
+    try { worker.postMessage({ type: 'skip' }); } catch {}
+  };
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadOne || swapping) return;          // the first worker of all isn't an update
+    swapping = true;
+    location.reload();
+  });
+
+  /* Not waiting on the load event: this script already runs at the end of the
+     page, and on a reload that event can be gone before we get here — which
+     is exactly how the version line came up blank. */
+  (async () => {
+    let reg;
+    try {
+      reg = await navigator.serviceWorker.register('sw.js');
+    } catch {
+      return;
+    }
+
+    if (reg.waiting) letIn(reg.waiting);      // one was already waiting from last time
+
+    reg.addEventListener('updatefound', () => {
+      const fresh = reg.installing;
+      if (!fresh) return;
+      fresh.addEventListener('statechange', () => {
+        if (fresh.state === 'installed' && navigator.serviceWorker.controller) letIn(fresh);
+      });
+    });
+
+    const look = () => {
+      try { reg.update(); } catch {}
+      if (reg.waiting) letIn(reg.waiting);
+    };
+    look();
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) look(); });
+    showVersion();
+  })();
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => showVersion());
+}
+
+/* Which version is actually running, in the footer. Small, and the only
+   honest answer to "did that update land?" */
+function showVersion(tries = 6) {
+  const worker = navigator.serviceWorker.controller;
+  const line = $('#version');
+  if (!line) return;
+  // a worker takes a moment to take charge on a first visit; ask again shortly
+  if (!worker) {
+    if (tries > 0) setTimeout(() => showVersion(tries - 1), 700);
+    return;
+  }
+  let answered = false;
+  const chat = new MessageChannel();
+  chat.port1.onmessage = e => {
+    const name = String(e.data || '');
+    if (!name) return;
+    answered = true;
+    line.textContent = name.replace(/^tunage-cache-/, 'Version ');
+  };
+  try {
+    worker.postMessage({ type: 'version' }, [chat.port2]);
+  } catch {
+    return;
+  }
+  // a worker that has just taken charge can miss the first question
+  if (tries > 0) setTimeout(() => { if (!answered) showVersion(tries - 1); }, 700);
 }

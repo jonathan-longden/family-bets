@@ -1,13 +1,15 @@
-const CACHE_NAME = 'tunage-cache-v32';
+const CACHE_NAME = 'tunage-cache-v33';
 const FILES_TO_CACHE = [
   './', './index.html', './styles.css', './app.js',
   './manifest.json', './icon-192.png', './icon-512.png',
 ];
 const NET_TIMEOUT = 4000;
 
+/* No skipWaiting here on purpose. A new worker installs and then waits, and
+   the page decides when it takes over — which is never in the middle of a
+   track. The page asks by sending 'skip'. */
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(FILES_TO_CACHE)));
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {
@@ -50,6 +52,15 @@ async function networkFirst(req) {
     throw new Error('offline and not cached');
   }
 }
+
+/* So the page can say which version it is running, from one source of truth. */
+self.addEventListener('message', event => {
+  const data = event.data || {};
+  if (data.type === 'skip') return self.skipWaiting();
+  if (data.type === 'version' && event.ports && event.ports[0]) {
+    event.ports[0].postMessage(CACHE_NAME);
+  }
+});
 
 self.addEventListener('fetch', event => {
   const req = event.request;

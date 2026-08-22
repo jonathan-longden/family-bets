@@ -545,6 +545,24 @@ for the iOS Music library: Safari has no access to it. Tunage plays files
 you can see in a file browser — purchased downloads, CD rips, Bandcamp
 files, anything DRM-free.
 
+## Updates
+
+The service worker goes to the network before the cache, so a new version is
+fetched on the next load rather than months later. Two things make that
+actually land on a phone:
+
+- **It looks for one whenever you come back to the app**, not only on a cold
+  start. An installed app that gets resumed rather than opened would
+  otherwise sit on the version it launched with.
+- **A new version waits until it won't interrupt anything.** It installs in
+  the background and is let in immediately when nothing is playing — the app
+  reloads onto it once. If something *is* playing, it says so and stays put:
+  the update takes over the next time you open Tunage. An update is never
+  worth cutting a track off.
+
+The version running is written at the bottom of the page, which is the only
+honest answer to "did that update land?".
+
 ## Keeping it on your phone
 
 Open the app in the browser, then:
