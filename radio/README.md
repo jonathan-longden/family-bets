@@ -324,9 +324,19 @@ it once is enough.
 **A blank cover is a signal.** Artwork is a plain image load with no
 cross-origin question attached to it, so if that fails as well the Archive
 isn't refusing the page — it can't be reached from that connection at all.
-The section checks and says so, because it matters more than the pictures:
-a chapter's audio comes straight from archive.org too, and no relay is
-going to carry that. On another network it works.
+The section checks with a one-pixel image and says so.
+
+There is one thing left to try when that happens, and it's built in.
+`archive.org` doesn't serve files itself: it redirects to storage nodes
+named like `ia801604.us.archive.org`, and the metadata reply names the node
+outright. Chapters are played from the node directly, skipping the
+redirect — and where the main address is blocked by name, the nodes are
+often left alone. So the warning says to open a book and try a chapter,
+because that is the test that settles it. If a chapter plays, the block was
+only ever about the covers. If it doesn't, the whole Archive is blocked on
+that connection, and mobile data instead of wi-fi, another network, or a
+VPN will fix it — a filter on the router or from the provider is the usual
+cause.
 
 Two details worth knowing:
 

@@ -1769,7 +1769,7 @@ radioEl.addEventListener('error', () => {
   // a chapter that won't play when the whole host is out of reach isn't a mystery
   const fromArchive = nowStream && /archive\.org/.test(nowStream.url || '');
   $('#onAirState').textContent = fromArchive && archiveReach === false
-    ? "archive.org can't be reached from here"
+    ? "The Archive is blocked on this connection"
     : "That stream wouldn't play";
   playing = false;
   render();
@@ -2584,10 +2584,15 @@ async function checkArchive() {
   const ok = await archiveReachable();
   warn.hidden = ok;
   if (!ok) {
-    warn.textContent = "This connection can't reach archive.org at all — not just for " +
-      'reading its catalogue. Browsing works because a relay fetches the lists for you, ' +
-      'but a chapter comes straight from archive.org, so playing one probably will not ' +
-      'work here. On another network, or with a VPN, it should.';
+    warn.innerHTML = "This connection can't reach <b>archive.org</b> at all — not just " +
+      'for reading its catalogue, which is why the covers are blank. Browsing still ' +
+      'works: a relay fetches the lists for you.' +
+      '<br><br>Chapters are played from the Archive\'s own storage servers rather than ' +
+      'from archive.org, and those are often left alone where the main address is ' +
+      'blocked — so open a book and try one. If it plays, this is only about the ' +
+      "covers. If it doesn't, the block covers the whole Archive, and another network, " +
+      'mobile data instead of wi-fi, or a VPN will fix it. A filter on your router or ' +
+      'from your provider is the usual cause.';
   }
 }
 
@@ -2633,10 +2638,22 @@ async function archiveSearch(query, rows = 14) {
 /* One book's chapters. The Archive lists every file it holds, including
    several encodings of the same recording — one is picked per chapter so a
    book doesn't turn up three times over. */
+/* The Archive doesn't serve files from archive.org itself: that address
+   redirects to one of its storage nodes, and the metadata reply names the
+   node outright. Going straight to it skips the redirect — and where
+   archive.org is blocked by name rather than by address, the node often
+   isn't. Worth taking. */
+function archiveNode(meta) {
+  const server = meta && (meta.server || (meta.workable_servers || [])[0]);
+  const dir = meta && meta.dir;
+  return server && dir ? `https://${server}${dir}` : '';
+}
+
 async function bookChapters(book, opts = {}) {
   const got = await fetchJson(ARCHIVE_META + encodeURIComponent(book.id), opts);
   if (got.failed) throw new Error(got.tried.join(' · '));
   const files = (got.data && got.data.files) || [];
+  const node = archiveNode(got.data);
 
   const best = new Map();                    // one file per recording
   const rank = f => /vbr/i.test(f.format) ? 3 : /128/.test(f.format) ? 2 : 1;
@@ -2652,12 +2669,17 @@ async function bookChapters(book, opts = {}) {
       || String(a.name).localeCompare(String(b.name), undefined, { numeric: true }))
     .map((f, i) => ({
       title: String(f.title || f.name.replace(/\.[^.]+$/, '').replace(/_/g, ' ')).trim(),
-      url: `https://archive.org/download/${encodeURIComponent(book.id)}/${encodeURIComponent(f.name)}`,
+      url: node
+        ? `${node}/${encodeURIComponent(f.name)}`
+        : `https://archive.org/download/${encodeURIComponent(book.id)}/${encodeURIComponent(f.name)}`,
       date: '',
       duration: f.length && /:/.test(String(f.length)) ? String(f.length)
         : (Number(f.length) ? mmss(Number(f.length)) : ''),
       number: i + 1,
     }));
+
+  // its cover comes off the same node, so a cover appearing means it works
+  if (node) book.art = `${node}/__ia_thumb.jpg`;
 
   return chapters.length ? chapters : null;
 }
