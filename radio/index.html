@@ -33,6 +33,7 @@
     <symbol id="i-save" viewBox="0 0 24 24"><path d="M11 3h2v8.1l3-3L17.4 9.5 12 15 6.6 9.5 8 8.1l3 3zM5 18h14v2H5z"/></symbol>
     <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v5a3 3 0 0 0 3 3m6-3a6 6 0 0 1-5 5.9V20h3v2H8v-2h3v-3.1A6 6 0 0 1 6 11h2a4 4 0 0 0 8 0z"/></symbol>
     <symbol id="i-radio" viewBox="0 0 24 24"><path d="M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6m6.4-4.4-1.4 1.4a7 7 0 0 1 0 10l1.4 1.4a9 9 0 0 0 0-12.8M7 6 5.6 4.6a9 9 0 0 0 0 12.8L7 16a7 7 0 0 1 0-10M20.9 1.7l-1.4 1.4a12 12 0 0 1 0 17l1.4 1.4a14 14 0 0 0 0-19.8M4.5 3.1 3.1 1.7a14 14 0 0 0 0 19.8l1.4-1.4a12 12 0 0 1 0-17"/></symbol>
+    <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 4h6a3 3 0 0 1 2 .8A3 3 0 0 1 14 4h6v14h-6a2 2 0 0 0-2 1.4A2 2 0 0 0 10 18H4zm2 2v10h4a4 4 0 0 1 1 .1V6.9A2 2 0 0 0 10 6zm12 0h-4a2 2 0 0 0-1 .9v9.2a4 4 0 0 1 1-.1h4z"/></symbol>
     <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21S3.5 15.4 3.5 9.6A5.1 5.1 0 0 1 12 6.2a5.1 5.1 0 0 1 8.5 3.4C20.5 15.4 12 21 12 21"/></symbol>
     <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.6 13.4a4 4 0 0 1 0-5.7l2.8-2.8a4 4 0 0 1 5.7 5.7l-1.4 1.4-1.4-1.4 1.4-1.4a2 2 0 0 0-2.8-2.8L12 9.1a2 2 0 0 0 0 2.8zm2.8-2.8a4 4 0 0 1 0 5.7l-2.8 2.8a4 4 0 0 1-5.7-5.7l1.4-1.4 1.4 1.4-1.4 1.4a2 2 0 0 0 2.8 2.8l2.9-2.7a2 2 0 0 0 0-2.8z"/></symbol>
   </defs>
@@ -177,6 +178,29 @@
   </section>
 
   <!-- ───────────── radio ───────────── -->
+  <section class="panel radio-panel" id="bookPanel" hidden>
+    <h2><svg class="ic"><use href="#i-book"/></svg> Audiobooks</h2>
+    <p class="hint">Free public-domain books read aloud, from the LibriVox
+      collection at the Internet Archive. Chapters remember where you got to.</p>
+
+    <div class="row">
+      <input id="bookSearch" type="search" placeholder="Search books or authors" autocomplete="off"
+             aria-label="Search audiobooks" />
+      <button class="btn" id="bookGo">Search</button>
+    </div>
+
+    <p class="hint" id="bookStatus" hidden></p>
+
+    <h3 class="sub" id="savedBooksHead" hidden>Favourites</h3>
+    <div class="tiles" id="savedBooks"></div>
+
+    <div class="tiles" id="bookResults"></div>
+
+    <h3 class="sub" id="chaptersHead" hidden></h3>
+    <ul class="tracks episodes" id="chapters"></ul>
+
+    <div class="shelves" id="bookShelves"></div>
+  </section>
   <section class="panel radio-panel" id="radioPanel" hidden>
     <h2><svg class="ic"><use href="#i-radio"/></svg> Radio</h2>
     <p class="hint">Live stations from around the world. This part needs a
