@@ -155,7 +155,26 @@ go back to Everything and the decks come straight back.
 
 Podcasts works the same way. Search by name, tap a genre, or add a station by
 its stream link. Save the ones you keep coming back to and they sit under
-**Your stations**.
+**Favourites**.
+
+### The rows it opens onto
+
+The page has tiles on it before you type anything:
+
+- **Favourites** — the stations you saved.
+- **Recently played** — what you last had on.
+- **Recommended for you** — built from the tags on the stations you save and
+  play, and it says which tag it used. It only appears once there is
+  something of yours to go on.
+- **Popular right now** — the directory's own most-listened stations.
+- **A few genre rows**, which move along by the day so it isn't the same
+  page every morning.
+
+Rows you can build without asking anyone — favourites, recently played — are
+drawn straight away. The rest come from the directory and are kept for half
+a day, so a second visit paints instantly and a train tunnel still gets
+tiles rather than a blank page. A row that can't be filled and has nothing
+kept is taken away rather than left as a heading over nothing.
 
 Stations come from [Radio Browser](https://www.radio-browser.info/), an open
 community-run directory — no account, no key, and nothing scraped from
@@ -182,6 +201,13 @@ The **Podcasts** chip opens a section for shows. Search by name, subscribe
 to the ones you follow, and tap a show to see its episodes. Shows are found
 through the iTunes Search directory, which is open and needs no key, and
 the episode list is read straight from the show's own feed.
+
+It opens onto rows in the same way: **Carry on listening** holds the
+episodes you're part way through, with how far in you got written on each
+tile, and under it are **Favourites**, a row drawn from the kind of shows
+you subscribe to, and a few subjects to browse. Nothing here claims to be a
+chart — a search directory can't honestly give one — so the rows are named
+after what they actually are.
 
 An episode isn't a live stream, so it behaves like one: the seek bar works,
 the skip buttons jump back 15 seconds and forward 30, and where you got to

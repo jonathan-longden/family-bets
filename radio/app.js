@@ -1301,6 +1301,148 @@ async function refreshStorage() {
 }
 
 
+/* ───────────────────────── shelves ─────────────────────────
+
+   Radio and Podcasts open onto rows of artwork rather than an empty search
+   box — favourites, what you had on last, and a few rows worth a browse.
+   The search is still there, it just isn't the only thing on the page.
+
+   Two things keep that working when the connection doesn't. Rows built from
+   your own list are drawn before anything is asked for, so there is always
+   something to look at; rows that come from a directory are kept for half a
+   day, so a second visit paints instantly and a train tunnel still gets
+   tiles instead of a blank page.
+
+   Rows are only rewritten when what's in them actually changes. A render
+   goes past whenever anything moves, and rewriting a row would throw away
+   wherever you had scrolled it to. */
+
+const SHELF_KEY = 'shelfCache';
+const SHELF_TTL = 12 * 60 * 60 * 1000;
+const SHELF_MAX = 24;          // rows kept between visits
+const RECENT_KEY = 'recentPlays';
+const RECENT_MAX = 12;
+
+let shelfCache = {};                    // key → { at, items }
+let recentStations = [];
+let recentEpisodes = [];
+
+const shelfFresh = key =>
+  shelfCache[key] && Date.now() - shelfCache[key].at < SHELF_TTL;
+
+function rememberShelf(key, items) {
+  shelfCache[key] = { at: Date.now(), items };
+  // a row named after a tag you played once shouldn't sit in here for ever
+  const keys = Object.keys(shelfCache)
+    .sort((a, b) => shelfCache[b].at - shelfCache[a].at);
+  for (const old of keys.slice(SHELF_MAX)) delete shelfCache[old];
+  store.setPref(SHELF_KEY, shelfCache).catch(() => {});
+}
+
+const saveRecents = () =>
+  store.setPref(RECENT_KEY, { stations: recentStations, episodes: recentEpisodes })
+    .catch(() => {});
+
+/* What you last had on, newest first and one entry per thing. */
+function rememberPlay(item) {
+  if (item.kind === 'station') {
+    recentStations = [{ id: item.id || item.url, name: item.name, url: item.url,
+      favicon: item.art || '', tags: item.sub || '', country: '' },
+    ...recentStations.filter(s => s.url !== item.url)].slice(0, RECENT_MAX);
+  } else if (item.kind === 'episode') {
+    recentEpisodes = [{ id: item.url, title: item.name, url: item.url,
+      show: item.sub || 'Podcast', art: item.art || '' },
+    ...recentEpisodes.filter(e => e.url !== item.url)].slice(0, RECENT_MAX);
+  } else return;
+  saveRecents();
+}
+
+const shelfSkeleton = (n = 5) => Array.from({ length: n }, () =>
+  '<span class="tile skel" aria-hidden="true"><span class="tile-art"></span>' +
+  '<b></b><span></span></span>').join('');
+
+/* Lays out the headings and leaves each remote row a placeholder, so the
+   page has its shape before a single request comes back. */
+function buildShelves(box, plan) {
+  box.innerHTML = plan.map(row => `
+    <section class="shelf" data-key="${esc(row.key)}">
+      <h3 class="sub">${esc(row.title)}${row.note
+        ? `<span class="shelf-note">${esc(row.note)}</span>` : ''}</h3>
+      <div class="tiles" data-row="${esc(row.key)}">${row.local ? '' : shelfSkeleton()}</div>
+    </section>`).join('');
+}
+
+const shelfRow = (box, key) => box.querySelector(`.tiles[data-row="${CSS.escape(key)}"]`);
+
+function putTiles(box, key, items, tileFn) {
+  const row = shelfRow(box, key);
+  if (!row) return;
+  if (!items.length) return dropShelf(box, key);
+  const sig = items.map(i => i.id || i.url).join('|');
+  if (row.dataset.sig === sig) return;
+  row.dataset.sig = sig;
+  row.innerHTML = items.map(tileFn).join('');
+}
+
+/* A row nobody could fill is a heading over nothing, so it goes. */
+function dropShelf(box, key) {
+  const section = box.querySelector(`.shelf[data-key="${CSS.escape(key)}"]`);
+  if (section) section.remove();
+}
+
+/* Hearts and the playing ring belong to the tile, not to the row, so they
+   are updated in place — rewriting the rows to move a ring would scroll
+   every one of them back to the start. */
+function refreshTiles() {
+  $$('.tile[data-station]').forEach(tile => {
+    let st;
+    try { st = JSON.parse(tile.dataset.station); } catch { return; }
+    tile.classList.toggle('on', !!nowStream && nowStream.url === st.url);
+    const heart = tile.querySelector('[data-save]');
+    if (heart) {
+      const saved = isSaved(st.url);
+      heart.classList.toggle('on', saved);
+      heart.setAttribute('aria-label', saved ? 'Remove from your stations' : 'Save this station');
+    }
+  });
+  $$('.tile[data-show]').forEach(tile => {
+    let show;
+    try { show = JSON.parse(tile.dataset.show); } catch { return; }
+    const heart = tile.querySelector('[data-sub]');
+    if (heart) {
+      const subbed = isSubscribed(show.feed);
+      heart.classList.toggle('on', subbed);
+      heart.setAttribute('aria-label', subbed ? 'Unsubscribe' : 'Subscribe');
+    }
+  });
+  $$('.tile[data-episode]').forEach(tile => {
+    let ep;
+    try { ep = JSON.parse(tile.dataset.episode); } catch { return; }
+    tile.classList.toggle('on', !!nowStream && nowStream.url === ep.url);
+    const sub = tile.querySelector('.tile-sub');
+    if (sub) sub.textContent = episodeSub(ep);
+  });
+}
+
+/* Directory rows are fetched one after another rather than all at once —
+   these are volunteer-run services, and a row landing at a time reads
+   better than five rows appearing together anyway. */
+async function fillShelves(box, rows, load) {
+  for (const row of rows) {
+    if (shelfFresh(row.key)) continue;              // already on the page from the cache
+    let items = null;
+    try { items = await load(row); } catch { items = null; }
+    if (items && items.length) {
+      rememberShelf(row.key, items);
+      putTiles(box, row.key, items, row.tile);
+      refreshTiles();
+    } else if (!shelfCache[row.key]) {
+      dropShelf(box, row.key);                      // nothing cached to fall back on
+    }
+  }
+}
+
+
 /* ───────────────────────── radio ─────────────────────────
 
    Live stations, deliberately kept apart from the decks. A stream plays on
@@ -1404,6 +1546,90 @@ function stationTile(st) {
     </button>`;
 }
 
+
+/* ── what the page opens onto ──
+
+   Your own rows first, then one built from the tags you actually listen to,
+   then the directory's own most-listened, then a few genres. The genre rows
+   move along by the day so the page isn't the same page every morning. */
+
+const titleCase = s => s.charAt(0).toUpperCase() + s.slice(1);
+const dayOfYear = () =>
+  Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+
+/* The tags on the stations you save and play, most-used first. */
+function tasteTags() {
+  const count = new Map();
+  for (const st of [...stations, ...recentStations]) {
+    for (const raw of String(st.tags || '').split(/·|,/)) {
+      const tag = raw.trim().toLowerCase();
+      if (tag.length > 2) count.set(tag, (count.get(tag) || 0) + 1);
+    }
+  }
+  return [...count.entries()].sort((a, b) => b[1] - a[1]).map(([tag]) => tag);
+}
+
+function radioShelfPlan() {
+  const plan = [];
+  if (recentStations.length) {
+    plan.push({ key: 'radio:recent', title: 'Recently played',
+      local: () => recentStations, tile: stationTile });
+  }
+
+  const taste = tasteTags();
+  const used = new Set();
+  if (taste[0]) {
+    used.add(taste[0]);
+    plan.push({ key: 'radio:rec:' + taste[0], title: 'Recommended for you',
+      note: `because you listen to ${taste[0]}`, tag: taste[0], tile: stationTile });
+  }
+
+  plan.push({ key: 'radio:popular', title: 'Popular right now', tile: stationTile });
+
+  const wheel = [...taste.filter(t => GENRES.includes(t)), ...GENRES];
+  const start = dayOfYear() % GENRES.length;
+  for (let i = 0; i < GENRES.length * 2 && used.size < 4; i++) {
+    const tag = wheel[(start + i) % wheel.length];
+    if (!tag || used.has(tag)) continue;
+    used.add(tag);
+    plan.push({ key: 'radio:tag:' + tag, title: titleCase(tag), tag, tile: stationTile });
+  }
+  return plan;
+}
+
+async function stationShelf(row) {
+  const params = new URLSearchParams({
+    limit: '14', hidebroken: 'true', order: 'clickcount', reverse: 'true',
+  });
+  if (row.tag) params.set('tag', row.tag);
+  const res = await fetch(`${RADIO_API}?${params}`, { headers: { Accept: 'application/json' } });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const list = await res.json();
+  return playableStations(Array.isArray(list) ? list : []).out;
+}
+
+let radioShelfSig = '';
+
+function renderRadioShelves() {
+  const box = $('#radioShelves');
+  const plan = radioShelfPlan();
+  const sig = plan.map(r => r.key).join('|');
+
+  if (sig !== radioShelfSig) {
+    radioShelfSig = sig;
+    buildShelves(box, plan);
+    // anything already cached paints before a single request goes out
+    for (const row of plan) {
+      if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
+    }
+    fillShelves(box, plan.filter(r => !r.local), stationShelf);
+  }
+
+  for (const row of plan) {
+    if (row.local) putTiles(box, row.key, row.local(), row.tile);
+  }
+}
+
 function renderRadio() {
   $('#radioPanel').hidden = settings.source !== 'radio';
   $('#savedHead').hidden = !stations.length;
@@ -1412,6 +1638,8 @@ function renderRadio() {
     $('#genreChips').innerHTML = GENRES
       .map(g => `<button class="chip" data-genre="${g}">${g}</button>`).join('');
   }
+  if (settings.source === 'radio') renderRadioShelves();
+  refreshTiles();
 }
 
 /* One player for anything that isn't a record: a live station, or a podcast
@@ -1420,6 +1648,7 @@ function renderRadio() {
 async function playStream(item) {
   stopAll();                                   // the decks stand down
   nowStream = item;
+  rememberPlay(item);
   document.body.classList.add('on-air');
   document.body.classList.toggle('is-live', item.kind === 'station');
   radioEl.src = item.url;
@@ -1496,7 +1725,7 @@ function saveStation(st) {
   else stations.push(st);
   saveStations();
   renderRadio();
-  $('#stationResults').innerHTML = $('#stationResults').innerHTML;   // refresh hearts
+  refreshTiles();
   toast(isSaved(st.url) ? `Saved ${st.name}` : `Removed ${st.name}`);
 }
 
@@ -1525,6 +1754,7 @@ function onStationClick(e) {
 }
 $('#stationResults').addEventListener('click', onStationClick);
 $('#savedStations').addEventListener('click', onStationClick);
+$('#radioShelves').addEventListener('click', onStationClick);
 
 $('#addStationUrl').addEventListener('click', () => {
   $('#stationErr').hidden = true;
@@ -1610,7 +1840,15 @@ async function searchPodcasts(term) {
     return;
   }
 
-  const shows = (data.results || [])
+  const shows = showsFrom(data);
+
+  $('#podcastResults').innerHTML = shows.map(showTile).join('');
+  podcastStatus(shows.length ? `${shows.length} show${shows.length === 1 ? '' : 's'}`
+    : 'Nothing found');
+}
+
+function showsFrom(data) {
+  return (data && Array.isArray(data.results) ? data.results : [])
     .filter(r => r.feedUrl)
     .map(r => ({
       id: r.collectionId ? String(r.collectionId) : uid(),
@@ -1618,11 +1856,8 @@ async function searchPodcasts(term) {
       author: r.artistName || '',
       feed: r.feedUrl,
       art: r.artworkUrl600 || r.artworkUrl100 || '',
+      genre: r.primaryGenreName || '',
     }));
-
-  $('#podcastResults').innerHTML = shows.map(showTile).join('');
-  podcastStatus(shows.length ? `${shows.length} show${shows.length === 1 ? '' : 's'}`
-    : 'Nothing found');
 }
 
 function showTile(show) {
@@ -1716,10 +1951,117 @@ async function openPodcast(show) {
   }).join('');
 }
 
+
+/* ── what the page opens onto ──
+
+   Same idea as Radio: episodes you're part way through, a row from the kind
+   of thing you subscribe to, and a handful of subjects to browse. There is
+   no honest chart to be had from a search directory, so nothing here claims
+   to be one — the rows are named after what they actually are. */
+
+const PODCAST_ROWS = [
+  { term: 'news', title: 'News' },
+  { term: 'comedy', title: 'Comedy' },
+  { term: 'true crime', title: 'True crime' },
+  { term: 'football', title: 'Football' },
+  { term: 'music', title: 'Music' },
+  { term: 'history', title: 'History' },
+  { term: 'science', title: 'Science' },
+  { term: 'business', title: 'Business' },
+];
+
+function episodeTile(ep) {
+  const art = ep.art
+    ? `<img src="${esc(ep.art)}" alt="" loading="lazy" onerror="this.remove()" />`
+    : esc((ep.title || '?').trim()[0].toUpperCase());
+  return `
+    <button class="tile ${nowStream && nowStream.url === ep.url ? 'on' : ''}"
+            data-episode='${esc(JSON.stringify(ep))}'>
+      <span class="tile-art" style="background:linear-gradient(150deg,hsl(${hueOf(ep.id || ep.url)} 50% 42%),hsl(${(hueOf(ep.id || ep.url) + 40) % 360} 45% 28%))">
+        ${art}
+      </span>
+      <b>${esc(ep.title)}</b>
+      <span class="tile-sub">${esc(episodeSub(ep))}</span>
+    </button>`;
+}
+
+/* How far in you got, which changes while the episode plays — so it's
+   written back onto the tile rather than baked into it. */
+function episodeSub(ep) {
+  const at = Number(episodePos[ep.url]) || 0;
+  return at > 5 ? `${mmss(at)} in · ${ep.show || 'Podcast'}` : (ep.show || 'Podcast');
+}
+
+/* The subjects your subscriptions fall under, most-subscribed first. */
+function tasteGenres() {
+  const count = new Map();
+  for (const show of podcasts) {
+    const genre = String(show.genre || '').trim().toLowerCase();
+    if (genre) count.set(genre, (count.get(genre) || 0) + 1);
+  }
+  return [...count.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => g);
+}
+
+function podcastShelfPlan() {
+  const plan = [];
+  if (recentEpisodes.length) {
+    plan.push({ key: 'pod:recent', title: 'Carry on listening',
+      local: () => recentEpisodes, tile: episodeTile });
+  }
+
+  const taste = tasteGenres();
+  const used = new Set();
+  if (taste[0]) {
+    used.add(taste[0]);
+    plan.push({ key: 'pod:rec:' + taste[0], title: 'Recommended for you',
+      note: `because you follow ${taste[0]}`, term: taste[0], tile: showTile });
+  }
+
+  const start = dayOfYear() % PODCAST_ROWS.length;
+  for (let i = 0; i < PODCAST_ROWS.length && used.size < 5; i++) {
+    const row = PODCAST_ROWS[(start + i) % PODCAST_ROWS.length];
+    if (used.has(row.term)) continue;
+    used.add(row.term);
+    plan.push({ key: 'pod:term:' + row.term, title: row.title, term: row.term, tile: showTile });
+  }
+  return plan;
+}
+
+async function podcastShelf(row) {
+  const params = new URLSearchParams({ media: 'podcast', limit: '14', term: row.term });
+  const res = await fetch(`${PODCAST_API}?${params}`);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  return showsFrom(data);
+}
+
+let podcastShelfSig = '';
+
+function renderPodcastShelves() {
+  const box = $('#podcastShelves');
+  const plan = podcastShelfPlan();
+  const sig = plan.map(r => r.key).join('|');
+
+  if (sig !== podcastShelfSig) {
+    podcastShelfSig = sig;
+    buildShelves(box, plan);
+    for (const row of plan) {
+      if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
+    }
+    fillShelves(box, plan.filter(r => !r.local), podcastShelf);
+  }
+
+  for (const row of plan) {
+    if (row.local) putTiles(box, row.key, row.local(), row.tile);
+  }
+}
+
 function renderPodcasts() {
   $('#podcastPanel').hidden = settings.source !== 'podcasts';
   $('#subsHead').hidden = !podcasts.length;
   $('#subscriptions').innerHTML = podcasts.map(showTile).join('');
+  if (settings.source === 'podcasts') renderPodcastShelves();
+  refreshTiles();
 }
 
 function subscribe(show) {
@@ -1748,6 +2090,15 @@ function onShowClick(e) {
 }
 $('#podcastResults').addEventListener('click', onShowClick);
 $('#subscriptions').addEventListener('click', onShowClick);
+$('#podcastShelves').addEventListener('click', e => {
+  // the Carry on listening row holds episodes; the rest hold shows
+  const tile = e.target.closest('.tile[data-episode]');
+  if (!tile) return onShowClick(e);
+  let ep;
+  try { ep = JSON.parse(tile.dataset.episode); } catch { return; }
+  playStream({ kind: 'episode', name: ep.title, sub: ep.show || 'Podcast',
+    url: ep.url, art: ep.art || '' });
+});
 
 $('#episodes').addEventListener('click', e => {
   const li = e.target.closest('li[data-episode]');
@@ -3089,6 +3440,18 @@ document.addEventListener('keydown', e => {
     stations = Array.isArray(savedStations) ? savedStations : [];
   } catch {
     stations = [];
+  }
+
+  try {
+    const cached = await store.getPref(SHELF_KEY);
+    shelfCache = (cached && typeof cached === 'object') ? cached : {};
+    const recent = await store.getPref(RECENT_KEY);
+    recentStations = recent && Array.isArray(recent.stations) ? recent.stations : [];
+    recentEpisodes = recent && Array.isArray(recent.episodes) ? recent.episodes : [];
+  } catch {
+    shelfCache = {};
+    recentStations = [];
+    recentEpisodes = [];
   }
 
   try {
