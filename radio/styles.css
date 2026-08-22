@@ -498,6 +498,35 @@ input[type=range]::-moz-range-thumb { width: 15px; height: 15px; border: 0; bord
 .tile-save .ic { width: 14px; height: 14px; }
 .tile-save.on { color: var(--hot); }
 
+/* ── shelves: the rows a browse page opens onto ── */
+
+.shelf { margin-top: 2px; }
+.sub .shelf-note {
+  margin-left: 8px; font-size: 11px; font-weight: 500;
+  text-transform: none; letter-spacing: 0; color: var(--ink-dim);
+}
+
+/* a row waiting on the directory holds its shape rather than collapsing,
+   so the rows underneath don't jump about as each one lands */
+.tile.skel { pointer-events: none; }
+.tile.skel .tile-art { background: var(--card); box-shadow: none; }
+.tile.skel b,
+.tile.skel span {
+  height: 10px; border-radius: 4px; background: var(--card);
+}
+.tile.skel b { width: 80%; }
+.tile.skel span { width: 55%; }
+.tile.skel .tile-art,
+.tile.skel b,
+.tile.skel span { animation: skel-fade 1.4s ease-in-out infinite; }
+
+@keyframes skel-fade { 0%, 100% { opacity: .5; } 50% { opacity: .85; } }
+@media (prefers-reduced-motion: reduce) {
+  .tile.skel .tile-art,
+  .tile.skel b,
+  .tile.skel span { animation: none; }
+}
+
 /* ── browsing: Radio and Podcasts ──
    A different shape of page. No decks, no crossfader, no transport: rows of
    artwork with a heading over each, which is how anyone actually looks for a
@@ -553,9 +582,14 @@ body.browse .tile-art {
   box-shadow: 0 6px 18px rgba(0,0,0,.5), inset 0 0 0 1px rgba(255,255,255,.07);
   font-size: 34px;
 }
-body.browse .tile b { font-size: 14px; line-height: 1.3; }
+/* two lines' worth whether the name needs them or not, so the tiles in a
+   row line up along the bottom instead of stepping about */
+body.browse .tile b { font-size: 14px; line-height: 1.3; min-height: 2.6em; }
 body.browse .tile span { font-size: 12px; }
 body.browse .tile-save { width: 30px; height: 30px; right: 6px; bottom: 6px; }
+/* the reason a row exists reads as a line under its name, not as a
+   trailing wrap off the end of it */
+body.browse .sub .shelf-note { display: block; margin: 3px 0 0; font-size: 12px; }
 
 /* the search bar is the point of the page, so it looks like it */
 body.browse .radio-panel .row { margin: 14px 0 4px; }
