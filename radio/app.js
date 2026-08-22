@@ -1839,6 +1839,7 @@ $('#radioShelves').addEventListener('click', e => {
   if (!row) return;
   openCategory({
     kind: 'station', title: row.title, noun: 'station',
+    seed: (shelfCache[row.key] || {}).items,
     load: async () => {
       const params = new URLSearchParams({
         limit: '40', hidebroken: 'true', order: 'clickcount', reverse: 'true',
@@ -2089,12 +2090,15 @@ const looksLikeJson = t => /^\s*[[{]/.test(t);
    same route — directly first, then the relays. */
 const CATALOGUE_TIMEOUT = 12000;        // a catalogue reply is kilobytes, not megabytes
 
+/* Hedging is right for one request and wrong for several at once. A page of
+   rows fires five of these together, and bringing in every relay for every
+   row is the way to be rate-limited by all of them — so rows go one relay at
+   a time. A tap, though, is one request with somebody waiting on it, and
+   walking three relays in turn is half a minute of nothing. That one hedges. */
 async function fetchJson(url, opts = {}) {
-  /* No hedging here: a page of rows is several of these at once, and firing
-     every relay for every row is the way to be rate-limited by all of them.
-     One at a time per row, with the rows themselves running together. */
   const got = await fetchFeed(url, { ...opts, valid: looksLikeJson, wants: 'catalogue',
-    patience: opts.patience || CATALOGUE_TIMEOUT, hedgeAfter: Infinity,
+    patience: opts.patience || CATALOGUE_TIMEOUT,
+    hedgeAfter: opts.hedge ? 4000 : Infinity,
     // a catalogue that is going to answer answers quickly; one that is blocked
     // never does, and four seconds is long enough to find that out
     directPatience: 4000 });
@@ -2557,6 +2561,7 @@ $('#podcastShelves').addEventListener('click', e => {
     if (!row || !row.term) return;
     openCategory({
       kind: 'show', title: row.title, noun: 'show',
+      seed: (shelfCache[row.key] || {}).items,
       load: async () => {
         const params = new URLSearchParams({ media: 'podcast', limit: '40', term: row.term });
         const res = await fetch(`${PODCAST_API}?${params}`);
@@ -2669,7 +2674,7 @@ function bookStatus(text, detail = '') {
 /* The Archive's own search, which answers in JSON and allows a browser to
    read it. Everything is scoped to LibriVox so nothing turns up that isn't
    a book read aloud. */
-async function archiveSearch(query, rows = 14, sort = 'downloads desc') {
+async function archiveSearch(query, rows = 14, sort = 'downloads desc', opts = {}) {
   const params = new URLSearchParams({
     q: query === '*' ? LIBRIVOX : `${LIBRIVOX} AND (${query})`,
     rows: String(rows), page: '1', output: 'json',
@@ -2678,7 +2683,7 @@ async function archiveSearch(query, rows = 14, sort = 'downloads desc') {
     .forEach(f => params.append('fl[]', f));
   params.append('sort[]', sort);
 
-  const got = await fetchJson(`${ARCHIVE_SEARCH}?${params}`);
+  const got = await fetchJson(`${ARCHIVE_SEARCH}?${params}`, opts);
   if (got.failed) throw new Error(got.tried.join(' · '));
   const data = got.data;
   const docs = (data && data.response && data.response.docs) || [];
@@ -2963,7 +2968,8 @@ $('#bookShelves').addEventListener('click', e => {
     if (row && row.term) {
       openCategory({
         kind: 'book', title: row.title, noun: 'book',
-        load: () => archiveSearch(row.term, 40, row.sort || 'downloads desc'),
+        seed: (shelfCache[row.key] || {}).items,
+        load: () => archiveSearch(row.term, 40, row.sort || 'downloads desc', { hedge: true }),
       });
     }
     return;
@@ -3006,23 +3012,43 @@ function categoryStatus(text, detail = '') {
 async function openCategory(spec) {
   category = spec;
   $('#categoryTitle').textContent = spec.title;
-  $('#categoryTiles').innerHTML = shelfSkeleton(8);
-  categoryStatus('');
+
+  /* Whatever the row was already showing goes up at once. Waiting on a
+     directory with an empty screen in front of you is the thing to avoid;
+     the fuller list replaces this the moment it lands. */
+  const tile = CATEGORY_TILE[spec.kind] || (x => bookTile(x));
+  const seed = Array.isArray(spec.seed) ? spec.seed : [];
+  $('#categoryTiles').innerHTML = seed.length
+    ? seed.map(tile).join('') + shelfSkeleton(4)
+    : shelfSkeleton(8);
+  categoryStatus(seed.length ? 'Looking for the rest…' : 'Fetching…');
   render();
+  refreshTiles();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 
   let items;
   try {
     items = await spec.load();
   } catch (e) {
-    $('#categoryTiles').innerHTML = '';
-    categoryStatus("Couldn't fetch this just now — it needs a connection.",
+    if (category !== spec) return;
+    $('#categoryTiles').innerHTML = seed.map(tile).join('');
+    categoryStatus(seed.length
+      ? `${seed.length} ${spec.noun || 'result'}${seed.length === 1 ? '' : 's'} · ` +
+        "couldn't fetch any more just now"
+      : "Couldn't fetch this just now — it needs a connection.",
       e && e.message ? String(e.message) : '');
+    refreshTiles();
     return;
   }
   if (category !== spec) return;              // you left while it was fetching
 
-  const tile = CATEGORY_TILE[spec.kind] || (x => bookTile(x));
+  if (!items.length && seed.length) {
+    $('#categoryTiles').innerHTML = seed.map(tile).join('');
+    categoryStatus(`${seed.length} ${spec.noun || 'result'}${seed.length === 1 ? '' : 's'}` +
+      " · couldn't fetch any more just now");
+    refreshTiles();
+    return;
+  }
   $('#categoryTiles').innerHTML = items.map(tile).join('');
   categoryStatus(items.length
     ? `${items.length} ${spec.noun || 'result'}${items.length === 1 ? '' : 's'}`
@@ -3060,7 +3086,7 @@ $('#categoryList').addEventListener('click', e => {
   closeSheets();
   openCategory({
     kind: 'book', title: row.title, noun: 'book',
-    load: () => archiveSearch(row.term, 40, row.sort || 'downloads desc'),
+    load: () => archiveSearch(row.term, 40, row.sort || 'downloads desc', { hedge: true }),
   });
 });
 
