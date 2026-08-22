@@ -2051,6 +2051,37 @@ async function fetchFeed(url, { onRelay = () => {} } = {}) {
 
 /* A feed address goes stale — a show moves host and Apple's directory knows
    before anything saved here does. Worth one lookup before giving up. */
+/* Some publishers hang on a relay rather than refusing it — the relay comes
+   back with a timeout of its own and there is nothing further to try in that
+   direction. Apple keeps its own copy of the episode list for every show in
+   its directory, and unlike most publishers it lets a browser read it. It's
+   thinner than a feed — the newest couple of hundred episodes, no show
+   notes — but it plays, and it needs no relay and no key. */
+async function appleEpisodes(show) {
+  if (!/^\d+$/.test(String(show.id || ''))) return null;
+  try {
+    const res = await fetch('https://itunes.apple.com/lookup?' + new URLSearchParams({
+      id: String(show.id), entity: 'podcastEpisode', limit: '200',
+    }));
+    if (!res.ok) return null;
+    const data = await res.json();
+    const episodes = (data.results || [])
+      .filter(r => r.episodeUrl)
+      .map(r => ({
+        title: r.trackName || 'Untitled episode',
+        url: r.episodeUrl,
+        date: r.releaseDate || '',
+        duration: r.trackTimeMillis ? mmss(r.trackTimeMillis / 1000) : '',
+      }));
+    if (!episodes.length) return null;
+    const art = (data.results || []).find(r => r.artworkUrl600 || r.artworkUrl100);
+    return { title: show.name, episodes,
+      art: art ? (art.artworkUrl600 || art.artworkUrl100) : '' };
+  } catch {
+    return null;
+  }
+}
+
 async function currentFeedUrl(show) {
   if (!/^\d+$/.test(String(show.id || ''))) return null;
   try {
@@ -2150,6 +2181,22 @@ async function openPodcast(show) {
         if (sub) { sub.feed = moved; savePodcasts(); }
         got = second;
       }
+    }
+  }
+
+  /* The feed is out of reach. Apple's copy is thinner but it's right there,
+     and a show you can play beats a show you can't. */
+  if (got.failed) {
+    podcastStatus(`${show.name}'s feed is out of reach — asking Apple's directory ` +
+      'for its episodes instead…');
+    const fromApple = await appleEpisodes(show);
+    if (fromApple) {
+      if (!show.art && fromApple.art) show.art = fromApple.art;
+      keepEpisodes(show, fromApple);
+      podcastStatus(`${episodeCount(fromApple.episodes.length)} · from Apple's directory, ` +
+        "because this publisher's feed can't be read here", got.tried.join(' · '));
+      renderEpisodes(show, fromApple.episodes);
+      return;
     }
   }
 

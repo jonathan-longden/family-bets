@@ -270,8 +270,22 @@ having moved — and they don't have the same answer. Every attempt is listed
 under the message with what it actually said: *direct: refused to be read by
 another site · AllOrigins: answered 403 · CodeTabs: gave up after 15s*.
 
-Some publishers refuse anything that isn't a recognised podcast app, relay
-included. Nothing served from a static page can get round that one.
+### When the feed is out of reach altogether
+
+Some publishers don't refuse a relay so much as ignore it — the relay waits,
+gives up, and answers with a timeout of its own. More relays don't help;
+they all hang the same way.
+
+For those, Apple's directory is asked for the show's episodes instead. It
+keeps its own copy for everything listed in it, and unlike most publishers
+it lets a browser read it — no relay, no key, and it's the same directory
+the search already uses. The list is thinner than a feed, the newest couple
+of hundred episodes with no show notes, and the page says where it came
+from. A show you can play beats a show you can't.
+
+That leaves one case with no answer: a show that isn't in Apple's directory
+*and* whose publisher won't be read. Nothing served from a static page can
+get round that one.
 
 ## Voice
 
