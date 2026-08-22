@@ -179,6 +179,13 @@
   </section>
 
   <!-- ───────────── radio ───────────── -->
+  <section class="panel radio-panel" id="categoryPanel" hidden>
+    <button class="btn ghost back" id="categoryBack">← Back</button>
+    <h2 id="categoryTitle"></h2>
+    <p class="hint" id="categoryStatus" hidden></p>
+    <div class="tiles grid" id="categoryTiles"></div>
+  </section>
+
   <section class="panel radio-panel" id="bookPanel" hidden>
     <h2><svg class="ic"><use href="#i-book"/></svg> Audiobooks</h2>
     <p class="hint">Free public-domain books read aloud, from the LibriVox
@@ -202,6 +209,8 @@
 
     <p class="hint" id="bookRowsNote" hidden></p>
     <div class="shelves" id="bookShelves"></div>
+
+    <button class="btn ghost wide" id="allCategories">All categories</button>
   </section>
   <section class="panel radio-panel" id="radioPanel" hidden>
     <h2><svg class="ic"><use href="#i-radio"/></svg> Radio</h2>
@@ -432,6 +441,16 @@
     <p class="hint"><b>Android:</b> tap the browser menu, then <b>Install app</b> or <b>Add to Home Screen</b>.</p>
     <p class="hint">After that it opens like a normal app and the stations keep playing with no signal.</p>
     <button class="btn wide" id="installNow" hidden>Install now</button>
+  </div>
+</div>
+
+<div class="overlay" id="categorySheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Categories</h3>
+      <button class="icon-btn" data-close aria-label="Close"><svg class="ic"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="genre-chips wrap" id="categoryList"></div>
   </div>
 </div>
 
