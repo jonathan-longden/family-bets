@@ -2355,6 +2355,13 @@ $('#voiceType').addEventListener('submit', e => {
 function render() {
   document.documentElement.style.setProperty('--accent', sourceColour());
 
+  /* Radio and Podcasts are places to browse, not to mix. The turntables and
+     everything attached to them stand down for the whole section, leaving the
+     rows of artwork the eye actually uses. What's on air keeps its card, so
+     you can still see and stop what's playing. */
+  document.body.classList.toggle('browse',
+    settings.source === 'radio' || settings.source === 'podcasts');
+
   $('#playBtn').innerHTML = `<svg class="ic"><use href="#i-${playing ? 'pause' : 'play'}"/></svg>`;
   $('#playBtn').setAttribute('aria-label', playing ? 'Pause' : 'Play');
   $('#shuffleBtn').classList.toggle('on', settings.shuffle);
