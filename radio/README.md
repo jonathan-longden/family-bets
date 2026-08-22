@@ -314,6 +314,13 @@ something a page can change — the request goes through the same relays the
 podcast feeds use. And if nothing answers at all, the section says so
 rather than showing an empty page: a blank one tells you nothing about why.
 
+Three things keep that from being a wait. A catalogue reply is kilobytes
+rather than the megabytes a podcast feed can be, so it gets twelve seconds
+rather than forty-five. The rows are fetched together instead of one after
+another, since otherwise a page of four rows is four waits. And a host that
+has already refused a direct read isn't asked again that visit — learning
+it once is enough.
+
 Two details worth knowing:
 
 - **A book's chapters are kept once opened.** The Archive lists a book's

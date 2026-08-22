@@ -1446,16 +1446,32 @@ function refreshTiles() {
 /* Directory rows are fetched one after another rather than all at once —
    these are volunteer-run services, and a row landing at a time reads
    better than five rows appearing together anyway. */
-async function fillShelves(box, rows, load, { onEmpty = () => {} } = {}) {
+async function fillShelves(box, rows, load, { onEmpty = () => {}, together = false } = {}) {
   let why = '', served = 0;
-  for (const row of rows) {
+
+  /* Rows are fetched one after another by default — these are volunteer-run
+     services and a row landing at a time reads better anyway. Where every
+     row has to go through a relay, though, one at a time is a wait per row
+     rather than one wait, so those go together. */
+  const waiting = together
+    ? rows.map(row => shelfFresh(row.key) ? null
+      : load(row).then(items => ({ items }), e => ({ e })))
+    : null;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     if (shelfFresh(row.key)) { served++; continue; }   // already up, from the cache
     let items = null;
-    try {
-      items = await load(row);
-    } catch (e) {
-      items = null;
-      if (e && e.message) why = String(e.message);
+    if (together) {
+      const settled = await waiting[i];
+      items = settled.items || null;
+      if (settled.e && settled.e.message) why = String(settled.e.message);
+    } else {
+      try {
+        items = await load(row);
+      } catch (e) {
+        if (e && e.message) why = String(e.message);
+      }
     }
     if (items && items.length) {
       served++;
@@ -1975,6 +1991,7 @@ const RELAY_TIMEOUT = 45000;            // a relay carrying the whole file
 const HEDGE_AFTER = 6000;               // how long one relay gets on its own
 const FEED_CACHE_TTL = 10 * 60 * 1000;
 const feedCache = new Map();            // this visit only — feeds change
+const refusedDirect = new Set();        // hosts that won't be read by a browser
 
 async function getText(url, ms = FEED_TIMEOUT, stop = new AbortController()) {
   const timer = setTimeout(() => stop.abort(), ms);
@@ -2000,8 +2017,14 @@ const looksLikeJson = t => /^\s*[[{]/.test(t);
    whether a browser may read it is the server's call, and if it says no
    there is nothing to be done from the page itself. So it goes through the
    same route — directly first, then the relays. */
+const CATALOGUE_TIMEOUT = 12000;        // a catalogue reply is kilobytes, not megabytes
+
 async function fetchJson(url, opts = {}) {
-  const got = await fetchFeed(url, { ...opts, valid: looksLikeJson, wants: 'catalogue' });
+  /* No hedging here: a page of rows is several of these at once, and firing
+     every relay for every row is the way to be rate-limited by all of them.
+     One at a time per row, with the rows themselves running together. */
+  const got = await fetchFeed(url, { ...opts, valid: looksLikeJson, wants: 'catalogue',
+    patience: opts.patience || CATALOGUE_TIMEOUT, hedgeAfter: Infinity });
   if (got.failed) return got;
   try {
     return { data: JSON.parse(got.body), via: got.via };
@@ -2026,7 +2049,7 @@ function unwrap(text) {
    relay being busy, and the feed having moved — and they need different
    answers. Returns how it was got, or the list of what happened. */
 async function fetchFeed(url, { onRelay = () => {}, valid = looksLikeFeed,
-  wants = 'feed' } = {}) {
+  wants = 'feed', patience = RELAY_TIMEOUT, hedgeAfter = HEDGE_AFTER } = {}) {
   const held = feedCache.get(url);
   if (held && Date.now() - held.at < FEED_CACHE_TTL) return held.got;
 
@@ -2051,7 +2074,18 @@ async function fetchFeed(url, { onRelay = () => {}, valid = looksLikeFeed,
     }
   };
 
-  let got = await attempt('direct', url, null, FEED_TIMEOUT);
+  /* A host that refused a direct read once will refuse the next one too, and
+     a page of rows is a lot of wasted round trips to learn that five times
+     over. */
+  let host = '';
+  try { host = new URL(url).origin; } catch {}
+  let got = null;
+  if (host && refusedDirect.has(host)) {
+    tried.push('direct: refused earlier in this visit');
+  } else {
+    got = await attempt('direct', url, null, FEED_TIMEOUT);
+    if (!got && host) refusedDirect.add(host);
+  }
 
   /* One relay gets the job on its own, since that is usually enough and
      keeps the request in one place. If it hasn't answered in a few seconds
@@ -2078,14 +2112,17 @@ async function fetchFeed(url, { onRelay = () => {}, valid = looksLikeFeed,
         started++;
         running++;
         onRelay(relay.name);
-        attempt(relay.name, relay.url(url), relay, RELAY_TIMEOUT, stop).then(result => {
+        attempt(relay.name, relay.url(url), relay, patience, stop).then(result => {
           running--;
           if (result) return finish(result);
           if (started >= FEED_RELAYS.length && running === 0) return finish(null);
           startNext();                       // one down, bring the next forward
         });
         clearTimeout(timer);
-        if (started < FEED_RELAYS.length) timer = setTimeout(startNext, HEDGE_AFTER);
+        // a non-finite delay becomes 0 in setTimeout, which would start them all
+        if (started < FEED_RELAYS.length && isFinite(hedgeAfter)) {
+          timer = setTimeout(startNext, hedgeAfter);
+        }
       };
 
       startNext();
@@ -2709,7 +2746,7 @@ function bookShelfPlan() {
   }
 
   const start = dayOfYear() % BOOK_ROWS.length;
-  for (let i = 0; i < BOOK_ROWS.length && used.size < 5; i++) {
+  for (let i = 0; i < BOOK_ROWS.length && used.size < 4; i++) {
     const row = BOOK_ROWS[(start + i) % BOOK_ROWS.length];
     if (used.has(row.term)) continue;
     used.add(row.term);
@@ -2735,6 +2772,7 @@ function renderBookShelves() {
       if (!row.local && shelfCache[row.key]) putTiles(box, row.key, shelfCache[row.key].items, row.tile);
     }
     fillShelves(box, plan.filter(r => !r.local), bookShelf, {
+      together: true,
       onEmpty: why => bookStatus("Couldn't reach the Internet Archive, so there is " +
         'nothing to show here yet. Search still works if it comes back, and books ' +
         'you have already opened are still here.', why),
