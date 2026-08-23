@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-23 · 21';
+var BUILD = '2026-08-23 · 22';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -703,12 +703,69 @@ function round4(v) {
 }
 
 /* Kept so the next export carries it, rather than needing another drive. */
+/* ---------- asking Roboflow what this model actually is ----------
+
+   Every fix to the decoding so far has been a guess checked against a
+   screenshot, because the one fact that settles it — which decoder the library
+   picks — is decided inside a worker we cannot see into. It does not have to
+   be invisible. The library chooses that decoder from one field in the model
+   metadata, and the metadata is a plain GET; so the app fetches the same
+   document and says what the library will have made of it.
+
+   The dispatch below is a copy of the library's, read out of its own bundle.
+   Copying it is not ideal, but the alternative is guessing, and a copy that
+   goes stale says the wrong model type rather than silently scoring a living
+   room as a Category 2. Note there is no `yolo11` case without the `v`: a
+   model whose type is spelled that way is refused outright, and it is worth
+   being able to see that rather than infer it. */
+function decoderFor(t) {
+  t = String(t || '');
+  if (!t) return 'unknown — no model type reported';
+  if (t.indexOf('yolov8') === 0) return 'YOLOv8';
+  if (t.indexOf('yolov5') === 0) return 'YOLOv5';
+  if (t.indexOf('rfdetr') === 0) return 'RFDetr';
+  if (t.indexOf('yolov11') === 0) return 'YOLOv11';
+  if (t.indexOf('yolov26') === 0 || t.indexOf('yolo26') === 0) return 'YOLO26';
+  if (t.indexOf('yololite') === 0) return 'YOLOLite';
+  return 'none — the library refuses this type';
+}
+
+var rfMeta = null, rfMetaAsked = null;
+
+function modelMeta() {
+  if (rfMetaAsked) return rfMetaAsked;
+  var base = 'https://api.roboflow.com/tfjs';
+  var path = RF_MODEL_ID ? base + '/model/' + RF_MODEL_ID
+                         : base + '/' + RF_MODEL + '/' + RF_VERSION;
+  var url = path + '?publishable_key=' + encodeURIComponent(RF_KEY) +
+            '&host=' + encodeURIComponent(location.host);
+  rfMetaAsked = fetch(url).then(function (r) {
+    if (!r.ok) throw new Error('metadata HTTP ' + r.status);
+    return r.json();
+  }).then(function (j) {
+    var m = (j && j.tfjs) || {};
+    rfMeta = { modelType: m.modelType || null,
+               decoder: decoderFor(m.modelType),
+               classes: m.classes || null,
+               size: m.size || null };
+    return rfMeta;
+  }).catch(function (e) {
+    rfMeta = { error: String((e && e.message) || e) };
+    return rfMeta;
+  });
+  return rfMetaAsked;
+}
+
 var lastRaw = null;
 function noteRaw(raw, w, h, vw, vh) {
   lastRaw = { at: new Date().toISOString(), frame: w + '×' + h,
               video: vw ? vw + '×' + vh : null,
               summary: describeRaw(raw),
-              first: raw && raw.length ? JSON.parse(JSON.stringify(raw[0])) : null };
+              first: raw && raw.length ? JSON.parse(JSON.stringify(raw[0])) : null,
+              model: rfMeta };
+  /* Asked for only when something has already gone wrong, so a working app
+     never spends a request on it. It lands in lastRaw for the next export. */
+  modelMeta().then(function (m) { if (lastRaw) lastRaw.model = m; });
 }
 
 /* ---------- taking the model at less than its word ----------
@@ -943,9 +1000,15 @@ function look() {
          two-hour emergencies. */
       noteRaw(raw, out.w, out.h, out.vw, out.vh);
       hud('Model output unusable', 'bad');
-      toast(describeRaw(raw) + '. Frame ' + out.w + '×' + out.h +
-            (out.vw && (out.vw !== out.w || out.vh !== out.h)
-              ? ', video ' + out.vw + '×' + out.vh : '') + '.');
+      var say = describeRaw(raw) + '. Frame ' + out.w + '×' + out.h +
+                (out.vw && (out.vw !== out.w || out.vh !== out.h)
+                  ? ', video ' + out.vw + '×' + out.vh : '') + '.';
+      toast(say);
+      modelMeta().then(function (m) {
+        if (!survey.on || !m) return;
+        toast(say + ' Roboflow calls it ' + (m.modelType || 'nothing') +
+              (m.error ? ' (' + m.error + ')' : ', decoded by ' + m.decoder) + '.');
+      });
       return tick();
     }
     if (!hits.length) return hud('Watching');
@@ -1521,12 +1584,16 @@ $('bJson').addEventListener('click', function () {
           fr.readAsDataURL(it.img);
         });
       })).then(function (wrongRows) {
+        return modelMeta().then(function (meta) { return { wrongRows: wrongRows, meta: meta }; });
+      }).then(function (bundle) {
+        var wrongRows = bundle.wrongRows, meta = bundle.meta;
         dl('defects-' + stamp() + '.json', new Blob([JSON.stringify({
           defects: rows,
           notDefects: wrongRows,      // the examples a retrain would need
           model: { id: RF_MODEL_ID || (RF_MODEL + '/' + RF_VERSION),
                    loadedBy: RF_MODEL_ID ? 'model id' : 'project and version',
-                   build: BUILD },
+                   build: BUILD,
+                   roboflow: meta },   // what the service says it is, and what decodes it
           lastUnusableOutput: lastRaw // what the model returned when it made no sense
         }, null, 2)], { type: 'application/json' }));
       });

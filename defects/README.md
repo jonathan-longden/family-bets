@@ -167,6 +167,25 @@ the most serious category it has, silently, in a tool whose output is a response
 time. Every entry now carries the box it was measured from, so a wrong one can
 be taken apart afterwards rather than guessed at.
 
+### What model this actually is
+
+The library picks its decoder from one field in the model's metadata, inside a
+worker with no way to see in. That made every decoding fix a guess checked
+against a screenshot. It does not have to be: the metadata is a plain GET, so
+when something has already gone wrong the app fetches the same document and
+says what the library will have made of it — the model type Roboflow reports and
+the decoder class that type selects. It goes on screen and into the JSON export
+under `model.roboflow`.
+
+The dispatch table is copied out of the library's own bundle, which is not ideal
+but beats guessing. One thing it makes visible: there is a case for `yolov11`
+and none for `yolo11`, so a model whose type is spelled without the `v` is
+refused outright rather than mis-decoded — worth being able to read rather than
+infer.
+
+Nothing is asked for while the app is working. A run that logs cleanly spends no
+request on this.
+
 ### When it says the output is unusable
 
 It also says what came back: how many results, which keys they carried, the
