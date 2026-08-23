@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 
@@ -133,6 +133,22 @@
     <p class="fixture" id="nextFixture"></p>
     <p class="fixture-when" id="nextWhen"></p>
     <p class="fixture-stake" id="nextStake"></p>
+  </section>
+
+  <section class="card table-card" id="tableCard" hidden>
+    <div class="card-head">
+      <h2 class="card-h">The table</h2>
+      <span class="hint" id="tableWhen"></span>
+    </div>
+    <div class="table-scroll" id="tableScroll">
+      <table class="league">
+        <thead>
+          <tr><th class="pos">#</th><th class="club">Team</th><th>P</th><th>GD</th><th>Pts</th></tr>
+        </thead>
+        <tbody id="leagueBody"></tbody>
+      </table>
+    </div>
+    <p class="empty" id="tableNote" hidden></p>
   </section>
 
   <section class="card">
@@ -306,6 +322,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

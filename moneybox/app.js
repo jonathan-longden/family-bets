@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 5';
+var BUILD = '2026-08-23 · 6';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -50,6 +50,8 @@ function freshState() {
     seen: {},                              // eventId -> entry id, or 'skip'
     hook: { url: '', headerName: '', headerValue: '', auto: true },
     sound: { mode: 'cannon', name: '' },
+    league: { id: '4328', name: 'English Premier League' },
+    table: { at: 0, season: '', rows: [] },
     apiKey: '',
     notify: false,
     lastCheck: 0
@@ -201,6 +203,119 @@ function fetchNext() {
     var rows = (data && (data.events || data.results)) || [];
     return rows.length ? normalise(rows[0]) : null;
   });
+}
+
+/* The table is read once and kept, so it draws instantly on the next open and
+   still draws with no signal at all — a league table an hour old is a league
+   table, which is not true of a live score. */
+var TABLE_STALE_MS = 30 * 60 * 1000;
+
+function fetchTable() {
+  var season = currentSeason();
+  var url = API + apiKey() + '/lookuptable.php?l=' + encodeURIComponent(state.league.id) + '&s=' + season;
+  return fetchJson(url).then(function (data) {
+    var rows = (data && (data.table || data.standings)) || [];
+    if (!rows.length) throw new Error('the table came back empty');
+    state.table = {
+      at: Date.now(),
+      season: season,
+      rows: rows.map(function (r, i) {
+        return {
+          rank: num(r.intRank) || (i + 1),
+          id: String(r.idTeam || r.teamid || ''),
+          name: r.strTeam || r.name || '',
+          badge: r.strBadge || r.strTeamBadge || '',
+          played: num(r.intPlayed) || 0,
+          gd: num(r.intGoalDifference !== undefined ? r.intGoalDifference : r.goalsdifference) || 0,
+          points: num(r.intPoints !== undefined ? r.intPoints : r.total) || 0
+        };
+      })
+    };
+    save();
+    renderTable();
+    return state.table;
+  });
+}
+
+function refreshTable(force) {
+  if (!force && state.table.rows.length && (Date.now() - state.table.at) < TABLE_STALE_MS) {
+    renderTable();
+    return Promise.resolve();
+  }
+  return fetchTable().catch(function (err) {
+    renderTable(err);
+  });
+}
+
+var tableScrolled = false;
+
+function renderTable(err) {
+  var card = $('tableCard'), body = $('leagueBody'), note = $('tableNote');
+  var rows = state.table.rows || [];
+
+  if (!rows.length) {
+    /* Nothing worth a card until there is a table; an empty one would just be
+       an apology taking up a screen. */
+    card.hidden = !err;
+    if (err) {
+      body.innerHTML = '';
+      note.hidden = false;
+      note.textContent = 'The table would not load — ' + (err.message || err) + '.';
+      $('tableWhen').textContent = '';
+    }
+    return;
+  }
+
+  card.hidden = false;
+  note.hidden = true;
+  $('tableWhen').textContent = state.table.season.replace('-', '/') +
+    (state.table.at ? ' · read ' + ago(state.table.at) : '');
+
+  body.innerHTML = '';
+  var mineRow = null;
+  rows.forEach(function (r) {
+    var tr = document.createElement('tr');
+    var mine = r.id && String(r.id) === String(state.team.id);
+    if (!mine && !r.id) mine = r.name.toLowerCase() === state.team.name.toLowerCase();
+    if (mine) { tr.className = 'mine'; mineRow = tr; }
+
+    var pos = document.createElement('td');
+    pos.className = 'pos';
+    pos.textContent = r.rank;
+    tr.appendChild(pos);
+
+    var club = document.createElement('td');
+    club.className = 'club';
+    if (r.badge) {
+      var img = document.createElement('img');
+      img.className = 'badge';
+      img.src = r.badge;
+      img.alt = '';
+      img.loading = 'lazy';
+      img.addEventListener('error', function () { img.remove(); });
+      club.appendChild(img);
+    }
+    club.appendChild(document.createTextNode(r.name));
+    tr.appendChild(club);
+
+    [r.played, (r.gd > 0 ? '+' : '') + r.gd, r.points].forEach(function (v, i) {
+      var td = document.createElement('td');
+      if (i === 2) td.className = 'pts';
+      td.textContent = v;
+      tr.appendChild(td);
+    });
+
+    body.appendChild(tr);
+  });
+
+  /* Scroll the followed club into the middle of the card, once. Doing it with
+     scrollIntoView would drag the whole page with it, so the scroller is moved
+     directly instead. */
+  if (mineRow && !tableScrolled) {
+    var scroller = $('tableScroll');
+    scroller.scrollTop = Math.max(0, mineRow.offsetTop - (scroller.clientHeight / 2) + (mineRow.offsetHeight / 2));
+    tableScrolled = true;
+  }
 }
 
 function num(v) {
@@ -401,6 +516,7 @@ function checkNow(manual) {
     checking = false;
     $('checkBtn').disabled = false;
     refreshNext();
+    refreshTable(true);
   });
 }
 
@@ -1040,7 +1156,12 @@ $('teamSearchBtn').addEventListener('click', function () {
       li.appendChild(name);
       li.appendChild(button('Follow', 'secondary small', function () {
         state.team = { id: String(t.idTeam), name: t.strTeam, badge: badge };
-        save(); render(); refreshNext();
+        /* A new club is usually a new league, and a table of the old one would
+           be worse than none. */
+        if (t.idLeague) state.league = { id: String(t.idLeague), name: t.strLeague || '' };
+        state.table = { at: 0, season: '', rows: [] };
+        tableScrolled = false;
+        save(); render(); refreshNext(); refreshTable(true);
         $('teamCurrent').textContent = 'Currently following ' + state.team.name + '.';
         ul.innerHTML = '';
       }));
@@ -1131,6 +1252,7 @@ setInterval(maybeCheck, 5 * 60 * 1000);
 
 render();
 refreshNext();
+refreshTable();
 if (state.lastCheck) setStatus('Last read ' + ago(state.lastCheck) + '.');
 maybeCheck();
 

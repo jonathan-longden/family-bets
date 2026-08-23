@@ -149,6 +149,45 @@ button:active:not(:disabled) { transform: scale(.98); }
 .fixture-when { margin: 2px 0 0; color: var(--dim); font-size: .9rem; }
 .fixture-stake { margin: 6px 0 0; color: var(--gold-soft); font-size: .9rem; }
 
+/* ------------------------------------------------------------------ table */
+
+/* Twenty clubs is more than a phone screen should give a moneybox, so the
+   table keeps to about seven rows and scrolls — with the followed club
+   pulled into view rather than left to be hunted for. */
+.table-scroll {
+  max-height: 232px;
+  overflow-y: auto;
+  overflow-x: auto;
+  margin-top: 4px;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 10px;
+}
+
+table.league {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .85rem;
+  font-variant-numeric: tabular-nums;
+}
+table.league th, table.league td { padding: 7px 6px; text-align: right; white-space: nowrap; }
+table.league th.pos, table.league td.pos { width: 1.6rem; text-align: right; color: var(--dimmer); }
+table.league th.club, table.league td.club { text-align: left; width: 99%; white-space: normal; }
+table.league thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: #2b0509;
+  color: var(--gold-soft);
+  font-size: .7rem; text-transform: uppercase; letter-spacing: .5px;
+  border-bottom: 1px solid var(--line);
+}
+table.league tbody tr { border-bottom: 1px solid rgba(255,255,255,.07); }
+table.league tbody tr:last-child { border-bottom: none; }
+table.league td.pts { font-weight: 800; }
+table.league td.club .badge { width: 16px; height: 16px; object-fit: contain; vertical-align: -3px; margin-right: 6px; }
+
+table.league tr.mine { background: rgba(219,161,17,.16); }
+table.league tr.mine td { color: #fff; font-weight: 700; }
+table.league tr.mine td.pos { color: var(--gold-soft); }
+
 /* ----------------------------------------------------------------- ledger */
 
 .ledger { list-style: none; margin: 0; padding: 0; }

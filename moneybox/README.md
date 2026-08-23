@@ -48,6 +48,19 @@ for good.
 Draws and losses are recorded as £0 lines. They are not clutter: without them
 the win streak would count wins either side of a thrashing as consecutive.
 
+## The table
+
+Under the next fixture there is the league table, in a card about seven rows
+tall that scrolls — twenty clubs is more than a moneybox should take off a
+phone screen. The followed club is highlighted and pulled into the middle of
+the card, so it is there rather than somewhere to be hunted for, and the
+scrolling happens inside the card without dragging the page with it.
+
+It is read alongside the results and then kept, so it draws instantly on the
+next open and still draws with no signal at all — an hour-old league table is
+a league table, which is not true of an hour-old score. Following a club in
+another league switches the table with it.
+
 ## The noise it makes
 
 A win is worth hearing. The app fires a **cannon** — a burst of noise pushed
@@ -172,10 +185,10 @@ same thing. Anything that does arrive replaces what is cached, so the next
 open is current either way, and the page asks the browser to re-check the
 worker every time it loads.
 
-The stylesheet and the script are also asked for by version (`app.js?v=4`).
+The stylesheet and the script are also asked for by version (`app.js?v=6`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=4`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=6`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 
