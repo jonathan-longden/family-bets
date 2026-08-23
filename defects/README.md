@@ -167,6 +167,49 @@ the most serious category it has, silently, in a tool whose output is a response
 time. Every entry now carries the box it was measured from, so a wrong one can
 be taken apart afterwards rather than guessed at.
 
+### Why the numbers came back wrong
+
+The library ships a decoder per architecture. `YOLOv11` is a subclass of
+`YOLOv8` that overrides only the **input** side: YOLOv8 feeds the model
+`[1, 3, 640, 640]` (channels first), YOLOv11 feeds `[1, 640, 640, 3]` (channels
+last). It inherits YOLOv8's **output** handling unchanged — and that handling
+transposes the result on the assumption of a channels-first output, which is the
+one that goes with a channels-first input.
+
+Running the library's own decoder arithmetic over both layouts settles what that
+costs:
+
+| Output layout | Decoder reads | Scores |
+| --- | --- | --- |
+| `[1, 6, 8400]` channels-first | 8400 boxes × 2 classes | 0.0025 – 0.83, all inside 0–1 |
+| `[1, 8400, 6]` channels-last | **6 boxes × 8396 classes** | up to **599**, mostly outside 0–1 |
+
+Read the wrong way round, the four box numbers of each row become the "boxes"
+and everything after them becomes 8,396 "class scores" to take a maximum over —
+so the score is really a pixel coordinate, which is why confidences came back in
+the hundreds. The boxes still look plausible, because raw pixel coordinates
+divided by 640 land in a believable range. That is why it was believed: a
+detection with a sensible-looking outline and a nonsense confidence.
+
+An entry logged that way is in the log at the top of this README's cautionary
+tale: a living room, scored Category 2, on a 28-day clock.
+
+So the model is a **yolov8n**, not a yolo11n — the change is about the library,
+not the data. Both were fine-tuned from COCO on the same 17,497-image, two-class
+version; only the architecture differs, and yolov8 is the one whose input and
+output layouts the decoder agrees on.
+
+The version still carries the yolo11n model too, which is why the app names the
+yolov8n one exactly rather than asking for whatever is deployed on version 1.
+
+The transcribed arithmetic is kept as a test so this stays a finding rather than
+a memory.
+
+It is a short run — 50 epochs rather than the default 300 — deliberately.
+Epochs do not change how a model's output is laid out, so a long run would have
+proved nothing about decoding that a short one does not. Now that the path is
+proven, a longer run is worth having and costs only time.
+
 ### What model this actually is
 
 The library picks its decoder from one field in the model's metadata, inside a
