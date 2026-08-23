@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 6';
+var BUILD = '2026-08-23 · 7';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -51,6 +51,7 @@ function freshState() {
     hook: { url: '', headerName: '', headerValue: '', auto: true },
     sound: { mode: 'cannon', name: '' },
     league: { id: '4328', name: 'English Premier League' },
+    tableOpen: false,
     table: { at: 0, season: '', rows: [] },
     apiKey: '',
     notify: false,
@@ -210,27 +211,59 @@ function fetchNext() {
    table, which is not true of a live score. */
 var TABLE_STALE_MS = 30 * 60 * 1000;
 
+function tableUrl(season) {
+  return API + apiKey() + '/lookuptable.php?l=' + encodeURIComponent(state.league.id) + '&s=' + season;
+}
+
+/* A season that has not kicked off yet has no table, and asking for it gets an
+   empty answer rather than an error — so the season before is asked for next,
+   and the card says which one it is showing rather than leaving you to
+   wonder why Arsenal are eighth. */
+function previousSeason(season) {
+  var start = parseInt(season.split('-')[0], 10);
+  return isFinite(start) ? (start - 1) + '-' + start : season;
+}
+
 function fetchTable() {
   var season = currentSeason();
-  var url = API + apiKey() + '/lookuptable.php?l=' + encodeURIComponent(state.league.id) + '&s=' + season;
-  return fetchJson(url).then(function (data) {
+  return fetchJson(tableUrl(season)).then(function (data) {
     var rows = (data && (data.table || data.standings)) || [];
+    if (rows.length) return { season: season, rows: rows };
+    var older = previousSeason(season);
+    return fetchJson(tableUrl(older)).then(function (d2) {
+      return { season: older, rows: (d2 && (d2.table || d2.standings)) || [] };
+    });
+  }).then(function (got) {
+    var season = got.season, rows = got.rows;
     if (!rows.length) throw new Error('the table came back empty');
-    state.table = {
-      at: Date.now(),
-      season: season,
-      rows: rows.map(function (r, i) {
-        return {
-          rank: num(r.intRank) || (i + 1),
-          id: String(r.idTeam || r.teamid || ''),
-          name: r.strTeam || r.name || '',
-          badge: r.strBadge || r.strTeamBadge || '',
-          played: num(r.intPlayed) || 0,
-          gd: num(r.intGoalDifference !== undefined ? r.intGoalDifference : r.goalsdifference) || 0,
-          points: num(r.intPoints !== undefined ? r.intPoints : r.total) || 0
-        };
-      })
-    };
+    var clubs = rows.map(function (r) {
+      var forGoals = num(r.intGoalsFor !== undefined ? r.intGoalsFor : r.goalsfor) || 0;
+      var againstGoals = num(r.intGoalsAgainst !== undefined ? r.intGoalsAgainst : r.goalsagainst) || 0;
+      var gd = r.intGoalDifference !== undefined ? num(r.intGoalDifference)
+             : (r.goalsdifference !== undefined ? num(r.goalsdifference) : null);
+      return {
+        id: String(r.idTeam || r.teamid || ''),
+        name: r.strTeam || r.name || '',
+        badge: r.strBadge || r.strTeamBadge || '',
+        played: num(r.intPlayed) || 0,
+        goalsFor: forGoals,
+        gd: gd === null ? forGoals - againstGoals : gd,
+        points: num(r.intPoints !== undefined ? r.intPoints : r.total) || 0
+      };
+    });
+
+    /* The order the feed hands them over is not the order they stand in — it
+       has arrived alphabetical, and it has arrived stale after a midweek
+       round — so the table is sorted here on the same three things the league
+       itself uses, and the positions are numbered from that rather than from
+       whatever rank the feed printed. */
+    clubs.sort(function (a, b) {
+      return (b.points - a.points) || (b.gd - a.gd) || (b.goalsFor - a.goalsFor) ||
+             a.name.localeCompare(b.name);
+    });
+    clubs.forEach(function (c, i) { c.rank = i + 1; });
+
+    state.table = { at: Date.now(), season: season, rows: clubs };
     save();
     renderTable();
     return state.table;
@@ -270,6 +303,12 @@ function renderTable(err) {
   note.hidden = true;
   $('tableWhen').textContent = state.table.season.replace('-', '/') +
     (state.table.at ? ' · read ' + ago(state.table.at) : '');
+
+  var scrollBox = $('tableScroll');
+  scrollBox.classList.toggle('open', !!state.tableOpen);
+  var toggle = $('tableToggle');
+  toggle.hidden = rows.length <= 8;
+  toggle.textContent = state.tableOpen ? 'Show less' : 'Show all ' + rows.length;
 
   body.innerHTML = '';
   var mineRow = null;
@@ -502,6 +541,10 @@ function checkNow(manual) {
     save();
     render();
 
+    /* A finished match moves the table, so a check that banked something is
+       worth re-reading it for; one that banked nothing is not. */
+    refreshTable(added > 0);
+
     if (added === 0) {
       setStatus(read ? 'Nothing new — the trophy is up to date.' : 'No finished matches in the feed yet.', 'ok');
     } else {
@@ -511,12 +554,12 @@ function checkNow(manual) {
     }
   }).catch(function (err) {
     setStatus('Could not read the results — ' + (err.message || err) + '. Add it by hand if you like.', 'err');
+    refreshTable();
     if (manual) console.warn(err);
   }).finally(function () {
     checking = false;
     $('checkBtn').disabled = false;
     refreshNext();
-    refreshTable(true);
   });
 }
 
@@ -956,6 +999,20 @@ $('moveBtn').addEventListener('click', function () {
 });
 
 $('aboutBtn').addEventListener('click', function () { $('aboutSheet').showModal(); });
+
+/* Opened out, the card drops its own scrollbox and grows to the full twenty,
+   so the whole table is read by scrolling the page — which is the gesture a
+   phone is good at. Closed, it keeps to a screenful and scrolls inside. */
+$('tableToggle').addEventListener('click', function () {
+  state.tableOpen = !state.tableOpen;
+  save();
+  renderTable();
+  if (!state.tableOpen) {
+    tableScrolled = false;
+    renderTable();
+    $('tableCard').scrollIntoView({ block: 'nearest' });
+  }
+});
 
 // --- add by hand
 

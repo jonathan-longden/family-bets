@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=6">
+<link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
 
@@ -138,8 +138,9 @@
   <section class="card table-card" id="tableCard" hidden>
     <div class="card-head">
       <h2 class="card-h">The table</h2>
-      <span class="hint" id="tableWhen"></span>
+      <button class="ghost small" id="tableToggle" hidden>Show all</button>
     </div>
+    <p class="hint table-when" id="tableWhen"></p>
     <div class="table-scroll" id="tableScroll">
       <table class="league">
         <thead>
@@ -322,6 +323,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
