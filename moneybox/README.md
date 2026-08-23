@@ -132,6 +132,74 @@ because a page that is shut gets no time to run. And phones will not make a
 sound until the person has touched the screen, so a win found on the way in
 is held and fired on your first tap rather than being swallowed.
 
+## Starling: moving the money for real
+
+This is the one route where the app moves money itself rather than asking
+something else to. It works because it never leaves your bank: Starling gives
+an individual a personal access token and an endpoint that puts money into one
+of their own spaces, so there is no payment to another institution and nobody
+else's account details are involved anywhere.
+
+1. Go to developer.starlingbank.com, sign in with your Starling account and
+   create a **personal access token**. Give it the narrowest scopes that work:
+   reading accounts, reading spaces, and paying into a space. Nothing that can
+   pay another person — this app has no use for that, and a token that cannot
+   do it cannot be made to.
+2. Paste the token into **Settings → Starling** and press **Connect**. The
+   account and the space are then chosen from what your own token can see.
+3. **Move 1p now** proves the wiring before a match does.
+
+Every win then puts the stake straight into that space. A transfer that
+succeeds is recorded as money that has actually moved, so the trophy stops
+asking you to move it by hand.
+
+**A win cannot be paid twice**, and not because the app remembers. Starling
+takes the transfer id from the caller and treats a repeat of the same id as
+the same transfer, so the id is derived from the match itself: the same win
+always asks for the same transfer, and the bank refuses the second one on its
+own account. Retrying a failed transfer is therefore safe — it reuses the same
+id rather than making a new one.
+
+The token lives on this phone in the same place as everything else, and goes
+nowhere near the bank link or any server of mine.
+
+### If the browser is refused
+
+Banks generally do not let a web page call them directly. If **Connect** says
+so, put a proxy of your own in front — a free Cloudflare Worker is enough:
+
+```js
+export default {
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (request.method === 'OPTIONS') return cors(new Response(null, { status: 204 }));
+    const target = 'https://api.starlingbank.com' + url.pathname + url.search;
+    const res = await fetch(target, {
+      method: request.method,
+      headers: {
+        Authorization: request.headers.get('Authorization'),
+        Accept: 'application/json',
+        'Content-Type': request.headers.get('Content-Type') || 'application/json',
+      },
+      body: ['GET', 'HEAD'].includes(request.method) ? undefined : await request.text(),
+    });
+    return cors(new Response(await res.text(), { status: res.status }));
+  },
+};
+
+function cors(res) {
+  res.headers.set('Access-Control-Allow-Origin', '*');
+  res.headers.set('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+  res.headers.set('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
+  return res;
+}
+```
+
+Deploy it, paste its address into the **Proxy** box, and Connect again. It
+forwards your token rather than storing it — but it is still a thing your
+token passes through, so it should be your worker on your account and nobody
+else's.
+
 ## How the money actually moves
 
 A web page has no way into a bank account. Anything that claims otherwise is
@@ -247,10 +315,10 @@ the browser has never seen. It leaves the trophy, the results and the bank
 link alone — they are not part of the app's copy. The build the phone is
 running is printed just above that button, and in the footer.
 
-The stylesheet and the script are also asked for by version (`app.js?v=13`).
+The stylesheet and the script are also asked for by version (`app.js?v=14`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=13`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=14`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 
