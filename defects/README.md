@@ -194,9 +194,21 @@ detection with a sensible-looking outline and a nonsense confidence.
 An entry logged that way is in the log at the top of this README's cautionary
 tale: a living room, scored Category 2, on a 28-day clock.
 
-The fix is to use an architecture whose input and output layouts the decoder
-agrees on, which is what `yolov8` is. The transcribed arithmetic is kept as a
-test so this stays a finding rather than a memory.
+So the model is a **yolov8n**, not a yolo11n — the change is about the library,
+not the data. Both were fine-tuned from COCO on the same 17,497-image, two-class
+version; only the architecture differs, and yolov8 is the one whose input and
+output layouts the decoder agrees on.
+
+The version still carries the yolo11n model too, which is why the app names the
+yolov8n one exactly rather than asking for whatever is deployed on version 1.
+
+The transcribed arithmetic is kept as a test so this stays a finding rather than
+a memory.
+
+It is a short run — 50 epochs rather than the default 300 — deliberately.
+Epochs do not change how a model's output is laid out, so a long run would have
+proved nothing about decoding that a short one does not. Now that the path is
+proven, a longer run is worth having and costs only time.
 
 ### What model this actually is
 

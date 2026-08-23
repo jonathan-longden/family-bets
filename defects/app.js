@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-23 · 22';
+var BUILD = '2026-08-23 · 23';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -46,7 +46,23 @@ var MAX_EDGE = 1600;    // longest side of a saved photograph
    1.004. A model id names one model exactly. The library's own documentation
    calls the first legacy and the second the way to do it, so a model id is used
    when there is one and the old call is the fallback. */
-var RF_MODEL_ID = 'jonathan-longden-s-workspace/pothole-fine-tuning-ghl9u-54ssb-1-yolo11n-t2';
+/* yolov8, not yolo11, and the reason is the library rather than the model.
+
+   Its decoders are one class per architecture, and YOLOv11 is a subclass of
+   YOLOv8 that overrides only the input side: YOLOv8 hands the model
+   [1,3,640,640], YOLOv11 hands it [1,640,640,3]. It inherits YOLOv8's output
+   handling untouched, and that handling transposes the result assuming the
+   channels-first output that goes with a channels-first input. Given a
+   channels-last one it reads 6 boxes and 8,396 classes where there are 8,400
+   boxes and 2 classes, so the "confidence" it reports is really a pixel
+   coordinate — which is why they came back in the hundreds while the boxes
+   still looked plausible, and how a living room was logged as a Category 2 on a
+   28-day clock.
+
+   The version still carries the yolo11n model, so this has to name the yolov8n
+   one exactly rather than ask for whatever is deployed. decode.mjs in the test
+   suite holds the library's own arithmetic over both layouts. */
+var RF_MODEL_ID = 'jonathan-longden-s-workspace/pothole-fine-tuning-ghl9u-54ssb-1-yolov8n-t3';
 var RF_MODEL = 'pothole-fine-tuning-ghl9u-54ssb';   // only the fallback path uses these
 var RF_VERSION = 1;
 
