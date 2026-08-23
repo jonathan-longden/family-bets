@@ -66,6 +66,26 @@ Some things about it are worth knowing before trusting it:
   gesture, so the button is that gesture. The viewfinder fills the screen
   without it either way.
 
+## The frame the model is shown
+
+The model is handed a 640 by 640 square, stretched, because that is what it was
+trained on — and because a phone-shaped frame turned out to break the boxes
+coming back from it. On a 1920 by 1080 frame a returned box measured 3145 by
+5234: bigger than the picture, and wrong by 1.6 across and 4.8 down. A single
+wrong scale is wrong by the same factor both ways, so two different factors
+means width and height are being scaled by each other's axis — invisible while
+the input is square and ruinous the moment it is not.
+
+The square also puts the boxes, the shadow test and the share of the frame in
+one coordinate space, which removes a rescaling step that used to sit between
+them.
+
+One thing to know if you compare old entries with new: the share of the frame
+is now measured against that square rather than against the camera's own
+dimensions. Stretching preserves proportions, so a defect covers the same
+fraction either way — but a box measured in one space and divided by the other
+does not, which is what the older numbers were.
+
 ## Not knowing means not knowing
 
 A find is believed only once every part of it has been checked: a class the app
