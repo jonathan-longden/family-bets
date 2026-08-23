@@ -23,8 +23,12 @@ pot live, connect it to a free Firebase Realtime Database.
 >   defect and it finds the pothole, proposes a cell on the risk matrix
 >   with its reasoning shown, and keeps the coordinates with the
 >   photograph. The log works with no signal; the detection needs one.
+> - **[Ten a Win](moneybox/)** (`/moneybox/`) — a moneybox with a rule:
+>   Arsenal win, £10 goes in. It reads the results itself, banks each
+>   win once, and — pointed at a webhook wired to your bank — moves the
+>   tenner into a savings pot for you.
 >
-> All five are separate PWAs with the same no-build setup.
+> All six are separate PWAs with the same no-build setup.
 
 ## Firebase setup (for cross-device sync)
 
