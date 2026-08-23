@@ -16,13 +16,14 @@
    a phone still holding the first, cache-first worker escape it: those URLs
    are not in its cache, so it has to go to the network for them. Bump both
    these and the ones in index.html together on a release. */
-const CACHE_NAME = 'ten-a-win-v2';
+
+const CACHE_NAME = 'ten-a-win-v3';
 const NETWORK_WAIT_MS = 2500;
 const FILES_TO_CACHE = [
   './',
   './index.html',
-  './styles.css?v=2',
-  './app.js?v=2',
+  './styles.css?v=3',
+  './app.js?v=3',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

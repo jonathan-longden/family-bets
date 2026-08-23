@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 2';
+var BUILD = '2026-08-23 · 3';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -49,6 +49,7 @@ function freshState() {
     entries: [],                           // newest first
     seen: {},                              // eventId -> entry id, or 'skip'
     hook: { url: '', headerName: '', headerValue: '', auto: true },
+    sound: { mode: 'cannon', name: '' },
     apiKey: '',
     notify: false,
     lastCheck: 0
@@ -426,6 +427,7 @@ function bank(m, source) {
   if (amount > 0) {
     if (state.hook.url && state.hook.auto) fireHook(entry);
     announce(entry);
+    if (m.result === 'W') soundTheWin();
   }
   return entry;
 }
@@ -449,6 +451,173 @@ function celebrate() {
   cup.classList.remove('pop');
   void cup.offsetWidth;
   cup.classList.add('pop');
+}
+
+// --------------------------------------------------------------- the noise
+
+/* The cannon is made here rather than downloaded, which is the only way a
+   sound survives being offline without carrying a file around: a burst of
+   noise pushed through a closing filter for the powder, a sine dropping an
+   octave and a half underneath it for the weight, and three notes over the
+   top so it reads as a celebration rather than an explosion.
+
+   Anything else is the owner's own file, held in IndexedDB — localStorage
+   would throw on the second minute of audio — and played straight from the
+   phone. It is never uploaded, never sent to the bank link, and never leaves
+   the device. */
+
+var audioCtx = null;
+var customUrl = null;
+var playing = null;
+
+/* Phones will not make a sound until the person has touched the screen, so
+   the audio engine is started on the first touch and kept. */
+function armAudio() {
+  try {
+    var Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    if (!audioCtx) audioCtx = new Ctx();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  } catch (e) { return null; }
+}
+
+/* A win is usually found on the way in, before anyone has touched anything,
+   and a phone will not make a sound until they have. Rather than swallowing
+   it, the noise waits for the first touch — which is the tap that opens the
+   app's own ledger or settings anyway. */
+var gestured = false;
+var soundOwed = false;
+
+document.addEventListener('pointerdown', function () {
+  gestured = true;
+  armAudio();
+  if (soundOwed) { soundOwed = false; soundTheWin(); }
+});
+
+function fireCannon() {
+  var ctx = armAudio();
+  if (!ctx) return;
+  var t = ctx.currentTime + 0.02;
+
+  // powder: white noise through a filter that shuts as it decays
+  var frames = Math.floor(ctx.sampleRate * 0.9);
+  var buf = ctx.createBuffer(1, frames, ctx.sampleRate);
+  var data = buf.getChannelData(0);
+  for (var i = 0; i < frames; i++) data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / frames, 2.2);
+  var noise = ctx.createBufferSource();
+  noise.buffer = buf;
+  var lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.setValueAtTime(1800, t);
+  lp.frequency.exponentialRampToValueAtTime(180, t + 0.7);
+  var noiseGain = ctx.createGain();
+  noiseGain.gain.setValueAtTime(0.9, t);
+  noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.85);
+  noise.connect(lp).connect(noiseGain).connect(ctx.destination);
+  noise.start(t);
+
+  // weight: the barrel itself
+  var boom = ctx.createOscillator();
+  boom.type = 'sine';
+  boom.frequency.setValueAtTime(110, t);
+  boom.frequency.exponentialRampToValueAtTime(38, t + 0.5);
+  var boomGain = ctx.createGain();
+  boomGain.gain.setValueAtTime(0.0001, t);
+  boomGain.gain.exponentialRampToValueAtTime(0.85, t + 0.02);
+  boomGain.gain.exponentialRampToValueAtTime(0.001, t + 0.75);
+  boom.connect(boomGain).connect(ctx.destination);
+  boom.start(t);
+  boom.stop(t + 0.9);
+
+  // three notes over the smoke
+  [[392.00, 0.34], [523.25, 0.50], [659.25, 0.66]].forEach(function (note) {
+    var freq = note[0], at = t + note[1];
+    var osc = ctx.createOscillator();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(freq, at);
+    var g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, at);
+    g.gain.exponentialRampToValueAtTime(0.28, at + 0.03);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.75);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(at);
+    osc.stop(at + 0.8);
+  });
+}
+
+/* The owner's own file. IndexedDB holds one blob under one key — there is
+   only ever one sound — and the handle is opened per use rather than kept,
+   because a connection held across a phone's sleep is a connection that has
+   been closed underneath you. */
+function withStore(mode) {
+  return new Promise(function (resolve, reject) {
+    if (!window.indexedDB) return reject(new Error('no store on this browser'));
+    var req = indexedDB.open('tenAWin', 1);
+    req.onupgradeneeded = function () { req.result.createObjectStore('sound'); };
+    req.onerror = function () { reject(req.error || new Error('store would not open')); };
+    req.onsuccess = function () {
+      var db = req.result;
+      var tx = db.transaction('sound', mode);
+      tx.oncomplete = function () { db.close(); };
+      resolve(tx.objectStore('sound'));
+    };
+  });
+}
+
+function saveSound(blob) {
+  return withStore('readwrite').then(function (store) {
+    return new Promise(function (resolve, reject) {
+      var put = store.put(blob, 'win');
+      put.onsuccess = function () { resolve(); };
+      put.onerror = function () { reject(put.error); };
+    });
+  });
+}
+
+function loadSound() {
+  return withStore('readonly').then(function (store) {
+    return new Promise(function (resolve, reject) {
+      var get = store.get('win');
+      get.onsuccess = function () { resolve(get.result || null); };
+      get.onerror = function () { reject(get.error); };
+    });
+  });
+}
+
+var MAX_PLAY_MS = 45000;
+
+function playOwnSound() {
+  return loadSound().then(function (blob) {
+    if (!blob) throw new Error('no sound chosen yet');
+    if (playing) { try { playing.pause(); } catch (e) {} }
+    if (customUrl) URL.revokeObjectURL(customUrl);
+    customUrl = URL.createObjectURL(blob);
+    var audio = new Audio(customUrl);
+    playing = audio;
+    /* Nobody wants four minutes of a song every time Arsenal beat Fulham, and
+       trimming the file is the owner's job, so the app stops after a chorus's
+       worth and fades rather than cutting. */
+    var stopper = setTimeout(function () {
+      var fade = setInterval(function () {
+        audio.volume = Math.max(0, audio.volume - 0.08);
+        if (audio.volume <= 0.01) { clearInterval(fade); audio.pause(); }
+      }, 60);
+    }, MAX_PLAY_MS);
+    audio.addEventListener('ended', function () { clearTimeout(stopper); });
+    return audio.play();
+  });
+}
+
+function soundTheWin() {
+  var mode = (state.sound && state.sound.mode) || 'cannon';
+  if (mode === 'off') return;
+  if (!gestured) { soundOwed = true; return; }
+  if (mode === 'mine') {
+    playOwnSound().catch(function () { fireCannon(); });   // rather than silence
+    return;
+  }
+  fireCannon();
 }
 
 // ------------------------------------------------------------- the drawing
@@ -706,7 +875,7 @@ $('addForm').addEventListener('submit', function (ev) {
   addEntry(entry);
   if (entry.amount > 0 && state.hook.url && state.hook.auto) fireHook(entry);
   render();
-  if (entry.amount > 0) celebrate();
+  if (entry.amount > 0) { celebrate(); if (result === 'W') soundTheWin(); }
   $('addSheet').close();
   setStatus(money(entry.amount) + ' in by hand.', 'ok');
 });
@@ -756,6 +925,8 @@ $('settingsBtn').addEventListener('click', function () {
   $('hookHeaderValue').value = state.hook.headerValue;
   $('hookAuto').checked = !!state.hook.auto;
   $('apiKey').value = state.apiKey;
+  $('soundMode').value = (state.sound && state.sound.mode) || 'cannon';
+  showSoundName();
   $('notifyOn').checked = !!state.notify;
   $('teamCurrent').textContent = 'Currently following ' + state.team.name + '.';
   $('teamResults').innerHTML = '';
@@ -781,6 +952,49 @@ bindSetting('hookHeaderName', function (el) { state.hook.headerName = el.value.t
 bindSetting('hookHeaderValue', function (el) { state.hook.headerValue = el.value; });
 bindSetting('hookAuto', function (el) { state.hook.auto = el.checked; });
 bindSetting('apiKey', function (el) { state.apiKey = el.value.trim(); });
+bindSetting('soundMode', function (el) { state.sound.mode = el.value; });
+
+function showSoundName() {
+  var el = $('soundName');
+  if (!el) return;
+  el.textContent = state.sound && state.sound.name
+    ? state.sound.name
+    : 'no file chosen';
+}
+
+$('soundPick').addEventListener('click', function () { $('soundFile').click(); });
+
+$('soundFile').addEventListener('change', function () {
+  var file = $('soundFile').files[0];
+  if (!file) return;
+  /* Fifteen megabytes is several minutes of audio and well inside what the
+     store will hold; the point of the limit is to fail here, with a sentence,
+     rather than at the moment of a win. */
+  if (file.size > 15 * 1024 * 1024) {
+    $('soundName').textContent = 'that file is too big — trim it first';
+    $('soundFile').value = '';
+    return;
+  }
+  saveSound(file).then(function () {
+    state.sound.name = file.name;
+    state.sound.mode = 'mine';
+    $('soundMode').value = 'mine';
+    save();
+    showSoundName();
+  }).catch(function (err) {
+    $('soundName').textContent = 'could not keep that file — ' + (err.message || err);
+  }).finally(function () { $('soundFile').value = ''; });
+});
+
+$('soundTest').addEventListener('click', function () {
+  armAudio();
+  var mode = $('soundMode').value;
+  if (mode === 'off') { $('soundName').textContent = 'nothing to hear — set it to the cannon or your own sound'; return; }
+  if (mode === 'cannon') { fireCannon(); return; }
+  playOwnSound().catch(function (err) {
+    $('soundName').textContent = (err.message || String(err));
+  });
+});
 
 $('notifyOn').addEventListener('change', function () {
   var want = $('notifyOn').checked;
@@ -926,8 +1140,16 @@ if ('serviceWorker' in navigator) {
 
     /* A new worker taking over means the files under it have changed, so the
        page reloads itself once to be the new app rather than the old one
-       running against new files. The flag is what stops that being a loop. */
+       running against new files.
+
+       Except on the very first visit, where a worker takes over a page that
+       had none and nothing has changed at all — reloading there throws away
+       whatever the app was in the middle of, which on this app's first open
+       is the win it has just found and the sound it is holding until you
+       touch the screen. The flag is what stops the rest being a loop. */
+    var hadWorker = !!navigator.serviceWorker.controller;
     navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadWorker) return;
       if (sessionStorage.getItem('tenAWin.reloaded')) return;
       try { sessionStorage.setItem('tenAWin.reloaded', '1'); } catch (e) { return; }
       location.reload();
