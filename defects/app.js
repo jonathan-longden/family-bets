@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-23 · 25';
+var BUILD = '2026-08-23 · 26';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -648,7 +648,13 @@ function prefetchModel() {
   modelChip('Model loading');
   loadModel().then(function () {
     modelChip('Model ready', 'ready');
-    setTimeout(function () { if (worker) modelChip(''); }, 4000);
+    runSelfTest().then(function (t) {
+      if (t && t.state === 'ran' && t.allInRange === false) {
+        modelChip('Model answers nonsense', 'bad');
+        return;
+      }
+      setTimeout(function () { if (worker) modelChip(''); }, 4000);
+    });
   }, function (e) {
     modelChip('No model', 'bad');
   });
@@ -763,7 +769,15 @@ function modelMeta() {
     rfMeta = { modelType: m.modelType || null,
                decoder: decoderFor(m.modelType),
                classes: m.classes || null,
-               size: m.size || null };
+               size: m.size || null,
+               /* Where the weights themselves live. It is in the export and
+                  nowhere on screen: it is a signed URL to this account's model,
+                  so it belongs in a file the owner chooses to send, not on the
+                  glass in a photograph. With it the graph can be pulled apart
+                  off the phone, which is the only way left to tell a broken
+                  export from a broken input. */
+               weights: m.model || null,
+               environment: m.environment || null };
     return rfMeta;
   }).catch(function (e) {
     rfMeta = { error: String((e && e.message) || e) };
@@ -777,6 +791,55 @@ function modelMeta() {
    anything else looks at the results, so no part of the app can mistake it for
    a detection. */
 var lastDiag = null;
+
+/* ---------- does the model answer sensibly to anything at all? ----------
+
+   The shape is right, the transpose is right, and the decoder reads it as 8400
+   boxes by 2 classes, which is also right. What comes out is still nonsense —
+   at anchor nought all six channels collapse to two alternating values. That is
+   the tensor, not the reading of it.
+
+   Which leaves two possibilities that look identical from here: the graph is
+   broken, or what we hand it is. So the model is run once on a flat grey square
+   — no edges, no texture, nothing to find. A working detector answers that with
+   low confidences and nothing worth reporting. If a picture of nothing comes
+   back with confidences in the millions, the output does not depend on the
+   input, and the fault is upstream of this app entirely. */
+var selfTest = null;
+
+function runSelfTest() {
+  if (selfTest || !worker) return Promise.resolve(null);
+  selfTest = { state: 'running' };
+  var c = document.createElement('canvas');
+  c.width = c.height = RF_SIZE;
+  var x = c.getContext('2d');
+  x.fillStyle = '#808080';
+  x.fillRect(0, 0, RF_SIZE, RF_SIZE);
+  return createImageBitmap(c).then(function (bmp) {
+    return import('./vendor/inference.es.js').then(function (m) {
+      return engine.infer(worker, new m.CVImage(bmp));
+    });
+  }).then(function (preds) {
+    var all = preds || [], diag = null;
+    if (all.length && all[all.length - 1] && all[all.length - 1].__diag) {
+      diag = all[all.length - 1]; all = all.slice(0, -1);
+    }
+    var confs = all.map(function (p) { return +p.confidence; }).filter(isFinite);
+    selfTest = {
+      state: 'ran',
+      onFlatGrey: all.length + ' result' + (all.length === 1 ? '' : 's'),
+      confidenceRange: confs.length ? [round4(Math.min.apply(null, confs)),
+                                       round4(Math.max.apply(null, confs))] : null,
+      allInRange: confs.length ? confs.every(function (c) { return c >= 0 && c <= 1; }) : null,
+      firstEight: diag ? diag.firstEight : null,
+      rawShape: diag ? diag.rawShape : null
+    };
+    return selfTest;
+  }).catch(function (e) {
+    selfTest = { state: 'failed', error: String((e && e.message) || e) };
+    return selfTest;
+  });
+}
 
 function takeDiag(preds) {
   if (!preds || !preds.length) return preds || [];
@@ -1641,7 +1704,8 @@ $('bJson').addEventListener('click', function () {
           model: { id: RF_MODEL_ID || (RF_MODEL + '/' + RF_VERSION),
                    loadedBy: RF_MODEL_ID ? 'model id' : 'project and version',
                    build: BUILD,
-                   roboflow: meta },   // what the service says it is, and what decodes it
+                   roboflow: meta,     // what the service says it is, and what decodes it
+                   selfTest: selfTest },
           lastUnusableOutput: lastRaw // what the model returned when it made no sense
         }, null, 2)], { type: 'application/json' }));
       });
