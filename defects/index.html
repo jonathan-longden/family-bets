@@ -21,6 +21,12 @@
 </head>
 <body>
 
+<!-- Everything sits inside this. A phone locked to portrait is turned by
+     rotating this one element: a transform makes it the containing block for
+     the fixed layers inside, so the viewfinder, the menu and the sheets all
+     turn together and keep stacking exactly as they do the right way up. -->
+<div id="app">
+
 <!-- ================= THE VIEWFINDER — the whole app ================= -->
 <div class="live" id="live">
   <video id="vid" playsinline muted autoplay></video>
@@ -30,13 +36,13 @@
     <div class="top">
       <div class="chips">
         <span class="chip" id="badge">Camera off</span>
+        <span class="chip model" id="modelChip" hidden>Model</span>
         <span class="chip fix" id="rec" hidden><i class="dot live"></i><span id="recTxt">GPS</span></span>
         <button type="button" class="chip tapme" id="hudSurface">Carriageway</button>
       </div>
     </div>
 
     <div class="mid">
-      <div class="turn" id="turn" hidden>Turn the phone — this reads the road in landscape</div>
       <div class="state" id="hudState" hidden>Watching</div>
       <div class="toast" id="hudToast" hidden></div>
     </div>
@@ -85,6 +91,15 @@
       <button type="button" id="segSurvFoot" aria-pressed="false">Footway / cycleway</button>
     </div>
   </div>
+  <div class="mi-seg" id="expRow" hidden>
+    <span class="cap">Export the log</span>
+    <div class="row three">
+      <button class="btn ghost" id="bCsv">CSV</button>
+      <button class="btn ghost" id="bJson">JSON</button>
+      <button class="btn ghost" id="bGeo">GeoJSON</button>
+    </div>
+    <span class="hint" id="expHint"></span>
+  </div>
   <button type="button" role="menuitem" class="mi" id="mFull">Full screen</button>
   <div class="mi-meta" id="gpsBox">
     <div><span>Latitude</span><b id="mLat">—</b></div>
@@ -111,12 +126,6 @@
       <div class="disp">Nothing logged yet</div>
       <p>Start recording and defects appear here as the survey finds them.</p>
     </div>
-    <div class="row three" id="expRow" hidden>
-      <button class="btn ghost" id="bCsv">CSV</button>
-      <button class="btn ghost" id="bJson">JSON</button>
-      <button class="btn ghost" id="bGeo">GeoJSON</button>
-    </div>
-    <div class="hint" id="expHint" hidden></div>
     <button class="btn ghost" id="bClear" hidden style="margin-top:10px;color:#C8323C">Clear log</button>
     <div class="note" id="saveNote" hidden>
       <b>Storage.</b> Entries are kept on this device only, photographs included. CSV carries the data
@@ -223,6 +232,8 @@
   <img id="lbImg" alt="Logged defect, full size">
   <button class="lbclose" id="lbClose" aria-label="Close">Close</button>
 </div>
+
+</div><!-- #app -->
 
 <script src="app.js" defer></script>
 </body>

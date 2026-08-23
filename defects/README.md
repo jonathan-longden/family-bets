@@ -20,12 +20,11 @@ nothing to dismiss.
   gesture a browser demands before it will give a page the whole screen and
   lock it to landscape, so both are taken with it rather than hidden behind a
   control nobody would find with a phone on a windscreen mount.
-- **It wants to be landscape**, and asks three ways: the manifest declares it
-  (installed to the home screen, the launcher opens it rotated with no tap —
-  the reason to install it rather than run it in a tab), the lock is asked for
-  on load anyway, and the first touch anywhere on the screen is spent on full
-  screen and the lock rather than waiting for the record button. Portrait still
-  works; it just says on the glass that it is the wrong shape for a road.
+- **It is landscape, whatever the phone thinks.** The manifest declares it, the
+  orientation lock is asked for on load, and the first touch anywhere is spent
+  on full screen and the lock rather than waiting for the record button. When
+  all of that is refused and the viewport still comes up portrait, **the app
+  turns itself** — see below. There is no portrait layout to fall back to.
 - **Three dots, top right** open everything else: the defect log, the map, the
   surface you are surveying, full screen, and stopping the camera. They are the
   only thing on the glass that is always tappable.
@@ -59,9 +58,35 @@ afterwards and either sign it off or put it right.
 - **Keeps hundreds of defects.** Entries live in IndexedDB with the
   photographs held as files rather than as text, so a full day of finds fits
   and the app tells you how much room is left.
-- **Exports three ways.** CSV for the data and the coordinates, opened straight
-  into a spreadsheet; JSON when you need the photographs to travel with it;
-  GeoJSON to drop the located defects onto someone else's map.
+- **Exports three ways**, from the menu rather than from under the log: CSV for
+  the data and the coordinates, opened straight into a spreadsheet; JSON when
+  you need the photographs to travel with it; GeoJSON to drop the located
+  defects onto someone else's map.
+
+## Turning the app instead of the phone
+
+A web page cannot make a phone rotate. The orientation lock needs full screen,
+full screen needs a gesture, and a phone locked to portrait in its own settings
+overrules all of it. So when the viewport comes up portrait anyway, the app is
+turned rather than the phone: one CSS transform on the element everything sits
+inside.
+
+That one element does the whole job because a transform makes it the containing
+block for the `position: fixed` layers inside it — the viewfinder, the menu, the
+sheets and the photo viewer all turn together and keep stacking in the order
+they already had. The right way up it carries no transform at all, so nothing
+about the normal case changes.
+
+Two things this deliberately does not touch:
+
+- **What the model sees.** The video element is measured in its own pixels, so
+  the frame handed to the model is the camera's, turned or not. A CSS transform
+  cannot reach it.
+- **Sizes written in `vh` and `vw`.** Inside the turn those still measure the
+  phone's real screen, not the turned container — a menu capped at `100vh` ran
+  off the side of a 412-tall box. Anything that has to fit the turned app is
+  written in percentages, which resolve against the containing block and so are
+  right both ways round.
 
 ## Recording
 
@@ -95,6 +120,10 @@ Some things about it are worth knowing before trusting it:
   a gesture, so the first touch anywhere is spent on it. The viewfinder fills
   the screen without it, so a browser that refuses is not an error worth
   interrupting a run over.
+- **The model is already there.** It used to be fetched on the first record
+  tap, which put a several-megabyte download between someone parking at the top
+  of a road and starting. It is now fetched the moment the app opens, and a chip
+  by the camera state says whether it is loading, ready, or would not come.
 
 ## The frame the model is shown
 
@@ -262,10 +291,11 @@ category it lands on drives a two-hour or one-working-day obligation, and the
 app is explicit on the confirm screen that the cell wants checking before it is
 signed off.
 
-Detection runs on the phone. The model is downloaded once, when a run first
-starts, and kept — so the first run needs a signal and none of the ones after
-it do. Until it has run somewhere with a signal, the survey says it is
-downloading and then says it is unavailable, and logs nothing.
+Detection runs on the phone. The model is downloaded once, as the app opens,
+and kept — so the first opening needs a signal and none of the ones after it
+do. The chip by the camera state says where that got to. Until it has loaded
+somewhere with a signal, recording says the model is unavailable and logs
+nothing.
 
 This is the second attempt. The obvious approach — post the photograph to the
 hosted inference API — works from a terminal and cannot work from a web page:
@@ -334,9 +364,16 @@ it — the CSV carries those two columns for as long as any entry has one.
 ## Three-word addresses
 
 A what3words key ships with the app, so every located entry picks up a
-three-word address as it is logged — in the log, the CSV, the GeoJSON and the
-popup on the map. It is looked up once, when the entry is written, because the
-address of a fixed point never changes.
+three-word address as it is logged. It is looked up once, when the entry is
+written, because the address of a fixed point never changes.
+
+**The address is shown in place of the coordinates**, in the log and in the map
+popup, because it is the thing a person reads out on a radio or types into a
+van's satnav — six decimal places of latitude is not. The coordinates are still
+what is stored and what every export carries; they are simply not the useful
+thing to put on screen. Accuracy stays alongside it either way, because how well
+the fix is known is not a detail. An entry logged before the lookup could run,
+or with no signal, still shows its coordinates.
 
 That key is readable by anyone who opens the source. That is not a slip; it is
 what putting a key in a static site means, and what3words is metered and paid.
