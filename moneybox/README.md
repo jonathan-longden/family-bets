@@ -50,16 +50,26 @@ the win streak would count wins either side of a thrashing as consecutive.
 
 ## The table
 
-Under the next fixture there is the league table, in a card about seven rows
-tall that scrolls — twenty clubs is more than a moneybox should take off a
-phone screen. The followed club is highlighted and pulled into the middle of
-the card, so it is there rather than somewhere to be hunted for, and the
-scrolling happens inside the card without dragging the page with it.
+Under the next fixture there is the league table, about ten rows of it, with
+the followed club highlighted and pulled into the middle of the card so it is
+there rather than somewhere to be hunted for. **Show all** drops the card's
+own scrollbox and lays out the whole twenty on the page, which is then read by
+scrolling the page — the gesture a phone is actually good at — and the choice
+is remembered.
+
+**The positions are worked out here, not taken from the feed.** The order
+things arrive in is not the order clubs stand in: it has come back
+alphabetical, and it has come back a round out of date. So the table is sorted
+on the three things the league itself sorts on — points, then goal difference,
+then goals scored — and numbered from that. If the new season has not kicked
+off yet there is no table to sort, so the season before is fetched instead and
+the card says which season it is showing.
 
 It is read alongside the results and then kept, so it draws instantly on the
 next open and still draws with no signal at all — an hour-old league table is
-a league table, which is not true of an hour-old score. Following a club in
-another league switches the table with it.
+a league table, which is not true of an hour-old score. A check that banks a
+result re-reads it, since that result has just moved somebody. Following a
+club in another league switches the table with it.
 
 ## The noise it makes
 
@@ -185,10 +195,10 @@ same thing. Anything that does arrive replaces what is cached, so the next
 open is current either way, and the page asks the browser to re-check the
 worker every time it loads.
 
-The stylesheet and the script are also asked for by version (`app.js?v=6`).
+The stylesheet and the script are also asked for by version (`app.js?v=7`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=6`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=7`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 

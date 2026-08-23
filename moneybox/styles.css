@@ -81,9 +81,9 @@ body {
   box-shadow: 0 10px 30px rgba(0,0,0,.28);
 }
 
-.card-h { margin: 0; font-size: 1rem; letter-spacing: .3px; text-transform: uppercase; color: var(--gold-soft); }
+.card-h { margin: 0; font-size: 1rem; letter-spacing: .3px; text-transform: uppercase; color: var(--gold-soft); white-space: nowrap; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
-.head-actions { display: flex; gap: 6px; }
+.head-actions { display: flex; gap: 6px; align-items: center; }
 
 /* ------------------------------------------------------------------ cup */
 
@@ -154,14 +154,24 @@ button:active:not(:disabled) { transform: scale(.98); }
 /* Twenty clubs is more than a phone screen should give a moneybox, so the
    table keeps to about seven rows and scrolls — with the followed club
    pulled into view rather than left to be hunted for. */
+.table-when { margin: 2px 0 0; }
+
 .table-scroll {
-  max-height: 232px;
+  /* About ten rows, and never more than most of the screen, so the card is a
+     card rather than a page. `contain` stops a flick inside it running on
+     into the page, which is what makes a scroller inside a scroller usable
+     with a thumb. */
+  max-height: min(45vh, 340px);
   overflow-y: auto;
   overflow-x: auto;
+  overscroll-behavior: contain;
   margin-top: 4px;
   -webkit-overflow-scrolling: touch;
   border-radius: 10px;
 }
+
+/* Opened out: no box of its own, the whole table on the page. */
+.table-scroll.open { max-height: none; overflow: visible; }
 
 table.league {
   width: 100%;
