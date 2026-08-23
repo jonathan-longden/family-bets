@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 8';
+var BUILD = '2026-08-23 · 9';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -51,7 +51,8 @@ function freshState() {
     hook: { url: '', headerName: '', headerValue: '', auto: true },
     sound: { mode: 'cannon', name: '' },
     league: { id: '4328', name: 'English Premier League' },
-    tableOpen: false,
+    tableOpen: true,
+    tableChosen: false,
     table: { at: 0, season: '', rows: [] },
     apiKey: '',
     notify: false,
@@ -76,6 +77,12 @@ function load() {
         base[k] = saved[k];
       }
     });
+    /* Anyone who has run this app before has `tableOpen: false` saved from
+       when a boxed-up table was the default. That default was wrong — a box
+       you have to scroll inside is a box people cannot scroll — so it is
+       overridden until they say otherwise by using the toggle themselves. */
+    if (!saved.tableChosen) base.tableOpen = true;
+
     return base;
   } catch (e) {
     console.warn('state unreadable, starting fresh', e);
@@ -209,10 +216,73 @@ function fetchNext() {
 /* The table is read once and kept, so it draws instantly on the next open and
    still draws with no signal at all — a league table an hour old is a league
    table, which is not true of a live score. */
-var TABLE_STALE_MS = 30 * 60 * 1000;
+var TABLE_STALE_MS = 10 * 60 * 1000;
 
 function tableUrl(season) {
   return API + apiKey() + '/lookuptable.php?l=' + encodeURIComponent(state.league.id) + '&s=' + season;
+}
+
+function leagueEventsUrl(season) {
+  return API + apiKey() + '/eventsseason.php?id=' + encodeURIComponent(state.league.id) + '&s=' + season;
+}
+
+/* A finished match, without reference to whose match it is. The same rule the
+   trophy banks on: a score is not a result until the match is over, by its own
+   status where there is one and by the clock otherwise. */
+function settled(ev) {
+  var hs = num(ev.intHomeScore), as = num(ev.intAwayScore);
+  if (hs === null || as === null) return null;
+  var status = String(ev.strStatus || ev.strProgress || '').trim().toLowerCase();
+  if (status === 'ns' || status === 'not started' || status === 'postponed' ||
+      status === 'canceled' || status === 'cancelled') return null;
+  var kickoff = kickoffOf(ev);
+  var done = FINISHED_WORDS.indexOf(status) !== -1 ||
+             (kickoff !== null && (Date.now() - kickoff) > FINISHED_AFTER_MS);
+  if (!done) return null;
+  return {
+    homeId: String(ev.idHomeTeam || ''), awayId: String(ev.idAwayTeam || ''),
+    home: ev.strHomeTeam || '', away: ev.strAwayTeam || '',
+    hs: hs, as: as
+  };
+}
+
+/* The league table, worked out from the league's own results.
+
+   Asking the feed for standings looked like the obvious way and is the wrong
+   one: that table is maintained separately and lags — a Saturday of football
+   can still be missing from it on Sunday, which makes the card wrong exactly
+   when someone looks at it. The results are the same feed the trophy already
+   trusts to bank a win, and three points for a win is not a calculation worth
+   outsourcing. */
+function tableFromEvents(events) {
+  var by = {};
+  function club(id, name) {
+    var key = id || name.toLowerCase();
+    if (!by[key]) {
+      by[key] = { id: id || '', name: name, badge: '', played: 0, won: 0, drawn: 0, lost: 0,
+                  goalsFor: 0, goalsAgainst: 0, points: 0 };
+    }
+    if (!by[key].name && name) by[key].name = name;
+    return by[key];
+  }
+
+  events.forEach(function (ev) {
+    var m = settled(ev);
+    if (!m || !m.home || !m.away) return;
+    var h = club(m.homeId, m.home), a = club(m.awayId, m.away);
+    h.played++; a.played++;
+    h.goalsFor += m.hs; h.goalsAgainst += m.as;
+    a.goalsFor += m.as; a.goalsAgainst += m.hs;
+    if (m.hs > m.as) { h.won++; a.lost++; h.points += 3; }
+    else if (m.hs < m.as) { a.won++; h.lost++; a.points += 3; }
+    else { h.drawn++; a.drawn++; h.points += 1; a.points += 1; }
+  });
+
+  return Object.keys(by).map(function (k) {
+    var c = by[k];
+    c.gd = c.goalsFor - c.goalsAgainst;
+    return c;
+  });
 }
 
 /* A season that has not kicked off yet has no table, and asking for it gets an
@@ -224,17 +294,31 @@ function previousSeason(season) {
   return isFinite(start) ? (start - 1) + '-' + start : season;
 }
 
+function standingsRows(season) {
+  return fetchJson(tableUrl(season)).then(function (data) {
+    return (data && (data.table || data.standings)) || [];
+  }).catch(function () { return []; });
+}
+
+/* Results first, standings only if the results are not there to be had — the
+   free key does not open every door, and a lagging table beats no table. */
 function fetchTable() {
   var season = currentSeason();
-  return fetchJson(tableUrl(season)).then(function (data) {
-    var rows = (data && (data.table || data.standings)) || [];
-    if (rows.length) return { season: season, rows: rows };
-    var older = previousSeason(season);
-    return fetchJson(tableUrl(older)).then(function (d2) {
-      return { season: older, rows: (d2 && (d2.table || d2.standings)) || [] };
-    });
-  }).then(function (got) {
-    var season = got.season, rows = got.rows;
+  return fetchJson(leagueEventsUrl(season)).catch(function () { return null; })
+    .then(function (data) {
+      var events = (data && (data.events || data.results)) || [];
+      var built = events.length ? tableFromEvents(events) : [];
+      if (built.length) return { season: season, clubs: built, source: 'results' };
+      return standingsRows(season).then(function (rows) {
+        if (rows.length) return { season: season, rows: rows, source: 'standings' };
+        var older = previousSeason(season);
+        return standingsRows(older).then(function (old) {
+          return { season: older, rows: old, source: 'standings' };
+        });
+      });
+    }).then(function (got) {
+    var season = got.season, rows = got.rows || [];
+    if (got.clubs) return finishTable(season, got.clubs, got.source);
     if (!rows.length) throw new Error('the table came back empty');
     var clubs = rows.map(function (r) {
       var forGoals = num(r.intGoalsFor !== undefined ? r.intGoalsFor : r.goalsfor) || 0;
@@ -252,22 +336,29 @@ function fetchTable() {
       };
     });
 
-    /* The order the feed hands them over is not the order they stand in — it
-       has arrived alphabetical, and it has arrived stale after a midweek
-       round — so the table is sorted here on the same three things the league
-       itself uses, and the positions are numbered from that rather than from
-       whatever rank the feed printed. */
-    clubs.sort(function (a, b) {
-      return (b.points - a.points) || (b.gd - a.gd) || (b.goalsFor - a.goalsFor) ||
-             a.name.localeCompare(b.name);
-    });
-    clubs.forEach(function (c, i) { c.rank = i + 1; });
-
-    state.table = { at: Date.now(), season: season, rows: clubs };
-    save();
-    renderTable();
-    return state.table;
+    return finishTable(season, clubs, got.source);
   });
+}
+
+/* The order anything arrives in is not the order clubs stand in, whether it
+   came from the standings or was added up here, so the sort and the numbering
+   happen in one place for both. */
+function finishTable(season, clubs, source) {
+  clubs.sort(function (a, b) {
+    return (b.points - a.points) || (b.gd - a.gd) || (b.goalsFor - a.goalsFor) ||
+           a.name.localeCompare(b.name);
+  });
+  clubs.forEach(function (c, i) { c.rank = i + 1; });
+
+  /* Badges do not come with results, so any the last read had are kept. */
+  var badges = {};
+  (state.table.rows || []).forEach(function (r) { if (r.badge) badges[r.id || r.name] = r.badge; });
+  clubs.forEach(function (c) { if (!c.badge) c.badge = badges[c.id] || badges[c.name] || ''; });
+
+  state.table = { at: Date.now(), season: season, source: source, rows: clubs };
+  save();
+  renderTable();
+  return state.table;
 }
 
 function refreshTable(force) {
@@ -302,6 +393,7 @@ function renderTable(err) {
   card.hidden = false;
   note.hidden = true;
   $('tableWhen').textContent = state.table.season.replace('-', '/') +
+    (state.table.source === 'standings' ? ' · from the published table' : ' · added up from results') +
     (state.table.at ? ' · read ' + ago(state.table.at) : '');
 
   var scrollBox = $('tableScroll');
@@ -543,7 +635,7 @@ function checkNow(manual) {
 
     /* A finished match moves the table, so a check that banked something is
        worth re-reading it for; one that banked nothing is not. */
-    refreshTable(added > 0);
+    refreshTable(manual || added > 0);
 
     if (added === 0) {
       setStatus(read ? 'Nothing new — the trophy is up to date.' : 'No finished matches in the feed yet.', 'ok');
@@ -1005,6 +1097,7 @@ $('aboutBtn').addEventListener('click', function () { $('aboutSheet').showModal(
    phone is good at. Closed, it keeps to a screenful and scrolls inside. */
 $('tableToggle').addEventListener('click', function () {
   state.tableOpen = !state.tableOpen;
+  state.tableChosen = true;
   save();
   renderTable();
   if (!state.tableOpen) {
