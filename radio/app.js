@@ -2668,19 +2668,22 @@ const ARCHIVE_ART = 'https://archive.org/services/img/';
    honestly mean is the newest recordings, which is what Recently added is. */
 const LIBRIVOX = 'collection:(librivoxaudio OR audio_bookspoetry)';
 
+/* Each row knows how to ask both catalogues: a LibriVox genre, and the
+   Archive subject search to fall back on. The two do not agree on what
+   anything is called, which is rather the point of asking LibriVox. */
 const BOOK_ROWS = [
-  { term: '*', title: 'Recently added', sort: 'addeddate desc' },
-  { term: 'subject:(fiction)', title: 'Fiction' },
-  { term: 'subject:(detective)', title: 'Mystery' },
-  { term: 'subject:(horror)', title: 'Horror' },
-  { term: 'subject:(biography) OR subject:(memoir)', title: 'True stories' },
-  { term: 'subject:(romance)', title: 'Sex and romance' },
-  { term: 'subject:(murder)', title: 'Murder mysteries' },
-  { term: 'subject:(humor)', title: 'Humour' },
-  { term: 'subject:(short stories)', title: 'Short stories' },
-  { term: 'subject:(adventure)', title: 'Adventure' },
-  { term: 'subject:(ghost)', title: 'Ghost stories' },
-  { term: 'subject:(classics)', title: 'Classics' },
+  { title: 'Recently added', sinceDays: 45, term: '*', sort: 'addeddate desc' },
+  { title: 'Fiction', genre: 'General Fiction', term: 'subject:(fiction)' },
+  { title: 'Mystery', genre: 'Detective Fiction', term: 'subject:(detective)' },
+  { title: 'Horror', genre: 'Horror', term: 'subject:(horror)' },
+  { title: 'True stories', genre: 'Biography', term: 'subject:(biography) OR subject:(memoir)' },
+  { title: 'Sex and romance', genre: 'Romance', term: 'subject:(romance)' },
+  { title: 'Murder mysteries', genre: 'Crime', term: 'subject:(murder)' },
+  { title: 'Humour', genre: 'Humor', term: 'subject:(humor)' },
+  { title: 'Short stories', genre: 'Short Stories', term: 'subject:(short stories)' },
+  { title: 'Adventure', genre: 'Action & Adventure', term: 'subject:(adventure)' },
+  { title: 'Ghost stories', genre: 'Ghost Stories', term: 'subject:(ghost)' },
+  { title: 'Classics', genre: 'Literary Fiction', term: 'subject:(classics)' },
 ];
 
 let books = [];                 // the ones you kept
@@ -2695,6 +2698,119 @@ function bookStatus(text, detail = '') {
   el.hidden = !text;
   el.innerHTML = esc(text || '') +
     (detail ? `<br><span class="why">${esc(detail)}</span>` : '');
+}
+
+/* ── asking LibriVox itself ──
+
+   LibriVox keeps the catalogue; the Archive keeps the files. Asking LibriVox
+   what exists gets a straighter answer than searching the Archive for it:
+   real titles, real authors, and its own genres rather than a guess at what
+   somebody tagged an upload with. It is also a different host, which matters
+   on a connection that blocks the Archive by name.
+
+   What plays is unchanged. Every LibriVox book names the Archive item its
+   recording lives in, in the address of the zip it offers, and that item is
+   what the chapter list and the audio still come from. A book with no zip
+   has nothing to play, so it is left out rather than listed and dead. */
+
+const LIBRIVOX_API = 'https://librivox.org/api/feed/audiobooks/';
+/* Long enough for a catalogue that is going to answer, short enough that one
+   that isn't doesn't hold up the Archive behind it. */
+const LIBRIVOX_PATIENCE = 9000;
+
+/* And a catalogue that isn't answering should not be asked once per row, and
+   then again on the next launch. One unreachable answer stands for half an
+   hour; until it lapses the Archive is asked straight away. */
+const LIBRIVOX_QUIET_KEY = 'nonstop.librivoxQuiet';
+const LIBRIVOX_QUIET = 30 * 60 * 1000;
+
+function librivoxQuiet() {
+  try { return Date.now() - (Number(localStorage.getItem(LIBRIVOX_QUIET_KEY)) || 0) < LIBRIVOX_QUIET; }
+  catch { return false; }
+}
+function hushLibrivox(down) {
+  try {
+    if (down) localStorage.setItem(LIBRIVOX_QUIET_KEY, String(Date.now()));
+    else localStorage.removeItem(LIBRIVOX_QUIET_KEY);
+  } catch {}
+}
+const ARCHIVE_ITEM = /archive\.org\/(?:download|details)\/([^/?#]+)/i;
+
+const personName = a =>
+  [a && a.first_name, a && a.last_name].filter(Boolean).join(' ').trim();
+
+function booksFromLibrivox(data) {
+  const rows = (data && Array.isArray(data.books)) ? data.books : [];
+  return rows.map(b => {
+    const found = ARCHIVE_ITEM.exec(String(b.url_zip_file || b.url_project || ''));
+    if (!found) return null;
+    const id = decodeURIComponent(found[1]);
+    const authors = (Array.isArray(b.authors) ? b.authors : []).map(personName).filter(Boolean);
+    const genres = (Array.isArray(b.genres) ? b.genres : [])
+      .map(g => String((g && g.name) || g || '').trim()).filter(Boolean);
+    return {
+      id,
+      name: String(b.title || id).trim(),
+      author: authors.slice(0, 2).join(' & ') || 'LibriVox',
+      subject: genres[0] || '',
+      art: ARCHIVE_ART + id,
+    };
+  }).filter(Boolean);
+}
+
+async function librivoxBooks(params, rows = 14, opts = {}) {
+  const q = new URLSearchParams({ format: 'json', limit: String(rows), ...params });
+  const got = await fetchJson(`${LIBRIVOX_API}?${q}`,
+    { patience: LIBRIVOX_PATIENCE, ...opts });
+  if (got.failed) {
+    /* Not answering and answering with nothing are different things, and only
+       the first is a reason to stop asking for a while. */
+    const dead = new Error(got.tried.join(' \u00b7 '));
+    dead.unreachable = true;
+    throw dead;
+  }
+  const books = booksFromLibrivox(got.data);
+  /* An answer in a shape nothing can be read out of is not an answer. Saying
+     so here is what sends the row to the Archive rather than leaving it
+     empty — and it is the whole safety net under a catalogue swap. */
+  if (!books.length) throw new Error('LibriVox had nothing playable for that');
+  return books;
+}
+
+/* Searching means asking LibriVox by title and by author, since it has a
+   parameter for each rather than one box. Whichever answers is used, both
+   are merged when both do, and a book found twice is listed once. */
+async function searchCatalogues(term) {
+  if (!librivoxQuiet()) {
+    let down = false;
+    const asked = await Promise.all(['title', 'author'].map(how =>
+      librivoxBooks({ [how]: term }, 24).catch(e => {
+        if (e && e.unreachable) down = true;
+        return [];
+      })));
+    const seen = new Set();
+    const found = asked.flat().filter(b => !seen.has(b.id) && seen.add(b.id));
+    hushLibrivox(down && !found.length);
+    if (found.length) return found;
+  }
+  return archiveSearch(`title:(${term}) OR creator:(${term})`, 24);
+}
+
+/* LibriVox first, the Archive if it can't be had. Two catalogues over one
+   set of files, so a row that fails on one still fills from the other. */
+async function findBooks(row, rows = 14, opts = {}) {
+  if (!librivoxQuiet()) {
+    try {
+      const found = await librivoxBooks(row.sinceDays
+        ? { since: String(Math.floor((Date.now() - row.sinceDays * 86400000) / 1000)) }
+        : { genre: row.genre || '' }, rows, opts);
+      hushLibrivox(false);
+      return found;
+    } catch (e) {
+      if (e && e.unreachable) hushLibrivox(true);
+    }
+  }
+  return archiveSearch(row.term, rows, row.sort || 'downloads desc', opts);
 }
 
 /* The Archive's own search, which answers in JSON and allows a browser to
@@ -3008,9 +3124,9 @@ async function searchBooks(term) {
 
   let found;
   try {
-    found = await archiveSearch(`title:(${term}) OR creator:(${term})`, 24);
+    found = await searchCatalogues(term);
   } catch (e) {
-    bookStatus("Couldn't reach the Internet Archive — this part needs a connection. " +
+    bookStatus("Couldn't reach either catalogue — this part needs a connection. " +
       'Books you have already opened are still here.',
       e && e.message ? String(e.message) : '');
     return;
@@ -3040,31 +3156,33 @@ function bookShelfPlan() {
       local: () => recentChapters, tile: episodeTile });
   }
 
+  /* A row carries everything it takes to ask either catalogue — the genre
+     LibriVox knows it by as well as the Archive's subject search. Copying
+     only half of that is how every row ends up asking the same question. */
   const used = new Set();
-  const taste = books.map(b => String(b.subject || '').trim().toLowerCase())
-    .filter(Boolean)[0];
+  const taste = books.map(b => String(b.subject || '').trim()).filter(Boolean)[0];
   if (taste) {
-    used.add(taste);
-    plan.push({ key: 'book:rec:' + taste, title: 'Recommended for you',
-      note: `because you keep ${taste}`, term: `subject:(${taste})`, tile: bookTile });
+    used.add(taste.toLowerCase());
+    plan.push({ key: 'book:rec:' + taste.toLowerCase(), title: 'Recommended for you',
+      note: `because you keep ${taste.toLowerCase()}`,
+      genre: taste, term: `subject:(${taste})`, tile: bookTile });
   }
 
-  plan.push({ key: 'book:row:Recently added', title: 'Recently added',
-    term: '*', sort: 'addeddate desc', tile: bookTile });
-  used.add('*');
+  const newest = BOOK_ROWS[0];
+  plan.push({ ...newest, key: 'book:row:' + newest.title, tile: bookTile });
+  used.add(newest.term);
 
   const start = dayOfYear() % BOOK_ROWS.length;
   for (let i = 0; i < BOOK_ROWS.length && used.size < 5; i++) {
     const row = BOOK_ROWS[(start + i) % BOOK_ROWS.length];
-    if (used.has(row.term)) continue;
+    if (used.has(row.term) || used.has(String(row.genre || '').toLowerCase())) continue;
     used.add(row.term);
-    plan.push({ key: 'book:row:' + row.title, title: row.title,
-      term: row.term, tile: bookTile });
+    plan.push({ ...row, key: 'book:row:' + row.title, tile: bookTile });
   }
   return plan;
 }
 
-const bookShelf = row => archiveSearch(row.term, 14, row.sort || 'downloads desc');
+const bookShelf = row => findBooks(row, 14);
 
 let bookShelfSig = '';
 let bookPlan = [];
@@ -3152,7 +3270,7 @@ $('#bookShelves').addEventListener('click', e => {
       openCategory({
         kind: 'book', title: row.title, noun: 'book',
         seed: (shelfCache[row.key] || {}).items,
-        load: () => archiveSearch(row.term, 40, row.sort || 'downloads desc', { hedge: true }),
+        load: () => findBooks(row, 40, { hedge: true }),
       });
     }
     return;
@@ -3269,7 +3387,7 @@ $('#categoryList').addEventListener('click', e => {
   closeSheets();
   openCategory({
     kind: 'book', title: row.title, noun: 'book',
-    load: () => archiveSearch(row.term, 40, row.sort || 'downloads desc', { hedge: true }),
+    load: () => findBooks(row, 40, { hedge: true }),
   });
 });
 
