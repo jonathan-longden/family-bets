@@ -195,10 +195,23 @@ same thing. Anything that does arrive replaces what is cached, so the next
 open is current either way, and the page asks the browser to re-check the
 worker every time it loads.
 
-The stylesheet and the script are also asked for by version (`app.js?v=7`).
+Two things had to be closed off before that was actually true. A plain
+`fetch()` inside a worker is answered by the browser's own HTTP cache first,
+and GitHub Pages puts ten minutes of freshness on these files — so a worker
+fetching "from the network" could be handed the very copy it was trying to
+replace. The shell is now fetched with `cache: 'no-store'`. The worker script
+itself had the same problem, so it is registered with `updateViaCache: 'none'`.
+
+If a phone is ever stuck anyway, **Settings → Fetch the latest version**
+throws away the caches and the worker and asks for the app again under a URL
+the browser has never seen. It leaves the trophy, the results and the bank
+link alone — they are not part of the app's copy. The build the phone is
+running is printed just above that button, and in the footer.
+
+The stylesheet and the script are also asked for by version (`app.js?v=8`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=7`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=8`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 
