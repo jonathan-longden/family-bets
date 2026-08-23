@@ -47,6 +47,28 @@ for good.
 Draws and losses are recorded as £0 lines. They are not clutter: without them
 the win streak would count wins either side of a thrashing as consecutive.
 
+## The noise it makes
+
+A win is worth hearing. The app fires a **cannon** — a burst of noise pushed
+through a closing filter for the powder, a sine dropping an octave and a half
+underneath it for the weight, and three notes over the top so it reads as a
+celebration rather than an explosion. It is built by the phone at the moment
+it is needed, so it adds nothing to the download and works with no signal.
+
+If you would rather hear something else, **Settings → The noise it makes →
+Play my own sound** takes an audio file you already have on the phone. It is
+kept on the device in IndexedDB and played from there: it is never uploaded,
+never sent to the bank link, and never leaves the phone. Only the first 45
+seconds are played, and then it fades — a moneybox that plays a whole song
+every time Arsenal beat Fulham gets turned off by February — so trim the clip
+to the part you want before you choose it. No music is shipped with this app;
+whatever you point it at is your own copy of your own file.
+
+Two limits worth knowing. A sound can only be played while the app is open,
+because a page that is shut gets no time to run. And phones will not make a
+sound until the person has touched the screen, so a win found on the way in
+is held and fired on your first tap rather than being swallowed.
+
 ## How the money actually moves
 
 A web page has no way into a bank account. Anything that claims otherwise is
@@ -146,10 +168,10 @@ same thing. Anything that does arrive replaces what is cached, so the next
 open is current either way, and the page asks the browser to re-check the
 worker every time it loads.
 
-The stylesheet and the script are also asked for by version (`app.js?v=2`).
+The stylesheet and the script are also asked for by version (`app.js?v=3`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=2`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=3`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 

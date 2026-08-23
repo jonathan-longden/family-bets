@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="16%" r="98%">
+      <stop offset="0%" stop-color="#ff2b31"/>
+      <stop offset="42%" stop-color="#ef0107"/>
+      <stop offset="100%" stop-color="#6d0004"/>
+    </radialGradient>
+    <linearGradient id="brass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff4d6"/>
+      <stop offset="38%" stop-color="#f0cf7a"/>
+      <stop offset="72%" stop-color="#d09b1c"/>
+      <stop offset="100%" stop-color="#8f6206"/>
+    </linearGradient>
+    <linearGradient id="brassDark" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e6c168"/>
+      <stop offset="100%" stop-color="#7c5405"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#bg)"/>
+
+  <g transform="translate(9.2 -74.5) scale(1.02)">
+  <!-- ground shadow -->
+  <ellipse cx="262" cy="436" rx="168" ry="20" fill="#3a0002" opacity=".28"/>
+
+  <g stroke="#4a1500" stroke-opacity=".45" stroke-width="4" stroke-linejoin="round">
+
+    <!-- carriage trail, behind the wheel -->
+    <path fill="url(#brassDark)" d="M196 300 L146 348 L74 404 L104 420 L188 356 L236 330 Z"/>
+
+    <!-- barrel -->
+    <g transform="rotate(-14 262 292)">
+      <circle cx="104" cy="278" r="17" fill="url(#brass)"/>
+      <path fill="url(#brass)" d="M132 240
+        L340 250 L340 244 L398 244 A10 10 0 0 1 408 254
+        L408 300 A10 10 0 0 1 398 310 L340 310 L340 304 L132 314
+        Q112 314 112 294 L112 260 Q112 240 132 240 Z"/>
+      <rect x="150" y="243" width="14" height="68" rx="6" fill="url(#brassDark)"/>
+      <rect x="252" y="246" width="12" height="62" rx="5" fill="url(#brassDark)"/>
+    </g>
+
+    <!-- carriage cheek -->
+    <path fill="url(#brass)" d="M200 292 L344 316 L332 356 L172 340 Z"/>
+
+    <!-- wheel -->
+    <circle cx="312" cy="372" r="66" fill="url(#brass)"/>
+    <circle cx="312" cy="372" r="44" fill="#8d0006" stroke-width="3"/>
+    <g stroke="#8f6206" stroke-width="11" stroke-linecap="round" stroke-opacity="1">
+      <path d="M312 330 L312 414 M270 372 L354 372 M282 342 L342 402 M342 342 L282 402"/>
+    </g>
+    <circle cx="312" cy="372" r="17" fill="url(#brass)"/>
+  </g>
+  </g>
+</svg>

@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=2">
+<link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
 
@@ -171,6 +171,28 @@
     </fieldset>
 
     <fieldset class="fs">
+      <legend>The noise it makes</legend>
+      <label class="lbl">When a win goes in
+        <select id="soundMode">
+          <option value="cannon">Fire the cannon</option>
+          <option value="mine">Play my own sound</option>
+          <option value="off">Nothing</option>
+        </select>
+      </label>
+      <div class="row">
+        <button type="button" class="secondary" id="soundPick">Choose a file</button>
+        <button type="button" class="secondary" id="soundTest">Hear it</button>
+        <span class="hint" id="soundName"></span>
+      </div>
+      <input type="file" id="soundFile" accept="audio/*" hidden>
+      <p class="hint">The cannon is made up on the spot by the phone, so it needs no download and works
+        with no signal. "My own sound" plays an audio file you already have — a song you own a copy of,
+        say. It is kept on this phone and goes nowhere; trim it to the bit you want first, since only the
+        first 45 seconds are played. A sound can only be played while the app is open, and on some phones
+        only after you have tapped the screen once.</p>
+    </fieldset>
+
+    <fieldset class="fs">
       <legend>Scores</legend>
       <label class="lbl">TheSportsDB API key
         <input type="text" id="apiKey" placeholder="123" autocomplete="off">
@@ -251,6 +273,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
