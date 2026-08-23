@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 9';
+var BUILD = '2026-08-23 · 10';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -54,6 +54,7 @@ function freshState() {
     tableOpen: true,
     tableChosen: false,
     table: { at: 0, season: '', rows: [] },
+    clubs: { league: '', at: 0, list: [] },
     apiKey: '',
     notify: false,
     lastCheck: 0
@@ -226,6 +227,34 @@ function leagueEventsUrl(season) {
   return API + apiKey() + '/eventsseason.php?id=' + encodeURIComponent(state.league.id) + '&s=' + season;
 }
 
+/* Every club in the league, which the results cannot tell you: a club that has
+   not kicked a ball is in no result, and no result carries a badge. Read once
+   and kept for a week, since a division's membership does not move during a
+   season and neither do the badges. */
+var CLUBS_STALE_MS = 7 * 24 * 60 * 60 * 1000;
+
+function fetchClubs() {
+  var have = state.clubs;
+  if (have.list.length && have.league === String(state.league.id) &&
+      (Date.now() - have.at) < CLUBS_STALE_MS) {
+    return Promise.resolve(have.list);
+  }
+  var url = API + apiKey() + '/lookup_all_teams.php?id=' + encodeURIComponent(state.league.id);
+  return fetchJson(url).then(function (data) {
+    var teams = (data && data.teams) || [];
+    var list = teams.map(function (t) {
+      return { id: String(t.idTeam || ''), name: t.strTeam || '', badge: t.strBadge || t.strTeamBadge || '' };
+    }).filter(function (t) { return t.name; });
+    if (!list.length) throw new Error('no clubs came back');
+    state.clubs = { league: String(state.league.id), at: Date.now(), list: list };
+    save();
+    return list;
+  }).catch(function () {
+    /* No harm done: the table is still built, just from whoever has played. */
+    return have.list || [];
+  });
+}
+
 /* A finished match, without reference to whose match it is. The same rule the
    trophy banks on: a score is not a result until the match is over, by its own
    status where there is one and by the clock otherwise. */
@@ -254,22 +283,37 @@ function settled(ev) {
    when someone looks at it. The results are the same feed the trophy already
    trusts to bank a win, and three points for a win is not a calculation worth
    outsourcing. */
-function tableFromEvents(events) {
+function tableFromEvents(events, clubList) {
   var by = {};
-  function club(id, name) {
-    var key = id || name.toLowerCase();
+  function club(id, name, badge) {
+    var key = id || (name || '').toLowerCase();
+    if (!key) return null;
     if (!by[key]) {
-      by[key] = { id: id || '', name: name, badge: '', played: 0, won: 0, drawn: 0, lost: 0,
-                  goalsFor: 0, goalsAgainst: 0, points: 0 };
+      by[key] = { id: id || '', name: name || '', badge: badge || '', played: 0, won: 0, drawn: 0,
+                  lost: 0, goalsFor: 0, goalsAgainst: 0, points: 0 };
     }
     if (!by[key].name && name) by[key].name = name;
+    if (!by[key].badge && badge) by[key].badge = badge;
     return by[key];
   }
+
+  /* Everyone in the division goes in first, on nothing. A table that lists
+     only the clubs who have already played is a table that is missing four of
+     them on a Saturday teatime, which is exactly when it is being read. */
+  (clubList || []).forEach(function (c) { club(c.id, c.name, c.badge); });
+
+  /* Then everyone with a fixture, played or not, in case the club list could
+     not be had. */
+  events.forEach(function (ev) {
+    if (ev.idHomeTeam || ev.strHomeTeam) club(String(ev.idHomeTeam || ''), ev.strHomeTeam || '', '');
+    if (ev.idAwayTeam || ev.strAwayTeam) club(String(ev.idAwayTeam || ''), ev.strAwayTeam || '', '');
+  });
 
   events.forEach(function (ev) {
     var m = settled(ev);
     if (!m || !m.home || !m.away) return;
     var h = club(m.homeId, m.home), a = club(m.awayId, m.away);
+    if (!h || !a) return;
     h.played++; a.played++;
     h.goalsFor += m.hs; h.goalsAgainst += m.as;
     a.goalsFor += m.as; a.goalsAgainst += m.hs;
@@ -304,10 +348,14 @@ function standingsRows(season) {
    free key does not open every door, and a lagging table beats no table. */
 function fetchTable() {
   var season = currentSeason();
-  return fetchJson(leagueEventsUrl(season)).catch(function () { return null; })
-    .then(function (data) {
+  return Promise.all([
+    fetchJson(leagueEventsUrl(season)).catch(function () { return null; }),
+    fetchClubs()
+  ])
+    .then(function (both) {
+      var data = both[0], clubList = both[1];
       var events = (data && (data.events || data.results)) || [];
-      var built = events.length ? tableFromEvents(events) : [];
+      var built = (events.length || clubList.length) ? tableFromEvents(events, clubList) : [];
       if (built.length) return { season: season, clubs: built, source: 'results' };
       return standingsRows(season).then(function (rows) {
         if (rows.length) return { season: season, rows: rows, source: 'standings' };
@@ -350,9 +398,11 @@ function finishTable(season, clubs, source) {
   });
   clubs.forEach(function (c, i) { c.rank = i + 1; });
 
-  /* Badges do not come with results, so any the last read had are kept. */
+  /* Badges do not come with results, so the club list's are used, and any the
+     last read had are kept for anything the club list did not cover. */
   var badges = {};
   (state.table.rows || []).forEach(function (r) { if (r.badge) badges[r.id || r.name] = r.badge; });
+  (state.clubs.list || []).forEach(function (c) { if (c.badge) { badges[c.id] = c.badge; badges[c.name] = c.badge; } });
   clubs.forEach(function (c) { if (!c.badge) c.badge = badges[c.id] || badges[c.name] || ''; });
 
   state.table = { at: Date.now(), season: season, source: source, rows: clubs };
