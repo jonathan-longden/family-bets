@@ -64,6 +64,11 @@ body {
 }
 .icon-btn:active { transform: scale(.96); }
 
+/* The cannon rather than three lines: it is the app's own mark, it is the
+   only button on the header, and a drawn thing reads faster than a glyph. */
+.icon-btn--cannon { padding: 0; display: grid; place-items: center; }
+.icon-btn--cannon svg { width: 32px; height: 32px; display: block; }
+
 /* ------------------------------------------------------------------ cards */
 
 .card {
