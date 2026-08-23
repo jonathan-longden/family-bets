@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 11';
+var BUILD = '2026-08-23 · 12';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -233,8 +233,35 @@ function leagueEventsUrl(season) {
    season and neither do the badges. */
 var CLUBS_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
+/* Does this row belong to the division being shown?
+
+   A team carries the leagues it plays in — its own, plus the cups, as
+   idLeague through idLeague7 — and the endpoints that list teams are looser
+   than they look: one of them answers a league lookup with a country's worth
+   of clubs, which is how a Premier League table ends up with Championship
+   sides standing in it. Anything naming a league that is not ours is dropped;
+   anything naming no league at all is kept, because the published standings
+   are a league's table by definition. */
+function inOurLeague(t) {
+  var id = String(state.league.id || '');
+  var name = (state.league.name || '').toLowerCase();
+  var sawLeague = false;
+  for (var i = 0; i <= 7; i++) {
+    var suffix = i === 0 ? '' : String(i);
+    var rowId = t['idLeague' + suffix];
+    var rowName = t['strLeague' + suffix];
+    if (rowId) { sawLeague = true; if (String(rowId) === id) return true; }
+    if (rowName) { sawLeague = true; if (String(rowName).toLowerCase() === name) return true; }
+  }
+  return !sawLeague;
+}
+
+/* A division is twenty clubs, give or take a few; a list of ninety is a
+   different question's answer and the next source should be tried instead. */
+var MOST_CLUBS = 40;
+
 function asClubs(rows) {
-  return (rows || []).map(function (t) {
+  return (rows || []).filter(inOurLeague).map(function (t) {
     return {
       id: String(t.idTeam || t.teamid || ''),
       name: t.strTeam || t.name || '',
@@ -281,7 +308,7 @@ function fetchClubs(season) {
   function next(i) {
     if (i >= tries.length) return Promise.resolve([]);
     return tries[i]().then(function (list) {
-      return list.length ? list : next(i + 1);
+      return (list.length && list.length <= MOST_CLUBS) ? list : next(i + 1);
     }).catch(function () { return next(i + 1); });
   }
 
@@ -342,6 +369,14 @@ function tableFromEvents(events, clubList) {
 
   /* Then everyone with a fixture, played or not, in case the club list could
      not be had. */
+  /* And a cup tie is not a league match. The season feed is asked for one
+     league, but an event that names another is not counted into this table. */
+  events = (events || []).filter(function (ev) {
+    if (!ev.idLeague && !ev.strLeague) return true;
+    if (ev.idLeague && String(ev.idLeague) === String(state.league.id)) return true;
+    return !!(ev.strLeague && String(ev.strLeague).toLowerCase() === (state.league.name || '').toLowerCase());
+  });
+
   events.forEach(function (ev) {
     if (ev.idHomeTeam || ev.strHomeTeam) club(String(ev.idHomeTeam || ''), ev.strHomeTeam || '', '');
     if (ev.idAwayTeam || ev.strAwayTeam) club(String(ev.idAwayTeam || ''), ev.strAwayTeam || '', '');
@@ -453,7 +488,8 @@ function refreshTable(force) {
   /* A club list that came back short is not worth keeping for a week: half a
      division means the wrong source answered, so it is asked again on the next
      read rather than cached over the problem. */
-  if (state.clubs.list.length && state.clubs.list.length < 12) {
+  var kept = state.clubs.list.length;
+  if (kept && (kept < 12 || kept > MOST_CLUBS)) {
     state.clubs = { league: '', at: 0, list: [] };
   }
   if (!force && state.table.rows.length && (Date.now() - state.table.at) < TABLE_STALE_MS) {
