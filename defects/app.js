@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 16';
+var BUILD = '2026-08-21 · 17';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -65,6 +65,30 @@ function typeFor(cls) { return CLASS_TYPE[String(cls || '').toLowerCase()] || 'O
 function known(cls) { return CLASS_TYPE.hasOwnProperty(String(cls || '').toLowerCase()); }
 var RF_KEY = 'rf_pxctFcweYjTPKQwCJgjKpHcWSpz1';
 var RF_CONF = 0.40;     // below this the model is guessing
+var RF_SIZE = 640;      // what the model was trained on, and what it is given
+
+/* The model was trained on 640 by 640, stretched — so that is what it is handed,
+   rather than whatever shape the camera produces. Two reasons, and the first
+   would be enough on its own: a model fed the shape it was trained on is a
+   model asked a question it understands.
+
+   The second is what a phone-shaped frame did to the boxes coming back. On a
+   1920 by 1080 frame, a returned box measured 3145 by 5234 — bigger than the
+   picture, and wrong by different factors on each axis, 1.6 across and 4.8
+   down. A single wrong scale would be wrong by the same factor both ways; two
+   different factors means width and height are being scaled by each other's
+   axis, which is invisible while the input is square and ruinous the moment it
+   is not. Square input, symmetric scaling, boxes that mean something.
+
+   It also makes everything downstream agree: the boxes, the shadow test and the
+   share of the frame are all in this one 640 by 640 space. */
+function squareFrame(source, w, h) {
+  var c = document.createElement('canvas');
+  c.width = RF_SIZE; c.height = RF_SIZE;
+  var ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE);
+  return { canvas: c, ctx: ctx };
+}
 
 /* Survey mode: the camera runs and the model watches it, and anything it finds
    is written down without being asked. Three numbers govern how that behaves.
@@ -598,8 +622,16 @@ function analyse(blob) {
   loadModel().then(function (m) {
     if (S.shot !== mine) return null;
     return createImageBitmap(blob).then(function (bmp) {
-      return engine.infer(worker, new m.CVImage(bmp)).then(function (preds) {
-        return { preds: preds, w: bmp.width, h: bmp.height, bmp: bmp };
+      var sq = squareFrame(bmp, bmp.width, bmp.height);
+      if (bmp.close) bmp.close();
+      /* A bitmap is transferable: handing it over neuters this copy and its
+         size becomes nought, which is why the frame must never be read back
+         after the call. Here it need not be — it is the square. */
+      return createImageBitmap(sq.canvas).then(function (input) {
+        return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
+          return { preds: preds, w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
+                   vw: RF_SIZE, vh: RF_SIZE };
+        });
       });
     });
   }).then(function (out) {
@@ -634,12 +666,9 @@ function analyse(blob) {
 
     /* The same shadow test the survey uses, except here somebody is looking, so
        it says what it decided and leaves the matrix alone rather than deciding
-       for them. */
-    var sc = document.createElement('canvas');
-    sc.width = out.w; sc.height = out.h;
-    var sctx = sc.getContext('2d', { willReadFrequently: true });
-    sctx.drawImage(out.bmp, 0, 0);
-    var bad = rejectReason(sctx, out.w, out.h, box);
+       for them. The pixels come from the copy taken before the bitmap was
+       handed over. */
+    var bad = rejectReason(out.ctx, out.w, out.h, box);
     if (bad) {
       return scanSay('<b>That looks like a shadow.</b> The model found something, but it is ' +
                      bad + '. Nothing is proposed — if it is a real defect, score it yourself.',
@@ -703,8 +732,9 @@ function round4(v) {
 
 /* Kept so the next export carries it, rather than needing another drive. */
 var lastRaw = null;
-function noteRaw(raw, w, h) {
+function noteRaw(raw, w, h, vw, vh) {
   lastRaw = { at: new Date().toISOString(), frame: w + '×' + h,
+              video: vw ? vw + '×' + vh : null,
               summary: describeRaw(raw),
               first: raw && raw.length ? JSON.parse(JSON.stringify(raw[0])) : null };
 }
@@ -884,10 +914,13 @@ function look() {
   var v = $('vid');
   if (survey.busy || !stream || !v.videoWidth || document.hidden) return tick();
   survey.busy = true;
-  createImageBitmap(v).then(function (bmp) {
+  var vw = v.videoWidth, vh = v.videoHeight;
+  var sq = squareFrame(v, vw, vh);
+  createImageBitmap(sq.canvas).then(function (input) {
     return import('./vendor/inference.es.js').then(function (m) {
-      return engine.infer(worker, new m.CVImage(bmp)).then(function (preds) {
-        return { preds: preds || [], w: bmp.width, h: bmp.height };
+      return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
+        return { preds: preds || [], w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
+                 vw: vw, vh: vh };
       });
     });
   }).then(function (out) {
@@ -899,22 +932,23 @@ function look() {
       /* Nothing measurable came back. Saying so beats writing down a guess, and
          a survey that quietly logged guesses is what produced a morning of
          two-hour emergencies. */
-      noteRaw(raw, out.w, out.h);
+      noteRaw(raw, out.w, out.h, out.vw, out.vh);
       hud('Model output unusable', 'bad');
-      toast(describeRaw(raw) + '. Frame ' + out.w + '×' + out.h + '.');
+      toast(describeRaw(raw) + '. Frame ' + out.w + '×' + out.h +
+            (out.vw && (out.vw !== out.w || out.vh !== out.h)
+              ? ', video ' + out.vw + '×' + out.vh : '') + '.');
       return tick();
     }
     if (!hits.length) return hud('Watching');
+    /* Boxes and pixels are both in the 640 square, so no rescaling is needed
+       between them — the mismatch that used to live here is gone. */
+    hits = hits.filter(function (f) {
+      return !rejectReason(out.ctx, RF_SIZE, RF_SIZE, f.box);
+    });
     var v = $('vid'), c = $('shot');
     var scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
     c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
-    var ctx = c.getContext('2d', { willReadFrequently: true });
-    ctx.drawImage(v, 0, 0, c.width, c.height);
-    var k = c.width / out.w;
-    hits = hits.filter(function (f) {
-      return !rejectReason(ctx, c.width, c.height,
-        { x: f.box.x * k, y: f.box.y * k, w: f.box.w * k, h: f.box.h * k });
-    });
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
     if (!hits.length) return hud('Shadow, not a defect');
     var holes = hits.filter(function (f) { return typeFor(f.cls) === 'Pothole'; });
     if (!holes.length) return hud('Ironwork — sound cover, not logged');
