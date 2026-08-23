@@ -17,13 +17,13 @@
    are not in its cache, so it has to go to the network for them. Bump both
    these and the ones in index.html together on a release. */
 
-const CACHE_NAME = 'ten-a-win-v7';
+const CACHE_NAME = 'ten-a-win-v8';
 const NETWORK_WAIT_MS = 2500;
 const FILES_TO_CACHE = [
   './',
   './index.html',
-  './styles.css?v=7',
-  './app.js?v=7',
+  './styles.css?v=8',
+  './app.js?v=8',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -51,7 +51,14 @@ self.addEventListener('fetch', event => {
 
   event.respondWith(
     caches.open(CACHE_NAME).then(cache => {
-      const network = fetch(event.request).then(res => {
+      /* `cache: 'no-store'` is the whole point of this line. A plain fetch()
+         is answered by the browser's own HTTP cache first, and GitHub Pages
+         serves these files with ten minutes of freshness on them — so a
+         worker that fetches "from the network" can be handed the very copy it
+         is trying to replace, and a release sits on the server while the
+         phone insists it is up to date. This asks the server every time and
+         falls back to the cache only when the network really is unavailable. */
+      const network = fetch(event.request, { cache: 'no-store' }).then(res => {
         if (res && res.ok) cache.put(event.request, res.clone());
         return res;
       });

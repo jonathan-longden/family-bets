@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 7';
+var BUILD = '2026-08-23 · 8';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -1106,6 +1106,7 @@ $('settingsBtn').addEventListener('click', function () {
   showSoundName();
   $('notifyOn').checked = !!state.notify;
   $('teamCurrent').textContent = 'Currently following ' + state.team.name + '.';
+  $('buildHint').textContent = 'This phone is running build ' + BUILD + '.';
   $('teamResults').innerHTML = '';
   $('hookTestOut').textContent = '';
   $('settingsSheet').showModal();
@@ -1250,6 +1251,30 @@ $('hookTestBtn').addEventListener('click', function () {
   });
 });
 
+/* The escape hatch, for when a phone is serving an app older than the one on
+   the server. Everything the app knows lives in localStorage and IndexedDB and
+   is left alone; what goes is the copy of the app itself — the caches and the
+   worker holding them — and then the page is asked for again under a URL the
+   browser has never seen, so nothing of its own can answer. */
+$('updateBtn').addEventListener('click', function () {
+  var out = $('updateOut');
+  out.textContent = 'Fetching…';
+  var jobs = [];
+  if (window.caches && caches.keys) {
+    jobs.push(caches.keys().then(function (keys) {
+      return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+    }));
+  }
+  if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+    jobs.push(navigator.serviceWorker.getRegistrations().then(function (regs) {
+      return Promise.all(regs.map(function (r) { return r.unregister(); }));
+    }));
+  }
+  Promise.all(jobs).catch(function () {}).then(function () {
+    location.replace(location.pathname + '?fresh=' + Date.now());
+  });
+});
+
 $('exportBtn').addEventListener('click', function () {
   var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
   var a = document.createElement('a');
@@ -1315,7 +1340,11 @@ maybeCheck();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js').then(function (reg) {
+    /* updateViaCache 'none' keeps the browser's HTTP cache away from the
+       worker script itself. Without it the check for a new worker can be
+       answered out of the same cache that is serving the old app, which is
+       the update never arriving. */
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(function (reg) {
       /* Ask on every open. Without it a worker can sit unchanged for a day
          before the browser thinks to look, which is a day of the old app. */
       reg.update().catch(function () {});
