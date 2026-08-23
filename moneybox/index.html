@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#7a0005">
+<meta name="description" content="Ten a Win — a moneybox that fills itself. Every time Arsenal win, £10 goes in the jar and, if you wire it up, out of your bank into a savings pot.">
+<title>Ten a Win</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ten a Win">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="top">
+    <img class="crest" id="crest" alt="" hidden>
+    <div class="who">
+      <h1 id="teamName">Arsenal</h1>
+      <p class="sub" id="ruleLine">£10 in the jar every time they win</p>
+    </div>
+    <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">☰</button>
+  </header>
+
+  <section class="card jar" aria-labelledby="totalFigure">
+    <div class="jar-wrap">
+      <div class="jar-glass" role="img" aria-label="the moneybox">
+        <div class="jar-fill" id="jarFill"></div>
+        <div class="jar-slot"></div>
+        <div class="jar-shine"></div>
+      </div>
+      <div class="jar-figure">
+        <span class="total" id="totalFigure">£0</span>
+        <span class="total-cap" id="totalCaption">nothing in it yet</span>
+        <span class="goal-line" id="goalLine" hidden></span>
+      </div>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><span class="stat-v" id="statWins">0</span><span class="stat-k">wins banked</span></div>
+      <div class="stat"><span class="stat-v" id="statOwed">£0</span><span class="stat-k">still to move</span></div>
+      <div class="stat"><span class="stat-v" id="statRun">0</span><span class="stat-k">win streak</span></div>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="checkBtn">Check for wins</button>
+      <button class="secondary" id="moveBtn" hidden>Move £0</button>
+    </div>
+
+    <p class="status" id="status">Ready.</p>
+  </section>
+
+  <section class="card next" id="nextCard" hidden>
+    <h2 class="card-h">Next up</h2>
+    <p class="fixture" id="nextFixture"></p>
+    <p class="fixture-when" id="nextWhen"></p>
+    <p class="fixture-stake" id="nextStake"></p>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <h2 class="card-h">The jar</h2>
+      <div class="head-actions">
+        <button class="ghost small" id="addBtn">Add by hand</button>
+        <button class="ghost small" id="withdrawBtn">Break it open</button>
+      </div>
+    </div>
+    <ul class="ledger" id="ledger"></ul>
+    <p class="empty" id="ledgerEmpty">Nothing yet. The jar fills itself the next time Arsenal win — tap <b>Check for wins</b> after a match, or add one by hand.</p>
+  </section>
+
+  <footer class="foot">
+    <span id="buildLine"></span>
+    <button class="linkish" id="aboutBtn">How the money moves</button>
+  </footer>
+</div>
+
+<!-- ------------------------------------------------------------- settings -->
+<dialog class="sheet" id="settingsSheet">
+  <form method="dialog" class="sheet-in">
+    <div class="sheet-head"><h2>Settings</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></div>
+
+    <fieldset class="fs">
+      <legend>The team</legend>
+      <div class="row">
+        <input type="search" id="teamQuery" placeholder="Search a team (Arsenal)" autocomplete="off">
+        <button type="button" class="secondary" id="teamSearchBtn">Find</button>
+      </div>
+      <ul class="picklist" id="teamResults"></ul>
+      <p class="hint" id="teamCurrent"></p>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>What goes in</legend>
+      <div class="grid3">
+        <label>Win <input type="number" id="amtWin" min="0" step="0.5" inputmode="decimal"></label>
+        <label>Draw <input type="number" id="amtDraw" min="0" step="0.5" inputmode="decimal"></label>
+        <label>Loss <input type="number" id="amtLoss" min="0" step="0.5" inputmode="decimal"></label>
+      </div>
+      <p class="hint">Amounts in pounds. Draw and loss are £0 unless you want a jar that fills whatever happens.</p>
+      <label class="lbl">Saving for (optional)
+        <input type="text" id="goalLabel" placeholder="Away days fund" maxlength="40">
+      </label>
+      <label class="lbl">Target
+        <input type="number" id="goalAmount" min="0" step="10" inputmode="decimal" placeholder="0">
+      </label>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>Bank link</legend>
+      <p class="hint">A web page cannot reach into a bank account on its own. Give it the address of an
+        automation that can — an IFTTT, Zapier or Make webhook wired to your bank's "move money into a pot"
+        action — and every win fires the stake down it. Leave it empty and the jar just keeps score.</p>
+      <label class="lbl">Webhook URL
+        <input type="url" id="hookUrl" placeholder="https://maker.ifttt.com/trigger/arsenal_win/with/key/..." autocomplete="off">
+      </label>
+      <div class="row">
+        <input type="text" id="hookHeaderName" placeholder="Header name (optional)" autocomplete="off">
+        <input type="text" id="hookHeaderValue" placeholder="Header value" autocomplete="off">
+      </div>
+      <label class="check"><input type="checkbox" id="hookAuto"> Fire it automatically on every win</label>
+      <div class="row">
+        <button type="button" class="secondary" id="hookTestBtn">Send a test £0.01</button>
+        <span class="hint" id="hookTestOut"></span>
+      </div>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>Scores</legend>
+      <label class="lbl">TheSportsDB API key
+        <input type="text" id="apiKey" placeholder="123" autocomplete="off">
+      </label>
+      <p class="hint">The free test key works for a bit of use. If results stop coming, put your own key here
+        (thesportsdb.com). Results are never trusted while a match is still on — a win counts once the match
+        is finished.</p>
+      <label class="check"><input type="checkbox" id="notifyOn"> Tell me when a win goes in</label>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>The jar itself</legend>
+      <div class="row">
+        <button type="button" class="secondary" id="exportBtn">Export</button>
+        <button type="button" class="secondary" id="importBtn">Import</button>
+        <button type="button" class="danger" id="resetBtn">Erase everything</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+      <p class="hint">Everything lives on this phone and nowhere else. Nothing is backed up for you, so export
+        before you change phones.</p>
+    </fieldset>
+  </form>
+</dialog>
+
+<!-- ------------------------------------------------------------ add by hand -->
+<dialog class="sheet" id="addSheet">
+  <form class="sheet-in" id="addForm">
+    <div class="sheet-head"><h2>Add a result</h2><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
+    <label class="lbl">Result
+      <select id="addResult">
+        <option value="W">Win</option>
+        <option value="D">Draw</option>
+        <option value="L">Loss</option>
+      </select>
+    </label>
+    <label class="lbl">Against <input type="text" id="addOpponent" placeholder="Tottenham" required></label>
+    <div class="grid2">
+      <label class="lbl">Score <input type="text" id="addScore" placeholder="2-1" autocomplete="off"></label>
+      <label class="lbl">Date <input type="date" id="addDate"></label>
+    </div>
+    <label class="lbl">Amount <input type="number" id="addAmount" min="0" step="0.5" inputmode="decimal"></label>
+    <div class="sheet-foot">
+      <button type="button" class="ghost" data-close>Cancel</button>
+      <button type="submit" class="primary">Put it in</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ------------------------------------------------------------- break open -->
+<dialog class="sheet" id="withdrawSheet">
+  <form class="sheet-in" id="withdrawForm">
+    <div class="sheet-head"><h2>Break it open</h2><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
+    <p class="hint" id="withdrawHint"></p>
+    <label class="lbl">Taking out <input type="number" id="wdAmount" min="0" step="1" inputmode="decimal" required></label>
+    <label class="lbl">What for <input type="text" id="wdNote" placeholder="Emirates, block 26" maxlength="60"></label>
+    <div class="sheet-foot">
+      <button type="button" class="ghost" data-close>Cancel</button>
+      <button type="submit" class="danger">Take it out</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ------------------------------------------------------------------ about -->
+<dialog class="sheet" id="aboutSheet">
+  <form method="dialog" class="sheet-in">
+    <div class="sheet-head"><h2>How the money moves</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></div>
+    <p>Every finished Arsenal match is read from a public results feed. A win adds £10 to the jar — once,
+      and only once, however many times you open the app.</p>
+    <p><b>The jar keeps score.</b> That is all it does on its own. It shows what has gone in, what you have
+      not moved yet, and what you have taken back out.</p>
+    <p><b>The bank link moves the money.</b> A page in a browser has no way into your bank, and any app that
+      claims otherwise is really talking to something else that does. So this one talks to something else
+      that does: a webhook you own. Wire an IFTTT, Zapier or Make webhook to your bank's own
+      "deposit into a savings pot" action, paste the address into Settings, and each win fires the tenner
+      down it with the match on the reference. Every fire carries the match id, so a repeat cannot pay twice.</p>
+    <p><b>Nothing else leaves the phone.</b> No account, no server of mine, no bank credentials here — the
+      webhook address is the only thing this app knows, and you can pull it out at any time.</p>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
