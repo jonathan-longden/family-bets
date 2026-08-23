@@ -218,6 +218,28 @@ Epochs do not change how a model's output is laid out, so a long run would have
 proved nothing about decoding that a short one does not. Now that the path is
 proven, a longer run is worth having and costs only time.
 
+### What shape the tensor came back in
+
+The channels-last explanation above was checked in the field and is **not what
+is happening**. The app reported: twenty results, confidences from 2,678,873 to
+89,622,600, boxes to match, and — from the diagnostic — *"Roboflow calls it
+yolov8n, decoded by YOLOv8"*. So the architecture and the decoder now agree, the
+frame is the 640 square it should be, and the numbers are still nonsense. Twenty
+results also rules the earlier theory out: read channels-last, the decoder finds
+six candidates at most, and it found twenty.
+
+Which leaves one thing still invisible — the shape of the tensor itself. That is
+decided inside the library's worker and never comes out. So the vendored copy
+now says: the raw output shape, how many outputs the graph returned, the shape
+after the library's transpose, the box and class counts derived from it, and the
+first eight raw values. It appends one record to the results, the app strips it
+before anything else looks, and it goes on screen and into the export under
+`lastUnusableOutput.tensor`.
+
+`vendor/PATCHES.md` says exactly what was changed and how to re-apply it; the
+patch itself is `scratchpad/patchsdk.py`. It adds a diagnostic and alters no
+decoding.
+
 ### What model this actually is
 
 The library picks its decoder from one field in the model's metadata, inside a
