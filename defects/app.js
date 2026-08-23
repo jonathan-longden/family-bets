@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-23 · 26';
+var BUILD = '2026-08-23 · 27';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -1713,6 +1713,96 @@ $('bJson').addEventListener('click', function () {
   }).then(function () { btn.disabled = false; }, function () { btn.disabled = false; });
 });
 
+/* ---------- diagnostics ----------
+
+   All of this used to live only in the JSON export, which is hidden until
+   something has been logged — so the one screen that says why nothing can be
+   logged was locked behind logging something. It is its own screen now, always
+   reachable, and it is text on the glass rather than a file, because a phone is
+   a poor place to find a downloaded .json and a bad place to read one. */
+function diagLines() {
+  var L = [];
+  L.push('Defect Log ' + BUILD);
+  L.push('when       ' + new Date().toISOString());
+  L.push('page       ' + location.host);
+  L.push('');
+  L.push('MODEL');
+  L.push('id         ' + (RF_MODEL_ID || RF_MODEL + '/' + RF_VERSION));
+  if (!rfMeta) {
+    L.push('roboflow   not asked yet');
+  } else if (rfMeta.error) {
+    L.push('roboflow   could not be reached: ' + rfMeta.error);
+  } else {
+    L.push('type       ' + rfMeta.modelType);
+    L.push('decoder    ' + rfMeta.decoder);
+    L.push('classes    ' + (rfMeta.classes || []).join(', '));
+    L.push('input      ' + rfMeta.size);
+    if (rfMeta.environment) L.push('env        ' + rfMeta.environment);
+    L.push('weights    ' + (rfMeta.weights || 'not reported'));
+  }
+  L.push('');
+  L.push('SELF TEST  (the model, shown a flat grey square with nothing in it)');
+  if (!selfTest) {
+    L.push('           not run — the model has not loaded');
+  } else if (selfTest.state !== 'ran') {
+    L.push('           ' + selfTest.state + (selfTest.error ? ': ' + selfTest.error : ''));
+  } else {
+    L.push('returned   ' + selfTest.onFlatGrey);
+    L.push('confidence ' + (selfTest.confidenceRange
+      ? selfTest.confidenceRange.join(' to ') : 'none reported'));
+    L.push('in 0..1    ' + (selfTest.allInRange === null ? 'nothing to judge'
+      : selfTest.allInRange ? 'yes' : 'NO — the output does not depend on the picture'));
+    if (selfTest.rawShape) L.push('shape      ' + [].concat(selfTest.rawShape).join('×'));
+    if (selfTest.firstEight) L.push('first 8    ' + selfTest.firstEight.map(round4).join(', '));
+  }
+  L.push('');
+  L.push('LAST TENSOR  (from a real frame)');
+  L.push(lastDiag ? '           ' + describeDiag(lastDiag) : '           nothing yet');
+  L.push('');
+  L.push('LAST UNUSABLE OUTPUT');
+  if (!lastRaw) {
+    L.push('           nothing yet');
+  } else {
+    L.push('at         ' + lastRaw.at);
+    L.push('frame      ' + lastRaw.frame + (lastRaw.video ? ', video ' + lastRaw.video : ''));
+    L.push('summary    ' + lastRaw.summary);
+    L.push('first      ' + JSON.stringify(lastRaw.first));
+  }
+  return L.join('\n');
+}
+
+function paintDiag() { $('diagText').textContent = diagLines(); }
+
+function openDiag() {
+  show('diag');
+  paintDiag();
+  /* Both are cached and cheap the second time, and this is the screen someone
+     opens precisely because something is wrong — so ask now rather than wait
+     for a failure to ask on their behalf. */
+  modelMeta().then(paintDiag);
+  runSelfTest().then(paintDiag);
+}
+
+$('mDiag').addEventListener('click', function () { closeMenu(); openDiag(); });
+$('xDiag').addEventListener('click', backToCamera);
+
+$('bCopyDiag').addEventListener('click', function () {
+  var text = diagLines(), note = $('copyNote');
+  note.hidden = false;
+  var done = function () { note.textContent = 'Copied. Paste it wherever you need it.'; };
+  var failed = function () {
+    note.textContent = 'This browser would not copy it. Press and hold the text to select it.';
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, failed);
+  } else { failed(); }
+});
+
+$('bDiagFile').addEventListener('click', function () {
+  dl('defect-log-diagnostics-' + stamp() + '.txt',
+     new Blob([diagLines()], { type: 'text/plain' }));
+});
+
 /* ---------- sheets and the menu ----------
 
    The viewfinder is always underneath. The log, the map and the confirm step
@@ -1723,8 +1813,9 @@ function show(which) {
   $('p-log').hidden = (which !== 'log');
   $('p-map').hidden = (which !== 'map');
   $('p-score').hidden = (which !== 'score');
+  $('p-diag').hidden = (which !== 'diag');
   var open = which === 'log' ? $('p-log') : which === 'map' ? $('p-map') :
-             which === 'score' ? $('p-score') : null;
+             which === 'score' ? $('p-score') : which === 'diag' ? $('p-diag') : null;
   if (open) { var b = open.querySelector('.sh-body'); if (b) b.scrollTop = 0; }
   /* Leaflet is only fetched when a map is actually asked for, and it has to
      measure a container that is on screen, so this happens here rather than at
@@ -1763,7 +1854,7 @@ document.addEventListener('keydown', function (e) {
   if (!$('lb').hidden) return;        // the photo viewer has its own handler
   if (menuOpen()) return closeMenu();
   if (!$('p-score').hidden) { confirming = null; return show('log'); }
-  if (!$('p-log').hidden || !$('p-map').hidden) backToCamera();
+  if (!$('p-log').hidden || !$('p-map').hidden || !$('p-diag').hidden) backToCamera();
 });
 
 /* The camera light staying on after the phone goes in a pocket is both a
