@@ -325,6 +325,19 @@ data takes the log with it, and there is no copy anywhere else.
   into Excel.
 - **JSON** carries the same fields plus the photographs, embedded, so one file
   is the whole round.
+- **GeoJSON** is for handing to an asset management system — Causeway Alloy
+  takes it, so does anything else with a map in it. Only entries with a location
+  can go in one, and the app says how many that leaves out before you export.
+
+  Every feature carries `confirmed`. **Filter on it before any of this reaches a
+  system that starts a response clock**: a defect record commits somebody to a
+  working day, and an unconfirmed survey find is a machine's guess that nobody
+  has stood over. Photographs are not in a GeoJSON; the JSON export has those.
+
+  On the two things that are easy to get wrong here: coordinates are written
+  longitude first, as the spec requires — the other way round puts every defect
+  in the sea off Somalia without complaining — and properties are flat scalars,
+  because a nested object is what makes a GIS import quietly drop a column.
 
 The detection model was trained for this app: `yolo11n` over 17,497 images
 forked from `pothole-model-for-zed-cameras/pothole-fine-tuning-ghl9u`, two

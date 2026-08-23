@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 17';
+var BUILD = '2026-08-21 · 18';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -1180,6 +1180,20 @@ function render() {
   $('cnt').textContent = S.items.length;
   var has = S.items.length > 0;
   $('empty').hidden = has; $('expRow').hidden = !has; $('bClear').hidden = !has;
+  var placed = S.items.filter(function (i) { return i.lat != null; }).length;
+  var loose = S.items.length - placed;
+  var unconf = S.items.filter(function (i) { return /unconfirmed/i.test(i.scoredBy || ''); }).length;
+  var hint = $('expHint');
+  if (hint) {
+    hint.hidden = !has;
+    hint.innerHTML =
+      'CSV and JSON carry everything; JSON carries the photographs too. ' +
+      'GeoJSON carries ' + placed + ' of ' + S.items.length + ' — a defect needs a location ' +
+      'to go on a map' + (loose ? ', and ' + loose + ' ' + (loose === 1 ? 'has' : 'have') +
+      ' none' : '') + '.' +
+      (unconf ? ' <b>' + unconf + ' unconfirmed</b>, marked <code>confirmed: false</code> — ' +
+                'filter on it before anything here starts a response clock.' : '');
+  }
   $('saveNote').hidden = !has;
 
   urls.forEach(URL.revokeObjectURL); urls = [];
@@ -1367,6 +1381,58 @@ $('bCsv').addEventListener('click', function () {
      mojibake when the file is double-clicked. */
   dl('defects-' + stamp() + '.csv',
      new Blob(['﻿' + head.join(',') + '\r\n' + rows.join('\r\n')], { type: 'text/csv' }));
+});
+
+/* GeoJSON, for handing to an asset system — Alloy takes it, so does anything
+   else with a map in it.
+
+   Two things are easy to get wrong and expensive to notice later. Coordinates
+   go longitude first: the spec says so and a file with them the other way round
+   puts every defect in the sea off Somalia without complaining. And properties
+   are kept flat and scalar, because nested objects are what make a GIS import
+   silently drop a column.
+
+   Every feature says who scored it. A defect record drives a response time, and
+   an unconfirmed survey find is a machine's guess that nobody has stood over —
+   so `confirmed` is there to be filtered on before any of this reaches a system
+   that starts a clock. */
+$('bGeo').addEventListener('click', function () {
+  var rows = S.items.filter(function (i) { return i.lat != null && i.lon != null; });
+  if (!rows.length) {
+    return alert('Nothing to export: no entry in the log has a location on it.');
+  }
+  var fc = {
+    type: 'FeatureCollection',
+    features: rows.map(function (i) {
+      return {
+        type: 'Feature',
+        id: i.id,
+        geometry: { type: 'Point', coordinates: [i.lon, i.lat] },
+        properties: {
+          logged: i.t,
+          defect_type: i.type,
+          surface: i.surface,
+          category: i.cat,
+          response_time: i.resp,
+          impact: i.imp,
+          probability: i.prob,
+          risk_factor: i.score,
+          confirmed: !/unconfirmed/i.test(i.scoredBy || ''),
+          scored_by: i.scoredBy || 'inspector',
+          gps_accuracy_m: i.acc == null ? null : i.acc,
+          gps_fix_age_s: i.fixAge == null ? null : i.fixAge,
+          what3words: i.w3w ? '///' + i.w3w : null,
+          model_confidence: i.detConf == null ? null : i.detConf,
+          model_share_of_frame: i.detShare == null ? null : i.detShare,
+          amended: i.amendedAt || null,
+          notes: i.note || null,
+          has_photograph: !!i.img        // the photographs travel in the JSON export
+        }
+      };
+    })
+  };
+  dl('defects-' + stamp() + '.geojson',
+     new Blob([JSON.stringify(fc, null, 2)], { type: 'application/geo+json' }));
 });
 
 $('bJson').addEventListener('click', function () {
