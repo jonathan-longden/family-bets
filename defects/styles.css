@@ -56,6 +56,29 @@ button{font:inherit;color:inherit}
    the point and anything between you and it is in the way. */
 .live{position:fixed;inset:0;background:#000;overflow:hidden}
 .live video{width:100%;height:100%;object-fit:cover;display:block}
+/* The picture must NOT turn with the chrome.
+
+   The camera already hands us a frame the right way up for how the phone is
+   being held — the browser orients it — so turning it again along with
+   everything else spins it away from the world. Rotating the screenshot until
+   the buttons read correctly put the ceiling at the bottom, which is exactly
+   that: the chrome and the picture turned together when only the chrome should.
+   So inside a turned #app the video cancels its parent's rotation and is sized
+   to the physical screen rather than to the turned box it sits in.
+
+   This rule has to come after the one above it rather than live in the
+   orientation block further up, because they have the same specificity and the
+   later one wins.
+
+   None of it reaches the model: detection draws from the video element's own
+   pixels, which a CSS transform cannot touch, so what is looked at is the
+   camera's frame either way round. */
+@media (orientation:portrait){
+  .live video{position:absolute;top:50%;left:50%;
+    width:100vw;height:100vh;
+    width:100dvw;height:100dvh;
+    transform:translate(-50%,-50%) rotate(-90deg);transform-origin:center}
+}
 canvas.shot{display:none}
 
 /* Chrome floats over the picture and mostly cannot be tapped, so a stray thumb
