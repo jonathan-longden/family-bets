@@ -50,20 +50,29 @@ the win streak would count wins either side of a thrashing as consecutive.
 
 ## The table
 
-Under the next fixture there is the league table, about ten rows of it, with
-the followed club highlighted and pulled into the middle of the card so it is
-there rather than somewhere to be hunted for. **Show all** drops the card's
-own scrollbox and lays out the whole twenty on the page, which is then read by
-scrolling the page — the gesture a phone is actually good at — and the choice
-is remembered.
+Under the next fixture there is the league table, the whole of it, laid out on
+the page and read by scrolling the page — the gesture a phone is actually good
+at. **Show less** shrinks it back to a scrolling box about ten rows tall if
+you would rather have the screen; the choice is remembered. The followed club
+is highlighted either way, and pulled into view when the card is the short
+one.
 
-**The positions are worked out here, not taken from the feed.** The order
-things arrive in is not the order clubs stand in: it has come back
-alphabetical, and it has come back a round out of date. So the table is sorted
-on the three things the league itself sorts on — points, then goal difference,
-then goals scored — and numbered from that. If the new season has not kicked
-off yet there is no table to sort, so the season before is fetched instead and
-the card says which season it is showing.
+**The table is added up here from the league's own results**, not taken from
+the published standings. Those standings are maintained separately and lag —
+a Saturday of football can still be missing from them on Sunday, which makes
+the card wrong exactly when someone looks at it. The results are the same feed
+the trophy already trusts to bank a win, and three points for a win is not a
+calculation worth outsourcing: every finished match in the season is counted
+into played, goals for and against, and points, and the same rule as the
+trophy decides what "finished" means, so a match kicking off later tonight
+cannot creep in. The standings are still the fallback for when the results are
+not available, and the card says which of the two it is showing, and when it
+was read.
+
+Positions are worked out here in both cases — points, then goal difference,
+then goals scored. If the new season has not kicked off yet there is nothing
+to add up, so the season before is fetched instead and the card says which
+season it is showing.
 
 It is read alongside the results and then kept, so it draws instantly on the
 next open and still draws with no signal at all — an hour-old league table is
@@ -208,10 +217,10 @@ the browser has never seen. It leaves the trophy, the results and the bank
 link alone — they are not part of the app's copy. The build the phone is
 running is printed just above that button, and in the footer.
 
-The stylesheet and the script are also asked for by version (`app.js?v=8`).
+The stylesheet and the script are also asked for by version (`app.js?v=9`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=8`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=9`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 
