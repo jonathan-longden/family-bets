@@ -79,6 +79,15 @@ rows on the opening weekend — and no result carries a badge. Everyone in the
 division goes into the table first on nothing, and the results are added on
 top.
 
+Whatever answers, every club is checked against the division before it goes
+in. A team carries the leagues it plays in, and the endpoints that list teams
+are looser than they look — one of them answers a league lookup with a
+country's worth of clubs — so anything naming a league that is not this one is
+dropped, and a source that comes back with forty-plus clubs is treated as the
+wrong source and the next one asked. Cup ties are dropped from the arithmetic
+for the same reason: an event that names another competition is not a league
+match, however much it was worth to the trophy.
+
 Positions are worked out here in both cases — points, then goal difference,
 then goals scored. If the new season has not kicked off yet there is nothing
 to add up, so the season before is fetched instead and the card says which
@@ -227,10 +236,10 @@ the browser has never seen. It leaves the trophy, the results and the bank
 link alone — they are not part of the app's copy. The build the phone is
 running is printed just above that button, and in the footer.
 
-The stylesheet and the script are also asked for by version (`app.js?v=11`).
+The stylesheet and the script are also asked for by version (`app.js?v=12`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=11`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=12`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 
