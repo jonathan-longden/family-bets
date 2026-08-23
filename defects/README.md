@@ -1,59 +1,82 @@
 # Defect Log
 
-A screening tool for highway defects. Photograph one, score it on the risk
-matrix, and the coordinates, the time and the measurements go with the
-photograph rather than being written on a clipboard and matched up later.
+A screening tool for highway defects. It opens on the camera, watches the road
+while you drive or walk it, and writes down what it finds with the coordinates
+and the time already attached — rather than a clipboard, a memory and a folder
+of photographs to be matched up afterwards.
 
 It runs on a phone, installs to the home screen, and works with no signal.
 Nothing leaves the device: there is no account, no upload and no server —
 which also means nothing is backed up for you, so export at the end of a
 round.
 
+## The shape of it
+
+There is one screen: the road. The viewfinder is the app, not a tab inside it,
+and it comes up looking at the road the moment the app opens — no start screen,
+nothing to dismiss.
+
+- **One round button** starts and stops the survey. That tap is also the
+  gesture a browser demands before it will give a page the whole screen and
+  lock it to landscape, so both are taken with it rather than hidden behind a
+  control nobody would find with a phone on a windscreen mount.
+- **Three dots, top right** open everything else: the defect log, the map, the
+  surface you are surveying, full screen, and stopping the camera. They are the
+  only thing on the glass that is always tappable.
+- **The log and the map come up over the road**, not instead of it. Closing one
+  is a single tap and the camera never stopped, which is the difference between
+  a layer and a tab.
+
+There is no shutter. Nothing is photographed by hand any more: the survey takes
+the picture when it finds something, and a person's job is to open the entry
+afterwards and either sign it off or put it right.
+
 ## What it does
 
 - **Ties the photograph to a place.** The camera and the location are watched
-  together, and the fix that was live when the shutter went is what gets saved
-  — with its accuracy and its age. A defect photographed from a van at ±40 m,
+  together, and the fix that was live when the find was written down is what
+  gets saved — with its accuracy and its age. A defect logged from a van at ±40 m,
   or tagged with a fix that was two minutes stale, is recorded as exactly
   that and flagged in the log. That is the gap most footage has.
 - **Scores it against the matrix, not against a memory.** The 5×5 laminated
-  card is on screen: impact down the side, probability across the top, tap the
-  cell. The risk factor, the category and the response time come straight out
-  of it.
+  card is on the confirm screen: impact down the side, probability across the
+  top, tap the cell. The risk factor, the category and the response time come
+  straight out of it.
 - **Proposes a score, and shows its working.** A pothole detection model runs
   on the phone and finds the defect. From the outline's
-  share of the frame and the surface you are on, the app proposes a cell,
-  pre-selects it, and says in words what it based that on and how sure it is
+  share of the frame and the surface you are on, the app proposes a cell and
+  writes the entry with it. Open the entry to confirm it and the proposal is
+  pre-selected with, in words, what it was based on and how sure the model was
   that the thing is a pothole at all. One tap on any other cell overrules it,
-  and the entry records whether the score was the app's proposal or yours.
+  and the entry records whether the score was an accepted proposal or yours.
 - **Never estimates depth from a picture.** It never did and it still doesn't.
 - **Keeps hundreds of defects.** Entries live in IndexedDB with the
-  photographs held as files rather than as text, so a full day of captures
-  fits and the app tells you how much room is left.
-- **Exports both ways.** CSV for the data and the coordinates, opened straight
-  into a spreadsheet; JSON when you need the photographs to travel with it.
+  photographs held as files rather than as text, so a full day of finds fits
+  and the app tells you how much room is left.
+- **Exports three ways.** CSV for the data and the coordinates, opened straight
+  into a spreadsheet; JSON when you need the photographs to travel with it;
+  GeoJSON to drop the located defects onto someone else's map.
 
-## Survey mode
+## Recording
 
-The camera opens by itself when the app does. Tap **Start survey** and the
-viewfinder takes the whole screen, the model watches it about once a second,
-and anything it finds is photographed, scored and written to the log without
-being asked. Mount the phone, drive or walk the road, and read the log
-afterwards.
+Tap the round button. The model starts watching the picture about once a
+second, and anything it finds is photographed, scored and written to the log
+without being asked. A clock counts the run and a tally counts what has been
+logged. Mount the phone, drive or walk the road, and read the log afterwards.
 
 Some things about it are worth knowing before trusting it:
 
 - **Set the surface before you set off.** Every find is recorded against it,
   and it changes the score — the same hole on a footway is a trip rather than a
-  jolt. It is one setting shared with the scoring screen, shown on the survey
-  screen and tappable on the heads-up display while a run is going on.
+  jolt. It is one setting, shared with the confirm screen: set it in the menu,
+  or tap the chip on the glass to flip it mid-run.
 - **Entries are marked unconfirmed.** Nobody looked at them. They are saved as
   `survey, unconfirmed` and read that way in the log and the CSV, so they never
   pass for a category an inspector stood over. Treat them as a list of places
   to go and look.
-- **It needs a stronger opinion than you do.** A find has to clear a higher bar
-  than a deliberate capture before it is written down, because nothing is
-  checking it.
+- **It needs a strong opinion.** A find has to clear a higher confidence bar
+  than the model's own floor before it is written down, because nothing is
+  checking it at the time.
 - **The same hole is not logged fifty times.** One pothole stays in shot for
   many frames and, from a vehicle, many metres. A find within twenty metres of
   the last one logged is taken to be the same defect. With no GPS fix there is
@@ -63,8 +86,9 @@ Some things about it are worth knowing before trusting it:
   not the app on screen; the browser suspends it. So the survey runs with the
   app open and the phone mounted, and ends rather than pretending to watch.
 - **Full screen and landscape need a tap.** Browsers only grant either off a
-  gesture, so the button is that gesture. The viewfinder fills the screen
-  without it either way.
+  gesture, so the record tap is that gesture. The viewfinder fills the screen
+  without either, so a browser that refuses is not an error worth interrupting
+  a run over.
 
 ## The frame the model is shown
 
@@ -139,9 +163,9 @@ On synthetic road, a dimmed patch scores 1.00 against its surroundings, a
 broken-up hole scores 9.99, and a shallow worn hollow — the hardest real case —
 scores 2.59, against a cut-off of 1.18. The margin is wide, but it is a filter
 and not a cure, and it cuts both ways: **a real hole in deep shade looks smooth
-and can be waved through as a shadow.** In a survey that is a miss. In a
-deliberate capture the app says what it decided and leaves you free to score it
-anyway.
+and can be waved through as a shadow.** That is a miss, and the survey says on
+screen when it has thrown something out as a shadow rather than doing it
+quietly.
 
 ## Ironwork
 
@@ -152,11 +176,26 @@ written down as a hole, which is what the previous single-class model did every
 time.
 
 So ironwork is recognised and passed over. A survey does not log it — one that
-wrote down every manhole it drove over would bury the finds that matter. Point
-the camera at one deliberately and the app names it, sets the defect type, and
-proposes no score, because whether a cover is sunken, proud, rocking or cracked
-is decided on site and is not in the photograph. Score it yourself if it is
-defective.
+wrote down every manhole it drove over would bury the finds that matter — and
+says so on screen when it does, so a cover you know is rocking does not simply
+vanish without comment. Whether a cover is sunken, proud, rocking or cracked is
+decided on site and is not in the photograph, so a defective one is a job for a
+person standing over it, not for this.
+
+## Confirming an entry
+
+Everything the survey writes down is a machine's opinion, and the log says so:
+`survey, unconfirmed`, a dashed border, and one orange **Confirm** button. That
+opens the photograph, the matrix with the proposed cell already selected, what
+the model said at the time, and what was recorded about the fix. Accept the
+cell and the entry reads `app proposal, accepted`; tap a different one and it
+reads `inspector`. Either way it stops being unconfirmed, and the GeoJSON
+export carries `confirmed: true` so an asset system can filter on it before
+anything starts a statutory clock.
+
+Confirming is the only way an entry becomes a person's judgement. That is
+deliberate: there is no longer a path that produces a signed-off score without
+someone having looked at the photograph.
 
 ## Putting an entry right
 
@@ -167,8 +206,9 @@ sets the type and the surface, marks the entry as amended, and where the score
 was the app's proposal rather than yours, moving it between surfaces re-scores
 it. A score you chose is yours and is left alone.
 
-Three things can be done with an entry, in rising order of finality: amend it,
-mark it as not a defect (which keeps it as a correction), or remove it outright.
+Four things can be done with an entry, in rising order of finality: confirm it,
+amend it, mark it as not a defect (which keeps it as a correction), or remove it
+outright.
 
 ## Teaching it
 
@@ -213,12 +253,13 @@ a starting point and not a judgement.
 
 So: the proposal exists to save you the tapping, not to make the decision. The
 category it lands on drives a two-hour or one-working-day obligation, and the
-app is explicit on screen that the cell wants checking before you save.
+app is explicit on the confirm screen that the cell wants checking before it is
+signed off.
 
-Detection runs on the phone. The model is downloaded once, on the first check,
-and kept — so the first check needs a signal and none of the ones after it do.
-Until it has run somewhere with a signal, the matrix is simply blank and you
-score it yourself.
+Detection runs on the phone. The model is downloaded once, when a run first
+starts, and kept — so the first run needs a signal and none of the ones after
+it do. Until it has run somewhere with a signal, the survey says it is
+downloading and then says it is unavailable, and logs nothing.
 
 This is the second attempt. The obvious approach — post the photograph to the
 hosted inference API — works from a terminal and cannot work from a web page:
@@ -286,7 +327,7 @@ it — the CSV carries those two columns for as long as any entry has one.
 
 ## The map
 
-A third tab puts every located defect on a map. Pins are coloured by category,
+**Map** in the menu puts every located defect on one. Pins are coloured by category,
 and a survey find nobody has confirmed is drawn hollow rather than filled — a
 map that showed a guess and a judgement as the same mark would be worse than no
 map. Tap one for its category, type, surface, coordinates, three-word address
