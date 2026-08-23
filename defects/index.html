@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Defect Log</title>
-<meta name="description" content="Photograph a highway defect, score it on the risk matrix and keep the coordinates with it. Works with no signal.">
-<meta name="theme-color" content="#14161A">
+<meta name="description" content="Drive or walk with the camera running and it logs highway defects as it finds them, with coordinates. Works with no signal.">
+<meta name="theme-color" content="#000000">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
@@ -21,194 +21,207 @@
 </head>
 <body>
 
-<div class="tape"></div>
-<header>
-  <h1>Defect Log</h1>
-  <span class="sub">Highway screening</span>
-</header>
+<!-- ================= THE VIEWFINDER — the whole app ================= -->
+<div class="live" id="live">
+  <video id="vid" playsinline muted autoplay></video>
+  <canvas class="shot" id="shot"></canvas>
 
-<nav role="tablist">
-  <button role="tab" id="t-cap" aria-selected="true" aria-controls="p-cap">Capture</button>
-  <button role="tab" id="t-log" aria-selected="false" aria-controls="p-log">Log<span class="count" id="cnt">0</span></button>
-  <button role="tab" id="t-map" aria-selected="false" aria-controls="p-map">Map</button>
-</nav>
-
-<main>
-<!-- ================= CAPTURE ================= -->
-<section class="panel" id="p-cap" role="tabpanel" aria-labelledby="t-cap">
-  <div class="stage">
-    <video id="vid" playsinline muted autoplay></video>
-    <canvas class="shot" id="shot"></canvas>
-    <div class="badge" id="badge">Camera off</div>
-    <div class="rec" id="rec" hidden><i class="dot live"></i><span id="recTxt">GPS</span></div>
-
-    <div class="hud" id="hud" hidden>
-      <div class="hud-bar">
-        <span class="hud-state" id="hudState">Survey</span>
-        <span class="hud-count" id="hudCount">0 logged</span>
-        <button type="button" class="hud-surface" id="hudSurface">Carriageway</button>
+  <div class="chrome">
+    <div class="top">
+      <div class="chips">
+        <span class="chip" id="badge">Camera off</span>
+        <span class="chip fix" id="rec" hidden><i class="dot live"></i><span id="recTxt">GPS</span></span>
+        <button type="button" class="chip tapme" id="hudSurface">Carriageway</button>
       </div>
-      <div class="hud-toast" id="hudToast" hidden></div>
-      <div class="hud-bottom">
-        <button type="button" class="hud-btn" id="bFull">Full screen</button>
-        <button type="button" class="hud-btn stop" id="bEnd">End survey</button>
-      </div>
+    </div>
+
+    <div class="mid">
+      <div class="state" id="hudState" hidden>Watching</div>
+      <div class="toast" id="hudToast" hidden></div>
+    </div>
+
+    <div class="bottom">
+      <div class="tally"><span class="clock" id="recTime">Ready</span>
+        <span class="logged" id="hudCount">0 logged</span></div>
+      <button type="button" class="record" id="bRec" aria-pressed="false" disabled
+              aria-label="Start recording"><span class="inner"></span></button>
+      <div class="tally right"><span class="hintline" id="recHint">Tap to record</span></div>
     </div>
   </div>
 
-  <button class="btn" id="bStart">Start camera</button>
-  <div class="row" id="capRow" hidden>
-    <button class="btn ghost" id="bStop">Stop</button>
-    <button class="btn" id="bShot">Capture defect</button>
+  <!-- shown whenever there is no picture: the camera has not been allowed, or was stopped -->
+  <div class="gate" id="camGate">
+    <div class="gatecard">
+      <div class="disp">Camera</div>
+      <div class="note" id="camNote">
+        <b>Before you start.</b> The camera needs a secure (https) address — it will not open from a
+        file opened directly off the phone. Location is requested separately; allow it and every
+        find is tagged with coordinates.
+      </div>
+      <button class="btn" id="bStart">Start camera</button>
+    </div>
   </div>
-  <label class="fld" id="survSurface" hidden>
-    <span class="cap">What you are surveying</span>
+</div>
+
+<!-- ================= MENU =================
+     The button lives outside the viewfinder so it can sit above the scrim: a
+     control that highlights itself as open and then cannot be tapped shut is
+     worse than no control. -->
+<button type="button" class="dots" id="bMenu" aria-haspopup="menu" aria-expanded="false"
+        aria-label="Menu">
+  <svg viewBox="0 0 4 18" aria-hidden="true" focusable="false">
+    <circle cx="2" cy="2" r="2"/><circle cx="2" cy="9" r="2"/><circle cx="2" cy="16" r="2"/>
+  </svg>
+</button>
+<div class="scrim" id="scrim" hidden></div>
+<div class="menu" id="menu" role="menu" hidden>
+  <button type="button" role="menuitem" class="mi" id="mLog">Defect log<span class="count" id="cnt">0</span></button>
+  <button type="button" role="menuitem" class="mi" id="mMap">Map</button>
+  <div class="mi-seg">
+    <span class="cap">Surveying</span>
     <div class="seg">
       <button type="button" id="segSurvCar" aria-pressed="true">Carriageway</button>
       <button type="button" id="segSurvFoot" aria-pressed="false">Footway / cycleway</button>
     </div>
-    <span class="hint">Every find is recorded against this, so set it before you set off. It
-      also changes the score: the same hole on a footway is a trip, not a jolt.</span>
-  </label>
-  <button class="btn ghost" id="bSurvey" hidden>Start survey — log defects hands-free</button>
-
-  <div class="meta" id="gpsBox" hidden>
+  </div>
+  <button type="button" role="menuitem" class="mi" id="mFull">Full screen</button>
+  <div class="mi-meta" id="gpsBox">
     <div><span>Latitude</span><b id="mLat">—</b></div>
     <div><span>Longitude</span><b id="mLon">—</b></div>
     <div><span>Accuracy</span><b id="mAcc">—</b></div>
     <div><span>Fix age</span><b id="mAge">—</b></div>
   </div>
-
-  <div class="note" id="camNote">
-    <b>Before you start.</b> The camera needs a secure (https) address — it will not open from a file
-    opened directly off the phone. Location is requested separately; allow it and every capture is
-    tagged with coordinates, which is the gap in your current footage.
+  <button type="button" role="menuitem" class="mi quiet" id="bStop">Stop camera</button>
+  <div class="mi-foot">
+    Screening aid, not an inspection. Everything the survey logs on its own is marked
+    unconfirmed until someone opens it and scores it.<br>
+    Depth is never estimated from an image.<br>
+    <span class="build">Build <span id="build">—</span></span>
   </div>
-</section>
-
-<!-- ================= SCORE (after capture) ================= -->
-<section class="panel" id="p-score" hidden>
-  <div class="stage" style="aspect-ratio:auto"><img id="prev" alt="Captured defect" style="width:100%;display:block"></div>
-
-  <div class="scan" id="scan" hidden></div>
-
-  <h2 style="margin:18px 0 8px;font-size:19px">Risk matrix</h2>
-  <p class="hint" style="margin-top:0">Tap impact down the side, probability across the top.</p>
-
-  <div class="matrix">
-    <div class="mgrid" id="mx"></div>
-  </div>
-
-  <div class="verdict" id="verd">
-    <div>
-      <div class="cat" id="vCat">Not scored</div>
-      <div class="resp" id="vResp">Select impact and probability</div>
-      <div class="by" id="vBy" hidden></div>
-    </div>
-    <div class="score" id="vScore">—</div>
-  </div>
-
-  <label class="fld">
-    <span class="cap">Location type</span>
-    <div class="seg">
-      <button type="button" id="segCar" aria-pressed="true">Carriageway</button>
-      <button type="button" id="segFoot" aria-pressed="false">Footway / cycleway</button>
-    </div>
-  </label>
-
-  <label class="fld">
-    <span class="cap">Defect type</span>
-    <select id="fType">
-      <option>Pothole</option>
-      <option>Edge deterioration</option>
-      <option>Spalled crack / material loss</option>
-      <option>Ironwork</option>
-      <option>Street furniture</option>
-      <option>Other</option>
-    </select>
-  </label>
-
-  <label class="fld">
-    <span class="cap">Notes</span>
-    <textarea id="fNote" placeholder="Road name, lane, landmark, anything the photo doesn't show"></textarea>
-  </label>
-
-  <div class="fixnote" id="fixNote" hidden></div>
-
-  <div class="row">
-    <button class="btn ghost" id="bDiscard">Discard</button>
-    <button class="btn" id="bSave">Save to log</button>
-  </div>
-</section>
+</div>
 
 <!-- ================= LOG ================= -->
-<section class="panel" id="p-log" role="tabpanel" aria-labelledby="t-log" hidden>
-  <div id="list"></div>
-  <div class="empty" id="empty">
-    <div class="disp">Nothing logged yet</div>
-    <p>Captured defects appear here once you've scored and saved them.</p>
-  </div>
-  <div class="row three" id="expRow" hidden>
-    <button class="btn ghost" id="bCsv">CSV</button>
-    <button class="btn ghost" id="bJson">JSON</button>
-    <button class="btn ghost" id="bGeo">GeoJSON</button>
-  </div>
-  <div class="hint" id="expHint" hidden></div>
-  <button class="btn ghost" id="bClear" hidden style="margin-top:10px;color:#C8323C">Clear log</button>
-  <div class="note" id="saveNote" hidden>
-    <b>Storage.</b> Entries are kept on this device only, photographs included. CSV carries the data
-    and coordinates; JSON carries the photos too, so export that if you need the images.
-    <span id="quota"></span>
-  </div>
-  <div class="note" id="wrongCount" hidden></div>
+<section class="sheet" id="p-log" hidden aria-label="Defect log">
+  <header class="sh"><button type="button" class="back" id="xLog" aria-label="Back to camera">Back</button>
+    <h1>Defect log</h1></header>
+  <div class="sh-body">
+    <div id="list"></div>
+    <div class="empty" id="empty">
+      <div class="disp">Nothing logged yet</div>
+      <p>Start recording and defects appear here as the survey finds them.</p>
+    </div>
+    <div class="row three" id="expRow" hidden>
+      <button class="btn ghost" id="bCsv">CSV</button>
+      <button class="btn ghost" id="bJson">JSON</button>
+      <button class="btn ghost" id="bGeo">GeoJSON</button>
+    </div>
+    <div class="hint" id="expHint" hidden></div>
+    <button class="btn ghost" id="bClear" hidden style="margin-top:10px;color:#C8323C">Clear log</button>
+    <div class="note" id="saveNote" hidden>
+      <b>Storage.</b> Entries are kept on this device only, photographs included. CSV carries the data
+      and coordinates; JSON carries the photos too, so export that if you need the images.
+      <span id="quota"></span>
+    </div>
+    <div class="note" id="wrongCount" hidden></div>
 
-  <label class="fld" id="w3wBox">
-    <span class="cap">what3words key</span>
-    <input type="text" id="w3wKey" placeholder="Paste an API key to record what3words addresses"
-           autocomplete="off" spellcheck="false">
-    <span class="hint">what3words is a paid service and the key is yours, not the app's — get one
-      at developer.what3words.com and paste it here. It is kept on this device. With no key,
-      entries simply carry coordinates as before. Existing entries are filled in as you go, not
-      retrospectively.</span>
-  </label>
+    <label class="fld" id="w3wBox">
+      <span class="cap">what3words key</span>
+      <input type="text" id="w3wKey" placeholder="Paste an API key to record what3words addresses"
+             autocomplete="off" spellcheck="false">
+      <span class="hint">what3words is a paid service and the key is yours, not the app's — get one
+        at developer.what3words.com and paste it here. It is kept on this device. With no key,
+        entries simply carry coordinates as before. Existing entries are filled in as you go, not
+        retrospectively.</span>
+    </label>
+  </div>
 </section>
-</main>
 
 <!-- ================= MAP ================= -->
-<section class="panel" id="p-map" role="tabpanel" aria-labelledby="t-map" hidden>
-  <div id="map"></div>
-  <div class="mapbar">
-    <div class="key">
-      <span><i class="pin kem"></i>Emergency</span><span><i class="pin k1"></i>Cat 1</span>
-      <span><i class="pin k2"></i>Cat 2</span><span><i class="pin k3"></i>Cat 3</span>
-      <span><i class="pin k0"></i>Below</span>
-      <span><i class="pin unconf"></i>Unconfirmed</span>
+<section class="sheet" id="p-map" hidden aria-label="Map">
+  <header class="sh"><button type="button" class="back" id="xMap" aria-label="Back to camera">Back</button>
+    <h1>Map</h1></header>
+  <div class="sh-body">
+    <div id="map"></div>
+    <div class="mapbar">
+      <div class="key">
+        <span><i class="pin kem"></i>Emergency</span><span><i class="pin k1"></i>Cat 1</span>
+        <span><i class="pin k2"></i>Cat 2</span><span><i class="pin k3"></i>Cat 3</span>
+        <span><i class="pin k0"></i>Below</span>
+        <span><i class="pin unconf"></i>Unconfirmed</span>
+      </div>
+      <button type="button" class="btn ghost" id="bFit">Fit to defects</button>
     </div>
-    <button type="button" class="btn ghost" id="bFit">Fit to defects</button>
+    <div class="empty" id="mapEmpty" hidden>
+      <div class="disp">Nothing to put on a map</div>
+      <p>Defects appear here once one has been logged with a location on it.</p>
+    </div>
+    <div class="note">
+      <b>Offline.</b> The map itself is part of the app, but its tiles are fetched as you pan.
+      Ground you have already looked at stays available; ground you have not comes up blank
+      until there is a signal.
+    </div>
   </div>
-  <div class="empty" id="mapEmpty" hidden>
-    <div class="disp">Nothing to put on a map</div>
-    <p>Defects appear here once one has been saved with a location on it.</p>
-  </div>
-  <div class="note">
-    <b>Offline.</b> The map itself is part of the app, but its tiles are fetched as you pan.
-    Ground you have already looked at stays available; ground you have not comes up blank
-    until there is a signal.
+</section>
+
+<!-- ================= CONFIRM (opened from a log entry) ================= -->
+<section class="sheet" id="p-score" hidden aria-label="Confirm defect">
+  <header class="sh"><button type="button" class="back" id="xScore" aria-label="Back to the log">Back</button>
+    <h1>Confirm defect</h1></header>
+  <div class="sh-body">
+    <div class="stage still"><img id="prev" alt="Logged defect"></div>
+
+    <div class="scan" id="scan" hidden></div>
+
+    <h2 style="margin:18px 0 8px;font-size:19px">Risk matrix</h2>
+    <p class="hint" style="margin-top:0">Tap impact down the side, probability across the top.</p>
+
+    <div class="matrix">
+      <div class="mgrid" id="mx"></div>
+    </div>
+
+    <div class="verdict" id="verd">
+      <div>
+        <div class="cat" id="vCat">Not scored</div>
+        <div class="resp" id="vResp">Select impact and probability</div>
+        <div class="by" id="vBy" hidden></div>
+      </div>
+      <div class="score" id="vScore">—</div>
+    </div>
+
+    <label class="fld">
+      <span class="cap">Location type</span>
+      <div class="seg">
+        <button type="button" id="segCar" aria-pressed="true">Carriageway</button>
+        <button type="button" id="segFoot" aria-pressed="false">Footway / cycleway</button>
+      </div>
+    </label>
+
+    <label class="fld">
+      <span class="cap">Defect type</span>
+      <select id="fType">
+        <option>Pothole</option>
+      </select>
+    </label>
+
+    <label class="fld">
+      <span class="cap">Notes</span>
+      <textarea id="fNote" placeholder="Road name, lane, landmark, anything the photo doesn't show"></textarea>
+    </label>
+
+    <div class="fixnote" id="fixNote" hidden></div>
+
+    <div class="row">
+      <button class="btn ghost" id="bDiscard">Leave unconfirmed</button>
+      <button class="btn" id="bSave">Confirm</button>
+    </div>
   </div>
 </section>
 
 <!-- full-size photo -->
 <div class="lightbox" id="lb" hidden>
-  <img id="lbImg" alt="Captured defect, full size">
+  <img id="lbImg" alt="Logged defect, full size">
   <button class="lbclose" id="lbClose" aria-label="Close">Close</button>
 </div>
-
-<footer>
-  Screening aid, not an inspection. Entries you scored are marked as yours;
-  entries the survey logged on its own are marked unconfirmed and want checking.<br>
-  Depth is never estimated from an image.<br>
-  <span class="build">Build <span id="build">—</span></span>
-</footer>
 
 <script src="app.js" defer></script>
 </body>

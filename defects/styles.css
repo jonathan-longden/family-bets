@@ -12,53 +12,111 @@
   --disp:'Barlow Condensed',
          ui-condensed,'Roboto Condensed','Arial Narrow',system-ui,sans-serif;
   --body:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --top:env(safe-area-inset-top);
+  --bot:env(safe-area-inset-bottom);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 /* An author display rule beats the UA rule behind the hidden attribute, so
-   .btn{display:block} quietly showed the stop button before the camera was on,
-   and the export buttons over an empty log. Settled once, at the top. */
+   .btn{display:block} quietly showed buttons that were meant to be gone.
+   Settled once, at the top. */
 [hidden]{display:none !important}
-html,body{margin:0;background:var(--tar);color:#EEF1F5;font-family:var(--body);
+html,body{margin:0;height:100%;background:#000;color:#EEF1F5;font-family:var(--body);
   font-size:16px;overscroll-behavior:none}
-body{padding:0 0 env(safe-area-inset-bottom)}
+/* The viewfinder is the page, so the page itself never scrolls. Everything that
+   has more to say than fits opens over it and scrolls inside itself. */
+body{overflow:hidden}
 h1,h2,h3,.disp{font-family:var(--disp);text-transform:uppercase;letter-spacing:.06em;margin:0}
-button{font:inherit}
+button{font:inherit;color:inherit}
 
-/* ---- hazard bar: the one decorative nod, taken from site tape ---- */
-.tape{height:8px;background:repeating-linear-gradient(45deg,
-  var(--hiviz) 0 14px,#14161A 14px 28px)}
-
-header{padding:14px 16px 12px;border-bottom:1px solid var(--line);
-  display:flex;align-items:baseline;gap:10px}
-header h1{font-size:26px;font-weight:700}
-header .sub{font-family:var(--disp);font-size:14px;color:var(--refl);letter-spacing:.1em}
-
-nav{display:flex;border-bottom:1px solid var(--line);background:var(--tar2)}
-nav button{flex:1;background:none;border:0;color:var(--refl);padding:14px 4px;
-  font-family:var(--disp);font-size:16px;font-weight:600;letter-spacing:.08em;
-  text-transform:uppercase;border-bottom:3px solid transparent}
-nav button[aria-selected="true"]{color:#fff;border-bottom-color:var(--hiviz)}
-nav .count{display:inline-block;min-width:20px;padding:0 5px;margin-left:5px;
-  background:var(--hiviz);color:#14161A;border-radius:10px;font-size:13px}
-
-main{padding:16px}
-
-/* ---- camera ---- */
-.stage{position:relative;border:1px solid var(--line);border-radius:6px;overflow:hidden;
-  background:#000;aspect-ratio:4/3}
-video,canvas.shot{width:100%;height:100%;object-fit:cover;display:block}
+/* ================= THE VIEWFINDER =================
+   There is no home screen behind this. The app opens looking at the road, and
+   everything else is a layer over the top, because the thing being looked at is
+   the point and anything between you and it is in the way. */
+.live{position:fixed;inset:0;background:#000;overflow:hidden}
+.live video{width:100%;height:100%;object-fit:cover;display:block}
 canvas.shot{display:none}
-.stage .badge{position:absolute;top:8px;left:8px;background:rgba(20,22,26,.85);
-  font-family:var(--disp);font-size:13px;letter-spacing:.08em;padding:4px 8px;border-radius:4px;
-  color:var(--refl)}
-.stage .rec{position:absolute;top:8px;right:8px;display:flex;align-items:center;gap:6px;
-  background:rgba(20,22,26,.85);padding:4px 9px;border-radius:4px;font-family:var(--disp);font-size:13px}
-.dot{width:9px;height:9px;border-radius:50%;background:var(--hiviz)}
+
+/* Chrome floats over the picture and mostly cannot be tapped, so a stray thumb
+   on the glass does not do anything. Only the controls take taps. */
+.chrome{position:absolute;inset:0;display:flex;flex-direction:column;
+  justify-content:space-between;pointer-events:none;z-index:6;
+  padding:calc(10px + var(--top)) 12px calc(14px + var(--bot))}
+
+.top{display:flex;align-items:flex-start;gap:10px;padding-right:56px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:rgba(0,0,0,.55);backdrop-filter:blur(6px);border-radius:5px;
+  padding:6px 10px;font-family:var(--disp);font-size:13.5px;letter-spacing:.07em;
+  text-transform:uppercase;color:#EEF1F5;display:flex;align-items:center;gap:6px;
+  border:1px solid rgba(255,255,255,.12)}
+.chip.tapme{pointer-events:auto;color:var(--hiviz)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--hiviz);flex:none}
 .dot.live{animation:p 1.4s infinite}
-.rec.poor .dot{background:var(--r3)} .rec.poor{color:var(--r3)}
-.rec.none .dot{background:var(--r1);animation:none} .rec.none{color:var(--r1)}
+.chip.poor .dot{background:var(--r3)} .chip.poor{color:var(--r3)}
+.chip.none .dot{background:var(--r1);animation:none} .chip.none{color:var(--r1)}
 @keyframes p{0%,100%{opacity:1}50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.dot.live{animation:none}}
+
+/* the three dots — fixed and above everything, including the scrim */
+.dots{position:fixed;z-index:62;top:calc(10px + var(--top));right:12px;
+  width:46px;height:46px;border:1px solid rgba(255,255,255,.14);
+  background:rgba(0,0,0,.55);backdrop-filter:blur(6px);border-radius:23px;
+  display:flex;align-items:center;justify-content:center;padding:0}
+.dots svg{width:4px;height:18px;fill:#EEF1F5}
+.dots[aria-expanded="true"]{background:var(--hiviz);border-color:var(--hiviz)}
+.dots[aria-expanded="true"] svg{fill:#14161A}
+
+.mid{display:flex;flex-direction:column;align-items:center;gap:8px;justify-content:center;flex:1;
+  padding:10px 0}
+.state{background:rgba(0,0,0,.6);backdrop-filter:blur(6px);border-radius:5px;padding:7px 12px;
+  font-family:var(--disp);font-size:15px;letter-spacing:.07em;text-transform:uppercase;
+  border:1px solid rgba(255,255,255,.12)}
+.state.bad{color:var(--r1);border-color:rgba(200,50,60,.5)}
+.toast{max-width:42ch;background:rgba(0,0,0,.72);backdrop-filter:blur(6px);
+  border-left:3px solid var(--hiviz);border-radius:0 5px 5px 0;padding:10px 13px;
+  font-size:13.5px;line-height:1.5;text-align:left}
+
+/* ---- the record button ----
+   A ring that fills when it is running. Nothing else on the screen is round, so
+   it reads as the control even at a glance in a moving vehicle. */
+.bottom{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.tally{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;
+  font-family:var(--disp);font-size:14px;letter-spacing:.07em;text-transform:uppercase;
+  text-shadow:0 1px 3px rgba(0,0,0,.9)}
+.tally.right{align-items:flex-end;color:var(--refl)}
+.clock{font-variant-numeric:tabular-nums;color:var(--refl)}
+.clock.on{color:var(--hiviz)}
+.logged{color:#EEF1F5}
+.hintline{color:var(--refl)}
+
+.record{pointer-events:auto;flex:none;width:76px;height:76px;border-radius:50%;padding:0;
+  background:rgba(0,0,0,.35);border:4px solid rgba(255,255,255,.9);
+  display:flex;align-items:center;justify-content:center}
+.record .inner{width:56px;height:56px;border-radius:50%;background:var(--hiviz);
+  transition:width .16s,height .16s,border-radius .16s}
+.record[aria-pressed="true"] .inner{width:30px;height:30px;border-radius:6px;background:var(--r1)}
+.record[disabled]{opacity:.45}
+@media (prefers-reduced-motion:reduce){.record .inner{transition:none}}
+
+/* landscape is the shape a windscreen mount holds the phone in */
+@media (orientation:landscape){
+  .chrome{padding:calc(10px + var(--top)) calc(14px + env(safe-area-inset-right))
+          calc(10px + var(--bot)) calc(14px + env(safe-area-inset-left))}
+  .dots{right:calc(14px + env(safe-area-inset-right))}
+  .record{width:66px;height:66px}
+  .record .inner{width:48px;height:48px}
+  .mid{padding:4px 0}
+}
+
+/* ---- the gate: no picture, so say why and offer the way in ----
+   It sits under the chrome, not over it. A camera that will not open must not
+   also take the menu away with it — the log and the export are the part of this
+   that still works without a picture, and someone locked out of the camera is
+   exactly the person who needs to get their entries off the phone. */
+.gate{position:absolute;inset:0;z-index:4;background:rgba(10,11,13,.94);display:flex;
+  align-items:center;justify-content:center;padding:20px}
+.gatecard{width:min(420px,100%);border:1px solid var(--line);border-radius:8px;
+  background:var(--tar);padding:18px}
+.gatecard .disp{font-size:22px;margin-bottom:10px}
 
 .btn{display:block;width:100%;padding:17px;border:0;border-radius:6px;
   font-family:var(--disp);font-size:19px;font-weight:700;letter-spacing:.08em;
@@ -69,49 +127,53 @@ canvas.shot{display:none}
 .row.three{grid-template-columns:repeat(3,1fr)}
 .row.three .btn{font-size:16px;padding:15px 4px;letter-spacing:.05em}
 
-.meta{margin-top:14px;border:1px solid var(--line);border-radius:6px;overflow:hidden}
-.meta div{display:flex;justify-content:space-between;padding:10px 12px;font-size:14px;
-  border-bottom:1px solid var(--line)}
-.meta div:last-child{border-bottom:0}
-.meta span:first-child{color:var(--refl);font-family:var(--disp);letter-spacing:.06em;font-size:14px}
-.meta b{font-weight:600;font-variant-numeric:tabular-nums}
-.meta b.warn{color:var(--r3)}
+/* ================= MENU ================= */
+.scrim{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.5)}
+/* It hangs below the dots rather than over them, so the button that opened it
+   is still there to close it. */
+.menu{position:fixed;z-index:61;top:calc(62px + var(--top));right:10px;
+  width:min(300px,calc(100vw - 20px));max-height:calc(100vh - 74px - var(--top) - var(--bot));
+  overflow:auto;background:var(--tar);border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 18px 44px rgba(0,0,0,.6);padding:6px}
+.mi{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;
+  background:none;border:0;padding:15px 12px;border-radius:5px;text-align:left;
+  font-family:var(--disp);font-size:17px;font-weight:600;letter-spacing:.07em;
+  text-transform:uppercase}
+.mi:hover,.mi:focus-visible{background:var(--tar2)}
+.mi.quiet{color:var(--refl);font-size:15px}
+.mi .count{min-width:22px;padding:1px 6px;background:var(--hiviz);color:#14161A;
+  border-radius:11px;font-size:13px;text-align:center}
+.mi-seg{padding:10px 12px 12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  margin:4px 0}
+.mi-seg .cap{font-family:var(--disp);font-size:13px;color:var(--refl);letter-spacing:.08em;
+  text-transform:uppercase;display:block;margin-bottom:7px}
+/* Two long labels side by side in a 300px menu wrap to three lines each and
+   spill out of it. In here they stack. */
+.mi-seg .seg{grid-template-columns:1fr}
+.mi-meta{margin:4px 0;border-top:1px solid var(--line)}
+.mi-meta div{display:flex;justify-content:space-between;padding:8px 12px;font-size:13.5px}
+.mi-meta span{color:var(--refl);font-family:var(--disp);letter-spacing:.06em}
+.mi-meta b{font-weight:600;font-variant-numeric:tabular-nums}
+.mi-meta b.warn{color:var(--r3)}
+.mi-foot{padding:12px;border-top:1px solid var(--line);color:var(--refl);
+  font-size:11.5px;line-height:1.6}
+.mi-foot .build{display:inline-block;margin-top:6px;font-family:var(--disp);letter-spacing:.06em}
 
-/* ---- survey: the viewfinder takes the screen ----
-   Full screen proper needs a gesture and may be refused; filling the viewport
-   needs neither, and is most of what is wanted. Landscape is the shape this is
-   used in, so the controls sit down the side there rather than stacking. */
-body.surveying{overflow:hidden}
-body.surveying .tape,body.surveying header,body.surveying nav,
-body.surveying footer,body.surveying .meta,body.surveying .note,
-body.surveying .btn,body.surveying .row{display:none !important}
-body.surveying main{padding:0}
-body.surveying #p-cap .stage{position:fixed;inset:0;z-index:40;border:0;border-radius:0;aspect-ratio:auto}
-body.surveying #p-cap video{width:100%;height:100%;object-fit:cover}
+/* ================= SHEETS =================
+   The log, the map and the confirm step come up over the viewfinder rather than
+   replacing it, so the camera never stops and going back is one tap. */
+.sheet{position:fixed;inset:0;z-index:70;background:var(--tar);display:flex;flex-direction:column}
+.sheet .sh{display:flex;align-items:center;gap:10px;padding:calc(10px + var(--top)) 12px 10px;
+  border-bottom:1px solid var(--line);background:var(--tar2);flex:none}
+.sheet .sh h1{font-size:21px;font-weight:700}
+.sheet .back{background:none;border:1px solid var(--line);border-radius:5px;
+  padding:9px 13px;font-family:var(--disp);font-size:14px;letter-spacing:.07em;
+  text-transform:uppercase;color:#EEF1F5}
+.sh-body{flex:1;overflow:auto;padding:16px;padding-bottom:calc(28px + var(--bot));
+  -webkit-overflow-scrolling:touch}
 
-.hud{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;
-  justify-content:space-between;padding:calc(10px + env(safe-area-inset-top)) 12px
-  calc(12px + env(safe-area-inset-bottom))}
-.hud-bar{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-.hud-state,.hud-count{background:rgba(20,22,26,.82);border-radius:4px;padding:6px 10px;
-  font-family:var(--disp);font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:#EEF1F5}
-.hud-state.bad{color:var(--r1)}
-.hud-toast{align-self:center;max-width:38ch;background:rgba(20,22,26,.9);
-  border-left:3px solid var(--hiviz);border-radius:0 5px 5px 0;padding:10px 13px;
-  font-size:13.5px;line-height:1.5;color:#EEF1F5;text-align:left}
-.hud-surface{background:rgba(20,22,26,.82);border:1px solid var(--line);border-radius:4px;
-  padding:6px 10px;font-family:var(--disp);font-size:14px;letter-spacing:.06em;
-  text-transform:uppercase;color:var(--hiviz);pointer-events:auto}
-.hud-bottom{display:flex;gap:10px;justify-content:flex-end;pointer-events:auto}
-.hud-btn{padding:14px 18px;border:1px solid var(--line);background:rgba(20,22,26,.85);
-  color:#EEF1F5;border-radius:6px;font-family:var(--disp);font-size:16px;font-weight:700;
-  letter-spacing:.07em;text-transform:uppercase}
-.hud-btn.stop{background:var(--hiviz);color:#14161A;border-color:var(--hiviz)}
-@media (orientation:landscape){
-  body.surveying .hud{flex-direction:row;align-items:flex-end}
-  body.surveying .hud-bar{flex-direction:column;align-items:flex-start;flex:1}
-  body.surveying .hud-bottom{flex-direction:column}
-}
+.stage.still{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#000}
+.stage.still img{width:100%;display:block}
 
 /* ---- SIGNATURE: the laminated card, made tappable ---- */
 .matrix{margin-top:6px}
@@ -229,7 +291,9 @@ textarea{min-height:70px;resize:vertical}
 .key span{display:flex;align-items:center;gap:5px}
 
 /* ---- full-size photo ---- */
-.lightbox{position:fixed;inset:0;z-index:50;background:rgba(10,11,13,.96);
+/* Above the sheets: it is opened from the log, so it has to land on top of
+   the log rather than behind it. */
+.lightbox{position:fixed;inset:0;z-index:80;background:rgba(10,11,13,.96);
   display:flex;align-items:center;justify-content:center;padding:16px}
 .lightbox img{max-width:100%;max-height:calc(100% - 70px);object-fit:contain}
 .lbclose{position:absolute;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));
@@ -243,3 +307,8 @@ textarea{min-height:70px;resize:vertical}
 footer .build{display:inline-block;margin-top:8px;font-family:var(--disp);
   letter-spacing:.06em;opacity:.65}
 footer{padding:22px 16px 30px;color:var(--refl);font-size:12px;line-height:1.6;text-align:center}
+
+/* An entry nobody has stood over reads as provisional at a glance, and carries
+   the one button that changes that. */
+.item.unconf{border-style:dashed;border-left-style:solid}
+.item .del.go{border-color:var(--hiviz);color:var(--hiviz);font-weight:700}

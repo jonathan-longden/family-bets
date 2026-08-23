@@ -2,7 +2,7 @@
   "id": "./",
   "name": "Defect Log — highway screening",
   "short_name": "Defect Log",
-  "description": "Photograph a highway defect, score it on the 5×5 risk matrix and keep the coordinates with it. Everything stays on the device and it works with no signal.",
+  "description": "Opens on the camera and logs highway defects as it finds them, scored on the 5×5 risk matrix with the coordinates attached. Everything stays on the device and it works with no signal.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

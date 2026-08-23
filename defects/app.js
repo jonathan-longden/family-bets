@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-21 · 18';
+var BUILD = '2026-08-23 · 19';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -110,7 +110,7 @@ var TYPES = ['Pothole', 'Edge deterioration', 'Spalled crack / material loss',
              'Ironwork', 'Street furniture', 'Other'];
 
 var S = { imp: 0, prob: 0, foot: false, by: null,
-          shot: null, shotFix: null, prevUrl: null, gps: null, det: null, items: [] };
+          prevUrl: null, gps: null, det: null, items: [] };
 var stream = null, watchId = null, ageTimer = null, urls = [], lbUrl = null;
 
 /* ---------- store ---------- */
@@ -303,14 +303,19 @@ $('hudSurface').addEventListener('click', function () {
   toast('Now recording finds as ' + (S.foot ? 'footway' : 'carriageway') + '.');
 });
 
-/* ---------- camera ---------- */
+/* ---------- camera ----------
+
+   The app opens looking at the road. There is no start screen to get past,
+   because a screen you have to dismiss before you can see anything is a screen
+   in the way. Browsers do not all allow a camera without a tap, so when one
+   refuses, the gate comes up over the picture with the reason on it and the
+   tap it wants — and that same tap is what lets the next attempt succeed. */
 $('bStart').addEventListener('click', function () { openCamera(true); });
 
 async function openCamera(byTap) {
   if (stream) return;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    if (byTap) note('This browser will not give a page camera access.', true);
-    return;
+    return note('This browser will not give a page camera access.', true);
   }
   var ideal = { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false };
   try {
@@ -322,56 +327,59 @@ async function openCamera(byTap) {
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       } else { throw inner; }
     }
-    $('vid').srcObject = stream; $('badge').textContent = 'Live';
-    $('bStart').hidden = true; $('capRow').hidden = false; $('rec').hidden = false;
-    $('camNote').hidden = true;
-    $('bSurvey').hidden = false; $('survSurface').hidden = false;
+    $('vid').srcObject = stream;
+    $('badge').textContent = 'Live';
+    $('camGate').hidden = true;
+    $('rec').hidden = false;
+    $('bRec').disabled = false;
+    $('recHint').textContent = 'Tap to record';
     paintSurface();
     startGps();
   } catch (e) {
     /* Opening without being asked is allowed to fail quietly: some browsers
-       only hand over a camera off a tap, and the button is still sitting
-       there. A refusal of a tap is worth saying out loud. */
+       only hand over a camera off a tap, and the gate is sitting there with the
+       button on it. A refusal of a tap is worth saying out loud. */
     if (byTap) {
       note('Camera did not open: ' + e.name + '. If this is not an https address, that is why.', true);
+    } else {
+      primer();
     }
   }
 }
-$('bStop').addEventListener('click', stopAll);
+$('bStop').addEventListener('click', function () { closeMenu(); stopAll(); });
 
 function stopAll() {
   if (survey.on) endSurvey();
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
   if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   if (ageTimer) { clearInterval(ageTimer); ageTimer = null; }
-  /* The last fix goes with the camera. Keeping it means the next capture — which
+  /* The last fix goes with the camera. Keeping it means the next find — which
      could be a mile down the road — gets tagged with where you were standing
      when you last stopped. */
   S.gps = null;
-  $('badge').textContent = 'Camera off'; $('bStart').hidden = false;
-  $('capRow').hidden = true; $('rec').hidden = true; $('gpsBox').hidden = true;
-  $('bSurvey').hidden = true; $('survSurface').hidden = true;
+  $('badge').textContent = 'Camera off';
+  $('rec').hidden = true;
+  $('bRec').disabled = true;
+  $('camGate').hidden = false;
   primer();
 }
 
-/* The panel under the buttons is pre-flight advice — how to get the camera and
-   the location open. Once both are open it has nothing left to say and is a
-   screenful of text between you and the road, so it goes when the camera comes
-   up and returns when the camera stops. Problems reclaim the same space. */
+/* The card on the gate is pre-flight advice — how to get the camera and the
+   location open. It is only ever seen when there is no picture, so it costs
+   nothing once there is one. Problems reclaim the same space. */
 var PRIMER = $('camNote').innerHTML;
 
 function note(msg, isErr) {
   var n = $('camNote');
   n.innerHTML = '<b>' + (isErr ? 'Problem.' : 'Note.') + '</b> ' + msg;
   n.classList.toggle('err', !!isErr);
-  n.hidden = false;
+  $('camGate').hidden = false;
 }
 
 function primer() {
   var n = $('camNote');
-  n.innerHTML = PRIMER; n.classList.remove('err'); n.hidden = false;
+  n.innerHTML = PRIMER; n.classList.remove('err');
 }
-
 /* ---------- gps ---------- */
 function fixAge() { return S.gps ? Math.round((Date.now() - S.gps.at) / 1000) : null; }
 
@@ -381,12 +389,12 @@ function paintFix() {
   $('mAge').textContent = age + ' s';
   $('mAge').className = age > STALE_MS / 1000 ? 'warn' : '';
   var r = $('rec');
-  r.className = 'rec' + (age > STALE_MS / 1000 ? ' poor' : (S.gps.acc > POOR_ACC ? ' poor' : ''));
+  r.className = 'chip fix' + (age > STALE_MS / 1000 ? ' poor' : (S.gps.acc > POOR_ACC ? ' poor' : ''));
   $('recTxt').textContent = 'GPS ±' + Math.round(S.gps.acc) + 'm';
 }
 
 function startGps() {
-  if (!navigator.geolocation) { $('recTxt').textContent = 'No GPS'; $('rec').className = 'rec none'; return; }
+  if (!navigator.geolocation) { $('recTxt').textContent = 'No GPS'; $('rec').className = 'chip fix none'; return; }
   $('gpsBox').hidden = false;
   watchId = navigator.geolocation.watchPosition(function (p) {
     S.gps = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, at: Date.now() };
@@ -396,99 +404,117 @@ function startGps() {
     $('mAcc').className = S.gps.acc > POOR_ACC ? 'warn' : '';
     paintFix();
   }, function () {
-    $('recTxt').textContent = 'GPS denied'; $('rec').className = 'rec none'; S.gps = null;
+    $('recTxt').textContent = 'GPS denied'; $('rec').className = 'chip fix none'; S.gps = null;
     $('gpsBox').hidden = true;
-    note('Location was refused, so captures will be saved with no coordinates. ' +
-         'Allow it for this site in the browser settings, then stop and start the ' +
-         'camera again. Until then, put the road name in the notes.', true);
+    toast('Location was refused, so finds will be logged with no coordinates — they cannot go ' +
+          'on the map or into GeoJSON. Allow it for this site, then stop and start the camera.');
   }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
   ageTimer = setInterval(paintFix, 2000);
 }
 
-/* ---------- capture ---------- */
-$('bShot').addEventListener('click', function () {
-  var v = $('vid'), c = $('shot');
-  if (!v.videoWidth) return note('The camera has not produced a frame yet — give it a moment.', true);
-  var scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
-  c.width = Math.round(v.videoWidth * scale);
-  c.height = Math.round(v.videoHeight * scale);
-  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-  c.toBlob(function (blob) {
-    if (!blob) return note('The photograph could not be encoded on this device.', true);
-    S.shot = blob;
-    S.shotFix = S.gps ? { lat: S.gps.lat, lon: S.gps.lon, acc: S.gps.acc, age: fixAge() } : null;
-    if (S.prevUrl) URL.revokeObjectURL(S.prevUrl);
-    S.prevUrl = URL.createObjectURL(blob);
-    $('prev').src = S.prevUrl;
+/* ---------- confirming a find ----------
 
-    S.imp = 0; S.prob = 0; S.by = null; S.det = null;
-    $('fNote').value = ''; $('fType').selectedIndex = 0;
-    clearMatrix();
-    verdict();
-    paintFixNote();
-    show('score');
-    analyse(blob);
-  }, 'image/jpeg', 0.82);
-});
+   Nothing here takes a photograph any more: the survey does that when it finds
+   something, and this is where a person stands over what it wrote down and
+   either signs it off or corrects it. That distinction is the whole point of
+   the log — an unconfirmed entry is a machine's opinion, and the export marks
+   it as one so nothing starts a statutory clock on a guess. */
+var confirming = null;
 
-/* Say what is about to be written down about the location, while there is
-   still time to walk two steps and get a better fix. */
+function openConfirm(id) {
+  var it = S.items.filter(function (x) { return x.id === id; })[0];
+  if (!it) return;
+  confirming = it;
+
+  if (S.prevUrl) { URL.revokeObjectURL(S.prevUrl); S.prevUrl = null; }
+  var img = $('prev');
+  if (it.img) { S.prevUrl = URL.createObjectURL(it.img); img.src = S.prevUrl; img.hidden = false; }
+  else { img.removeAttribute('src'); img.hidden = true; }
+
+  S.foot = it.surface === 'Footway/cycleway';
+  paintSurface();
+  $('fType').value = it.type || 'Other';
+  $('fNote').value = it.note || '';
+
+  clearMatrix();
+  if (it.imp && it.prob) { selectCell(it.imp, it.prob); S.by = /unconfirmed/i.test(it.scoredBy || '') ? 'app' : 'you'; }
+  else { S.imp = 0; S.prob = 0; S.by = null; }
+  verdict();
+
+  /* What the model made of it is shown as it was recorded, not recomputed: the
+     frame it saw is gone, and re-running the numbers on a stored share would
+     dress an old reading up as a fresh one. */
+  S.det = (it.detShare != null || it.detConf != null)
+    ? { conf: it.detConf, share: it.detShare, count: it.detCount || 1, cls: it.type }
+    : null;
+  if (S.det) {
+    var c = category(it.score || 0);
+    scanSay('<b>' + (it.detConf == null || it.detConf < 0 || it.detConf > 1
+        ? 'The survey logged this without saying how sure it was.'
+        : Math.round(it.detConf * 100) + '% sure when the survey logged it.') + '</b> ' +
+      (it.detShare != null ? 'It filled ' + Math.round(it.detShare * 100) + '% of the frame, ' +
+        'which is what the proposed ' + it.imp + ' × ' + it.prob + ' = ' + it.score + ', ' +
+        c.k + ' was worked out from. ' : '') +
+      '<span class="caveat">A photograph has no scale in it. The share of the frame assumes the ' +
+      'camera was pointed down at the road, and the box drawn round the hole is generous. It says ' +
+      'nothing about depth, traffic or footfall — that part is yours.</span>', 'hit');
+  } else {
+    scanSay('<b>No model reading was kept for this entry.</b> Score it on the matrix yourself.', 'none');
+  }
+
+  paintFixNote();
+  show('score');
+}
+
+/* Say what is written down about the location, so a coarse or stale fix is
+   read before it is signed off rather than discovered in the office. */
 function paintFixNote() {
-  var n = $('fixNote'), f = S.shotFix;
+  var n = $('fixNote'), it = confirming;
   n.hidden = false; n.className = 'fixnote';
-  if (!f) {
-    n.innerHTML = '<b>No coordinates.</b> There was no fix when this was taken — the entry will ' +
-      'be saved without a location. Put the road name in the notes.';
+  if (!it || it.lat == null) {
+    n.innerHTML = '<b>No coordinates.</b> There was no fix when this was logged — the entry has ' +
+      'no location and will not go on a map or into GeoJSON. Put the road name in the notes.';
     return;
   }
   var bits = [];
-  if (f.acc > POOR_ACC) bits.push('the fix is only good to ±' + Math.round(f.acc) + ' m');
-  if (f.age > STALE_MS / 1000) bits.push('it was ' + f.age + ' seconds old when you took the photograph');
+  if (it.acc > POOR_ACC) bits.push('the fix is only good to ±' + it.acc + ' m');
+  if (it.fixAge != null && it.fixAge > STALE_MS / 1000) {
+    bits.push('it was ' + it.fixAge + ' seconds old when the find was logged');
+  }
   if (!bits.length) n.className = 'fixnote ok';
-  n.innerHTML = '<b>Location.</b> ' + f.lat.toFixed(5) + ', ' + f.lon.toFixed(5) +
-    ' at ±' + Math.round(f.acc) + ' m' +
-    (bits.length ? ' — ' + bits.join(', ') + '. It is saved as it stands, and flagged in the log.'
-                 : '. Saved with the entry.');
+  n.innerHTML = '<b>Location.</b> ' + it.lat.toFixed(5) + ', ' + it.lon.toFixed(5) +
+    ' at ±' + it.acc + ' m' +
+    (bits.length ? ' — ' + bits.join(', ') + '. It stands as it is, and stays flagged in the log.'
+                 : '. Kept with the entry.');
 }
 
-$('bDiscard').addEventListener('click', discard);
-
-function discard() {
-  S.shot = null; S.shotFix = null;
-  if (S.prevUrl) { URL.revokeObjectURL(S.prevUrl); S.prevUrl = null; }
-  $('prev').removeAttribute('src');
-  show('cap');
-}
+$('bDiscard').addEventListener('click', function () { confirming = null; show('log'); });
 
 $('bSave').addEventListener('click', function () {
+  var it = confirming;
+  if (!it) return show('log');
   if (!S.imp || !S.prob) { alert('Score it on the matrix first.'); return; }
-  var n = S.imp * S.prob, c = category(n), f = S.shotFix;
-  var e = {
-    id: nextId(), t: new Date().toISOString(), img: S.shot,
-    imp: S.imp, prob: S.prob, score: n, cat: c.k, resp: c.r, key: c.key,
-    surface: S.foot ? 'Footway/cycleway' : 'Carriageway',
-    scoredBy: S.by === 'app' ? 'app proposal, accepted' : 'inspector',
-    detConf: S.det ? S.det.conf : null,
-    detShare: S.det ? S.det.share : null,
-    detCount: S.det ? S.det.count : null,
-    type: $('fType').value, note: $('fNote').value.trim(),
-    lat: f ? f.lat : null, lon: f ? f.lon : null,
-    acc: f ? Math.round(f.acc) : null, fixAge: f ? f.age : null
-  };
-  var saved = dbBroken ? Promise.resolve() : putEntry(e);
-  saved.then(function () {
-    S.items.unshift(e);
-    addWords(e);
-    S.shot = null; S.shotFix = null;
-    if (S.prevUrl) { URL.revokeObjectURL(S.prevUrl); S.prevUrl = null; }
+  var n = S.imp * S.prob, c = category(n);
+  it.imp = S.imp; it.prob = S.prob; it.score = n;
+  it.cat = c.k; it.resp = c.r; it.key = c.key;
+  it.surface = S.foot ? 'Footway/cycleway' : 'Carriageway';
+  it.type = $('fType').value;
+  it.note = $('fNote').value.trim();
+  /* Accepting the proposal unchanged is still a person's decision, and is
+     recorded as one — but as an accepted proposal, not as an independent
+     judgement, because those are different things. */
+  it.scoredBy = S.by === 'app' ? 'app proposal, accepted' : 'inspector';
+  it.confirmedAt = new Date().toISOString();
+
+  (dbBroken ? Promise.resolve() : putEntry(it)).then(function () {
+    confirming = null;
     render(); show('log');
-  }).catch(function (err) {
-    alert('That entry could not be written to this device\'s storage (' +
+  }, function (err) {
+    alert('That correction could not be written to this device\'s storage (' +
           (err && err.name ? err.name : 'unknown') + '). It has not been saved. ' +
           'Export what is already in the log before carrying on.');
   });
 });
-
 /* ---------- what the photograph can and cannot say ----------
 
    The model finds the defect and outlines it. What it cannot do is tell you how
@@ -604,85 +630,6 @@ function loadModel() {
     throw e;
   });
   return loading;
-}
-
-function analyse(blob) {
-  var mine = blob;   // a second capture while this is in flight must win
-  var ready = !!worker;
-  if (!ready && !navigator.onLine) {
-    return scanSay('<b>No signal, and the model is not downloaded yet.</b> It is fetched once, ' +
-                   'on the first check, and kept afterwards — so this works in a lay-by only ' +
-                   'after it has run somewhere with a signal. Score it on the matrix yourself.',
-                   'idle');
-  }
-  scanSay(ready ? '<b>Looking at the photograph…</b>'
-                : '<b>Downloading the model…</b> This happens once. Later checks need no signal.',
-          'idle');
-
-  loadModel().then(function (m) {
-    if (S.shot !== mine) return null;
-    return createImageBitmap(blob).then(function (bmp) {
-      var sq = squareFrame(bmp, bmp.width, bmp.height);
-      if (bmp.close) bmp.close();
-      /* A bitmap is transferable: handing it over neuters this copy and its
-         size becomes nought, which is why the frame must never be read back
-         after the call. Here it need not be — it is the square. */
-      return createImageBitmap(sq.canvas).then(function (input) {
-        return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
-          return { preds: preds, w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
-                   vw: RF_SIZE, vh: RF_SIZE };
-        });
-      });
-    });
-  }).then(function (out) {
-    if (!out || S.shot !== mine) return;
-    var raw = out.preds || [];
-    var preds = raw.map(function (p) { return usableFind(p, out.w, out.h); })
-                   .filter(Boolean)
-                   .filter(function (f) { return f.conf == null || f.conf >= RF_CONF; });
-    if (raw.length && !preds.length) {
-      noteRaw(raw, out.w, out.h);
-      return scanSay('<b>The model gave nothing usable.</b> ' + esc(describeRaw(raw)) +
-        '. Frame ' + out.w + '×' + out.h + '. Nothing is proposed — score it yourself. ' +
-        '<span class="caveat">This is in the JSON export, so it can be diagnosed without ' +
-        'another drive.</span>', 'none');
-    }
-    if (!preds.length) {
-      return scanSay('<b>Nothing identified.</b> Either there is no defect in the frame or the ' +
-                     'model cannot see it. Nothing is proposed — score it yourself.', 'none');
-    }
-    var best = preds.reduce(function (a, b) {
-      return (b.conf || 0) > (a.conf || 0) ? b : a;
-    });
-    var box = best.box;
-
-    if (typeFor(best.cls) === 'Ironwork') {
-      $('fType').value = 'Ironwork';
-      return scanSay('<b>That is ironwork, not a pothole.</b> ' + sureness(best.conf) +
-        'A cover is only a defect if it is sunken, proud, rocking or cracked, and a ' +
-        'photograph does not say which — so nothing is proposed. The type is set; score it ' +
-        'yourself if it is defective.', 'none');
-    }
-
-    /* The same shadow test the survey uses, except here somebody is looking, so
-       it says what it decided and leaves the matrix alone rather than deciding
-       for them. The pixels come from the copy taken before the bitmap was
-       handed over. */
-    var bad = rejectReason(out.ctx, out.w, out.h, box);
-    if (bad) {
-      return scanSay('<b>That looks like a shadow.</b> The model found something, but it is ' +
-                     bad + '. Nothing is proposed — if it is a real defect, score it yourself.',
-                     'none');
-    }
-    S.det = { conf: best.conf, share: best.share, count: preds.length,
-              cls: best.cls, box: box };
-    $('fType').value = typeFor(best.cls);
-    paintProposal();
-  }).catch(function (e) {
-    if (S.shot !== mine) return;
-    scanSay('<b>Could not check the photograph.</b> ' + whyLocal(e) +
-            ' Nothing is proposed — score it on the matrix yourself.', 'none');
-  });
 }
 
 /* Three things can fail and they are not the same problem: the library did not
@@ -843,7 +790,8 @@ function rejectReason(ctx, cw, ch, box) {
 }
 
 /* ---------- survey ---------- */
-var survey = { on: false, busy: false, timer: null, logged: 0, last: null };
+var survey = { on: false, busy: false, timer: null, logged: 0, last: null,
+               startedAt: null, clock: null };
 
 function metresBetween(a, b) {
   var R = 6371000, rad = Math.PI / 180;
@@ -866,29 +814,64 @@ function alreadyLogged() {
 }
 
 function hud(state, cls) {
-  $('hudState').textContent = state;
-  $('hudState').className = 'hud-state' + (cls ? ' ' + cls : '');
+  var n = $('hudState');
+  n.textContent = state;
+  n.className = 'state' + (cls ? ' ' + cls : '');
+  n.hidden = false;
 }
 
 function toast(msg) {
   var t = $('hudToast');
+  if (!msg) { t.hidden = true; return; }
   t.textContent = msg; t.hidden = false;
   clearTimeout(toast.timer);
   toast.timer = setTimeout(function () { t.hidden = true; }, 3200);
 }
 
+/* ---------- the record button ----------
+   One control, two states. Tapping it is also the gesture a browser wants
+   before it will hand over the whole screen and lock the orientation, so those
+   are asked for here rather than hidden behind a separate button nobody would
+   find with a phone on a windscreen mount. */
+function paintRec() {
+  var on = survey.on;
+  var b = $('bRec');
+  b.setAttribute('aria-pressed', String(on));
+  b.setAttribute('aria-label', on ? 'Stop recording' : 'Start recording');
+  $('recHint').textContent = on ? 'Tap to stop' : 'Tap to record';
+  $('recTime').classList.toggle('on', on);
+  if (!on) { $('recTime').textContent = 'Ready'; $('hudState').hidden = true; }
+}
+
+function paintClock() {
+  if (!survey.on || !survey.startedAt) return;
+  var s = Math.round((Date.now() - survey.startedAt) / 1000);
+  $('recTime').textContent =
+    String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+
+$('bRec').addEventListener('click', function () {
+  if (survey.on) return endSurvey();
+  goFull();          // this tap is the gesture; spend it before anything can eat it
+  startSurvey();
+});
+
 function startSurvey() {
   if (survey.on || !stream) return;
   survey.on = true; survey.logged = 0; survey.last = null;
-  document.body.classList.add('surveying');
-  $('hud').hidden = false; $('bSurvey').hidden = true;
-  paintSurface();
+  survey.startedAt = Date.now();
+  clearInterval(survey.clock);
+  survey.clock = setInterval(paintClock, 1000);
+  paintClock(); paintRec(); paintSurface();
   $('hudCount').textContent = '0 logged';
   hud(worker ? 'Watching' : 'Downloading the model…');
   if (!S.gps) toast('No GPS fix yet — without one the survey cannot tell a new defect from the last.');
   loadModel().then(function () {
     if (survey.on) { hud('Watching'); tick(); }
   }, function (e) {
+    /* A download that fails after the survey was stopped must not put a red
+       state back on a screen that is no longer recording. */
+    if (!survey.on) return;
     hud('Model unavailable', 'bad');
     toast(whyLocal(e));
   });
@@ -897,11 +880,12 @@ function startSurvey() {
 function endSurvey() {
   survey.on = false; survey.busy = false;
   clearTimeout(survey.timer); survey.timer = null;
-  document.body.classList.remove('surveying');
-  $('hud').hidden = true;
-  $('bSurvey').hidden = !stream; $('survSurface').hidden = !stream;
+  clearInterval(survey.clock); survey.clock = null;
+  paintRec();
   exitFull();
-  if (survey.logged) toast('');
+  toast(survey.logged
+    ? survey.logged + ' logged this run — all unconfirmed until you open them.'
+    : '');
 }
 
 function tick() {
@@ -1010,18 +994,22 @@ function logFind(hits, out, c) {
 }
 
 /* ---------- full screen and landscape ---------- */
-/* Both need a gesture, so neither can happen on its own — the button is that
-   gesture. The viewfinder fills the screen without either, which is most of
-   what is wanted; this adds the rest when the browser allows it. */
+/* Both need a gesture, and the record tap is that gesture. Neither is required
+   for the app to work — the viewfinder already fills the viewport — so a
+   browser that refuses is not an error worth interrupting a survey over. */
 function goFull() {
+  if (document.fullscreenElement) return;
   var el = document.documentElement;
   var req = el.requestFullscreen || el.webkitRequestFullscreen;
-  if (!req) return toast('This browser will not give a page the whole screen.');
-  req.call(el).then(function () {
-    if (screen.orientation && screen.orientation.lock) {
-      screen.orientation.lock('landscape').catch(function () {});
-    }
-  }).catch(function () { toast('The browser refused full screen.'); });
+  if (!req) return;
+  var r = req.call(el);
+  if (r && r.then) {
+    r.then(function () {
+      if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('landscape').catch(function () {});
+      }
+    }).catch(function () {});
+  }
 }
 
 function exitFull() {
@@ -1030,10 +1018,6 @@ function exitFull() {
   }
   if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () {});
 }
-
-$('bSurvey').addEventListener('click', startSurvey);
-$('bEnd').addEventListener('click', endSurvey);
-$('bFull').addEventListener('click', goFull);
 
 /* ---------- the map ----------
 
@@ -1207,6 +1191,7 @@ function render() {
       }
     } else { loc = 'No GPS fix'; }
     if (it.w3w) loc = '///' + esc(it.w3w) + ' · ' + loc;
+    var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
     var how = it.scoredBy ? esc(it.scoredBy) : 'inspector';
     if (it.amendedAt) how += ' · <span class="amended">amended</span>';
     if (it.detConf != null && it.detConf >= 0 && it.detConf <= 1) {
@@ -1220,7 +1205,7 @@ function render() {
     var dep = (it.depth != null) ? it.depth + 'mm at deepest point (gauged)' : null;
     var src = '';
     if (it.img) { src = URL.createObjectURL(it.img); urls.push(src); }
-    return '<div class="item ' + it.key + '">' +
+    return '<div class="item ' + it.key + (unconfirmed ? ' unconf' : '') + '">' +
       (src ? '<button type="button" class="thumb" data-full="' + it.id + '">' +
              '<img src="' + src + '" alt="Defect photograph, tap for full size"></button>' : '') +
       '<div class="body"><div class="top"><span class="cat">' + esc(it.cat) + '</span>' +
@@ -1229,7 +1214,9 @@ function render() {
       (dep ? esc(dep) + '<br>' : '') + how + '<br>' + esc(loc) + flag + '<br>' +
       new Date(it.t).toLocaleString() +
       (it.note ? '<br>' + esc(it.note) : '') + '</div>' +
-      '<div class="acts"><button class="del amend-open" data-id="' + it.id + '">Amend</button>' +
+      '<div class="acts">' +
+      (unconfirmed ? '<button class="del go" data-id="' + it.id + '">Confirm</button>' : '') +
+      '<button class="del amend-open" data-id="' + it.id + '">Amend</button>' +
       '<button class="del wrong" data-id="' + it.id + '">Not a defect</button>' +
       '<button class="del remove" data-id="' + it.id + '">Remove</button></div>' +
       '<div class="amend" id="am' + it.id + '" hidden>' +
@@ -1252,6 +1239,9 @@ $('list').addEventListener('click', function (e) {
 
   /* A cover called a pothole is a real thing in the wrong words, not a false
      find — deleting it loses a defect, so it can be put right instead. */
+  var go = e.target.closest('.del.go');
+  if (go) return openConfirm(+go.dataset.id);
+
   var open = e.target.closest('.amend-open');
   if (open) {
     var panel = $('am' + open.dataset.id);
@@ -1473,46 +1463,75 @@ $('bJson').addEventListener('click', function () {
   }).then(function () { btn.disabled = false; }, function () { btn.disabled = false; });
 });
 
-/* ---------- tabs ---------- */
+/* ---------- sheets and the menu ----------
+
+   The viewfinder is always underneath. The log, the map and the confirm step
+   come up over it rather than replacing it, so going back is one tap and the
+   camera never stops — which is the difference between a layer and a tab, and
+   the reason there is no longer a row of tabs. */
 function show(which) {
-  $('p-cap').hidden = (which !== 'cap'); $('p-score').hidden = (which !== 'score');
-  $('p-log').hidden = (which !== 'log'); $('p-map').hidden = (which !== 'map');
-  $('t-cap').setAttribute('aria-selected', which === 'cap');
-  $('t-log').setAttribute('aria-selected', which === 'log');
-  $('t-map').setAttribute('aria-selected', which === 'map');
-  window.scrollTo(0, 0);
+  $('p-log').hidden = (which !== 'log');
+  $('p-map').hidden = (which !== 'map');
+  $('p-score').hidden = (which !== 'score');
+  var open = which === 'log' ? $('p-log') : which === 'map' ? $('p-map') :
+             which === 'score' ? $('p-score') : null;
+  if (open) { var b = open.querySelector('.sh-body'); if (b) b.scrollTop = 0; }
   /* Leaflet is only fetched when a map is actually asked for, and it has to
      measure a container that is on screen, so this happens here rather than at
      startup. */
   if (which === 'map') drawMap();
 }
 
-/* Leaving the scoring step throws the photograph away, so it asks first —
-   in the prototype the tab simply took it with it. */
-function leaveScore() {
-  if (!S.shot) return true;
-  if (!confirm('Discard this capture? It has not been saved to the log.')) return false;
-  S.shot = null; S.shotFix = null;
-  if (S.prevUrl) { URL.revokeObjectURL(S.prevUrl); S.prevUrl = null; }
-  return true;
+function backToCamera() { confirming = null; show('live'); }
+
+function menuOpen() { return !$('menu').hidden; }
+
+function openMenu() {
+  $('menu').hidden = false; $('scrim').hidden = false;
+  $('bMenu').setAttribute('aria-expanded', 'true');
 }
-$('t-cap').addEventListener('click', function () { if (leaveScore()) show('cap'); });
-$('t-log').addEventListener('click', function () { if (leaveScore()) show('log'); });
-$('t-map').addEventListener('click', function () { if (leaveScore()) show('map'); });
+
+function closeMenu() {
+  $('menu').hidden = true; $('scrim').hidden = true;
+  $('bMenu').setAttribute('aria-expanded', 'false');
+}
+
+$('bMenu').addEventListener('click', function () { menuOpen() ? closeMenu() : openMenu(); });
+$('scrim').addEventListener('click', closeMenu);
+$('mLog').addEventListener('click', function () { closeMenu(); show('log'); });
+$('mMap').addEventListener('click', function () { closeMenu(); show('map'); });
+$('mFull').addEventListener('click', function () {
+  closeMenu();
+  if (document.fullscreenElement) exitFull(); else goFull();
+});
+$('xLog').addEventListener('click', backToCamera);
+$('xMap').addEventListener('click', backToCamera);
+$('xScore').addEventListener('click', function () { confirming = null; show('log'); });
+
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+  if (!$('lb').hidden) return;        // the photo viewer has its own handler
+  if (menuOpen()) return closeMenu();
+  if (!$('p-score').hidden) { confirming = null; return show('log'); }
+  if (!$('p-log').hidden || !$('p-map').hidden) backToCamera();
+});
 
 /* The camera light staying on after the phone goes in a pocket is both a
-   battery drain and a thing people reasonably object to. */
-/* A page cannot hold the camera once it is not the app on screen — the browser
-   suspends it — so a survey ends rather than pretending to still be watching. */
+   battery drain and a thing people reasonably object to. A page cannot hold the
+   camera once it is not the app on screen — the browser suspends it — so a
+   survey ends rather than pretending to still be watching, and the picture is
+   asked for again when the app comes back, because coming back to a dead black
+   rectangle is not what "opens on the camera" means. */
 document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'hidden' && stream) stopAll();
+  if (document.visibilityState === 'hidden') { if (stream) stopAll(); return; }
+  if (!stream) openCamera(false);
 });
 window.addEventListener('pagehide', stopAll);
 
 /* ---------- go ---------- */
 $('build').textContent = BUILD;
 $('fType').innerHTML = TYPES.map(function (t) { return '<option>' + t + '</option>'; }).join('');
-buildMatrix(); verdict(); paintSurface();
+buildMatrix(); verdict(); paintSurface(); paintRec();
 
 openDb().then(function (d) {
   db = d;
@@ -1523,9 +1542,8 @@ openDb().then(function (d) {
 }).then(function (rows) {
   S.items = rows || [];
   render();
-  var open = new URLSearchParams(location.search).get('open');
-  if (open === 'log') show('log');
-  else openCamera(false);     // the camera is the point; do not make them ask
+  if (new URLSearchParams(location.search).get('open') === 'log') show('log');
+  openCamera(false);     // the road is the point; do not make them ask for it
 });
 
 if ('serviceWorker' in navigator) {
@@ -1533,3 +1551,4 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(function () {});
   });
 }
+
