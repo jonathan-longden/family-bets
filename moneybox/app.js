@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 1';
+var BUILD = '2026-08-23 · 2';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -918,6 +918,19 @@ maybeCheck();
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('sw.js').catch(function (e) { console.warn('sw', e); });
+    navigator.serviceWorker.register('sw.js').then(function (reg) {
+      /* Ask on every open. Without it a worker can sit unchanged for a day
+         before the browser thinks to look, which is a day of the old app. */
+      reg.update().catch(function () {});
+    }).catch(function (e) { console.warn('sw', e); });
+
+    /* A new worker taking over means the files under it have changed, so the
+       page reloads itself once to be the new app rather than the old one
+       running against new files. The flag is what stops that being a loop. */
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (sessionStorage.getItem('tenAWin.reloaded')) return;
+      try { sessionStorage.setItem('tenAWin.reloaded', '1'); } catch (e) { return; }
+      location.reload();
+    });
   });
 }

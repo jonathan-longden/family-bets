@@ -1,9 +1,28 @@
-const CACHE_NAME = 'ten-a-win-v1';
+/* Cache-first with nothing behind it is how a phone ends up running last
+   month's app forever: the files are already in the cache, so the network is
+   never asked, so a release lands nowhere. That is what happened to the first
+   version of this worker.
+
+   So the shell is fetched from the network first and only falls back to the
+   cache — when there is no signal, or when the network has not answered in a
+   couple of seconds, which on a phone is the same thing as far as anyone
+   waiting is concerned. Every answer that does arrive replaces what is in the
+   cache, including one that arrives after the fallback has already been
+   served, so the next open is current either way.
+
+   The result: with signal you are always running what was last deployed, and
+   with none you are running the last copy that reached the phone. */
+/* The stylesheet and the script are asked for by version, which is what lets
+   a phone still holding the first, cache-first worker escape it: those URLs
+   are not in its cache, so it has to go to the network for them. Bump both
+   these and the ones in index.html together on a release. */
+const CACHE_NAME = 'ten-a-win-v2';
+const NETWORK_WAIT_MS = 2500;
 const FILES_TO_CACHE = [
   './',
   './index.html',
-  './styles.css',
-  './app.js',
+  './styles.css?v=2',
+  './app.js?v=2',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
@@ -22,12 +41,24 @@ self.addEventListener('activate', event => {
   );
 });
 
-/* The shell is served from the cache so the jar opens with no signal. Scores
-   and the bank link are somebody else's origin and are never cached: a stale
-   result would be banked as a new one. */
+/* Scores and the bank link are somebody else's origin and are never touched
+   here: a stale result would be banked as a new one. */
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
-  event.respondWith(caches.match(event.request).then(resp => resp || fetch(event.request)));
+
+  event.respondWith(
+    caches.open(CACHE_NAME).then(cache => {
+      const network = fetch(event.request).then(res => {
+        if (res && res.ok) cache.put(event.request, res.clone());
+        return res;
+      });
+      const impatience = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('slow')), NETWORK_WAIT_MS);
+      });
+      return Promise.race([network, impatience])
+        .catch(() => cache.match(event.request).then(cached => cached || network));
+    })
+  );
 });

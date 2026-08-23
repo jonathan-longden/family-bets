@@ -132,6 +132,27 @@ knows, and pulling it out of Settings stops everything.
 - **It does not sync between phones.** One jar, one device, plus the export
   file.
 
+## Getting updates onto the phone
+
+The first version of the service worker cached the app and then never asked
+the network again, which is the classic way to ship an update that reaches
+nobody: the files are already in the cache, so a new release lands on the
+server and stays there.
+
+It now works the other way round. The shell is fetched from the network first
+and falls back to the cache only when there is no signal — or when the network
+has not answered in two and a half seconds, which on a phone amounts to the
+same thing. Anything that does arrive replaces what is cached, so the next
+open is current either way, and the page asks the browser to re-check the
+worker every time it loads.
+
+The stylesheet and the script are also asked for by version (`app.js?v=2`).
+That is what lets a phone still holding the old cache-first worker escape it:
+those URLs are not in its cache, so it has no choice but to go to the network.
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=2`** —
+after that it is on the new worker and updates arrive on their own. Bump the
+version in `index.html` and `sw.js` together on a release.
+
 ## Running it
 
 Static files, no build. Serve the folder over HTTPS — GitHub Pages, Firebase
