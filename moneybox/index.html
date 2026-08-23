@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#7a0005">
-<meta name="description" content="Ten a Win — a moneybox that fills itself. Every time Arsenal win, £10 goes in the jar and, if you wire it up, out of your bank into a savings pot.">
+<meta name="description" content="Ten a Win — a moneybox that fills itself. Every time Arsenal win, £10 goes in the trophy and, if you wire it up, out of your bank into a savings pot.">
 <title>Ten a Win</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=3">
+<link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
 
@@ -23,14 +23,14 @@
     <img class="crest" id="crest" alt="" hidden>
     <div class="who">
       <h1 id="teamName">Arsenal</h1>
-      <p class="sub" id="ruleLine">£10 in the jar every time they win</p>
+      <p class="sub" id="ruleLine">£10 in the trophy every time they win</p>
     </div>
     <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">☰</button>
   </header>
 
-  <section class="card jar" aria-labelledby="totalFigure">
-    <div class="jar-wrap">
-      <div class="trophy" id="trophy" role="img" aria-label="the trophy, filling up as the jar does">
+  <section class="card cup-card" aria-labelledby="totalFigure">
+    <div class="cup-wrap">
+      <div class="trophy" id="trophy" role="img" aria-label="the trophy, filling up as you save">
         <svg viewBox="0 0 120 150" width="104" height="130" aria-hidden="true">
           <defs>
             <linearGradient id="silver" x1="0" y1="0" x2="1" y2="1">
@@ -57,8 +57,8 @@
           <!-- the bowl, then the money rising inside it -->
           <path class="cup" d="M35 34 L37 72 Q41 92 60 95 Q79 92 83 72 L85 34 Z"/>
           <g clip-path="url(#cupInside)">
-            <rect id="jarFill" x="30" y="95" width="60" height="61" fill="url(#gold)"/>
-            <ellipse id="jarFillTop" cx="60" cy="95" rx="25" ry="3" fill="#ffe9a8" opacity=".9"/>
+            <rect id="cupFill" x="30" y="95" width="60" height="61" fill="url(#gold)"/>
+            <ellipse id="cupFillTop" cx="60" cy="95" rx="25" ry="3" fill="#ffe9a8" opacity=".9"/>
           </g>
           <path class="cup-edge" d="M35 34 L37 72 Q41 92 60 95 Q79 92 83 72 L85 34 Z"/>
           <ellipse class="rim" cx="60" cy="34" rx="25" ry="6"/>
@@ -74,7 +74,7 @@
           <rect class="plate" x="47" y="125" width="26" height="5" rx="1.5"/>
         </svg>
       </div>
-      <div class="jar-figure">
+      <div class="cup-figure">
         <span class="total" id="totalFigure">£0</span>
         <span class="total-cap" id="totalCaption">nothing in it yet</span>
         <span class="goal-line" id="goalLine" hidden></span>
@@ -104,14 +104,14 @@
 
   <section class="card">
     <div class="card-head">
-      <h2 class="card-h">The jar</h2>
+      <h2 class="card-h">The trophy</h2>
       <div class="head-actions">
         <button class="ghost small" id="addBtn">Add by hand</button>
-        <button class="ghost small" id="withdrawBtn">Break it open</button>
+        <button class="ghost small" id="withdrawBtn">Take some out</button>
       </div>
     </div>
     <ul class="ledger" id="ledger"></ul>
-    <p class="empty" id="ledgerEmpty">Nothing yet. The jar fills itself the next time Arsenal win — tap <b>Check for wins</b> after a match, or add one by hand.</p>
+    <p class="empty" id="ledgerEmpty">Nothing yet. The trophy fills itself the next time Arsenal win — tap <b>Check for wins</b> after a match, or add one by hand.</p>
   </section>
 
   <footer class="foot">
@@ -142,7 +142,7 @@
         <label>Draw <input type="number" id="amtDraw" min="0" step="0.5" inputmode="decimal"></label>
         <label>Loss <input type="number" id="amtLoss" min="0" step="0.5" inputmode="decimal"></label>
       </div>
-      <p class="hint">Amounts in pounds. Draw and loss are £0 unless you want a jar that fills whatever happens.</p>
+      <p class="hint">Amounts in pounds. Draw and loss are £0 unless you want a trophy that fills whatever happens.</p>
       <label class="lbl">Saving for (optional)
         <input type="text" id="goalLabel" placeholder="Away days fund" maxlength="40">
       </label>
@@ -155,7 +155,7 @@
       <legend>Bank link</legend>
       <p class="hint">A web page cannot reach into a bank account on its own. Give it the address of an
         automation that can — an IFTTT, Zapier or Make webhook wired to your bank's "move money into a pot"
-        action — and every win fires the stake down it. Leave it empty and the jar just keeps score.</p>
+        action — and every win fires the stake down it. Leave it empty and the trophy just keeps score.</p>
       <label class="lbl">Webhook URL
         <input type="url" id="hookUrl" placeholder="https://maker.ifttt.com/trigger/arsenal_win/with/key/..." autocomplete="off">
       </label>
@@ -204,7 +204,7 @@
     </fieldset>
 
     <fieldset class="fs">
-      <legend>The jar itself</legend>
+      <legend>The trophy itself</legend>
       <div class="row">
         <button type="button" class="secondary" id="exportBtn">Export</button>
         <button type="button" class="secondary" id="importBtn">Import</button>
@@ -244,7 +244,7 @@
 <!-- ------------------------------------------------------------- break open -->
 <dialog class="sheet" id="withdrawSheet">
   <form class="sheet-in" id="withdrawForm">
-    <div class="sheet-head"><h2>Break it open</h2><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
+    <div class="sheet-head"><h2>Take some out</h2><button class="icon-btn" type="button" data-close aria-label="Close">✕</button></div>
     <p class="hint" id="withdrawHint"></p>
     <label class="lbl">Taking out <input type="number" id="wdAmount" min="0" step="1" inputmode="decimal" required></label>
     <label class="lbl">What for <input type="text" id="wdNote" placeholder="Emirates, block 26" maxlength="60"></label>
@@ -259,9 +259,9 @@
 <dialog class="sheet" id="aboutSheet">
   <form method="dialog" class="sheet-in">
     <div class="sheet-head"><h2>How the money moves</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></div>
-    <p>Every finished Arsenal match is read from a public results feed. A win adds £10 to the jar — once,
+    <p>Every finished Arsenal match is read from a public results feed. A win adds £10 to the trophy — once,
       and only once, however many times you open the app.</p>
-    <p><b>The jar keeps score.</b> That is all it does on its own. It shows what has gone in, what you have
+    <p><b>The trophy keeps score.</b> That is all it does on its own. It shows what has gone in, what you have
       not moved yet, and what you have taken back out.</p>
     <p><b>The bank link moves the money.</b> A page in a browser has no way into your bank, and any app that
       claims otherwise is really talking to something else that does. So this one talks to something else
@@ -273,6 +273,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

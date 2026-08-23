@@ -3,28 +3,29 @@
 A moneybox with a rule: **Arsenal win, ten pounds goes in.**
 
 It reads the results itself, so there is nothing to remember on a Sunday
-night. Open it and the jar is already heavier — or it isn't, and you know why.
+night. Open it and the trophy is already heavier — or it isn't, and you know
+why.
 
-It runs on a phone, installs to the home screen, and the jar itself works with
-no signal. Reading the scores needs one.
+It runs on a phone, installs to the home screen, and the trophy itself works
+with no signal. Reading the scores needs one.
 
 ## The shape of it
 
 One screen. The trophy and the figure at the top — the cup fills with what you
 have saved, towards a target where you have set one and through the current
 hundred where you have not — the next fixture under it with the tenner already
-riding on it, and the ledger below: every match the jar has read, what it was
-worth, and whether the money has actually moved.
+riding on it, and the ledger below: every match the trophy has read, what it
+was worth, and whether the money has actually moved.
 
 - **Check for wins** reads the results feed and banks anything new. It also
   happens on its own when you open the app, when you come back to it, and
   every so often while it is in front of you.
 - **Mark moved** is for the manual way of doing this: you have shifted the
-  money into savings yourself, and the jar should stop nagging.
+  money into savings yourself, and the trophy should stop nagging.
 - **Add by hand** is there for when the feed is down, the match was a friendly
   it does not carry, or you simply want to put a tenner in.
-- **Break it open** takes money back out and says what for. The jar keeps the
-  line either way, so the history stays honest.
+- **Take some out** takes money back out and says what for. The trophy keeps
+  the line either way, so the history stays honest.
 
 ## What counts as a win
 
@@ -32,14 +33,14 @@ Two things about a results feed cost real money if you get them wrong, and
 both are handled here rather than hoped about.
 
 **A score is not a result.** Feeds carry live scores as happily as final ones,
-so a jar that trusted the first 1-0 it saw would bank a tenner at half time
-and keep it when the match finished 1-2. A match only counts once it is
+so a trophy that trusted the first 1-0 it saw would bank a tenner at half
+time and keep it when the match finished 1-2. A match only counts once it is
 finished: by its own status where the feed gives one, and otherwise by the
 clock — two and a half hours after kick-off, which is late enough for injury
 time and a slow update.
 
-**A win pays once.** Every match carries an id, and the jar remembers the ids
-it has banked. Opening the app fifty times on a Sunday night reads the same
+**A win pays once.** Every match carries an id, and the trophy remembers the
+ids it has banked. Opening the app fifty times on a Sunday night reads the same
 win fifty times and banks it once. Deleting a line forgets its id too, so a
 line removed by mistake comes back on the next check rather than being lost
 for good.
@@ -75,7 +76,7 @@ A web page has no way into a bank account. Anything that claims otherwise is
 really talking to something else that does — so this one talks to something
 else that does, and it is something you own.
 
-**Left alone, the jar keeps score.** It tells you what has gone in and how
+**Left alone, the trophy keeps score.** It tells you what has gone in and how
 much of that you have not moved yet. Plenty of people want no more than that.
 
 **Wired up, it fires the money.** In Settings there is a *bank link*: the
@@ -108,6 +109,7 @@ different shapes:
   "played_at": "2026-08-23T16:30:00.000Z",
   "match_id": "2059331",
   "idempotency_key": "tenawin-2059331",
+  "trophy_total_pence": 3000,
   "value1": "10.00",
   "value2": "Arsenal beat Tottenham 3-1",
   "value3": "tenawin-2059331"
@@ -115,7 +117,9 @@ different shapes:
 ```
 
 The key is the match, so if you ever wire the far end to check it, a repeat
-cannot pay twice.
+cannot pay twice. `jar_total_pence` still goes out beside
+`trophy_total_pence` holding the same number, so a recipe already reading the
+old name keeps working.
 
 One honest caveat. Most webhook endpoints answer a browser with no CORS
 headers, which the browser reports to the page as a plain network error even
@@ -133,10 +137,10 @@ knows, and pulling it out of Settings stops everything.
 ## Settings
 
 - **The team.** Search and follow any club the feed knows. It opens on
-  Arsenal, which was the point, but the jar is not fussy.
+  Arsenal, which was the point, but the trophy is not fussy.
 - **What goes in.** £10 a win by default; draws and losses are £0 until you
-  decide otherwise. A jar that fills on a draw is a perfectly good jar.
-- **Saving for.** An optional label and target, which is what the jar fills
+  decide otherwise. A trophy that fills on a draw is a perfectly good trophy.
+- **Saving for.** An optional label and target, which is what the trophy fills
   towards. Without one it fills through the current hundred.
 - **Scores.** The free TheSportsDB test key is used unless you paste your own.
   If results stop arriving, that is the first thing to change.
@@ -147,12 +151,12 @@ knows, and pulling it out of Settings stops everything.
 ## What it does not do
 
 - **It does not run in the background.** A page in a browser gets no
-  background time it can rely on, on a phone least of all. The jar catches up
-  when you open it, which for a moneybox is soon enough — a win banked on
+  background time it can rely on, on a phone least of all. The trophy catches
+  up when you open it, which for a moneybox is soon enough — a win banked on
   Sunday evening rather than Saturday teatime is still the same tenner.
 - **It does not hold your bank details.** It cannot: see above.
-- **It does not sync between phones.** One jar, one device, plus the export
-  file.
+- **It does not sync between phones.** One trophy, one device, plus the
+  export file.
 
 ## Getting updates onto the phone
 
@@ -168,10 +172,10 @@ same thing. Anything that does arrive replaces what is cached, so the next
 open is current either way, and the page asks the browser to re-check the
 worker every time it loads.
 
-The stylesheet and the script are also asked for by version (`app.js?v=3`).
+The stylesheet and the script are also asked for by version (`app.js?v=4`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=3`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=4`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 

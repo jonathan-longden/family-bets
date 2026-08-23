@@ -80,11 +80,11 @@ body {
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .head-actions { display: flex; gap: 6px; }
 
-/* -------------------------------------------------------------------- jar */
+/* ------------------------------------------------------------------ cup */
 
-.jar { text-align: center; }
+.cup-card { text-align: center; }
 
-.jar-wrap { display: flex; align-items: center; justify-content: center; gap: 18px; }
+.cup-wrap { display: flex; align-items: center; justify-content: center; gap: 18px; }
 
 .trophy { flex: none; width: 104px; }
 .trophy svg { display: block; width: 100%; height: auto; overflow: visible; }
@@ -98,12 +98,12 @@ body {
 
 /* The money rises up the inside of the cup rather than being poured in from
    nowhere, so the movement reads as the total changing. */
-#jarFill, #jarFillTop { transition: y .8s cubic-bezier(.2,.8,.3,1), cy .8s cubic-bezier(.2,.8,.3,1); }
+#cupFill, #cupFillTop { transition: y .8s cubic-bezier(.2,.8,.3,1), cy .8s cubic-bezier(.2,.8,.3,1); }
 
-.trophy.pop { animation: jarPop .6s cubic-bezier(.34,1.56,.64,1); transform-origin: 50% 90%; }
-@keyframes jarPop { 35% { transform: scale(1.09) rotate(-3deg); } 70% { transform: scale(1.03) rotate(2deg); } 100% { transform: none; } }
+.trophy.pop { animation: cupPop .6s cubic-bezier(.34,1.56,.64,1); transform-origin: 50% 90%; }
+@keyframes cupPop { 35% { transform: scale(1.09) rotate(-3deg); } 70% { transform: scale(1.03) rotate(2deg); } 100% { transform: none; } }
 
-.jar-figure { text-align: left; min-width: 0; }
+.cup-figure { text-align: left; min-width: 0; }
 .total { display: block; font-size: 2.9rem; font-weight: 800; line-height: 1; letter-spacing: -1px; text-shadow: 0 4px 16px rgba(0,0,0,.35); }
 .total-cap { display: block; margin-top: 6px; color: var(--dim); font-size: .9rem; }
 .goal-line { display: block; margin-top: 4px; color: var(--gold-soft); font-size: .85rem; }

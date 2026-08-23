@@ -7,7 +7,7 @@
    A results feed will hand you a score at half time as happily as at full
    time, so a match is only counted once it is finished — by its own status
    where the feed gives one, and otherwise by the clock, two and a half hours
-   after kick-off. And every match carries an id, which is what the jar keys
+   after kick-off. And every match carries an id, which is what the trophy keys
    on: opening the app fifty times on a Sunday night reads the same win fifty
    times and banks it once.
 
@@ -18,11 +18,11 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 3';
+var BUILD = '2026-08-23 · 4';
 
 var STORE_KEY = 'tenAWin.v1';
 
-/* Arsenal's id in the results feed. The team is a setting — the jar works for
+/* Arsenal's id in the results feed. The team is a setting — the trophy works for
    anyone — but it opens on the one that was asked for. */
 var DEFAULT_TEAM = { id: '133604', name: 'Arsenal', badge: '' };
 
@@ -32,10 +32,10 @@ var FREE_KEY = '123';
 /* How long after kick-off a match is assumed over when the feed will not say.
    Ninety minutes, a half-time break, injury time and a slow update: two and a
    half hours is late enough that a live score has settled and early enough
-   that Saturday's win is in the jar by Saturday night. */
+   that Saturday's win is in the trophy by Saturday night. */
 var FINISHED_AFTER_MS = 150 * 60 * 1000;
 
-/* Poll no more often than this on app open; a jar does not need the minute. */
+/* Poll no more often than this on app open; a trophy does not need the minute. */
 var CHECK_EVERY_MS = 15 * 60 * 1000;
 
 // --------------------------------------------------------------- the state
@@ -87,10 +87,10 @@ function save() {
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
     saveFailed = false;
   } catch (e) {
-    /* Worth shouting about: a jar that silently stops recording is worse than
-       no jar, because you would go on trusting it. */
+    /* Worth shouting about: a trophy that silently stops recording is worse
+       than none, because you would go on trusting it. */
     saveFailed = true;
-    setStatus('The phone refused to save that — export the jar and free some space.', 'err');
+    setStatus('The phone refused to save that — export the trophy and free some space.', 'err');
   }
 }
 
@@ -124,7 +124,7 @@ function totals() {
   return { total: inSum - outSum, wins: wins, owed: owed, taken: outSum, banked: inSum };
 }
 
-/* The current run of wins, counting back through matches the jar has actually
+/* The current run of wins, counting back through matches the trophy has actually
    read. Draws and losses are recorded as £0 entries when nothing is staked on
    them, which is exactly why they are recorded: without them a streak would
    count wins either side of a thrashing as consecutive. */
@@ -175,7 +175,7 @@ function currentSeason(now) {
 
 /* Two ways of asking, because the free feed has moved which endpoints it
    gives away before. The last-results call is the cheap one; the season
-   schedule is the fallback, and it also catches up a jar that has not been
+   schedule is the fallback, and it also catches up a trophy that has not been
    opened for a month, which the last five matches would not. */
 function fetchResults() {
   var key = apiKey(), team = state.team.id;
@@ -284,6 +284,10 @@ function hookPayload(entry) {
     played_at: entry.when || entry.at,
     match_id: entry.eventId || entry.id,
     idempotency_key: 'tenawin-' + (entry.eventId || entry.id),
+    /* The old name goes out alongside the new one: someone's IFTTT recipe may
+       already read it, and renaming a wire contract to match a word on a
+       screen is how a working automation quietly stops working. */
+    trophy_total_pence: totals().total,
     jar_total_pence: totals().total,
     value1: pounds,
     value2: note,
@@ -366,7 +370,7 @@ function checkNow(manual) {
 
   return fetchResults().then(function (rows) {
     var matches = rows.map(normalise).filter(function (m) { return m.id; });
-    /* Oldest first, so a jar catching up on a month banks them in order and
+    /* Oldest first, so a trophy catching up on a month banks them in order and
        the streak reads the right way round. */
     matches.sort(function (a, b) { return (a.kickoff || 0) - (b.kickoff || 0); });
 
@@ -384,7 +388,7 @@ function checkNow(manual) {
     render();
 
     if (added === 0) {
-      setStatus(read ? 'Nothing new — the jar is up to date.' : 'No finished matches in the feed yet.', 'ok');
+      setStatus(read ? 'Nothing new — the trophy is up to date.' : 'No finished matches in the feed yet.', 'ok');
     } else {
       var word = added === 1 ? 'match' : 'matches';
       setStatus(added + ' new ' + word + ', ' + money(credited) + ' in.', 'ok');
@@ -436,7 +440,7 @@ function announce(entry) {
   if (!state.notify) return;
   try {
     if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-    new Notification(money(entry.amount) + ' in the jar', {
+    new Notification(money(entry.amount) + ' in the trophy', {
       body: state.team.name + ' ' + (entry.result === 'W' ? 'beat ' : 'drew with ') + entry.opponent +
         (entry.score ? ' ' + entry.score : ''),
       icon: 'icon-192.png',
@@ -629,7 +633,7 @@ function soundTheWin() {
 var CUP_TOP = 34, CUP_BOTTOM = 95;
 
 function fillTo(pct) {
-  var rect = $('jarFill'), top = $('jarFillTop');
+  var rect = $('cupFill'), top = $('cupFillTop');
   if (!rect) return;
   var y = CUP_BOTTOM - (Math.max(0, Math.min(100, pct)) / 100) * (CUP_BOTTOM - CUP_TOP);
   rect.setAttribute('y', y.toFixed(2));
@@ -666,7 +670,7 @@ function render() {
   var t = totals();
 
   $('teamName').textContent = state.team.name;
-  $('ruleLine').textContent = money(state.amounts.W) + ' in the jar every time they win';
+  $('ruleLine').textContent = money(state.amounts.W) + ' in the trophy every time they win';
   var crest = $('crest');
   if (state.team.badge) { crest.src = state.team.badge; crest.hidden = false; }
   else { crest.hidden = true; }
@@ -772,7 +776,7 @@ function renderLedger() {
       btns.appendChild(button('Send', 'ghost', function () { fireHook(e); }));
     }
     btns.appendChild(button('✕', 'ghost', function () {
-      if (!confirm('Take this line out of the jar?')) return;
+      if (!confirm('Take this line out of the trophy?')) return;
       remove(e);
     }));
     li.appendChild(btns);
@@ -884,7 +888,7 @@ $('addForm').addEventListener('submit', function (ev) {
 
 $('withdrawBtn').addEventListener('click', function () {
   var t = totals();
-  $('withdrawHint').textContent = 'There is ' + money(t.total) + ' in the jar' +
+  $('withdrawHint').textContent = 'There is ' + money(t.total) + ' in the trophy' +
     (t.owed > 0 ? ', of which ' + money(t.owed) + ' you have not actually moved into savings yet.' : '.');
   $('wdAmount').value = toPounds(Math.max(0, t.total));
   $('wdNote').value = '';
@@ -905,7 +909,7 @@ $('withdrawForm').addEventListener('submit', function (ev) {
   });
   render();
   $('withdrawSheet').close();
-  setStatus(money(amount) + ' out of the jar.', 'ok');
+  setStatus(money(amount) + ' out of the trophy.', 'ok');
 });
 
 document.querySelectorAll('[data-close]').forEach(function (b) {
@@ -1084,19 +1088,19 @@ $('importFile').addEventListener('change', function () {
   if (!file) return;
   file.text().then(function (text) {
     var incoming = JSON.parse(text);
-    if (!incoming || !Array.isArray(incoming.entries)) throw new Error('that file is not a jar');
-    if (!confirm('Replace what is in the jar now with ' + incoming.entries.length + ' lines from that file?')) return;
+    if (!incoming || !Array.isArray(incoming.entries)) throw new Error('that file is not a trophy');
+    if (!confirm('Replace what is in the trophy now with ' + incoming.entries.length + ' lines from that file?')) return;
     localStorage.setItem(STORE_KEY, JSON.stringify(incoming));
     state = load();
     render(); refreshNext();
-    setStatus('Jar restored.', 'ok');
+    setStatus('Trophy restored.', 'ok');
   }).catch(function (err) {
     setStatus('Could not read that file — ' + (err.message || err), 'err');
   }).finally(function () { $('importFile').value = ''; });
 });
 
 $('resetBtn').addEventListener('click', function () {
-  if (!confirm('Erase the whole jar — every result, the total, and the bank link?')) return;
+  if (!confirm('Erase the whole trophy — every result, the total, and the bank link?')) return;
   if (!confirm('Really? There is no undo and no backup.')) return;
   localStorage.removeItem(STORE_KEY);
   state = freshState();
@@ -1108,7 +1112,7 @@ $('resetBtn').addEventListener('click', function () {
 // --------------------------------------------------------------- the clock
 
 /* Nothing runs while the app is shut: a page in a browser gets no background
-   time it can be relied on, on a phone least of all. So the jar catches up on
+   time it can be relied on, on a phone least of all. So the trophy catches up on
    the way in — every open, and every return to the app — and quietly on a
    timer while it is in front of you, which covers a Sunday afternoon spent
    watching the score. */
