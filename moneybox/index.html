@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=13">
+<link rel="stylesheet" href="styles.css?v=14">
 </head>
 <body>
 
@@ -243,6 +243,33 @@
     </fieldset>
 
     <fieldset class="fs">
+      <legend>Starling</legend>
+      <p class="hint">The one way this app can move real money on its own. A personal access token from
+        developer.starlingbank.com lets it put the stake straight into one of your spaces — inside your own
+        bank, so there is no payment to anyone else. Give the token the narrowest scopes that work:
+        reading accounts and spaces, and paying into a space. Nothing that can pay another person.</p>
+      <label class="lbl">Personal access token
+        <input type="password" id="starToken" autocomplete="off" placeholder="eyJhbGciOi…">
+      </label>
+      <label class="lbl">Proxy (only if the browser is refused)
+        <input type="url" id="starProxy" placeholder="https://your-worker.workers.dev" autocomplete="off">
+      </label>
+      <div class="row">
+        <button type="button" class="secondary" id="starConnect">Connect</button>
+        <span class="hint" id="starOut"></span>
+      </div>
+      <label class="lbl">Account <select id="starAccount"></select></label>
+      <label class="lbl">Space <select id="starSpace"></select></label>
+      <label class="check"><input type="checkbox" id="starAuto"> Move the money on every win</label>
+      <div class="row">
+        <button type="button" class="secondary" id="starTest">Move 1p now</button>
+        <span class="hint" id="starTestOut"></span>
+      </div>
+      <p class="hint">The token stays on this phone. Every transfer is stamped with the match it is for, so
+        the same win cannot be paid twice however many times the app is opened.</p>
+    </fieldset>
+
+    <fieldset class="fs">
       <legend>Scores</legend>
       <label class="lbl">TheSportsDB API key
         <input type="text" id="apiKey" placeholder="123" autocomplete="off">
@@ -330,6 +357,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=13"></script>
+<script src="app.js?v=14"></script>
 </body>
 </html>
