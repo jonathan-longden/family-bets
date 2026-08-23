@@ -100,6 +100,7 @@
     </div>
     <span class="hint" id="expHint"></span>
   </div>
+  <button type="button" role="menuitem" class="mi" id="mDiag">Diagnostics</button>
   <button type="button" role="menuitem" class="mi" id="mFull">Full screen</button>
   <div class="mi-meta" id="gpsBox">
     <div><span>Latitude</span><b id="mLat">—</b></div>
@@ -169,6 +170,28 @@
       <b>Offline.</b> The map itself is part of the app, but its tiles are fetched as you pan.
       Ground you have already looked at stays available; ground you have not comes up blank
       until there is a signal.
+    </div>
+  </div>
+</section>
+
+<!-- ================= DIAGNOSTICS =================
+     Always reachable, with nothing logged and no signal. What is wrong with the
+     model is not a property of the defect log, so it must not be locked behind
+     having one. -->
+<section class="sheet" id="p-diag" hidden aria-label="Diagnostics">
+  <header class="sh"><button type="button" class="back" id="xDiag" aria-label="Back to camera">Back</button>
+    <h1>Diagnostics</h1></header>
+  <div class="sh-body">
+    <div class="row">
+      <button class="btn" id="bCopyDiag">Copy</button>
+      <button class="btn ghost" id="bDiagFile">Save as text</button>
+    </div>
+    <div class="hint" id="copyNote" hidden></div>
+    <pre class="diag" id="diagText">Reading…</pre>
+    <div class="note">
+      <b>What this is for.</b> Everything here describes the model and what it
+      last returned — nothing about where you have been. The weights address is
+      a link to your own model on Roboflow; treat it as yours.
     </div>
   </div>
 </section>

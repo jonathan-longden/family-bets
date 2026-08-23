@@ -277,11 +277,23 @@ millions on a picture of nothing mean the output does not depend on the input at
 all, and the fault is not in this app. The verdict shows on the model chip and
 travels in the export under `model.selfTest`.
 
-The export also carries `model.roboflow.weights`, the URL the weights are
-actually served from, so the graph can be pulled apart off the phone. That is in
-the file and deliberately nowhere on screen: it is a signed URL to the owner's
-model, and belongs in something they choose to send rather than in the corner of
-a photograph.
+### Diagnostics
+
+All of that used to live only in the JSON export — which is hidden until
+something has been logged. So the one screen that says why nothing *can* be
+logged was locked behind logging something. It has its own entry in the menu
+now, always reachable, with nothing in the log and no signal.
+
+It is text on the glass rather than a file: a phone is a poor place to find a
+downloaded `.json` and a bad place to read one. **Copy** puts it on the
+clipboard; **Save as text** writes a `.txt` for when the browser refuses to
+copy. It carries the build, what Roboflow says the model is, which decoder that
+picks, the self-test verdict in words, the tensor shape, and the raw values.
+
+It also carries the address the weights are served from, so the graph can be
+pulled apart off the phone — and nothing about where anyone has been. That
+address is a link to the owner's own model, which is why it is on a screen they
+choose to open and share rather than in the corner of every screenshot.
 
 ### What model this actually is
 
