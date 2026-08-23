@@ -20,6 +20,12 @@ nothing to dismiss.
   gesture a browser demands before it will give a page the whole screen and
   lock it to landscape, so both are taken with it rather than hidden behind a
   control nobody would find with a phone on a windscreen mount.
+- **It wants to be landscape**, and asks three ways: the manifest declares it
+  (installed to the home screen, the launcher opens it rotated with no tap —
+  the reason to install it rather than run it in a tab), the lock is asked for
+  on load anyway, and the first touch anywhere on the screen is spent on full
+  screen and the lock rather than waiting for the record button. Portrait still
+  works; it just says on the glass that it is the wrong shape for a road.
 - **Three dots, top right** open everything else: the defect log, the map, the
   surface you are surveying, full screen, and stopping the camera. They are the
   only thing on the glass that is always tappable.
@@ -85,10 +91,10 @@ Some things about it are worth knowing before trusting it:
 - **It stops when the app does.** A web page cannot hold the camera once it is
   not the app on screen; the browser suspends it. So the survey runs with the
   app open and the phone mounted, and ends rather than pretending to watch.
-- **Full screen and landscape need a tap.** Browsers only grant either off a
-  gesture, so the record tap is that gesture. The viewfinder fills the screen
-  without either, so a browser that refuses is not an error worth interrupting
-  a run over.
+- **Full screen needs a tap, and any tap will do.** Browsers only grant it off
+  a gesture, so the first touch anywhere is spent on it. The viewfinder fills
+  the screen without it, so a browser that refuses is not an error worth
+  interrupting a run over.
 
 ## The frame the model is shown
 
@@ -324,6 +330,26 @@ Depth and "wider than a tyre" are no longer collected, and the Cat 1
 escalation test that stood on them has gone with them. Entries saved before
 that change keep their gauged depth, still show it in the log, and still export
 it — the CSV carries those two columns for as long as any entry has one.
+
+## Three-word addresses
+
+A what3words key ships with the app, so every located entry picks up a
+three-word address as it is logged — in the log, the CSV, the GeoJSON and the
+popup on the map. It is looked up once, when the entry is written, because the
+address of a fixed point never changes.
+
+That key is readable by anyone who opens the source. That is not a slip; it is
+what putting a key in a static site means, and what3words is metered and paid.
+The protection has to be at their end: **restrict the key to this domain in the
+what3words dashboard**, and a copy of it is worth nothing anywhere else. The
+field in the log stays for that reason too — paste a different key over it to
+bill another account, or clear it to stop the lookups and keep coordinates
+only. An emptied field is treated as a decision and stays empty; it does not
+quietly revert to the built-in key on the next load.
+
+The lookup needs a signal, which coordinates do not, so it is never allowed to
+hold up or fail a save: the entry is written first and the words are added
+afterwards if they arrive.
 
 ## The map
 

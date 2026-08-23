@@ -67,6 +67,11 @@ canvas.shot{display:none}
 
 .mid{display:flex;flex-direction:column;align-items:center;gap:8px;justify-content:center;flex:1;
   padding:10px 0}
+/* Not a wall in front of the camera: the app works portrait, it is just the
+   wrong shape for a road. */
+.turn{background:rgba(255,107,26,.92);color:#14161A;border-radius:5px;padding:8px 13px;
+  font-family:var(--disp);font-size:15px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;text-align:center;max-width:30ch}
 .state{background:rgba(0,0,0,.6);backdrop-filter:blur(6px);border-radius:5px;padding:7px 12px;
   font-family:var(--disp);font-size:15px;letter-spacing:.07em;text-transform:uppercase;
   border:1px solid rgba(255,255,255,.12)}
