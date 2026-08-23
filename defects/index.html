@@ -36,6 +36,7 @@
     </div>
 
     <div class="mid">
+      <div class="turn" id="turn" hidden>Turn the phone — this reads the road in landscape</div>
       <div class="state" id="hudState" hidden>Watching</div>
       <div class="toast" id="hudToast" hidden></div>
     </div>
@@ -128,10 +129,10 @@
       <span class="cap">what3words key</span>
       <input type="text" id="w3wKey" placeholder="Paste an API key to record what3words addresses"
              autocomplete="off" spellcheck="false">
-      <span class="hint">what3words is a paid service and the key is yours, not the app's — get one
-        at developer.what3words.com and paste it here. It is kept on this device. With no key,
-        entries simply carry coordinates as before. Existing entries are filled in as you go, not
-        retrospectively.</span>
+      <span class="hint">A key is built in, so entries get a three-word address without you doing
+        anything. Paste your own over it to bill a different account — it is kept on this device —
+        or clear the field to stop the lookups and keep coordinates only. Entries are filled in as
+        they are logged, not retrospectively.</span>
     </label>
   </div>
 </section>

@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-23 · 19';
+var BUILD = '2026-08-23 · 20';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -993,23 +993,63 @@ function logFind(hits, out, c) {
   });
 }
 
-/* ---------- full screen and landscape ---------- */
-/* Both need a gesture, and the record tap is that gesture. Neither is required
-   for the app to work — the viewfinder already fills the viewport — so a
-   browser that refuses is not an error worth interrupting a survey over. */
+/* ---------- full screen and landscape ----------
+
+   This is used on a windscreen mount, landscape, and should be landscape from
+   the moment it opens. Browsers do not make that simple, so it is asked for in
+   three places rather than one:
+
+     1. The manifest declares `orientation: landscape`. Installed to the home
+        screen, that is the one route that genuinely works at startup with no
+        tap at all — the launcher opens it rotated. It is the reason to install
+        it rather than run it from a browser tab.
+     2. On load, the lock is asked for anyway. Standalone Android grants it off
+        the manifest; a browser tab refuses, which costs nothing.
+     3. The first touch anywhere on the screen counts as the gesture a browser
+        wants, so full screen and the lock are taken on it rather than waiting
+        for the record button.
+
+   None of it is required for the app to work: the viewfinder fills the
+   viewport regardless. So every one of these failing is silent, and the only
+   thing said out loud is the nudge to turn the phone. */
+function lockLandscape() {
+  if (!screen.orientation || !screen.orientation.lock) return Promise.resolve(false);
+  try {
+    var r = screen.orientation.lock('landscape');
+    return (r && r.then) ? r.then(function () { return true; }, function () { return false; })
+                         : Promise.resolve(false);
+  } catch (e) { return Promise.resolve(false); }
+}
+
+/* Portrait is not broken, it is just the wrong shape for a road, so this is a
+   nudge on the glass and not a wall in front of the camera. */
+function paintOrientation() {
+  var portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
+  $('turn').hidden = !portrait;
+}
+if (window.matchMedia) {
+  var mq = window.matchMedia('(orientation: portrait)');
+  (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(paintOrientation);
+}
+window.addEventListener('resize', paintOrientation);
+
+/* Spent once. A gesture that has already bought full screen must not keep
+   re-firing on every tap in the log. */
+var gestureSpent = false;
+function firstGesture() {
+  if (gestureSpent) return;
+  gestureSpent = true;
+  goFull();
+}
+document.addEventListener('pointerdown', firstGesture, { once: true, capture: true });
+
 function goFull() {
   if (document.fullscreenElement) return;
   var el = document.documentElement;
   var req = el.requestFullscreen || el.webkitRequestFullscreen;
   if (!req) return;
   var r = req.call(el);
-  if (r && r.then) {
-    r.then(function () {
-      if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(function () {});
-      }
-    }).catch(function () {});
-  }
+  if (r && r.then) r.then(lockLandscape, function () {}).catch(function () {});
 }
 
 function exitFull() {
@@ -1105,19 +1145,30 @@ $('bFit').addEventListener('click', fitMap);
 
 /* ---------- what3words ----------
 
-   A paid service, so the key is the user's and lives on their device rather
-   than in this page. Without one, nothing changes and entries carry
-   coordinates as they always did. The lookup happens once, when an entry is
-   saved, because a three-word address for a fixed point never changes — there
-   is nothing to refresh and no reason to spend a call twice on it.
+   The key below is the one this app ships with. It is a metered, paid service
+   and this is a public page, so the key is readable by anyone who opens the
+   source — that is not a slip, it is what putting a key in a static site
+   means. The protection is at what3words' end: restrict it to this domain in
+   their dashboard, and a copy of it is worth nothing anywhere else. The field
+   in the log stays, so a different key can be pasted over this one and is kept
+   on the device; clearing the field turns the lookups off rather than falling
+   back to the built-in one.
+
+   The lookup happens once, when an entry is saved, because a three-word
+   address for a fixed point never changes — there is nothing to refresh and no
+   reason to spend a call twice on it.
 
    It needs a signal, which coordinates do not, so it is never allowed to hold
    up or fail a save: the entry is written first and the words are added to it
    afterwards if they arrive. */
 var W3W_KEY_STORE = 'deflog.w3w';
+var W3W_DEFAULT = 'GNB4B5O7';
 
 function w3wKey() {
-  try { return localStorage.getItem(W3W_KEY_STORE) || ''; } catch (e) { return ''; }
+  try {
+    var v = localStorage.getItem(W3W_KEY_STORE);
+    return v === null ? W3W_DEFAULT : v;   // '' means someone turned it off on purpose
+  } catch (e) { return W3W_DEFAULT; }
 }
 
 function words(lat, lon) {
@@ -1148,9 +1199,10 @@ function addWords(entry) {
 
 $('w3wKey').value = w3wKey();
 $('w3wKey').addEventListener('change', function () {
-  var v = this.value.trim();
-  try { v ? localStorage.setItem(W3W_KEY_STORE, v) : localStorage.removeItem(W3W_KEY_STORE); }
-  catch (e) {}
+  /* An emptied field is a decision, not an absence: it is stored as an empty
+     string so it stays off, rather than quietly reverting to the built-in key
+     on the next load. */
+  try { localStorage.setItem(W3W_KEY_STORE, this.value.trim()); } catch (e) {}
 });
 
 /* ---------- log ---------- */
@@ -1531,7 +1583,8 @@ window.addEventListener('pagehide', stopAll);
 /* ---------- go ---------- */
 $('build').textContent = BUILD;
 $('fType').innerHTML = TYPES.map(function (t) { return '<option>' + t + '</option>'; }).join('');
-buildMatrix(); verdict(); paintSurface(); paintRec();
+buildMatrix(); verdict(); paintSurface(); paintRec(); paintOrientation();
+lockLandscape();          // granted when installed off the manifest; refused in a tab
 
 openDb().then(function (d) {
   db = d;
