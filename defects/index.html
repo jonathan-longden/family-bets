@@ -148,10 +148,12 @@
     <div class="disp">Nothing logged yet</div>
     <p>Captured defects appear here once you've scored and saved them.</p>
   </div>
-  <div class="row" id="expRow" hidden>
-    <button class="btn ghost" id="bCsv">Export CSV</button>
-    <button class="btn ghost" id="bJson">Export JSON</button>
+  <div class="row three" id="expRow" hidden>
+    <button class="btn ghost" id="bCsv">CSV</button>
+    <button class="btn ghost" id="bJson">JSON</button>
+    <button class="btn ghost" id="bGeo">GeoJSON</button>
   </div>
+  <div class="hint" id="expHint" hidden></div>
   <button class="btn ghost" id="bClear" hidden style="margin-top:10px;color:#C8323C">Clear log</button>
   <div class="note" id="saveNote" hidden>
     <b>Storage.</b> Entries are kept on this device only, photographs included. CSV carries the data
