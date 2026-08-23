@@ -1,4 +1,4 @@
-const CACHE_NAME = 'defect-log-v6';
+const CACHE_NAME = 'defect-log-v7';
 const FILES_TO_CACHE = [
   './',
   './index.html',

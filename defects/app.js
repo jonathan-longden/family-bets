@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-23 · 20';
+var BUILD = '2026-08-23 · 21';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -609,10 +609,35 @@ function scanSay(html, cls) {
   n.innerHTML = html;
 }
 
-/* The engine and the model are loaded once and kept. Loading is the slow part
-   — weights over mobile data — so it is done on the first capture rather than
-   on page load, and every capture after that is local and quick. */
+/* The engine and the model are loaded once and kept. It is fetched as soon as
+   the app opens rather than on the first record tap: it is the slow part, and
+   waiting until someone is parked at the top of a road to start a several-
+   megabyte download is the wrong moment. Failing is not fatal — the chip says
+   so and a later run tries again. */
 var engine = null, worker = null, loading = null;
+
+/* Says where the model is up to, since it is now happening before anyone asks
+   for it and an invisible download is indistinguishable from a broken one. */
+function modelChip(text, cls) {
+  var c = $('modelChip');
+  if (!text) { c.hidden = true; return; }
+  c.textContent = text;
+  c.className = 'chip model' + (cls ? ' ' + cls : '');
+  c.hidden = false;
+}
+
+function prefetchModel() {
+  if (loading || worker) return;
+  if (!navigator.onLine) return modelChip('Model offline', 'poor');
+  modelChip('Model loading');
+  loadModel().then(function () {
+    modelChip('Model ready', 'ready');
+    setTimeout(function () { if (worker) modelChip(''); }, 4000);
+  }, function (e) {
+    modelChip('No model', 'bad');
+  });
+}
+window.addEventListener('online', prefetchModel);
 
 function loadModel() {
   if (loading) return loading;
@@ -864,7 +889,7 @@ function startSurvey() {
   survey.clock = setInterval(paintClock, 1000);
   paintClock(); paintRec(); paintSurface();
   $('hudCount').textContent = '0 logged';
-  hud(worker ? 'Watching' : 'Downloading the model…');
+  hud(worker ? 'Watching' : 'Waiting for the model…');
   if (!S.gps) toast('No GPS fix yet — without one the survey cannot tell a new defect from the last.');
   loadModel().then(function () {
     if (survey.on) { hud('Watching'); tick(); }
@@ -1021,18 +1046,6 @@ function lockLandscape() {
   } catch (e) { return Promise.resolve(false); }
 }
 
-/* Portrait is not broken, it is just the wrong shape for a road, so this is a
-   nudge on the glass and not a wall in front of the camera. */
-function paintOrientation() {
-  var portrait = window.matchMedia && window.matchMedia('(orientation: portrait)').matches;
-  $('turn').hidden = !portrait;
-}
-if (window.matchMedia) {
-  var mq = window.matchMedia('(orientation: portrait)');
-  (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(paintOrientation);
-}
-window.addEventListener('resize', paintOrientation);
-
 /* Spent once. A gesture that has already bought full screen must not keep
    re-firing on every tap in the log. */
 var gestureSpent = false;
@@ -1117,8 +1130,8 @@ function drawMap() {
     pins.clearLayers();
     rows.forEach(function (it) {
       var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
-      var where = (it.w3w ? '///' + esc(it.w3w) + '<br>' : '') +
-                  it.lat.toFixed(5) + ', ' + it.lon.toFixed(5) +
+      var where = (it.w3w ? '///' + esc(it.w3w)
+                          : it.lat.toFixed(5) + ', ' + it.lon.toFixed(5)) +
                   (it.acc != null ? ' (±' + it.acc + 'm)' : '');
       L.marker([it.lat, it.lon], { icon: pinFor(it) })
         .bindPopup('<b>' + esc(it.cat) + '</b><br>' + esc(it.type) + ' · ' + esc(it.surface) +
@@ -1236,13 +1249,19 @@ function render() {
   $('list').innerHTML = S.items.map(function (it) {
     var loc, flag = '';
     if (it.lat != null) {
-      loc = it.lat.toFixed(5) + ', ' + it.lon.toFixed(5) + ' (±' + it.acc + 'm)';
+      /* The three-word address is what someone reads out on a radio and types
+         into a van's satnav; six decimal places of latitude is not. So it
+         stands in place of the coordinates once it arrives — the coordinates
+         are still what is stored and exported, they are simply not the useful
+         thing to show. Accuracy stays either way, because how well the fix is
+         known is not a detail. */
+      loc = it.w3w ? '///' + esc(it.w3w) : it.lat.toFixed(5) + ', ' + it.lon.toFixed(5);
+      if (it.acc != null) loc += ' (±' + it.acc + 'm)';
       if (it.acc > POOR_ACC) flag = ' <span class="flag">coarse fix</span>';
       if (it.fixAge != null && it.fixAge > STALE_MS / 1000) {
         flag += ' <span class="flag">fix ' + it.fixAge + 's old</span>';
       }
     } else { loc = 'No GPS fix'; }
-    if (it.w3w) loc = '///' + esc(it.w3w) + ' · ' + loc;
     var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
     var how = it.scoredBy ? esc(it.scoredBy) : 'inspector';
     if (it.amendedAt) how += ' · <span class="amended">amended</span>';
@@ -1583,7 +1602,7 @@ window.addEventListener('pagehide', stopAll);
 /* ---------- go ---------- */
 $('build').textContent = BUILD;
 $('fType').innerHTML = TYPES.map(function (t) { return '<option>' + t + '</option>'; }).join('');
-buildMatrix(); verdict(); paintSurface(); paintRec(); paintOrientation();
+buildMatrix(); verdict(); paintSurface(); paintRec();
 lockLandscape();          // granted when installed off the manifest; refused in a tab
 
 openDb().then(function (d) {
@@ -1597,6 +1616,7 @@ openDb().then(function (d) {
   render();
   if (new URLSearchParams(location.search).get('open') === 'log') show('log');
   openCamera(false);     // the road is the point; do not make them ask for it
+  prefetchModel();       // and have the model ready before the first tap
 });
 
 if ('serviceWorker' in navigator) {
