@@ -10,9 +10,11 @@ no signal. Reading the scores needs one.
 
 ## The shape of it
 
-One screen. The jar and the figure at the top, the next fixture under it with
-the tenner already riding on it, and the ledger below: every match the jar has
-read, what it was worth, and whether the money has actually moved.
+One screen. The trophy and the figure at the top — the cup fills with what you
+have saved, towards a target where you have set one and through the current
+hundred where you have not — the next fixture under it with the tenner already
+riding on it, and the ledger below: every match the jar has read, what it was
+worth, and whether the money has actually moved.
 
 - **Check for wins** reads the results feed and banks anything new. It also
   happens on its own when you open the app, when you come back to it, and

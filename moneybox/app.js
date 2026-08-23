@@ -444,14 +444,31 @@ function announce(entry) {
 }
 
 function celebrate() {
-  var glass = document.querySelector('.jar-glass');
-  if (!glass) return;
-  glass.classList.remove('pop');
-  void glass.offsetWidth;
-  glass.classList.add('pop');
+  var cup = $('trophy');
+  if (!cup) return;
+  cup.classList.remove('pop');
+  void cup.offsetWidth;
+  cup.classList.add('pop');
 }
 
 // ------------------------------------------------------------- the drawing
+
+/* The inside of the cup runs from the rim at 34 to the bottom at 95 in the
+   drawing's own coordinates, and the money is a rectangle sliding up through
+   a clip of that shape — which is why the level takes the cup's taper without
+   anything having to know about it. */
+var CUP_TOP = 34, CUP_BOTTOM = 95;
+
+function fillTo(pct) {
+  var rect = $('jarFill'), top = $('jarFillTop');
+  if (!rect) return;
+  var y = CUP_BOTTOM - (Math.max(0, Math.min(100, pct)) / 100) * (CUP_BOTTOM - CUP_TOP);
+  rect.setAttribute('y', y.toFixed(2));
+  if (top) {
+    top.setAttribute('cy', y.toFixed(2));
+    top.setAttribute('opacity', pct > 0 ? '0.9' : '0');
+  }
+}
 
 function setStatus(text, kind) {
   var el = $('status');
@@ -501,12 +518,12 @@ function render() {
     goalLine.hidden = true;
   }
 
-  /* The jar fills towards the target where there is one, and through the
+  /* The trophy fills towards the target where there is one, and through the
      current hundred where there is not, so it always has somewhere to go. */
   var pct;
   if (state.goal.amount > 0) pct = Math.max(0, Math.min(100, (t.total / state.goal.amount) * 100));
   else pct = t.total <= 0 ? 0 : Math.max(6, ((t.total % 10000) / 10000) * 100);
-  $('jarFill').style.height = pct + '%';
+  fillTo(pct);
 
   $('statWins').textContent = t.wins;
   $('statOwed').textContent = money(t.owed);
