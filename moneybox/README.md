@@ -79,14 +79,25 @@ rows on the opening weekend — and no result carries a badge. Everyone in the
 division goes into the table first on nothing, and the results are added on
 top.
 
-Whatever answers, every club is checked against the division before it goes
-in. A team carries the leagues it plays in, and the endpoints that list teams
-are looser than they look — one of them answers a league lookup with a
-country's worth of clubs — so anything naming a league that is not this one is
-dropped, and a source that comes back with forty-plus clubs is treated as the
-wrong source and the next one asked. Cup ties are dropped from the arithmetic
-for the same reason: an event that names another competition is not a league
-match, however much it was worth to the trophy.
+**The fixtures decide who is in the league, and nothing else gets a vote.** A
+club with a league fixture is in the league: that comes from the same list the
+results come from, so it cannot import somebody else's division. The season
+feed on the free key returns played matches only, so a round and the next
+fixtures are read alongside it to reach the clubs who have not kicked off yet,
+with the same event arriving twice dropped on its id rather than counted
+twice.
+
+The lists of "all the teams in a league" are asked for after that and only to
+fill in whoever the fixtures still have not named, and to supply badges. None
+of them is believed on its own: a candidate list is scored against the clubs
+the fixtures already named, and one that barely overlaps them is somebody
+else's division and is thrown out whole — which is what a Premier League table
+with Stockport County in it costs, one comparison. The same test is applied to
+a list already kept on the phone, so a wrong one cannot survive into the next
+read.
+
+Cup ties go for the same reason: an event naming another competition is not a
+league match, however much it was worth to the trophy.
 
 Positions are worked out here in both cases — points, then goal difference,
 then goals scored. If the new season has not kicked off yet there is nothing
@@ -236,10 +247,10 @@ the browser has never seen. It leaves the trophy, the results and the bank
 link alone — they are not part of the app's copy. The build the phone is
 running is printed just above that button, and in the footer.
 
-The stylesheet and the script are also asked for by version (`app.js?v=12`).
+The stylesheet and the script are also asked for by version (`app.js?v=13`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=12`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=13`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 

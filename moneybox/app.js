@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 12';
+var BUILD = '2026-08-23 · 13';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -235,13 +235,11 @@ var CLUBS_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /* Does this row belong to the division being shown?
 
-   A team carries the leagues it plays in — its own, plus the cups, as
-   idLeague through idLeague7 — and the endpoints that list teams are looser
-   than they look: one of them answers a league lookup with a country's worth
-   of clubs, which is how a Premier League table ends up with Championship
-   sides standing in it. Anything naming a league that is not ours is dropped;
-   anything naming no league at all is kept, because the published standings
-   are a league's table by definition. */
+   A team carries the leagues it plays in — its own and its cups, as idLeague
+   through idLeague7 — but plenty of rows carry no league at all, which is how
+   an entire division of League One clubs walked into a Premier League table:
+   naming nothing was treated as naming ours. Nothing is trusted on that basis
+   any more (see below); this only throws out what openly says otherwise. */
 function inOurLeague(t) {
   var id = String(state.league.id || '');
   var name = (state.league.name || '').toLowerCase();
@@ -256,10 +254,6 @@ function inOurLeague(t) {
   return !sawLeague;
 }
 
-/* A division is twenty clubs, give or take a few; a list of ninety is a
-   different question's answer and the next source should be tried instead. */
-var MOST_CLUBS = 40;
-
 function asClubs(rows) {
   return (rows || []).filter(inOurLeague).map(function (t) {
     return {
@@ -270,15 +264,17 @@ function asClubs(rows) {
   }).filter(function (t) { return t.name; });
 }
 
-/* Three ways of asking who is in the division, because the free key does not
-   answer all of them and a table missing four clubs is what that looks like
-   from the sofa. The published standings are last but they are the one that
-   has always answered here: stale on points, which does not matter for this,
-   and complete on membership and badges, which is all that is wanted. */
-function clubSources(season) {
+/* Who is in the division, asked three ways. None of these is believed on its
+   own — see pickDivision. */
+function divisionSources(season) {
   var key = apiKey(), id = encodeURIComponent(state.league.id);
   var name = encodeURIComponent(state.league.name || 'English Premier League');
   return [
+    function () {
+      return fetchJson(tableUrl(season)).then(function (d) {
+        return asClubs(d && (d.table || d.standings));
+      });
+    },
     function () {
       return fetchJson(API + key + '/lookup_all_teams.php?id=' + id).then(function (d) {
         return asClubs(d && d.teams);
@@ -288,32 +284,60 @@ function clubSources(season) {
       return fetchJson(API + key + '/search_all_teams.php?l=' + name).then(function (d) {
         return asClubs(d && d.teams);
       });
-    },
-    function () {
-      return fetchJson(tableUrl(season)).then(function (d) {
-        return asClubs(d && (d.table || d.standings));
-      });
     }
   ];
 }
 
-function fetchClubs(season) {
+function clubKeys(list) {
+  var ids = {}, names = {};
+  list.forEach(function (c) {
+    if (c.id) ids[c.id] = c;
+    if (c.name) names[c.name.toLowerCase()] = c;
+  });
+  return { ids: ids, names: names };
+}
+
+/* How much of this list is actually the division we are looking at?
+
+   The fixtures are the ground truth: a club with a league fixture is in the
+   league, and no amount of "all teams" from an endpoint can outvote that. So a
+   candidate list is scored against the clubs the fixtures already named, and
+   one that barely overlaps them is somebody else's division and is thrown out
+   whole. That is what a Premier League table with Stockport County in it costs:
+   one comparison. */
+function overlapWith(list, known) {
+  var keys = clubKeys(list), hits = 0;
+  known.forEach(function (c) {
+    if ((c.id && keys.ids[c.id]) || (c.name && keys.names[c.name.toLowerCase()])) hits++;
+  });
+  return hits;
+}
+
+function goodEnough(list, known) {
+  if (!list.length || !known.length) return false;
+  var hits = overlapWith(list, known);
+  return hits >= Math.max(6, Math.ceil(known.length * 0.6));
+}
+
+/* The division list, only ever used to fill in the clubs a fixture list has
+   not reached yet and to put badges on the rows. */
+function pickDivision(season, known) {
   var have = state.clubs;
   if (have.list.length && have.league === String(state.league.id) &&
-      (Date.now() - have.at) < CLUBS_STALE_MS) {
+      (Date.now() - have.at) < CLUBS_STALE_MS && goodEnough(have.list, known)) {
     return Promise.resolve(have.list);
   }
 
-  var tries = clubSources(season);
+  var tries = divisionSources(season);
   function next(i) {
     if (i >= tries.length) return Promise.resolve([]);
     return tries[i]().then(function (list) {
-      return (list.length && list.length <= MOST_CLUBS) ? list : next(i + 1);
+      return goodEnough(list, known) ? list : next(i + 1);
     }).catch(function () { return next(i + 1); });
   }
 
   return next(0).then(function (list) {
-    if (!list.length) return have.list || [];   // no harm: the table still builds
+    if (!list.length) return [];
     state.clubs = { league: String(state.league.id), at: Date.now(), list: list };
     save();
     return list;
@@ -348,7 +372,7 @@ function settled(ev) {
    when someone looks at it. The results are the same feed the trophy already
    trusts to bank a win, and three points for a win is not a calculation worth
    outsourcing. */
-function tableFromEvents(events, clubList) {
+function tableFromEvents(events) {
   var by = {};
   function club(id, name, badge) {
     var key = id || (name || '').toLowerCase();
@@ -362,13 +386,10 @@ function tableFromEvents(events, clubList) {
     return by[key];
   }
 
-  /* Everyone in the division goes in first, on nothing. A table that lists
-     only the clubs who have already played is a table that is missing four of
-     them on a Saturday teatime, which is exactly when it is being read. */
-  (clubList || []).forEach(function (c) { club(c.id, c.name, c.badge); });
-
-  /* Then everyone with a fixture, played or not, in case the club list could
-     not be had. */
+  /* Everyone with a fixture in this league is in this league — played or not.
+     That is the only membership test worth having: it comes from the same
+     fixture list the results come from, so it cannot import somebody else's
+     division. */
   /* And a cup tie is not a league match. The season feed is asked for one
      league, but an event that names another is not counted into this table. */
   events = (events || []).filter(function (ev) {
@@ -411,6 +432,47 @@ function previousSeason(season) {
   return isFinite(start) ? (start - 1) + '-' + start : season;
 }
 
+function leagueRoundUrl(season, round) {
+  return API + apiKey() + '/eventsround.php?id=' + encodeURIComponent(state.league.id) +
+    '&r=' + round + '&s=' + season;
+}
+
+function leagueNextUrl() {
+  return API + apiKey() + '/eventsnextleague.php?id=' + encodeURIComponent(state.league.id);
+}
+
+/* The season feed on the free key returns played matches only, so on an
+   opening weekend it knows about sixteen clubs. A round and the next fixtures
+   fill in the rest — all fixtures, so all of the division — and the same event
+   arriving twice is dropped on its id rather than counted twice. */
+function dedupeEvents(lists) {
+  var seenIds = {}, out = [];
+  lists.forEach(function (rows) {
+    (rows || []).forEach(function (ev) {
+      var key = ev && (ev.idEvent || (ev.strHomeTeam + '|' + ev.strAwayTeam + '|' + ev.dateEvent));
+      if (!key || seenIds[key]) return;
+      seenIds[key] = true;
+      out.push(ev);
+    });
+  });
+  return out;
+}
+
+/* The division list adds the clubs no fixture has named yet, and the badges. */
+function augment(clubs, division) {
+  var keys = clubKeys(clubs);
+  (division || []).forEach(function (d) {
+    var known = (d.id && keys.ids[d.id]) || (d.name && keys.names[d.name.toLowerCase()]);
+    if (known) {
+      if (!known.badge && d.badge) known.badge = d.badge;
+      return;
+    }
+    clubs.push({ id: d.id, name: d.name, badge: d.badge, played: 0, won: 0, drawn: 0, lost: 0,
+                 goalsFor: 0, goalsAgainst: 0, points: 0, gd: 0 });
+  });
+  return clubs;
+}
+
 function standingsRows(season) {
   return fetchJson(tableUrl(season)).then(function (data) {
     return (data && (data.table || data.standings)) || [];
@@ -421,15 +483,22 @@ function standingsRows(season) {
    free key does not open every door, and a lagging table beats no table. */
 function fetchTable() {
   var season = currentSeason();
+  var noneOf = function () { return null; };
   return Promise.all([
-    fetchJson(leagueEventsUrl(season)).catch(function () { return null; }),
-    fetchClubs(season)
+    fetchJson(leagueEventsUrl(season)).catch(noneOf),
+    fetchJson(leagueRoundUrl(season, 1)).catch(noneOf),
+    fetchJson(leagueNextUrl()).catch(noneOf)
   ])
-    .then(function (both) {
-      var data = both[0], clubList = both[1];
-      var events = (data && (data.events || data.results)) || [];
-      var built = (events.length || clubList.length) ? tableFromEvents(events, clubList) : [];
-      if (built.length) return { season: season, clubs: built, source: 'results' };
+    .then(function (parts) {
+      var events = dedupeEvents(parts.map(function (d) {
+        return (d && (d.events || d.results)) || [];
+      }));
+      var built = events.length ? tableFromEvents(events) : [];
+      if (built.length) {
+        return pickDivision(season, built).then(function (division) {
+          return { season: season, clubs: augment(built, division), source: 'results' };
+        });
+      }
       return standingsRows(season).then(function (rows) {
         if (rows.length) return { season: season, rows: rows, source: 'standings' };
         var older = previousSeason(season);
@@ -485,13 +554,9 @@ function finishTable(season, clubs, source) {
 }
 
 function refreshTable(force) {
-  /* A club list that came back short is not worth keeping for a week: half a
-     division means the wrong source answered, so it is asked again on the next
-     read rather than cached over the problem. */
-  var kept = state.clubs.list.length;
-  if (kept && (kept < 12 || kept > MOST_CLUBS)) {
-    state.clubs = { league: '', at: 0, list: [] };
-  }
+  /* Nothing to police here any more: a kept division list is only used if it
+     still matches the clubs the fixtures name, so a wrong one cannot survive
+     into the next read however long it was cached for. */
   if (!force && state.table.rows.length && (Date.now() - state.table.at) < TABLE_STALE_MS) {
     renderTable();
     return Promise.resolve();
