@@ -240,6 +240,49 @@ before anything else looks, and it goes on screen and into the export under
 patch itself is `scratchpad/patchsdk.py`. It adds a diagnostic and alters no
 decoding.
 
+### What the tensor turned out to be
+
+Reported from the field: **output `1×6×8400`, transposed to `1×8400×6`, read as
+8400 boxes × 2 classes.** Every one of those is correct — 4 box numbers plus 2
+classes across 8,400 anchors is exactly a two-class YOLOv8 head, and the
+decoder's reading of it is exactly right. The shape was never the problem.
+
+The first eight values were:
+
+```
+33.4581, -7160, 33.4581, -7160, 33.4581, -7160, 33.4581, -7160
+```
+
+Laid out as the decoder reads them, that is anchor nought:
+
+| channel | value |
+| --- | --- |
+| cx | 33.4581 |
+| cy | −7160 |
+| w | 33.4581 |
+| h | −7160 |
+| class 0 | 33.4581 |
+| class 1 | −7160 |
+
+Six channels collapsing to two alternating values is not a misread. It is what
+the graph emitted. Which is why the box came back with its width equal to its x
+and its height equal to its y — those really are the same number.
+
+So the fault is upstream of the decoding, and two possibilities look identical
+from inside a phone: the exported graph is broken, or what the library hands it
+is. The app now separates them by running the model once on a **flat grey
+square** — no edges, no texture, nothing to find. A working detector answers
+that with low confidences and nothing worth reporting. Confidences in the
+millions on a picture of nothing mean the output does not depend on the input at
+all, and the fault is not in this app. The verdict shows on the model chip and
+travels in the export under `model.selfTest`.
+
+The export also carries `model.roboflow.weights`, the URL the weights are
+actually served from, so the graph can be pulled apart off the phone. That is in
+the file and deliberately nowhere on screen: it is a signed URL to the owner's
+model, and belongs in something they choose to send rather than in the corner of
+a photograph.
+
 ### What model this actually is
 
 The library picks its decoder from one field in the model's metadata, inside a
