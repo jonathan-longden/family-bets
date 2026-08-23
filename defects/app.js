@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-23 · 24';
+var BUILD = '2026-08-23 · 25';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -772,13 +772,40 @@ function modelMeta() {
   return rfMetaAsked;
 }
 
+/* The vendored library appends one record describing the tensor it decoded —
+   see vendor/PATCHES.md for why and what. It is pulled off here, before
+   anything else looks at the results, so no part of the app can mistake it for
+   a detection. */
+var lastDiag = null;
+
+function takeDiag(preds) {
+  if (!preds || !preds.length) return preds || [];
+  var last = preds[preds.length - 1];
+  if (last && last.__diag) { lastDiag = last; preds = preds.slice(0, -1); }
+  return preds;
+}
+
+/* Said in the order that answers the question: what shape came back, what the
+   library made of it, and what the numbers in it actually look like. */
+function describeDiag(d) {
+  if (!d) return '';
+  var shape = function (s) { return Array.isArray(s) ? s.join('×') : String(s); };
+  var raw = Array.isArray(d.rawShape) && Array.isArray(d.rawShape[0])
+    ? d.rawShape.map(shape).join(' + ') : shape(d.rawShape);
+  return 'Output ' + raw + (d.outputs > 1 ? ' (' + d.outputs + ' outputs)' : '') +
+         ', transposed to ' + shape(d.afterTranspose) +
+         ', read as ' + d.readAs.boxes + ' boxes × ' + d.readAs.classes + ' classes' +
+         '. First eight: ' + (d.firstEight || []).map(round4).join(', ') + '.';
+}
+
 var lastRaw = null;
 function noteRaw(raw, w, h, vw, vh) {
   lastRaw = { at: new Date().toISOString(), frame: w + '×' + h,
               video: vw ? vw + '×' + vh : null,
               summary: describeRaw(raw),
               first: raw && raw.length ? JSON.parse(JSON.stringify(raw[0])) : null,
-              model: rfMeta };
+              model: rfMeta,
+              tensor: lastDiag };
   /* Asked for only when something has already gone wrong, so a working app
      never spends a request on it. It lands in lastRaw for the next export. */
   modelMeta().then(function (m) { if (lastRaw) lastRaw.model = m; });
@@ -1001,7 +1028,7 @@ function look() {
   createImageBitmap(sq.canvas).then(function (input) {
     return import('./vendor/inference.es.js').then(function (m) {
       return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
-        return { preds: preds || [], w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
+        return { preds: takeDiag(preds), w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
                  vw: vw, vh: vh };
       });
     });
@@ -1023,7 +1050,8 @@ function look() {
       modelMeta().then(function (m) {
         if (!survey.on || !m) return;
         toast(say + ' Roboflow calls it ' + (m.modelType || 'nothing') +
-              (m.error ? ' (' + m.error + ')' : ', decoded by ' + m.decoder) + '.');
+              (m.error ? ' (' + m.error + ')' : ', decoded by ' + m.decoder) + '. ' +
+              describeDiag(lastDiag));
       });
       return tick();
     }
