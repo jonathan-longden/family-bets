@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=4">
+<link rel="stylesheet" href="styles.css?v=5">
 </head>
 <body>
 
@@ -25,7 +25,40 @@
       <h1 id="teamName">Arsenal</h1>
       <p class="sub" id="ruleLine">£10 in the trophy every time they win</p>
     </div>
-    <button class="icon-btn" id="settingsBtn" aria-label="Settings" title="Settings">☰</button>
+    <button class="icon-btn icon-btn--cannon" id="settingsBtn" aria-label="Settings" title="Settings">
+      <svg viewBox="64 205 356 240" aria-hidden="true">
+        <defs>
+          <linearGradient id="btnBrass" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#fff4d6"/>
+            <stop offset="38%" stop-color="#f0cf7a"/>
+            <stop offset="72%" stop-color="#d09b1c"/>
+            <stop offset="100%" stop-color="#8f6206"/>
+          </linearGradient>
+          <linearGradient id="btnBrassDark" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#e6c168"/>
+            <stop offset="100%" stop-color="#7c5405"/>
+          </linearGradient>
+        </defs>
+        <g stroke="#4a1500" stroke-opacity=".45" stroke-width="4" stroke-linejoin="round">
+          <path fill="url(#btnBrassDark)" d="M196 300 L146 348 L74 404 L104 420 L188 356 L236 330 Z"/>
+          <g transform="rotate(-14 262 292)">
+            <circle cx="104" cy="278" r="17" fill="url(#btnBrass)"/>
+            <path fill="url(#btnBrass)" d="M132 240 L340 250 L340 244 L398 244 A10 10 0 0 1 408 254
+              L408 300 A10 10 0 0 1 398 310 L340 310 L340 304 L132 314
+              Q112 314 112 294 L112 260 Q112 240 132 240 Z"/>
+            <rect x="150" y="243" width="14" height="68" rx="6" fill="url(#btnBrassDark)"/>
+            <rect x="252" y="246" width="12" height="62" rx="5" fill="url(#btnBrassDark)"/>
+          </g>
+          <path fill="url(#btnBrass)" d="M200 292 L344 316 L332 356 L172 340 Z"/>
+          <circle cx="312" cy="372" r="66" fill="url(#btnBrass)"/>
+          <circle cx="312" cy="372" r="44" fill="#8d0006" stroke-width="3"/>
+          <g stroke="#8f6206" stroke-width="11" stroke-linecap="round" stroke-opacity="1">
+            <path d="M312 330 L312 414 M270 372 L354 372 M282 342 L342 402 M342 342 L282 402"/>
+          </g>
+          <circle cx="312" cy="372" r="17" fill="url(#btnBrass)"/>
+        </g>
+      </svg>
+    </button>
   </header>
 
   <section class="card cup-card" aria-labelledby="totalFigure">
@@ -273,6 +306,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
