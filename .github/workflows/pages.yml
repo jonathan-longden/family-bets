@@ -1,8 +1,9 @@
 name: Deploy to GitHub Pages
 
 # Publishes the repo as-is: Family Bets at the root, Spotlight at /singers/,
-# Tunage at /radio/, Neon Chomp at /chomp/, Take One at /studio/ and Defect
-# Log at /defects/. Nothing is built — these are static files.
+# Tunage at /radio/, Neon Chomp at /chomp/, Take One at /studio/, Defect Log
+# at /defects/ and Ten a Win at /moneybox/. Nothing is built — these are
+# static files.
 
 on:
   push:
