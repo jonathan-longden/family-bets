@@ -17,13 +17,13 @@
    are not in its cache, so it has to go to the network for them. Bump both
    these and the ones in index.html together on a release. */
 
-const CACHE_NAME = 'ten-a-win-v12';
+const CACHE_NAME = 'ten-a-win-v13';
 const NETWORK_WAIT_MS = 2500;
 const FILES_TO_CACHE = [
   './',
   './index.html',
-  './styles.css?v=12',
-  './app.js?v=12',
+  './styles.css?v=13',
+  './app.js?v=13',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
