@@ -189,7 +189,8 @@
   <section class="panel radio-panel" id="bookPanel" hidden>
     <h2><svg class="ic"><use href="#i-book"/></svg> Audiobooks</h2>
     <p class="hint">Free public-domain books read aloud, from the LibriVox
-      collection at the Internet Archive. Chapters remember where you got to.</p>
+      collection at the Internet Archive — and any book you already own, added
+      from this device. Chapters remember where you got to.</p>
 
     <div class="row">
       <input id="bookSearch" type="search" placeholder="Search books or authors" autocomplete="off"
@@ -199,6 +200,9 @@
 
     <p class="hint" id="bookStatus" hidden></p>
 
+    <h3 class="sub" id="ownBooksHead" hidden>Your own books</h3>
+    <div class="tiles" id="ownBooks"></div>
+
     <h3 class="sub" id="savedBooksHead" hidden>Favourites</h3>
     <div class="tiles" id="savedBooks"></div>
 
@@ -206,11 +210,14 @@
 
     <h3 class="sub" id="chaptersHead" hidden></h3>
     <ul class="tracks episodes" id="chapters"></ul>
+    <button class="btn ghost" id="forgetBook" hidden>Remove this book from the device</button>
 
     <p class="hint" id="bookRowsNote" hidden></p>
     <div class="shelves" id="bookShelves"></div>
 
     <button class="btn ghost wide" id="allCategories">All categories</button>
+    <button class="btn ghost wide" id="addOwnBook">Add a book you own</button>
+    <input id="bookFiles" type="file" accept="audio/*" multiple hidden />
   </section>
   <section class="panel radio-panel" id="radioPanel" hidden>
     <h2><svg class="ic"><use href="#i-radio"/></svg> Radio</h2>
@@ -398,6 +405,23 @@
     <input id="feedUrl" type="url" inputmode="url" placeholder="https://example.com/feed.xml" />
     <button class="btn wide" id="feedSave">Add show</button>
     <p class="err" id="feedErr" hidden></p>
+  </div>
+</div>
+
+<div class="overlay" id="ownBookSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <h3>Add a book you own</h3>
+      <button class="icon-btn" data-close aria-label="Close"><svg class="ic"><use href="#i-close"/></svg></button>
+    </div>
+    <p class="hint">The files stay on this device — nothing is uploaded. Pick every
+      part of the book at once and they go in as chapters, in the order they are named.</p>
+    <p class="hint" id="ownCount"></p>
+    <input id="ownName" type="text" maxlength="120" placeholder="Book title" />
+    <input id="ownAuthor" type="text" maxlength="120" placeholder="Author (optional)" />
+    <button class="btn wide" id="ownSave">Add the book</button>
+    <p class="err" id="ownErr" hidden></p>
+    <div id="ownProgress"></div>
   </div>
 </div>
 
