@@ -77,6 +77,14 @@ sheets and the photo viewer all turn together and keep stacking in the order
 they already had. The right way up it carries no transform at all, so nothing
 about the normal case changes.
 
+**The picture does not turn with it.** The camera already hands over a frame the
+right way up for how the phone is being held — the browser orients it — so
+turning it again along with everything else spins it away from the world. Rotate
+a screenshot of that until the buttons read correctly and the ceiling ends up at
+the bottom. So inside the turned wrapper the video cancels its parent's rotation
+and is sized to the physical screen rather than to the turned box it sits in.
+The chrome turns; the road does not.
+
 Two things this deliberately does not touch:
 
 - **What the model sees.** The video element is measured in its own pixels, so

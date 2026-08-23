@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-23 · 23';
+var BUILD = '2026-08-23 · 24';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -1084,8 +1084,12 @@ function logFind(hits, out, c) {
         $('hudCount').textContent = survey.logged + ' logged';
         render();
         hud('Watching');
+        /* A missing confidence used to just not appear, which reads exactly
+           like a confident find. It is the one number that says whether the
+           model is being decoded at all, so its absence is now said out loud. */
         toast('Logged ' + typeFor(best.cls).toLowerCase() + ' — ' + cat.k +
-            (det.conf == null ? '' : ' (' + Math.round(det.conf * 100) + '% sure)') +
+            (det.conf == null ? ' (sureness out of range — the model is not being read properly)'
+                              : ' (' + Math.round(det.conf * 100) + '% sure)') +
             '. Unconfirmed.');
         resolve();
       }, function () {
