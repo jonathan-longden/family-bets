@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 10';
+var BUILD = '2026-08-23 · 11';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -233,25 +233,63 @@ function leagueEventsUrl(season) {
    season and neither do the badges. */
 var CLUBS_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 
-function fetchClubs() {
+function asClubs(rows) {
+  return (rows || []).map(function (t) {
+    return {
+      id: String(t.idTeam || t.teamid || ''),
+      name: t.strTeam || t.name || '',
+      badge: t.strBadge || t.strTeamBadge || ''
+    };
+  }).filter(function (t) { return t.name; });
+}
+
+/* Three ways of asking who is in the division, because the free key does not
+   answer all of them and a table missing four clubs is what that looks like
+   from the sofa. The published standings are last but they are the one that
+   has always answered here: stale on points, which does not matter for this,
+   and complete on membership and badges, which is all that is wanted. */
+function clubSources(season) {
+  var key = apiKey(), id = encodeURIComponent(state.league.id);
+  var name = encodeURIComponent(state.league.name || 'English Premier League');
+  return [
+    function () {
+      return fetchJson(API + key + '/lookup_all_teams.php?id=' + id).then(function (d) {
+        return asClubs(d && d.teams);
+      });
+    },
+    function () {
+      return fetchJson(API + key + '/search_all_teams.php?l=' + name).then(function (d) {
+        return asClubs(d && d.teams);
+      });
+    },
+    function () {
+      return fetchJson(tableUrl(season)).then(function (d) {
+        return asClubs(d && (d.table || d.standings));
+      });
+    }
+  ];
+}
+
+function fetchClubs(season) {
   var have = state.clubs;
   if (have.list.length && have.league === String(state.league.id) &&
       (Date.now() - have.at) < CLUBS_STALE_MS) {
     return Promise.resolve(have.list);
   }
-  var url = API + apiKey() + '/lookup_all_teams.php?id=' + encodeURIComponent(state.league.id);
-  return fetchJson(url).then(function (data) {
-    var teams = (data && data.teams) || [];
-    var list = teams.map(function (t) {
-      return { id: String(t.idTeam || ''), name: t.strTeam || '', badge: t.strBadge || t.strTeamBadge || '' };
-    }).filter(function (t) { return t.name; });
-    if (!list.length) throw new Error('no clubs came back');
+
+  var tries = clubSources(season);
+  function next(i) {
+    if (i >= tries.length) return Promise.resolve([]);
+    return tries[i]().then(function (list) {
+      return list.length ? list : next(i + 1);
+    }).catch(function () { return next(i + 1); });
+  }
+
+  return next(0).then(function (list) {
+    if (!list.length) return have.list || [];   // no harm: the table still builds
     state.clubs = { league: String(state.league.id), at: Date.now(), list: list };
     save();
     return list;
-  }).catch(function () {
-    /* No harm done: the table is still built, just from whoever has played. */
-    return have.list || [];
   });
 }
 
@@ -350,7 +388,7 @@ function fetchTable() {
   var season = currentSeason();
   return Promise.all([
     fetchJson(leagueEventsUrl(season)).catch(function () { return null; }),
-    fetchClubs()
+    fetchClubs(season)
   ])
     .then(function (both) {
       var data = both[0], clubList = both[1];
@@ -412,6 +450,12 @@ function finishTable(season, clubs, source) {
 }
 
 function refreshTable(force) {
+  /* A club list that came back short is not worth keeping for a week: half a
+     division means the wrong source answered, so it is asked again on the next
+     read rather than cached over the problem. */
+  if (state.clubs.list.length && state.clubs.list.length < 12) {
+    state.clubs = { league: '', at: 0, list: [] };
+  }
   if (!force && state.table.rows.length && (Date.now() - state.table.at) < TABLE_STALE_MS) {
     renderTable();
     return Promise.resolve();

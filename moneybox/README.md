@@ -70,7 +70,10 @@ not available, and the card says which of the two it is showing, and when it
 was read.
 
 Two things the results cannot tell you, so the league's club list is read
-alongside them and kept for a week: a club that has not kicked a ball yet
+alongside them and kept for a week — asked for three ways, because the free
+key does not answer all of them, and the published standings answer last but
+most reliably: stale on points, which does not matter here, and complete on
+membership and badges, which is all that is wanted from them. The reasons: a club that has not kicked a ball yet
 appears in no result — which is how a twenty-club division renders as sixteen
 rows on the opening weekend — and no result carries a badge. Everyone in the
 division goes into the table first on nothing, and the results are added on
@@ -224,10 +227,10 @@ the browser has never seen. It leaves the trophy, the results and the bank
 link alone — they are not part of the app's copy. The build the phone is
 running is printed just above that button, and in the footer.
 
-The stylesheet and the script are also asked for by version (`app.js?v=10`).
+The stylesheet and the script are also asked for by version (`app.js?v=11`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=10`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=11`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 
