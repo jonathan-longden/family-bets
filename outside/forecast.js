@@ -538,10 +538,11 @@
       throw new Error('The forecast came back in a shape this app does not know.');
     }
     var h = json.hourly;
+    var offset = typeof json.utc_offset_seconds === 'number' ? json.utc_offset_seconds : 0;
     var hours = [];
     for (var i = 0; i < h.time.length; i++) {
-      var t = h.time[i];
-      if (typeof t !== 'number') throw new Error('The forecast is not stamped in the expected way.');
+      var t = stamp(h.time[i], offset);
+      if (!isFinite(t)) throw new Error('The forecast is not stamped in the expected way.');
       hours.push({
         t: t,
         temp: num(h.temperature_2m, i),
@@ -558,16 +559,16 @@
     if (json.daily && Array.isArray(json.daily.time)) {
       for (var j = 0; j < json.daily.time.length; j++) {
         days.push({
-          t: json.daily.time[j],
-          sunrise: num(json.daily.sunrise, j),
-          sunset: num(json.daily.sunset, j),
+          t: stamp(json.daily.time[j], offset) || 0,
+          sunrise: stamp(json.daily.sunrise && json.daily.sunrise[j], offset) || 0,
+          sunset: stamp(json.daily.sunset && json.daily.sunset[j], offset) || 0,
           code: num(json.daily.weather_code, j)
         });
       }
     }
     return {
       fetchedAt: Math.floor(Date.now() / 1000),
-      offset: typeof json.utc_offset_seconds === 'number' ? json.utc_offset_seconds : 0,
+      offset: offset,
       place: place,
       hours: hours,
       days: days
@@ -577,6 +578,22 @@
   function num(arr, i) {
     var v = arr && arr[i];
     return typeof v === 'number' && isFinite(v) ? v : 0;
+  }
+
+  /* The app asks for epoch seconds, which is the format that cannot be
+     misread. But a stamp is the one field where guessing wrong turns the
+     whole app into fiction, so the other documented format is accepted too
+     rather than rejected: with `timezone=auto` those strings are local wall
+     clock at the place with no offset written on them, which is what the
+     subtraction below turns back into an instant. */
+  function stamp(value, offset) {
+    if (typeof value === 'number' && isFinite(value)) return value;
+    if (typeof value === 'string' && value) {
+      var hasZone = /[zZ]$|[+-]\d\d:?\d\d$/.test(value);
+      var ms = Date.parse(hasZone ? value : value + 'Z');
+      if (!isNaN(ms)) return Math.floor(ms / 1000) - (hasZone ? 0 : offset);
+    }
+    return NaN;
   }
 
   /* ------------------------------------------------------------ the nudging */
