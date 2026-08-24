@@ -19,7 +19,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in Settings, so a phone can say which copy it is running without a
    round trip to find out. Bump it, the ?v= on the two script tags, the
    stylesheet and the cache name in sw.js together on a release. */
-var BUILD = '2026-08-23 · 1';
+var BUILD = '2026-08-24 · 1';
 
 var STORE_KEY = 'stepOut.v1';
 
