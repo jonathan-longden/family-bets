@@ -39,7 +39,17 @@ Three edits inside the base64-embedded worker, in `YOLOv8.infer` (which
    it is deliberately conservative: it never overrides a layout that worked, it
    is skipped entirely for models the library runs asynchronously, and every
    failure inside it is caught and falls back to the library's own choice.
-3. Append one extra element to the returned array carrying all of it, marked
+3. On load, warm the model up and **read the range that comes back**. The graph
+   is known good — it was pulled off the phone and run with plain TensorFlow.js,
+   where a flat grey square gives a minimum of 0 and a maximum of 637.6, which
+   is box coordinates in pixels for a 640 model. So anything past ten thousand
+   is the runtime and not the model. When that happens it asks for full
+   precision and rebuilds the backend so the flag is actually read; failing
+   that, it drops to the CPU backend, which is slow and correct.
+
+   Both decoder classes share this `initialize` body verbatim, so the patcher
+   asserts it appears exactly twice and replaces both.
+4. Append one extra element to the returned array carrying all of it, marked
    `__diag: true`.
 
 It has to be an array element rather than a property on the array, because the
