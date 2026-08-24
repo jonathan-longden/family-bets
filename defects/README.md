@@ -277,6 +277,26 @@ millions on a picture of nothing mean the output does not depend on the input at
 all, and the fault is not in this app. The verdict shows on the model chip and
 travels in the export under `model.selfTest`.
 
+### Which way round the picture goes in
+
+One thing was still untested rather than unknown. The library feeds a YOLOv8
+export channels-first, `[1, 3, 640, 640]`. A tfjs graph converted from PyTorch
+usually wants channels-last, `[1, 640, 640, 3]`. A graph handed the wrong one can
+throw — or it can quietly return a tensor of exactly the right shape full of
+numbers that mean nothing, which is indistinguishable from a broken model until
+you look.
+
+So the vendored library now runs the same picture through the graph **both ways
+round**, once, and reports the range each returns. Three outcomes and each is an
+answer:
+
+- the other layout **refused** — the layout is right, and the weights are the
+  problem
+- the other layout came back **inside 0..1** — the layout is the whole fault
+- **both** came back in the millions — the graph is broken whatever you feed it
+
+It reads on the diagnostics screen as two lines under **INPUT LAYOUT**.
+
 ### Diagnostics
 
 All of that used to live only in the JSON export — which is hidden until

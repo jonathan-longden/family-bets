@@ -16,13 +16,21 @@ living room in the log as a Category 2.
 
 ## What changed
 
-Two edits inside the base64-embedded worker, in `YOLOv8.infer` (which `YOLOv11`
-also inherits):
+Three edits inside the base64-embedded worker, in `YOLOv8.infer` (which
+`YOLOv11` also inherits):
 
 1. Before the tensor is disposed, record the raw output shape, how many outputs
    `execute()` returned, the shape after the library's transpose, the box and
    class counts it derived from that, and the first eight raw values.
-2. Append one extra element to the returned array carrying those, marked
+2. Once per worker, run **the same picture through the graph the other way
+   round** and record the range that comes back. The library feeds a YOLOv8
+   export channels-first, `[1,3,640,640]`; a tfjs graph converted from PyTorch
+   usually wants channels-last, `[1,640,640,3]`. A graph that quietly accepts
+   the wrong one — no error, a tensor of the right shape, numbers that mean
+   nothing — is exactly the failure being chased, and a range inside 0..1 on one
+   of the two names it outright. A refusal is recorded as a refusal, which is
+   equally an answer.
+3. Append one extra element to the returned array carrying all of it, marked
    `__diag: true`.
 
 It has to be an array element rather than a property on the array, because the

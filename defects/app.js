@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-23 · 27';
+var BUILD = '2026-08-24 · 29';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -740,6 +740,53 @@ function round4(v) {
    room as a Category 2. Note there is no `yolo11` case without the `v`: a
    model whose type is spelled that way is refused outright, and it is worth
    being able to see that rather than infer it. */
+/* Roboflow does not hand back a link to a model file — it hands back the
+   model.json itself, topology and weights manifest inline, which is why this
+   printed "[object Object]" the first time it was asked for. What is wanted out
+   of it is not the topology: it is whether the weights were stored quantised,
+   and where the shards actually live. A quantised export whose dequantisation
+   does not survive the trip is one of the few things that produces a graph
+   which answers every picture the same way. */
+function describeWeights(mo) {
+  if (!mo) return 'not reported';
+  if (typeof mo === 'string') return mo;
+  var L = ['inline model.json — keys: ' + Object.keys(mo).join(', ')];
+  var wm = mo.weightsManifest;
+  if (Array.isArray(wm)) {
+    var paths = [], tensors = 0, quant = {}, dtypes = {};
+    wm.forEach(function (g) {
+      (g.paths || []).forEach(function (p) { paths.push(p); });
+      (g.weights || []).forEach(function (w) {
+        tensors++;
+        dtypes[w.dtype || '?'] = (dtypes[w.dtype || '?'] || 0) + 1;
+        if (w.quantization) {
+          var k = w.quantization.dtype || 'unknown';
+          quant[k] = (quant[k] || 0) + 1;
+        }
+      });
+    });
+    var qk = Object.keys(quant);
+    L.push('groups     ' + wm.length + ', tensors ' + tensors);
+    L.push('dtypes     ' + Object.keys(dtypes).map(function (k) {
+      return dtypes[k] + ' × ' + k; }).join(', '));
+    L.push('quantised  ' + (qk.length
+      ? qk.map(function (k) { return quant[k] + ' as ' + k; }).join(', ')
+      : 'no'));
+    L.push('shards     ' + paths.length);
+    paths.slice(0, 2).forEach(function (p, i) { L.push('path ' + i + '     ' + p); });
+  } else {
+    L.push('no weightsManifest');
+  }
+  var mt = mo.modelTopology;
+  if (mt && mt.node) L.push('nodes      ' + mt.node.length);
+  else if (mt && mt.modelTopology && mt.modelTopology.node) L.push('nodes      ' + mt.modelTopology.node.length);
+  else if (mt) L.push('topology   keys: ' + Object.keys(mt).join(', '));
+  if (mo.format) L.push('format     ' + mo.format);
+  if (mo.generatedBy) L.push('generated  ' + mo.generatedBy);
+  if (mo.convertedBy) L.push('converted  ' + mo.convertedBy);
+  return L.join('\n           ');
+}
+
 function decoderFor(t) {
   t = String(t || '');
   if (!t) return 'unknown — no model type reported';
@@ -832,7 +879,8 @@ function runSelfTest() {
                                        round4(Math.max.apply(null, confs))] : null,
       allInRange: confs.length ? confs.every(function (c) { return c >= 0 && c <= 1; }) : null,
       firstEight: diag ? diag.firstEight : null,
-      rawShape: diag ? diag.rawShape : null
+      rawShape: diag ? diag.rawShape : null,
+      diag: diag        // carries the layout probe, for the screen below
     };
     return selfTest;
   }).catch(function (e) {
@@ -846,6 +894,26 @@ function takeDiag(preds) {
   var last = preds[preds.length - 1];
   if (last && last.__diag) { lastDiag = last; preds = preds.slice(0, -1); }
   return preds;
+}
+
+/* The one question left. The library feeds a YOLOv8 export channels-first,
+   [1,3,640,640]; a tfjs graph converted from PyTorch usually wants
+   channels-last, [1,640,640,3]. If the graph quietly accepts the wrong one — no
+   error, a tensor of the right shape, numbers that mean nothing — that is
+   exactly the failure being seen. So the same picture is put through the graph
+   both ways round and the two ranges are set side by side. A range inside 0..1
+   on one of them names the fault outright. */
+function describeLayouts(d) {
+  if (!d || !d.asFed) return '';
+  var say = function (r) {
+    if (!r) return 'not tried';
+    if (r.error) return 'refused — ' + r.error;
+    return 'min ' + round4(r.min) + ', max ' + round4(r.max) +
+           (r.shape ? ' (' + [].concat(r.shape).join('×') + ')' : '');
+  };
+  return 'as fed, ' + d.asFed.tried + ': ' + say(d.asFed) + '\n           ' +
+         'the other way, ' + ((d.otherLayout && d.otherLayout.tried) || 'NHWC') + ': ' +
+         say(d.otherLayout);
 }
 
 /* Said in the order that answers the question: what shape came back, what the
@@ -1737,8 +1805,13 @@ function diagLines() {
     L.push('decoder    ' + rfMeta.decoder);
     L.push('classes    ' + (rfMeta.classes || []).join(', '));
     L.push('input      ' + rfMeta.size);
-    if (rfMeta.environment) L.push('env        ' + rfMeta.environment);
-    L.push('weights    ' + (rfMeta.weights || 'not reported'));
+    if (rfMeta.environment) {
+      L.push('env        ' + (typeof rfMeta.environment === 'string'
+        ? rfMeta.environment : JSON.stringify(rfMeta.environment).slice(0, 300)));
+    }
+    L.push('');
+    L.push('WEIGHTS');
+    L.push('           ' + describeWeights(rfMeta.weights));
   }
   L.push('');
   L.push('SELF TEST  (the model, shown a flat grey square with nothing in it)');
@@ -1758,6 +1831,10 @@ function diagLines() {
   L.push('');
   L.push('LAST TENSOR  (from a real frame)');
   L.push(lastDiag ? '           ' + describeDiag(lastDiag) : '           nothing yet');
+  L.push('');
+  L.push('INPUT LAYOUT  (the same picture through the graph both ways round)');
+  var lay = describeLayouts(lastDiag) || describeLayouts(selfTest && selfTest.diag);
+  L.push(lay ? '           ' + lay : '           nothing yet');
   L.push('');
   L.push('LAST UNUSABLE OUTPUT');
   if (!lastRaw) {
