@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-24 · 29';
+var BUILD = '2026-08-24 · 30';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -649,8 +649,16 @@ function prefetchModel() {
   loadModel().then(function () {
     modelChip('Model ready', 'ready');
     runSelfTest().then(function (t) {
-      if (t && t.state === 'ran' && t.allInRange === false) {
+      if (t && t.state === 'ran' && (t.allInRange === false || layoutsBothBad(t.diag))) {
         modelChip('Model answers nonsense', 'bad');
+        return;
+      }
+      /* Worth saying once: the picture is going in the other way round from the
+         way the library assumes, because that is the only way this graph
+         answers. It is working, and it is not working as shipped. */
+      if (layoutOverridden(t && t.diag)) {
+        modelChip('Model ready (layout corrected)', 'ready');
+        setTimeout(function () { if (worker) modelChip(''); }, 6000);
         return;
       }
       setTimeout(function () { if (worker) modelChip(''); }, 4000);
@@ -904,16 +912,42 @@ function takeDiag(preds) {
    both ways round and the two ranges are set side by side. A range inside 0..1
    on one of them names the fault outright. */
 function describeLayouts(d) {
-  if (!d || !d.asFed) return '';
+  if (!d || !d.layoutProbe) return '';
+  var p = d.layoutProbe;
   var say = function (r) {
     if (!r) return 'not tried';
     if (r.error) return 'refused — ' + r.error;
     return 'min ' + round4(r.min) + ', max ' + round4(r.max) +
            (r.shape ? ' (' + [].concat(r.shape).join('×') + ')' : '');
   };
-  return 'as fed, ' + d.asFed.tried + ': ' + say(d.asFed) + '\n           ' +
-         'the other way, ' + ((d.otherLayout && d.otherLayout.tried) || 'NHWC') + ': ' +
-         say(d.otherLayout);
+  var chosen = d.layoutUsed === 'other' ? p.other.layout : p.native.layout;
+  return p.native.layout + ' (what the library assumes): ' + say(p.native) + '\n           ' +
+         p.other.layout + ' (the other way round): ' + say(p.other) + '\n           ' +
+         'using ' + chosen +
+         (d.layoutUsed === 'other' ? ' — the library\'s assumption was wrong here' : '');
+}
+
+/* True only when the graph answered one way round and not the other, which is
+   the case worth saying out loud: the app has corrected for the library. */
+function layoutOverridden(d) { return !!(d && d.layoutUsed === 'other'); }
+
+/* Neither way round produced a number that could be a reading of anything. That
+   is a verdict on the graph, and it holds whatever the detections happened to
+   look like on one frame — so it is asked separately rather than inferred from
+   them. */
+function layoutsBothBad(d) {
+  if (!d || !d.layoutProbe) return false;
+  var bad = function (r) {
+    if (!r) return true;
+    if (r.error) return true;
+    return !(isFinite(r.max) && isFinite(r.min) &&
+             Math.abs(r.max) < 1e4 && Math.abs(r.min) < 1e4);
+  };
+  var p = d.layoutProbe;
+  /* One of them refusing outright is the graph being clear about its input, not
+     the graph being broken — so that case is not counted here. */
+  if ((p.native && p.native.error) || (p.other && p.other.error)) return false;
+  return bad(p.native) && bad(p.other);
 }
 
 /* Said in the order that answers the question: what shape came back, what the

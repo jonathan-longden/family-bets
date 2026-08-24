@@ -287,15 +287,22 @@ numbers that mean nothing, which is indistinguishable from a broken model until
 you look.
 
 So the vendored library now runs the same picture through the graph **both ways
-round**, once, and reports the range each returns. Three outcomes and each is an
-answer:
+round**, once, and **uses whichever answers sensibly**. Three outcomes and each
+is an answer:
 
 - the other layout **refused** — the layout is right, and the weights are the
-  problem
-- the other layout came back **inside 0..1** — the layout is the whole fault
-- **both** came back in the millions — the graph is broken whatever you feed it
+  problem. Nothing changes.
+- the other layout came back **in range** — the layout was the whole fault, and
+  the app now feeds it that way round. The chip says *layout corrected* once.
+- **both** came back in the millions — the graph is broken whatever you feed it,
+  and the chip says *model answers nonsense*.
 
-It reads on the diagnostics screen as two lines under **INPUT LAYOUT**.
+The test only has to separate a reading from a non-reading, so it is crude on
+purpose: a raw YOLO head holds box values in pixels and class scores near 0..1,
+so anything past ten thousand is not a reading of anything.
+
+It reads on the diagnostics screen as three lines under **INPUT LAYOUT** —
+what the library assumed, the other way round, and which one is being used.
 
 ### Diagnostics
 

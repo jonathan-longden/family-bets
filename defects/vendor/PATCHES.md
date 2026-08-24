@@ -22,14 +22,23 @@ Three edits inside the base64-embedded worker, in `YOLOv8.infer` (which
 1. Before the tensor is disposed, record the raw output shape, how many outputs
    `execute()` returned, the shape after the library's transpose, the box and
    class counts it derived from that, and the first eight raw values.
-2. Once per worker, run **the same picture through the graph the other way
-   round** and record the range that comes back. The library feeds a YOLOv8
-   export channels-first, `[1,3,640,640]`; a tfjs graph converted from PyTorch
-   usually wants channels-last, `[1,640,640,3]`. A graph that quietly accepts
-   the wrong one — no error, a tensor of the right shape, numbers that mean
-   nothing — is exactly the failure being chased, and a range inside 0..1 on one
-   of the two names it outright. A refusal is recorded as a refusal, which is
-   equally an answer.
+2. Once per worker, run **the same picture through the graph both ways round**
+   and use whichever answers in a plausible range from then on. The library
+   assumes one layout per architecture: channels-first `[1,3,640,640]` for
+   YOLOv8, channels-last `[1,640,640,3]` for YOLOv11. A graph handed the wrong
+   one can throw — or can quietly return a tensor of exactly the right shape
+   full of numbers that mean nothing.
+
+   The test is deliberately crude, because it only has to separate a reading
+   from a non-reading: a raw YOLO head holds box values in pixels and class
+   scores near 0..1, so anything past ten thousand is not a reading of
+   anything. If both layouts pass that, the first is kept and nothing is
+   claimed. If neither does, the native one is kept and the app says so.
+
+   This is the one patch that changes behaviour rather than only reporting, so
+   it is deliberately conservative: it never overrides a layout that worked, it
+   is skipped entirely for models the library runs asynchronously, and every
+   failure inside it is caught and falls back to the library's own choice.
 3. Append one extra element to the returned array carrying all of it, marked
    `__diag: true`.
 
