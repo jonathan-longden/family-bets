@@ -1,0 +1,17 @@
+{
+  "id": "./",
+  "name": "Step Out",
+  "short_name": "Step Out",
+  "description": "It watches the forecast for the gaps worth going outside for, and nudges you when one is starting.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1f38",
+  "theme_color": "#0b1f38",
+  "categories": ["weather", "health", "lifestyle"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
