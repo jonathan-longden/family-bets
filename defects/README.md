@@ -277,6 +277,38 @@ millions on a picture of nothing mean the output does not depend on the input at
 all, and the fault is not in this app. The verdict shows on the model chip and
 travels in the export under `model.selfTest`.
 
+### The model is not the problem
+
+It was possible to settle this rather than argue about it. The diagnostics
+screen reports the address the weights are served from; that bucket is public,
+so the whole graph — `model.json` and three shards — can be pulled down and run
+away from the phone with plain TensorFlow.js.
+
+Shown a flat grey square, off the phone, it answers:
+
+```
+shape [1,6,8400]   min 0.0000   max 637.6417   mean 149.86
+first 8: 13.7809, 18.2834, 24.1905, 30.3092, 34.6762, 40.5797, 47.6760, 57.5951
+```
+
+Box coordinates in pixels for a 640 model, exactly as they should be, and they
+move when the picture changes. The same graph on the phone answers the same
+picture with a maximum of 2,161,938,688.
+
+So the export is sound, the weights are sound, the quantisation is sound, and
+the training is sound. **The fault is what the browser is running it on.** The
+usual reason is half-precision render targets: float16 stops at 65504, and this
+head reaches 640 with far larger intermediates.
+
+That also gives the app something it never had — a **known right answer**. It
+now warms the model up, reads the range, and if it is not a reading of anything,
+asks for full precision and rebuilds the backend; failing that, drops to the CPU
+backend, which is slow and correct. Correct and slow beats fast and wrong in a
+tool whose output is a response time.
+
+It reads under **PRECISION** on the diagnostics screen, every attempt with what
+it returned, and the chip says *precision forced* once if it had to intervene.
+
 ### Which way round the picture goes in
 
 One thing was still untested rather than unknown. The library feeds a YOLOv8
@@ -290,8 +322,8 @@ So the vendored library now runs the same picture through the graph **both ways
 round**, once, and **uses whichever answers sensibly**. Three outcomes and each
 is an answer:
 
-- the other layout **refused** — the layout is right, and the weights are the
-  problem. Nothing changes.
+- the other layout **refused** — the layout is right. This is what actually
+  happened: the graph requires `[1,3,640,640]` and says so. Nothing changes.
 - the other layout came back **in range** — the layout was the whole fault, and
   the app now feeds it that way round. The chip says *layout corrected* once.
 - **both** came back in the millions — the graph is broken whatever you feed it,

@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-24 · 30';
+var BUILD = '2026-08-24 · 31';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -661,6 +661,11 @@ function prefetchModel() {
         setTimeout(function () { if (worker) modelChip(''); }, 6000);
         return;
       }
+      if (precisionForced(t && t.diag)) {
+        modelChip('Model ready (precision forced)', 'ready');
+        setTimeout(function () { if (worker) modelChip(''); }, 6000);
+        return;
+      }
       setTimeout(function () { if (worker) modelChip(''); }, 4000);
     });
   }, function (e) {
@@ -930,6 +935,32 @@ function describeLayouts(d) {
 /* True only when the graph answered one way round and not the other, which is
    the case worth saying out loud: the app has corrected for the library. */
 function layoutOverridden(d) { return !!(d && d.layoutUsed === 'other'); }
+
+/* What the runtime had to do to get a number that could be a reading of
+   anything. The graph itself is known good — it was pulled off the phone and
+   run with plain tfjs, where a flat grey square gives a minimum of 0 and a
+   maximum of 637.6, which is box coordinates in pixels for a 640 model. So when
+   a phone answers the same picture in the millions, the model is not the
+   problem and neither is the app: it is what the browser is running it on.
+   Half-precision render targets are the usual reason — float16 stops at 65504
+   and this head reaches 640 with far larger intermediates. */
+function describePrecision(d) {
+  if (!d || !d.precision) return '';
+  var p = d.precision, L = [];
+  (p.tried || []).forEach(function (t) {
+    L.push(t.how + ': ' + (t.error ? 'failed — ' + t.error
+      : 'min ' + round4(t.min) + ', max ' + round4(t.max) +
+        ' on ' + t.backend + (t.ok ? '  ← usable' : '')));
+  });
+  L.push('running on ' + p.using + (p.ok ? '' : ' — and still not usable'));
+  return L.join('\n           ');
+}
+
+/* True when the runtime had to be talked down from its own defaults. Worth
+   saying: it is working, and it is not working as the library ships. */
+function precisionForced(d) {
+  return !!(d && d.precision && d.precision.ok && (d.precision.tried || []).length > 1);
+}
 
 /* Neither way round produced a number that could be a reading of anything. That
    is a verdict on the graph, and it holds whatever the detections happened to
@@ -1869,6 +1900,10 @@ function diagLines() {
   L.push('INPUT LAYOUT  (the same picture through the graph both ways round)');
   var lay = describeLayouts(lastDiag) || describeLayouts(selfTest && selfTest.diag);
   L.push(lay ? '           ' + lay : '           nothing yet');
+  L.push('');
+  L.push('PRECISION  (off the phone this graph answers flat grey with min 0, max 637.6)');
+  var pre = describePrecision(lastDiag) || describePrecision(selfTest && selfTest.diag);
+  L.push(pre ? '           ' + pre : '           nothing yet');
   L.push('');
   L.push('LAST UNUSABLE OUTPUT');
   if (!lastRaw) {
