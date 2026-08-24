@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-23 · 28';
+var BUILD = '2026-08-24 · 29';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -879,7 +879,8 @@ function runSelfTest() {
                                        round4(Math.max.apply(null, confs))] : null,
       allInRange: confs.length ? confs.every(function (c) { return c >= 0 && c <= 1; }) : null,
       firstEight: diag ? diag.firstEight : null,
-      rawShape: diag ? diag.rawShape : null
+      rawShape: diag ? diag.rawShape : null,
+      diag: diag        // carries the layout probe, for the screen below
     };
     return selfTest;
   }).catch(function (e) {
@@ -893,6 +894,26 @@ function takeDiag(preds) {
   var last = preds[preds.length - 1];
   if (last && last.__diag) { lastDiag = last; preds = preds.slice(0, -1); }
   return preds;
+}
+
+/* The one question left. The library feeds a YOLOv8 export channels-first,
+   [1,3,640,640]; a tfjs graph converted from PyTorch usually wants
+   channels-last, [1,640,640,3]. If the graph quietly accepts the wrong one — no
+   error, a tensor of the right shape, numbers that mean nothing — that is
+   exactly the failure being seen. So the same picture is put through the graph
+   both ways round and the two ranges are set side by side. A range inside 0..1
+   on one of them names the fault outright. */
+function describeLayouts(d) {
+  if (!d || !d.asFed) return '';
+  var say = function (r) {
+    if (!r) return 'not tried';
+    if (r.error) return 'refused — ' + r.error;
+    return 'min ' + round4(r.min) + ', max ' + round4(r.max) +
+           (r.shape ? ' (' + [].concat(r.shape).join('×') + ')' : '');
+  };
+  return 'as fed, ' + d.asFed.tried + ': ' + say(d.asFed) + '\n           ' +
+         'the other way, ' + ((d.otherLayout && d.otherLayout.tried) || 'NHWC') + ': ' +
+         say(d.otherLayout);
 }
 
 /* Said in the order that answers the question: what shape came back, what the
@@ -1810,6 +1831,10 @@ function diagLines() {
   L.push('');
   L.push('LAST TENSOR  (from a real frame)');
   L.push(lastDiag ? '           ' + describeDiag(lastDiag) : '           nothing yet');
+  L.push('');
+  L.push('INPUT LAYOUT  (the same picture through the graph both ways round)');
+  var lay = describeLayouts(lastDiag) || describeLayouts(selfTest && selfTest.diag);
+  L.push(lay ? '           ' + lay : '           nothing yet');
   L.push('');
   L.push('LAST UNUSABLE OUTPUT');
   if (!lastRaw) {
