@@ -27,8 +27,12 @@ pot live, connect it to a free Firebase Realtime Database.
 >   Arsenal win, £10 goes in. It reads the results itself, banks each
 >   win once, and — pointed at a webhook wired to your bank — moves the
 >   tenner into a savings pot for you.
+> - **[Step Out](outside/)** (`/outside/`) — a weather app with one
+>   opinion: you should go outside, and this is when. It finds the runs
+>   of hours worth leaving the house for and nudges you as one starts,
+>   rather than waiting to be opened.
 >
-> All six are separate PWAs with the same no-build setup.
+> All seven are separate PWAs with the same no-build setup.
 
 ## Firebase setup (for cross-device sync)
 

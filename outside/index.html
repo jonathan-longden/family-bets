@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b1f38">
+<meta name="description" content="Step Out — it watches the forecast for the gaps worth going outside for, and tells you when one is starting.">
+<title>Step Out</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Step Out">
+<link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="top">
+    <button class="place" id="placeBtn" type="button">
+      <span class="pin" aria-hidden="true">◉</span>
+      <span id="placeName">Set a place</span>
+    </button>
+    <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings" title="Settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"
+           stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3.2"></circle>
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v0a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"></path>
+      </svg>
+    </button>
+  </header>
+
+  <!-- ------------------------------------------------------------- verdict -->
+  <!-- The whole app in one card: is there a window, when, and why now. -->
+  <section class="card verdict" id="verdict" hidden>
+    <div class="verdict-head">
+      <span class="when" id="verdictWhen">Right now</span>
+      <span class="score" id="verdictScore" hidden></span>
+    </div>
+    <h1 class="verdict-line" id="verdictLine">Go for a walk</h1>
+    <p class="verdict-why" id="verdictWhy"></p>
+    <div class="facts" id="verdictFacts"></div>
+    <div class="verdict-actions">
+      <button class="primary" type="button" id="wentBtn">I went</button>
+      <button class="ghost" type="button" id="notTodayBtn">Not today</button>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------------------ no window -->
+  <section class="card verdict verdict--none" id="noWindow" hidden>
+    <h1 class="verdict-line" id="noWindowLine">Nothing doing</h1>
+    <p class="verdict-why" id="noWindowWhy"></p>
+  </section>
+
+  <!-- ----------------------------------------------------------- first run -->
+  <section class="card setup" id="setup" hidden>
+    <h1>Where are you?</h1>
+    <p>The forecast has to be for somewhere. Pick once and it is remembered on this phone.</p>
+    <div class="row">
+      <button class="primary" type="button" id="useHereBtn">Use where I am</button>
+      <button class="secondary" type="button" id="searchPlaceBtn">Search for a place</button>
+    </div>
+    <p class="hint" id="setupOut"></p>
+  </section>
+
+  <!-- ----------------------------------------------------------------- now -->
+  <section class="card now" id="nowCard" hidden>
+    <div class="now-icon" id="nowIcon">☀️</div>
+    <div class="now-read">
+      <div class="now-temp" id="nowTemp">—</div>
+      <div class="now-sub" id="nowSub"></div>
+    </div>
+    <button class="refresh" type="button" id="refreshBtn" aria-label="Check again" title="Check again">↻</button>
+  </section>
+
+  <!-- ------------------------------------------------------------ the strip -->
+  <section class="card strip" id="stripCard" hidden>
+    <div class="card-head">
+      <h2>Hour by hour</h2>
+      <span class="hint" id="stripFor"></span>
+    </div>
+    <div class="hours" id="hours"></div>
+    <p class="hint hour-detail" id="hourDetail"></p>
+  </section>
+
+  <!-- --------------------------------------------------------- the windows -->
+  <section class="card later" id="laterCard" hidden>
+    <div class="card-head"><h2>Windows ahead</h2></div>
+    <ul class="windows" id="windowList"></ul>
+  </section>
+
+  <!-- ---------------------------------------------------------- the streak -->
+  <section class="card streak" id="streakCard" hidden>
+    <div class="streak-read">
+      <div class="streak-n" id="streakN">0</div>
+      <div>
+        <div class="streak-line" id="streakLine">days on the trot</div>
+        <div class="hint" id="streakSub"></div>
+      </div>
+    </div>
+    <div class="dots" id="streakDots" aria-hidden="true"></div>
+  </section>
+
+  <!-- ------------------------------------------------------ nudges banner -->
+  <section class="card ask" id="askCard" hidden>
+    <p id="askLine">Let it tell you when a window opens, and you can stop checking.</p>
+    <div class="row">
+      <button class="primary" type="button" id="askBtn">Nudge me</button>
+      <button class="ghost" type="button" id="askNoBtn">No thanks</button>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <span id="footStatus"></span>
+    <button class="link" type="button" id="aboutBtn">How it decides</button>
+  </footer>
+
+</div>
+
+<!-- ------------------------------------------------------------ place sheet -->
+<dialog class="sheet" id="placeSheet">
+  <form class="sheet-in" id="placeForm">
+    <div class="sheet-head">
+      <h2>Where to?</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+    </div>
+    <div class="row">
+      <input type="search" id="placeQuery" placeholder="Town or city" autocomplete="off" enterkeyhint="search">
+      <button class="secondary" type="submit">Find</button>
+    </div>
+    <p class="hint" id="placeOut"></p>
+    <ul class="results" id="placeResults"></ul>
+    <div class="sheet-foot">
+      <button class="ghost" type="button" data-close>Cancel</button>
+      <button class="secondary" type="button" id="hereBtn">Use where I am</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- --------------------------------------------------------- settings sheet -->
+<dialog class="sheet" id="settingsSheet">
+  <form class="sheet-in" id="settingsForm" method="dialog">
+    <div class="sheet-head">
+      <h2>Settings</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+    </div>
+
+    <fieldset class="fs">
+      <legend>What you would go out for</legend>
+      <div class="picks" id="activityPicks"></div>
+      <p class="hint">Each one wants different weather. A run is happy in the cold and the dark; sitting
+        outside with a coffee is not.</p>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>How fussy</legend>
+      <div class="seg" id="fussSeg">
+        <label><input type="radio" name="fuss" value="relaxed"><span>I'll go in anything</span></label>
+        <label><input type="radio" name="fuss" value="normal"><span>Normal</span></label>
+        <label><input type="radio" name="fuss" value="fussy"><span>Only if it's lovely</span></label>
+      </div>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>Nudges</legend>
+      <label class="check"><input type="checkbox" id="notifyOn"> Tell me when a window opens</label>
+      <p class="hint" id="notifyState"></p>
+      <div class="grid2">
+        <label class="lbl">Warn me
+          <select id="leadSel">
+            <option value="0">as it starts</option>
+            <option value="15">15 minutes before</option>
+            <option value="30">30 minutes before</option>
+            <option value="60">an hour before</option>
+          </select>
+        </label>
+        <label class="lbl">At most
+          <select id="maxSel">
+            <option value="1">once a day</option>
+            <option value="2">twice a day</option>
+            <option value="3">3 a day</option>
+            <option value="5">5 a day</option>
+          </select>
+        </label>
+      </div>
+      <div class="grid2">
+        <label class="lbl">Quiet from
+          <select id="quietFrom"></select>
+        </label>
+        <label class="lbl">until
+          <select id="quietTo"></select>
+        </label>
+      </div>
+      <p class="hint">Quiet hours are read where the weather is, not where the phone is.</p>
+      <div class="row">
+        <button type="button" class="secondary" id="testNudge">Send me a test one</button>
+        <span class="hint" id="testOut"></span>
+      </div>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>Reading</legend>
+      <div class="grid2">
+        <label class="lbl">Units
+          <select id="unitsSel">
+            <option value="metric">°C and km/h</option>
+            <option value="imperial">°F and mph</option>
+          </select>
+        </label>
+        <label class="lbl">Clock
+          <select id="clockSel">
+            <option value="24">24 hour</option>
+            <option value="12">am / pm</option>
+          </select>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>This phone</legend>
+      <div class="row">
+        <button type="button" class="secondary" id="exportBtn">Export</button>
+        <button type="button" class="secondary" id="importBtn">Import</button>
+        <button type="button" class="danger" id="resetBtn">Erase everything</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
+      <p class="hint" id="buildHint"></p>
+      <div class="row">
+        <button type="button" class="secondary" id="updateBtn">Fetch the latest version</button>
+        <span class="hint" id="updateOut"></span>
+      </div>
+      <p class="hint">Everything — the place, the settings, the days you have been out — lives on this phone
+        and nowhere else. Nothing is backed up for you.</p>
+    </fieldset>
+  </form>
+</dialog>
+
+<!-- ------------------------------------------------------------ about sheet -->
+<dialog class="sheet" id="aboutSheet">
+  <form method="dialog" class="sheet-in">
+    <div class="sheet-head">
+      <h2>How it decides</h2>
+      <button class="icon-btn" value="close" aria-label="Close">✕</button>
+    </div>
+    <p>Every hour of the forecast is scored out of a hundred against the things you said you would go out
+      for. Temperature — what it <i>feels</i> like, so the wind is already in it — how likely rain is and how
+      much, the gusts rather than the average wind, and whether the sun is up.</p>
+    <p><b>A run of good hours is a window.</b> Not an hour here and there: a window has to be long enough to
+      be worth the coat, and an hour of rain in the middle of one makes it two windows rather than one with a
+      hole in it.</p>
+    <p><b>The nudge is the whole point.</b> It goes out when a window is about to start — not at nine every
+      morning, and not when it is already raining. It will not go twice for the same window, it will not go
+      in your quiet hours, and it will not go more times in a day than you allow.</p>
+    <p><b>What it will not do</b> is send you out in a thunderstorm or on freezing rain, however relaxed the
+      setting.</p>
+    <p><b>Where the weather comes from.</b> Open-Meteo, which answers this page directly and asks for no key
+      and no account. The only thing that ever leaves the phone is a pair of coordinates, and only to them.</p>
+    <p class="hint" id="aboutBuild"></p>
+  </form>
+</dialog>
+
+<script src="forecast.js?v=1"></script>
+<script src="app.js?v=1"></script>
+</body>
+</html>
