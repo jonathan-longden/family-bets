@@ -19,7 +19,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in Settings, so a phone can say which copy it is running without a
    round trip to find out. Bump it, the ?v= on the two script tags, the
    stylesheet and the cache name in sw.js together on a release. */
-var BUILD = '2026-08-24 · 1';
+var BUILD = '2026-08-24 · 2';
 
 var STORE_KEY = 'stepOut.v1';
 
@@ -50,6 +50,8 @@ function defaults() {
     fuss: 'normal',
     units: 'metric',
     ampm: false,
+    /* On, because it was asked for. The toggle in Settings is the way back. */
+    sweary: true,
     lead: 30,
     maxPerDay: 3,
     quiet: { from: 21, to: 7 },
@@ -97,6 +99,7 @@ function publish() {
     fuss: state.fuss,
     units: state.units,
     ampm: state.ampm,
+    sweary: state.sweary,
     lead: state.lead,
     maxPerDay: state.maxPerDay,
     quiet: state.quiet,
@@ -301,10 +304,14 @@ function renderVerdict(win, now) {
   el.hidden = false;
   el.className = 'card verdict' + (win.start <= now ? ' verdict--now' : '');
   $('verdictWhen').textContent = whenLine(win, now);
-  $('verdictLine').textContent = act.go;
+
+  /* The shout gets the big type; the instruction it is shouting about goes
+     first in the line underneath, so the card still answers "what, then?" */
+  var streak = S.streak(state.outings, forecast.offset, now);
+  $('verdictLine').textContent = S.shout(win, forecast, windows, state, now, streak);
   /* A trimmed window is the best six hours of something longer, and saying so
      turns "you have six hours" into "you are not going to miss it". */
-  $('verdictWhy').textContent = said.opener +
+  $('verdictWhy').textContent = act.go + '. ' + said.opener +
     (win.trimmed ? ' It stays good after that.' : '') +
     (said.tail ? ' ' + said.tail : '');
 
@@ -404,6 +411,11 @@ function renderStrip(now) {
     var col = document.createElement('button');
     col.type = 'button';
     col.className = 'hr ' + band(best) + (h.day ? '' : ' night');
+    /* What to bring, above how good it is: the picture is read at a glance
+       and the bar is read when you care about the detail. */
+    var face = document.createElement('span');
+    face.className = 'hface';
+    face.textContent = S.hourIcon(h);
     var bar = document.createElement('span');
     bar.className = 'bar';
     bar.style.height = Math.max(4, Math.round(best * 0.6)) + 'px';
@@ -411,6 +423,7 @@ function renderStrip(now) {
     label.className = 'hrlab';
     var hourNum = S.hourOf(h.t, forecast.offset);
     label.textContent = shown === 0 ? 'now' : (hourNum % 3 === 0 ? S.clock(h.t, forecast.offset, state.ampm).replace(':00', '') : '');
+    col.appendChild(face);
     col.appendChild(bar);
     col.appendChild(label);
     var day = S.dayOf(h.t, forecast.offset);
@@ -704,6 +717,7 @@ function syncSettingsForm() {
   $('maxSel').value = String(state.maxPerDay);
   $('quietFrom').value = String(state.quiet.from);
   $('quietTo').value = String(state.quiet.to);
+  $('swearyOn').checked = !!state.sweary;
   $('unitsSel').value = state.units;
   $('clockSel').value = state.ampm ? '12' : '24';
   $('buildHint').textContent = 'Build ' + BUILD;
@@ -810,6 +824,11 @@ function wire() {
   $('maxSel').addEventListener('change', function () { state.maxPerDay = Number($('maxSel').value); save(); });
   $('quietFrom').addEventListener('change', function () { state.quiet.from = Number($('quietFrom').value); save(); });
   $('quietTo').addEventListener('change', function () { state.quiet.to = Number($('quietTo').value); save(); });
+  $('swearyOn').addEventListener('change', function () {
+    state.sweary = $('swearyOn').checked;
+    save();
+    render();
+  });
   $('unitsSel').addEventListener('change', function () { state.units = $('unitsSel').value; save(); render(); });
   $('clockSel').addEventListener('change', function () { state.ampm = $('clockSel').value === '12'; save(); render(); });
 

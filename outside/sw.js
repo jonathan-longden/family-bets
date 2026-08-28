@@ -13,16 +13,16 @@
    worker asks the same question the open app would — is a window about to
    start — using the same code, loaded here rather than copied. */
 
-importScripts('forecast.js?v=1');
+importScripts('forecast.js?v=2');
 
-const CACHE_NAME = 'step-out-v1';
+const CACHE_NAME = 'step-out-v2';
 const NETWORK_WAIT_MS = 2500;
 const FILES_TO_CACHE = [
   './',
   './index.html',
-  './styles.css?v=1',
-  './forecast.js?v=1',
-  './app.js?v=1',
+  './styles.css?v=2',
+  './forecast.js?v=2',
+  './app.js?v=2',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',

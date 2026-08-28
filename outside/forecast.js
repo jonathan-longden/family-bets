@@ -106,6 +106,37 @@
     return icon;
   };
 
+  /* The hour-by-hour strip says what to bring rather than what the sky is
+     technically doing. Sunglasses for an hour you would squint in, an
+     umbrella for one you would get soaked in, a woolly hat for one that will
+     take the skin off your face.
+
+     The order below is a priority list, and it is the useful one: whatever
+     would ruin the hour wins, because that is the thing you would want to
+     know before opening the door. Sunglasses only go on a bright hour that is
+     also warm enough to enjoy — a cold clear January morning is a hat, not a
+     pair of shades. */
+  S.hourIcon = function (hour) {
+    var code = hour.code;
+    if (code >= 95) return '⛈️';                              /* thunder */
+    if (code === 56 || code === 57 || code === 66 || code === 67) return '🧊';  /* ice */
+    if (code >= 71 && code <= 77) return '❄️';                /* snow */
+    if (code === 85 || code === 86) return '❄️';
+    if (code === 65 || code === 82 || hour.mm >= 2) return '☔';   /* soaking */
+    if ((code >= 61 && code <= 63) || code === 80 || code === 81 || hour.mm > 0.2) return '🌧️';
+    if (code >= 51 && code <= 55) return '🌦️';                /* drizzle */
+    if (hour.prob >= 55) return '☔';                          /* not raining yet, but */
+    if (code === 45 || code === 48) return '🌫️';              /* fog */
+    if (hour.gust >= 45) return '💨';                          /* the wind is the story */
+    if (hour.feels <= 1) return '🥶';
+    if (hour.feels >= 29) return '🥵';
+    if (!hour.day) return '🌙';
+    if ((code === 0 || code === 1) && hour.feels >= 15) return '😎';  /* squinting weather */
+    if (code === 0 || code === 1) return '🧣';                 /* bright but nippy */
+    if (code === 2) return '⛅';
+    return '☁️';
+  };
+
   /* Sunshine is worth something on its own — the difference between a grey
      dry hour and a bright one is the difference between going and not. */
   var SKY_BONUS = {
@@ -431,6 +462,111 @@
     'You have been out {n} days running. Keep it.'
   ];
 
+  /* ---------------------------------------------------------------- the shout */
+
+  /* The headline used to be the instruction — "Go for a walk" — which is
+     accurate and reads like a calendar reminder. Nobody has ever got off the
+     sofa for a calendar reminder. So the big line is now somebody shouting at
+     you, and the instruction moves underneath where the rest of the facts
+     live.
+
+     Each line comes in two: the polite one and the one you actually say. The
+     toggle in Settings picks, and it is the sweary one by default because
+     that is what was asked for. Everything is shouted in capitals in the
+     text itself rather than by CSS, so it arrives shouting in a notification
+     too, where there is no stylesheet.
+
+     The banks are keyed by what is true of the window — see `situation` — so
+     the app never shouts about the sunshine on a grey afternoon. */
+  var SHOUTS = {
+    morning: [
+      ['GOOD MORNING YOU RAY OF SUNSHINE', 'GOOD MORNING YOU RAY OF FUCKING SUNSHINE'],
+      ['MORNING! FEET ON THE FLOOR', 'MORNING! GET YOUR ARSE OUT OF BED'],
+      ['UP AND OUT, SUNSHINE', 'UP AND OUT, YOU BEAUTIFUL SOD']
+    ],
+    streak: [
+      ['{n} DAYS ON THE TROT. DO NOT BOTTLE IT', '{n} DAYS ON THE TROT. DO NOT BOTTLE IT NOW'],
+      ['{n} IN A ROW. TODAY IS NUMBER {next}', '{n} IN A ROW. GET NUMBER {next} DONE'],
+      ['DO NOT BE THE ONE WHO BROKE {n} DAYS', 'DO NOT BE THE MUPPET WHO BROKE {n} DAYS']
+    ],
+    last: [
+      ['LAST OF THE LIGHT. SHIFT YOURSELF', 'LAST OF THE LIGHT. SHIFT YOUR ARSE'],
+      ['DARK AT {dark}. GO NOW', 'DARK AT {dark}. GO ON THEN'],
+      ['THE LIGHT IS GOING. SO SHOULD YOU', 'LIGHT IS GOING. SO ARE YOU, SUNSHINE']
+    ],
+    gap: [
+      ['THE RAIN HAS PACKED IN. GO', 'THE RAIN HAS BUGGERED OFF. GO'],
+      ['DRY FOR {length}. THAT IS YOUR LOT', 'DRY FOR {length}. THAT IS YOUR BLOODY LOT'],
+      ['A HOLE IN THE RAIN. GET THROUGH IT', 'A HOLE IN THE RAIN. GET THROUGH IT, YOU']
+    ],
+    best: [
+      ['THIS IS AS GOOD AS TODAY GETS', 'THIS IS AS GOOD AS TODAY BLOODY GETS'],
+      ['NOTHING BETTER IS COMING. GO NOW', 'NOTHING BETTER IS COMING, SO SHIFT'],
+      ['PEAK OF THE DAY. RIGHT NOW', 'PEAK OF THE DAY, YOU ABSOLUTE LEGEND']
+    ],
+    sun: [
+      ['THE SUN IS OUT. SO ARE YOU', 'THE SUN IS OUT. GET OUT IN IT'],
+      ['BLUE SKY. NO EXCUSES', 'BLUE SKY. NOT ONE SINGLE EXCUSE'],
+      ['IT IS GORGEOUS. GO AND SEE', 'IT IS BLOODY GORGEOUS OUT THERE']
+    ],
+    crisp: [
+      ['COLD, BRIGHT, STILL. GET OUT', 'COLD, BRIGHT AND BLOODY BRILLIANT'],
+      ['{temp} AND CLEAR. COAT ON', '{temp} AND CLEAR. COAT ON, EXCUSES OFF'],
+      ['PROPER CRISP OUT. GO ON', 'PROPER CRISP OUT. GET GOING']
+    ],
+    warm: [
+      ['{temp} OUT THERE. WHY ARE YOU IN HERE', '{temp} OUT THERE AND YOU ARE IN HERE?'],
+      ['IT IS {temp}. GO AND ENJOY IT', 'IT IS {temp}, YOU GLORIOUS ARTICLE'],
+      ['WARM AND DRY FOR {length}', 'WARM AND DRY FOR {length}. MOVE']
+    ],
+    evening: [
+      ['EVENING. ONE LAP BEFORE DARK', 'EVENING, LEGEND. ONE LAP BEFORE DARK'],
+      ['THE DAY IS NOT DONE YET', 'THE DAY IS NOT DONE WITH YOU YET'],
+      ['GO OUT AND SHAKE THE DAY OFF', 'GO AND SHAKE THE DAY OFF YOU']
+    ],
+    plain: [
+      ['{length} OF DECENT WEATHER. GO', '{length} OF DECENT WEATHER. GET GONE'],
+      ['NO EXCUSES FOR THE NEXT {length}', 'NOT ONE EXCUSE FOR THE NEXT {length}'],
+      ['SHOES ON. OUT. NOW', 'SHOES ON. OUT. NOW, YOU']
+    ]
+  };
+
+  /* Which bank this window belongs in. The order is the argument: a streak
+     about to break beats the weather, a morning window is a morning window
+     whatever the sky is doing, and everything else falls back to what is
+     actually remarkable about the hours themselves. */
+  S.situation = function (win, forecast, windows, settings, now, streak) {
+    var reasons = S.reasons(win, forecast, windows, settings, now);
+    var hour = S.hourOf(win.start, forecast.offset);
+
+    if (streak && streak.days >= 2 && !streak.today) return 'streak';
+    if (reasons[0] === 'last') return 'last';
+    if (hour >= 5 && hour < 11) return 'morning';
+    if (hour >= 18) return 'evening';
+    for (var i = 0; i < reasons.length; i++) {
+      if (SHOUTS[reasons[i]]) return reasons[i];
+    }
+    return 'plain';
+  };
+
+  S.shout = function (win, forecast, windows, settings, now, streak) {
+    var kind = S.situation(win, forecast, windows, settings, now, streak);
+    var bank = SHOUTS[kind] || SHOUTS.plain;
+    var pair = pick(bank, win.start + kind);
+    /* `sweary` is undefined on a settings object saved before the toggle
+       existed, and that should read as on rather than off. */
+    var line = settings.sweary === false ? pair[0] : pair[1];
+    var mid = win.hours[Math.floor(win.hours.length / 2)];
+    var length = S.hoursLong(win);
+    return fill(line, {
+      temp: S.temp(mid.feels, settings.units),
+      length: length === 1 ? 'AN HOUR' : length + ' HOURS',
+      dark: S.clock(S.sunsetAfter(forecast, win.start), forecast.offset, settings.ampm),
+      n: streak ? streak.days : 0,
+      next: streak ? streak.days + 1 : 1
+    });
+  };
+
   var FIRST = [
     'You have not been out today.',
     'Nothing logged today yet.'
@@ -670,12 +806,15 @@
     var mid = win.hours[Math.floor(win.hours.length / 2)];
     var facts = S.skyPhrase(mid.code) + ', ' + S.temp(mid.feels, settings.units) +
       ', ' + S.span(win, forecast.offset, settings.ampm);
-    var soon = win.start > at + 300
+    /* The shout is the title, because a lock screen shows the title and about
+       four words of the body. The instruction and the numbers go in the body,
+       which is what you read once it has already got you to look. */
+    var when = win.start > at + 300
       ? 'In ' + Math.round((win.start - at) / 60) + ' minutes: ' + lower(act.go)
       : act.go;
     return {
-      title: soon,
-      body: said.opener + ' ' + facts + '.' + (said.tail ? ' ' + said.tail : ''),
+      title: S.shout(win, forecast, windows, settings, at, streak),
+      body: when + '. ' + said.opener + ' ' + facts + '.' + (said.tail ? ' ' + said.tail : ''),
       tag: 'step-out',
       key: S.keyFor(win)
     };
