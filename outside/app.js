@@ -19,7 +19,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in Settings so a phone can say which copy it is running. Bump it,
    the ?v= on every script and the stylesheet, and the cache name in sw.js
    together on a release. */
-var BUILD = '2026-08-28 · 4';
+var BUILD = '2026-08-28 · 5';
 
 /* Deliberately not named after the brand: the name is the thing most likely to
    change, and nobody's saved location should change with it. */
@@ -46,6 +46,9 @@ function defaults() {
     /* On, because that is the app. */
     sweary: true,
     animate: true,
+    /* The temperature on the app icon itself. Not a widget, but it is a number
+       on the home screen without opening anything. */
+    badge: true,
     cache: null,
     /* A small summary of the forecast before this one, so the app can say what
        has actually changed rather than guess. */
@@ -230,7 +233,14 @@ function render() {
     $('troubleWhy').textContent = 'It said: ' + lastError;
   }
 
-  if (!have) { $('alerts').hidden = true; $('moments').hidden = true; renderFoot(now); paintSky(null); return; }
+  if (!have) {
+    $('alerts').hidden = true;
+    $('moments').hidden = true;
+    renderFoot(now);
+    paintSky(null);
+    updateBadge();
+    return;
+  }
 
   renderHero(now);
   renderAlerts(now);
@@ -243,6 +253,7 @@ function render() {
   renderDays(now);
   renderFoot(now);
   paintSky(W.now(forecast, now));
+  updateBadge();
 }
 
 function renderHero(now) {
@@ -550,6 +561,36 @@ function ageText() {
   return age < 1 ? 'Updated just now' : (age < 60 ? 'Updated ' + age + ' min ago' : 'Updated ' + Math.round(age / 60) + ' h ago');
 }
 
+/* ------------------------------------------------------------- the app icon */
+
+/* The closest a web app gets to a widget: the installed icon can carry a
+   number, and the number worth carrying is the temperature.
+
+   Two honesty rules, because a badge is read at a glance and believed
+   completely. A forecast more than three hours old gets no badge rather than a
+   stale one. And the API counts things — it cannot show a minus sign — so
+   below zero the badge is cleared rather than showing "3" for minus three. */
+var BADGE_STALE_MS = 3 * 60 * 60 * 1000;
+
+function updateBadge() {
+  if (!navigator.setAppBadge || !navigator.clearAppBadge) return;
+  var drop = function () { navigator.clearAppBadge().catch(function () {}); };
+
+  if (!state.badge || !state.place || !forecast) return drop();
+  if (Date.now() - forecast.fetchedAt * 1000 > BADGE_STALE_MS) return drop();
+
+  var n = W.now(forecast, Math.floor(Date.now() / 1000));
+  var shown = Math.round(state.units === 'imperial' ? n.temp * 9 / 5 + 32 : n.temp);
+  if (!isFinite(shown) || shown < 0) return drop();
+  navigator.setAppBadge(shown).catch(function () {});
+}
+
+function badgeState() {
+  if (!navigator.setAppBadge) return 'This browser cannot put anything on the app icon.';
+  return 'Works on the installed app. Below zero it clears itself — the icon can only carry a count, ' +
+    'so it cannot show a minus sign, and half a temperature is worse than none.';
+}
+
 /* ---------------------------------------------------------------- the sky */
 
 /* Decorative only, and cheap: a handful of absolutely-positioned elements
@@ -803,6 +844,8 @@ function wireSheets() {
 function syncSettings() {
   $('swearyOn').checked = !!state.sweary;
   $('animOn').checked = !!state.animate;
+  $('badgeOn').checked = !!state.badge;
+  $('badgeState').textContent = badgeState();
   $('unitsSel').value = state.units;
   $('clockSel').value = state.ampm ? '12' : '24';
   $('buildHint').textContent = 'Build ' + BUILD;
@@ -840,6 +883,11 @@ function wire() {
   $('swearyOn').addEventListener('change', function () {
     state.sweary = $('swearyOn').checked;
     save(); render(); syncSettings();
+  });
+  $('badgeOn').addEventListener('change', function () {
+    state.badge = $('badgeOn').checked;
+    save();
+    updateBadge();
   });
   $('animOn').addEventListener('change', function () {
     state.animate = $('animOn').checked;
