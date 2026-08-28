@@ -14,11 +14,68 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-24 · 32';
+var BUILD = '2026-08-28 · 34';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
 var MAX_EDGE = 1600;    // longest side of a saved photograph
+
+/* ---------- how old a fix may be, and what it costs ----------
+
+   maximumAge was five seconds. At 30 mph a vehicle covers 13.4 metres a
+   second, so the browser was free to hand back a position sixty-seven metres
+   behind the camera and the app had no way to know it had. For a survey done
+   at a walking pace that is invisible; for one done from a windscreen mount it
+   is the difference between two roads.
+
+   One second is asked for instead. The trade is real and is worth stating:
+
+     Battery. watchPosition with enableHighAccuracy already keeps the GNSS
+     receiver running; maximumAge governs whether a cached fix may be reused,
+     not how often the chip is woken. The cost of asking for a fresher one is
+     therefore small — but it is not nothing, because fewer cache hits means
+     more fixes are actually computed.
+
+     Reliability. A tighter window does not make the browser produce fixes it
+     does not have. It makes it hand back the one it has, which is what the
+     age is recorded for. Nothing here fails because a fix is old; the app
+     simply stops using an old one to place a defect.
+
+     Accuracy. This buys nothing about how good a fix is — only about how
+     current. A ±10 m fix from a second ago and a ±10 m fix from five seconds
+     ago are equally vague about where you were, and the second one is wrong
+     about where you are.
+
+   The timeout stays at fifteen seconds. It governs how long the browser may
+   take to produce the first fix in a cold start under trees, and shortening it
+   would turn a slow fix into an error rather than a fix. */
+var FIX_MAX_AGE_MS = 1000;    // how stale a cached fix may be before one is computed
+var GPS_TIMEOUT_MS = 15000;   // how long a cold start may take before it is an error
+
+/* Separately from either: how old the fix behind a frame may be before it is
+   no longer good enough to say where the defect was. Three seconds is 40 m at
+   30 mph, which is already generous; past it the app records the raw fix and
+   declines to estimate a defect position from it. */
+var USABLE_FIX_MS = 3000;
+
+/* ---------- the camera lead ----------
+
+   The defect is not where the vehicle is. It is on the road ahead, inside the
+   part of the frame the camera can see, which for a phone on a windscreen
+   mount is somewhere between about five and fifteen metres in front of the
+   lens depending on the mount angle, the height and the lens.
+
+   This is the one number in the app that has to be calibrated against reality
+   and has not been. It is exposed rather than buried for exactly that reason:
+   drive a known pothole, compare what the app recorded against where the hole
+   actually is, and set this to what closes the gap. Until somebody does that,
+   eight metres is a guess, the app says so, and the uncertainty it adds to
+   every estimate is the whole of the lead — a ±100% error bar on a number
+   nobody has measured. */
+var CAMERA_LEAD_M = 8;
+var LEAD_STORE = 'deflog.lead';
+var LEAD_UNCERTAINTY = 1.0;   // ±100% of the lead, because it is uncalibrated
+var LEAD_MAX_M = 60;          // beyond this somebody has typed a number, not a lead
 
 /* Detection runs on the phone.
 
@@ -115,30 +172,120 @@ function squareFrame(source, w, h) {
    compare, the fallback is time alone, which is cruder and is why a survey
    without GPS says so. SURVEY_CONF is higher than the deliberate-capture
    threshold because nobody is looking at these before they land. */
-var SURVEY_MS = 1200;    // between looks; faster mainly costs battery
+var SURVEY_MS = 1200;    // between looks when there is no speed to go on
 var SURVEY_CONF = 0.65;  // unattended entries should be surer than watched ones
-var NEAR_M = 20;         // a find this close to one already logged is the same defect
+var NEAR_M = 20;         // kept: the distance an older build called "the same defect"
 var QUIET_MS = 45000;    // with no fix, this long before the same view counts again
+
+/* ---------- one look every so many metres, rather than every so many seconds ----------
+
+   A fixed 1.2-second cadence means a survey at 40 mph looks every 21 metres and
+   the same survey stopped at a red light looks every 21 centimetres. The
+   interval that matters to a survey is a distance: one look per stretch of
+   road, so coverage does not change with the traffic.
+
+   Speed is what turns one into the other, and it is not always reported — so
+   this is a refinement of the old behaviour rather than a replacement for it.
+   With no speed the fixed interval stands. The clamps stop it becoming silly at
+   either end: below the floor the phone cannot finish one inference before the
+   next is due, and above the ceiling a survey crawling in traffic would stop
+   looking at the road altogether. */
+var SURVEY_M = 10;        // metres of road per look
+var LOOK_MIN_MS = 700;    // faster than this and inference cannot keep up
+var LOOK_MAX_MS = 4000;   // slower than this and a crawl stops being a survey
+
+/* ---------- what counts as standing still ----------
+
+   A vehicle stopped with a pothole in shot will photograph it as many times as
+   it is asked to. Below a metre a second nothing new is coming into frame, so
+   nothing new is looked for: it saves the battery and it stops a queue at a
+   junction becoming forty rows.
+
+   Only when the speed is actually known. A device that does not report one is
+   not standing still — it is a device that does not report a speed, and
+   treating the two the same would silently stop the survey on hardware that
+   works perfectly well. */
+var STATIONARY_MPS = 1;
+
+/* ---------- telling one defect from the one before it ----------
+
+   The old test compared the current vehicle position against the vehicle
+   position of the single most recent find. One slot, so driving past a defect,
+   logging something else twenty-five metres on and coming back logged the first
+   one again; and vehicle-to-vehicle rather than defect-to-defect, so it was
+   really asking "have I moved" rather than "is this the same hole".
+
+   A small ring of recent finds replaces it, and a candidate has to match one of
+   them on position, on heading and on time before it is called the same defect.
+   The position threshold scales with how good the fixes actually are, because a
+   fixed radius is either too tight for a poor fix or too loose for a good one —
+   and past a point the fixes are too vague to separate anything at all, at
+   which point position is abandoned rather than trusted. */
+var RECENT_MAX = 30;         // finds kept in mind during a run
+var DUP_MIN_M = 15;          // never call two things the same when they are further apart
+var DUP_MAX_M = 60;          // beyond this the fixes cannot tell anything apart
+var DUP_HEADING_DEG = 45;    // seen travelling the other way is the other carriageway
+var DUP_WINDOW_MS = 60000;   // recent enough to still be the same hole in shot
+var DUP_TRAVEL_M = 30;       // or the vehicle has not gone far enough to have left it
 var TEX_MIN = 1.18;      // below this the dark patch is grained like the road around it
 var ASPECT_MAX = 4.5;    // a band far longer than it is wide is a shadow, not a hole
 
 var TYPES = ['Pothole', 'Edge deterioration', 'Spalled crack / material loss',
              'Ironwork', 'Street furniture', 'Other'];
 
+/* items holds observations; defects holds the things they are observations of.
+   The two are separate lists on purpose — the log shows the first and the
+   second is what any later grouping, trend or repair check would hang off. */
 var S = { imp: 0, prob: 0, foot: false, by: null,
-          prevUrl: null, gps: null, det: null, tag: '', items: [] };
+          prevUrl: null, gps: null, det: null, tag: '',
+          items: [], defects: [] };
 var stream = null, watchId = null, ageTimer = null, urls = [], lbUrl = null;
 
 /* ---------- store ---------- */
 /* IndexedDB, with the whole thing degrading to memory if the browser won't
    give us one (private windows, storage switched off). The difference from the
    prototype is that the degradation is announced. */
-var DB_NAME = 'deflog', STORE = 'defects', WRONG = 'wrong', db = null, dbBroken = false;
+/* ---------- an observation is not a defect ----------
+
+   Every row in this app used to be a sighting, and a sighting was treated as a
+   thing. Drive the same road twice and you have two defects; drive it fifty
+   times and you have fifty. Nothing downstream of that works — you cannot say a
+   defect is getting worse, or that a repair happened, or how sure you are that
+   it exists at all, because there is nothing for those to be properties of.
+
+   Two stores now. An observation is one detection event: a frame, a box, a
+   position, a photograph, and it never changes after it is written. A defect is
+   the thing in the road that observations are of, and it does change — it gains
+   observations, its position estimate improves, its status moves on.
+
+   The store names are historical and are deliberately left alone: `defects`
+   holds observations, because renaming an object store means copying every
+   photograph in it and there is no version of that worth the risk. The code
+   says observation everywhere it means one. */
+var DB_NAME = 'deflog', STORE = 'defects', WRONG = 'wrong', PHYS = 'physical';
+var db = null, dbBroken = false;
+
+/* Timestamp ids were fine for one device and are not for two. Two phones
+   surveying the same round produce colliding ids within a millisecond of each
+   other, and the day anything is combined the collision is silent. */
+function uuid() {
+  if (self.crypto && crypto.randomUUID) return crypto.randomUUID();
+  var b = new Uint8Array(16), i;
+  if (self.crypto && crypto.getRandomValues) crypto.getRandomValues(b);
+  else for (i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40;      // version 4
+  b[8] = (b[8] & 0x3f) | 0x80;      // variant 1
+  var h = [];
+  for (i = 0; i < 16; i++) h.push((b[i] + 0x100).toString(16).slice(1));
+  return h.slice(0, 4).join('') + '-' + h.slice(4, 6).join('') + '-' +
+         h.slice(6, 8).join('') + '-' + h.slice(8, 10).join('') + '-' +
+         h.slice(10, 16).join('');
+}
 
 function openDb() {
   return new Promise(function (resolve, reject) {
     if (!self.indexedDB) return reject(new Error('no IndexedDB'));
-    var req = indexedDB.open(DB_NAME, 2);
+    var req = indexedDB.open(DB_NAME, 3);
     req.onupgradeneeded = function () {
       var d = req.result;
       if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE, { keyPath: 'id' });
@@ -146,6 +293,12 @@ function openDb() {
          is not a defect must never read as a defect, and deleting it outright
          throws away the only examples a retrain could learn this from. */
       if (!d.objectStoreNames.contains(WRONG)) d.createObjectStore(WRONG, { keyPath: 'id' });
+      /* Version 3. The observations already in the store are not touched here —
+         adding the store is all the schema change there is, and giving the
+         existing rows their defects is done afterwards in ordinary code, where
+         a failure can be reported rather than aborting an upgrade transaction
+         and leaving the database on the old version with no explanation. */
+      if (!d.objectStoreNames.contains(PHYS)) d.createObjectStore(PHYS, { keyPath: 'defect_id' });
     };
     req.onsuccess = function () { resolve(req.result); };
     req.onerror = function () { reject(req.error); };
@@ -168,6 +321,13 @@ function clearEntries() { return tx('readwrite', function (s) { return s.clear()
 function putWrong(e) { return tx('readwrite', function (s) { return s.put(e); }, WRONG); }
 function allWrong() {
   return tx('readonly', function (s) { return s.getAll(); }, WRONG)
+    .then(function (r) { return r || []; }, function () { return []; });
+}
+
+function putPhys(d) { return tx('readwrite', function (s) { return s.put(d); }, PHYS); }
+function delPhys(id) { return tx('readwrite', function (s) { return s.delete(id); }, PHYS); }
+function allPhys() {
+  return tx('readonly', function (s) { return s.getAll(); }, PHYS)
     .then(function (r) { return r || []; }, function () { return []; });
 }
 
@@ -260,12 +420,92 @@ function selectCell(i, p) {
   S.imp = i; S.prob = p;
 }
 
+/* ---------- statutory category, and who is allowed to assign one ----------
+
+   These words — Emergency, Category 1, two hours, 28 calendar days — are the
+   response categories a highway authority works to, and in practice they are
+   keyed on the depth and plan dimensions of the defect. This app measures
+   neither. It measures how much of a 640-pixel square the thing filled, which
+   is a function of how far away the camera was at least as much as of how big
+   the hole is.
+
+   So this function still exists, and it is still what the risk matrix reads —
+   but it is reachable only from the confirm screen, where a person is looking
+   at the photograph and choosing the cell. Nothing the survey writes on its own
+   goes anywhere near it. What the survey writes is a priority, below. */
 function category(n) {
   if (n >= 25) return { k: 'Emergency', r: '2 hours', c: 'c-em', key: 'kem' };
   if (n >= 16) return { k: 'Category 1', r: '1 working day', c: 'c-1', key: 'k1' };
   if (n >= 9)  return { k: 'Category 2', r: '28 calendar days', c: 'c-2', key: 'k2' };
   if (n >= 6)  return { k: 'Category 3', r: '90 calendar days', c: 'c-3', key: 'k3' };
   return { k: 'Below threshold', r: 'No response category', c: '', key: 'k0' };
+}
+
+/* ---------- what the app is allowed to say on its own ----------
+
+   An internal ordering, and nothing more. P1 is "of the things this survey
+   found, look at this one first"; P4 is "look at it last". There is no time
+   attached to any of them, because attaching one would be inventing a legal
+   obligation out of a box on a screen.
+
+   The thresholds are the app's own — they are the same numbers the risk matrix
+   is coloured by, reused so that a survey find and a scored find sort the same
+   way. They are not taken from any standard and they carry no legal meaning.
+   If they are wrong they are wrong about the order of a work list, which is a
+   thing you can look at and disagree with, rather than about a duty. */
+var PRIORITY = [
+  { min: 16, p: 'P1', word: 'Look at first', key: 'p1' },
+  { min: 9,  p: 'P2', word: 'Look at soon',  key: 'p2' },
+  { min: 6,  p: 'P3', word: 'Look at later', key: 'p3' },
+  { min: 0,  p: 'P4', word: 'Lowest',        key: 'p4' }
+];
+
+function priorityFor(n) {
+  if (typeof n !== 'number' || !isFinite(n) || n <= 0) return null;
+  for (var i = 0; i < PRIORITY.length; i++) if (n >= PRIORITY[i].min) return PRIORITY[i];
+  return PRIORITY[PRIORITY.length - 1];
+}
+
+/* Entries written before priorities existed carry a score and a statutory
+   category the survey chose for itself. The score is still a score, so the
+   priority is worked out from it here rather than by rewriting the row — and
+   the category it came with is dealt with by statutoryOf() below. */
+function priorityOf(it) {
+  if (!it) return null;
+  if (it.priority) {
+    for (var i = 0; i < PRIORITY.length; i++) if (PRIORITY[i].p === it.priority) return PRIORITY[i];
+  }
+  return priorityFor(it.score);
+}
+
+/* Returns the statutory category on an entry only if a person put it there.
+
+   This is the guard that makes old data safe. Rows logged by earlier builds
+   carry cat and resp filled in by the survey itself, unread by anybody — the
+   fields are kept, because deleting them would lose what the app said at the
+   time, but they are not a classification and they must not be shown or
+   exported as one. A category counts when catBy names who assigned it, or —
+   for rows from before that field existed — when the entry was confirmed by
+   someone on the confirm screen. */
+function statutoryOf(it) {
+  if (!it) return null;
+  if (it.catBy) {
+    return { cat: it.statCat, resp: it.statResp, by: it.catBy, at: it.catAt || null };
+  }
+  var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
+  if (!unconfirmed && it.confirmedAt && it.cat) {
+    return { cat: it.cat, resp: it.resp, by: it.scoredBy || 'inspector', at: it.confirmedAt };
+  }
+  return null;
+}
+
+/* The colour down the side of a log entry and on a map pin: the statutory
+   category when there is a real one, the internal priority otherwise. */
+function markKey(it) {
+  var s = statutoryOf(it);
+  if (s && it.key && /^k/.test(it.key)) return it.key;
+  var p = priorityOf(it);
+  return p ? p.key : 'p4';
 }
 
 function verdict() {
@@ -283,8 +523,13 @@ function verdict() {
   var by = $('vBy');
   by.hidden = !n || !S.by;
   if (n && S.by) {
-    by.textContent = S.by === 'app' ? 'Proposed by the app — tap any cell to overrule'
-                                    : 'Your score';
+    /* The verdict panel is the one place in the app that shows a statutory
+       category, and it is showing what will be written down if the Confirm
+       button is pressed. Until it is, this is a proposal on a screen and not a
+       classification, and it says so rather than leaving it to be assumed. */
+    by.textContent = S.by === 'app'
+      ? 'Proposed by the app — tap any cell to overrule. Nothing is classified until you confirm.'
+      : 'Your score — written down as a category when you confirm.';
   }
 }
 
@@ -368,6 +613,7 @@ $('bStop').addEventListener('click', function () { closeMenu(); stopAll(); });
 
 function stopAll() {
   if (survey.on) endSurvey();
+  releaseWake();          // in case the survey was already off and the lock was not
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
   if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   if (ageTimer) { clearInterval(ageTimer); ageTimer = null; }
@@ -436,22 +682,156 @@ function paintSpace() {
   }).catch(function () {});
 }
 
+/* A number, or null. Never a substitute.
+
+   coords.heading and coords.speed are absent far more often than they are
+   present: a phone reports a heading only while it is moving, and some devices
+   never report a speed at all. What comes back for those is null, or NaN, or
+   occasionally a negative. All of it means "not known", and all of it becomes
+   null here — because a survey that filled in a plausible zero would be
+   claiming the vehicle was pointing north and standing still, which is a
+   statement about the world rather than an absence of one. */
+function reading(v, lo, hi) {
+  /* null, undefined and '' have to be rejected before the coercion rather than
+     after it, because +null is 0 and +'' is 0 — so "the device did not report a
+     heading" would come out of this as a confident due north, and "no camera
+     lead has been set" as a lead of zero metres. Both were exactly the kind of
+     fabricated reading this function exists to prevent, and both got past it
+     until the suite caught them. */
+  if (v === null || v === undefined || v === '') return null;
+  var n = +v;
+  return (isFinite(n) && n >= lo && n <= hi) ? n : null;
+}
+
+/* Where a point that far along that bearing lands. Great-circle, which is
+   overkill at eight metres and costs nothing. */
+function project(lat, lon, bearingDeg, metres) {
+  var R = 6371000, rad = Math.PI / 180;
+  var d = metres / R, br = bearingDeg * rad, la1 = lat * rad, lo1 = lon * rad;
+  var la2 = Math.asin(Math.sin(la1) * Math.cos(d) +
+                      Math.cos(la1) * Math.sin(d) * Math.cos(br));
+  var lo2 = lo1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(la1),
+                             Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+  return { lat: la2 / rad, lon: ((lo2 / rad + 540) % 360) - 180 };
+}
+
+function cameraLead() {
+  var v = null;
+  try { v = localStorage.getItem(LEAD_STORE); } catch (e) {}
+  var n = reading(v, 0, LEAD_MAX_M);
+  return n == null ? CAMERA_LEAD_M : n;
+}
+
+/* ---------- where the defect probably is ----------
+
+   Given the fix behind a frame and when that frame was taken, put a point on
+   the road ahead and say how wrong it might be. Everything it needs is
+   something the app now records; anything missing means no estimate rather
+   than a worse one, and the reason travels with the entry so the log can say
+   why a find has no estimated position.
+
+   The error bar is deliberately pessimistic and is the sum of three separate
+   ignorances, not a statistical combination of them:
+
+     the fix's own accuracy — how vague the GPS is about where the vehicle was;
+     the whole of the camera lead — because nobody has calibrated it;
+     half the distance travelled between the fix and the frame.
+
+   Adding them rather than combining them in quadrature means the number is
+   larger than a careful treatment would give. That is the right direction to
+   be wrong in: the radius is a promise that the defect is probably inside it,
+   and a promise that is too generous costs somebody a longer look, while one
+   that is too tight sends them to the wrong place. */
+function estimatePosition(fix, capturedAt, leadM) {
+  if (!fix) return { lat: null, lon: null, confM: null, by: null, why: 'no fix' };
+  var age = capturedAt - fix.at;
+  if (!(age >= 0)) age = 0;
+  if (age > USABLE_FIX_MS) {
+    return { lat: null, lon: null, confM: null, by: null,
+             why: 'the fix was ' + Math.round(age / 100) / 10 + ' s old when the frame was taken' };
+  }
+  if (fix.heading == null) {
+    return { lat: null, lon: null, confM: null, by: null,
+             why: 'no heading — a phone reports one only while it is moving' };
+  }
+  var travel = fix.speed == null ? 0 : fix.speed * (age / 1000);
+  var lead = leadM == null ? cameraLead() : leadM;
+  var p = project(fix.lat, fix.lon, fix.heading, lead + travel);
+  var conf = fix.acc + lead * LEAD_UNCERTAINTY + travel * 0.5;
+  /* With no speed, the distance covered between fix and frame is unknown
+     rather than zero, so the lead's own width stands in for it. */
+  if (fix.speed == null) conf += lead;
+  return { lat: p.lat, lon: p.lon, confM: Math.ceil(conf),
+           by: 'projected along heading', why: null,
+           leadM: lead, travelM: Math.round(travel * 10) / 10 };
+}
+
+/* The one place that decides which of an entry's two positions to use.
+
+   An entry can carry both: where the vehicle was, which is measured, and where
+   the defect probably is, which is worked out from it. Anything pointing a
+   person at the road wants the second — the map pin, the three-word address,
+   the geometry in a GeoJSON export. Anything reporting what was measured wants
+   the first, and gets it under the field names it has always had.
+
+   Entries logged before this existed, and entries logged with no heading, have
+   only the vehicle position. They come back marked as such rather than
+   silently promoted. */
+function bestPos(it) {
+  if (!it) return null;
+  if (it.estLat != null && it.estLon != null) {
+    return { lat: it.estLat, lon: it.estLon, confM: it.posConfM,
+             source: 'estimated', estimated: true };
+  }
+  if (it.lat != null && it.lon != null) {
+    return { lat: it.lat, lon: it.lon, confM: it.acc == null ? null : it.acc,
+             source: 'vehicle', estimated: false };
+  }
+  return null;
+}
+
 function startGps() {
   if (!navigator.geolocation) { $('recTxt').textContent = 'No GPS'; gauge('rec', 'No GPS', 'none'); return; }
   $('gpsBox').hidden = false;
   watchId = navigator.geolocation.watchPosition(function (p) {
-    S.gps = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, at: Date.now() };
+    var c = p.coords;
+    S.gps = {
+      lat: c.latitude, lon: c.longitude, acc: c.accuracy, at: Date.now(),
+      /* Free, already in the payload, and never captured until now. A heading
+         is what separates the two carriageways of a dual carriageway; without
+         one there is no way to tell a defect seen going north from a different
+         defect seen going south at the same coordinates. */
+      heading: reading(c.heading, 0, 360),
+      speed: reading(c.speed, 0, 200)
+    };
     $('mLat').textContent = S.gps.lat.toFixed(6);
     $('mLon').textContent = S.gps.lon.toFixed(6);
     $('mAcc').textContent = '±' + Math.round(S.gps.acc) + ' m';
     $('mAcc').className = S.gps.acc > POOR_ACC ? 'warn' : '';
+    $('mHead').textContent = S.gps.heading == null ? 'not reported'
+      : Math.round(S.gps.heading) + '°';
+    $('mSpeed').textContent = S.gps.speed == null ? 'not reported'
+      : (S.gps.speed * 2.23694).toFixed(1) + ' mph';
     paintFix();
-  }, function () {
-    $('recTxt').textContent = 'GPS denied'; gauge('rec', 'GPS denied', 'none'); S.gps = null;
-    $('gpsBox').hidden = true;
-    toast('Location was refused, so finds will be logged with no coordinates — they cannot go ' +
-          'on the map or into GeoJSON. Allow it for this site, then stop and start the camera.');
-  }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
+  }, function (err) {
+    /* A refusal and a timeout are not the same problem and used to produce the
+       same message. Only the first is permanent, and only the first is worth
+       telling somebody to go and change a setting for. */
+    var denied = err && err.code === 1;
+    if (denied) {
+      $('recTxt').textContent = 'GPS denied'; gauge('rec', 'GPS denied', 'none');
+      S.gps = null; $('gpsBox').hidden = true;
+      toast('Location was refused, so finds will be logged with no coordinates — they cannot go ' +
+            'on the map or into GeoJSON. Allow it for this site, then stop and start the camera.');
+      return;
+    }
+    /* No fix yet. The watch is still running and may well produce one, so the
+       last fix is left where it is and the strip says what is happening. */
+    if (!S.gps) { $('recTxt').textContent = 'Waiting for GPS'; gauge('rec', 'No fix yet', 'poor'); }
+    toast(err && err.code === 3
+      ? 'No GPS fix yet — still trying. Under trees or between buildings this can take a while.'
+      : 'The device could not work out where it is. Still trying.');
+  }, { enableHighAccuracy: true, maximumAge: FIX_MAX_AGE_MS, timeout: GPS_TIMEOUT_MS });
   ageTimer = setInterval(paintFix, 2000);
 }
 
@@ -491,16 +871,18 @@ function openConfirm(id) {
     ? { conf: it.detConf, share: it.detShare, count: it.detCount || 1, cls: it.type }
     : null;
   if (S.det) {
-    var c = category(it.score || 0);
+    var pr = priorityOf(it);
     scanSay('<b>' + (it.detConf == null || it.detConf < 0 || it.detConf > 1
         ? 'The survey logged this without saying how sure it was.'
         : Math.round(it.detConf * 100) + '% sure when the survey logged it.') + '</b> ' +
       (it.detShare != null ? 'It filled ' + Math.round(it.detShare * 100) + '% of the frame, ' +
-        'which is what the proposed ' + it.imp + ' × ' + it.prob + ' = ' + it.score + ', ' +
-        c.k + ' was worked out from. ' : '') +
+        'which is what the ' + it.imp + ' × ' + it.prob + ' = ' + it.score + ' and the ' +
+        (pr ? pr.p : 'priority') + ' the survey gave it were worked out from. ' : '') +
       '<span class="caveat">A photograph has no scale in it. The share of the frame assumes the ' +
       'camera was pointed down at the road, and the box drawn round the hole is generous. It says ' +
-      'nothing about depth, traffic or footfall — that part is yours.</span>', 'hit');
+      'nothing about depth, traffic or footfall — that part is yours. The survey has given this a ' +
+      'priority and nothing else; the category and the response time below become part of the ' +
+      'record when you confirm, and not before.</span>', 'hit');
   } else {
     scanSay('<b>No model reading was kept for this entry.</b> Score it on the matrix yourself.', 'none');
   }
@@ -522,13 +904,27 @@ function paintFixNote() {
   var bits = [];
   if (it.acc > POOR_ACC) bits.push('the fix is only good to ±' + it.acc + ' m');
   if (it.fixAge != null && it.fixAge > STALE_MS / 1000) {
-    bits.push('it was ' + it.fixAge + ' seconds old when the find was logged');
+    bits.push('it was ' + it.fixAge + ' seconds old when the frame was taken');
   }
   if (!bits.length) n.className = 'fixnote ok';
-  n.innerHTML = '<b>Location.</b> ' + it.lat.toFixed(5) + ', ' + it.lon.toFixed(5) +
+
+  /* Two positions, said as two things. The vehicle's is measured; the
+     defect's is worked out from it and carries a radius that is deliberately
+     generous. Reading them as one number is exactly the mistake this is here
+     to prevent. */
+  var est = (it.estLat != null)
+    ? '<br><b>Estimated defect position.</b> ' + it.estLat.toFixed(5) + ', ' +
+      it.estLon.toFixed(5) + ' — ' + (it.cameraLeadM || cameraLead()) + ' m along a heading of ' +
+      Math.round(it.headingDeg) + '°, and it could be anywhere within ±' + it.posConfM +
+      ' m of that. The camera lead has not been calibrated against a known defect, so most of ' +
+      'that radius is the app admitting it does not know how far ahead it is looking.'
+    : '<br><b>No estimated defect position.</b> ' + esc(it.estWhy || 'not enough to work one out') +
+      ', so what is recorded is where the vehicle was and not where the defect is.';
+
+  n.innerHTML = '<b>Vehicle position.</b> ' + it.lat.toFixed(5) + ', ' + it.lon.toFixed(5) +
     ' at ±' + it.acc + ' m' +
     (bits.length ? ' — ' + bits.join(', ') + '. It stands as it is, and stays flagged in the log.'
-                 : '. Kept with the entry.');
+                 : '. Kept with the entry.') + est;
 }
 
 $('bDiscard').addEventListener('click', function () { confirming = null; show('log'); });
@@ -537,9 +933,19 @@ $('bSave').addEventListener('click', function () {
   var it = confirming;
   if (!it) return show('log');
   if (!S.imp || !S.prob) { alert('Score it on the matrix first.'); return; }
-  var n = S.imp * S.prob, c = category(n);
+  var n = S.imp * S.prob, c = category(n), pri = priorityFor(n);
   it.imp = S.imp; it.prob = S.prob; it.score = n;
+  /* This is the one place a statutory category is created, and it is created
+     because a person sat with the photograph and chose a cell. It is written
+     with their name on it — catBy is what statutoryOf() looks for, and an entry
+     without it has no classification however full its other fields are. cat and
+     resp are set alongside it so that anything reading the old field names sees
+     the same thing rather than a stale one. */
+  it.statCat = c.k; it.statResp = c.r;
+  it.catBy = S.by === 'app' ? 'app proposal, accepted by a person' : 'inspector';
+  it.catAt = new Date().toISOString();
   it.cat = c.k; it.resp = c.r; it.key = c.key;
+  if (pri) { it.priority = pri.p; it.priorityWord = pri.word; }
   it.surface = S.foot ? 'Footway/cycleway' : 'Carriageway';
   it.type = $('fType').value;
   it.note = $('fNote').value.trim();
@@ -547,9 +953,27 @@ $('bSave').addEventListener('click', function () {
      recorded as one — but as an accepted proposal, not as an independent
      judgement, because those are different things. */
   it.scoredBy = S.by === 'app' ? 'app proposal, accepted' : 'inspector';
-  it.confirmedAt = new Date().toISOString();
+  it.confirmedAt = it.catAt;
 
-  (dbBroken ? Promise.resolve() : putEntry(it)).then(function () {
+  /* Confirming an observation is also a person standing over the defect it is
+     an observation of, so the category and the signature travel up to it. That
+     is the only route by which a defect ever gets a statutory category. */
+  var d = it.defect_id ? defectById(it.defect_id) : null;
+  var upward = Promise.resolve();
+  if (d) {
+    d.statCat = it.statCat; d.statResp = it.statResp;
+    d.catBy = it.catBy; d.catAt = it.catAt;
+    d.verifiedBy = it.catBy; d.verifiedAt = it.catAt;
+    d.type = it.type;
+    if (it.score != null) { d.score = it.score; d.priority = it.priority || d.priority; }
+    d.updated_at = it.catAt;
+    d.status = defectStatus(d);
+    upward = dbBroken ? Promise.resolve() : putPhys(d).catch(function () {});
+  }
+
+  upward.then(function () {
+    return dbBroken ? Promise.resolve() : putEntry(it);
+  }).then(function () {
     confirming = null;
     render(); show('log');
   }, function (err) {
@@ -1131,7 +1555,8 @@ function rejectReason(ctx, cw, ch, box) {
 
 /* ---------- survey ---------- */
 var survey = { on: false, busy: false, timer: null, logged: 0, last: null,
-               startedAt: null, clock: null };
+               recent: [], startedAt: null, clock: null,
+               lastLookAt: null, lastLookFix: null };
 
 function metresBetween(a, b) {
   var R = 6371000, rad = Math.PI / 180;
@@ -1142,15 +1567,318 @@ function metresBetween(a, b) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/* Is this the same defect we just wrote down? Distance settles it when there is
-   a fix; without one, only time can, and time alone cannot tell a second
-   pothole from the first one still in shot. */
-function alreadyLogged() {
-  if (!survey.last) return false;
-  if (S.gps && survey.last.gps) {
-    return metresBetween(S.gps, survey.last.gps) < NEAR_M;
+/* The smaller of the two ways round a compass. 350° and 10° are 20° apart. */
+function headingGap(a, b) {
+  var d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+/* How far apart two things can be and still be the same thing.
+
+   Twice the worse of the two error bars, floored so a pair of very good fixes
+   cannot start separating a hole from itself, and reported as unusable beyond
+   the ceiling — at which point the caller falls back to time, because a
+   threshold wide enough to cover a bad fix is wide enough to swallow every real
+   neighbour on the street. */
+function dupRadius(a, b) {
+  var worst = Math.max(a == null ? 0 : a, b == null ? 0 : b);
+  var r = Math.max(DUP_MIN_M, 2 * worst);
+  return r > DUP_MAX_M ? null : r;
+}
+
+/* Have we already written this one down?
+
+   Returns the recent find it matches, or null. Every test that can be applied
+   has to agree before two things are called one thing, and a test that cannot
+   be applied — no heading on one side, no position on either — abstains rather
+   than voting either way. Suppressing a real defect is the more expensive
+   mistake of the two, so the tie goes to logging it. */
+function alreadyLogged(cand) {
+  if (!cand) return null;
+  var here = (cand.vlat != null) ? { lat: cand.vlat, lon: cand.vlon } : null;
+  for (var i = survey.recent.length - 1; i >= 0; i--) {
+    var r = survey.recent[i];
+
+    /* Seen travelling the other way is the other carriageway, which is a
+       different asset with a different owner's crew going to it. Only decisive
+       when both headings are known. */
+    if (cand.heading != null && r.heading != null &&
+        headingGap(cand.heading, r.heading) > DUP_HEADING_DEG) continue;
+
+    var dt = cand.at - r.at;
+    var moved = (here && r.vlat != null) ? metresBetween(here, { lat: r.vlat, lon: r.vlon }) : null;
+    /* Still recent enough to be the same hole still in shot: either not long
+       ago, or the vehicle has not gone far enough to have left it behind. */
+    var fresh = dt < DUP_WINDOW_MS || (moved != null && moved < DUP_TRAVEL_M);
+    if (!fresh) continue;
+
+    if (cand.lat != null && r.lat != null) {
+      var radius = dupRadius(cand.confM, r.confM);
+      if (radius == null) {
+        /* The fixes are too vague to separate anything. Fall back to the crude
+           rule the app used before it had positions worth trusting. */
+        if (dt < QUIET_MS) return r;
+        continue;
+      }
+      if (metresBetween(cand, r) < radius) return r;
+      continue;
+    }
+
+    /* No position on one side or the other, so only time can settle it — and
+       time alone cannot tell a second pothole from the first one still in
+       shot. It errs towards not logging, which is why a survey with no fix
+       says so on the screen. */
+    if (dt < QUIET_MS) return r;
   }
-  return (Date.now() - survey.last.at) < QUIET_MS;
+  return null;
+}
+
+function rememberFind(cand) {
+  survey.recent.push(cand);
+  if (survey.recent.length > RECENT_MAX) survey.recent.shift();
+  survey.last = { at: cand.at, gps: cand.vlat == null ? null : { lat: cand.vlat, lon: cand.vlon } };
+}
+
+/* ---------- the defect layer ----------
+
+   Deliberately small. It does one thing: decide whether an observation is of a
+   defect already known about, and keep a short record of the thing itself. It
+   does not cluster retrospectively, it does not merge defects, and it does not
+   run in the background. Anything cleverer than this belongs on a server with
+   every device's observations in front of it, and building it here would mean
+   building it twice.
+
+   How far apart two observations can be and still be of the same defect. More
+   generous than the within-a-run duplicate radius, because this is mostly
+   asking about a later pass on a different day with a different fix, where the
+   two error bars are independent rather than nearly identical. */
+var SAME_DEFECT_MIN_M = 20;
+var SAME_DEFECT_MAX_M = 80;
+
+function defectRadius(a, b) {
+  var r = Math.max(SAME_DEFECT_MIN_M, (a == null ? 0 : a) + (b == null ? 0 : b));
+  return Math.min(r, SAME_DEFECT_MAX_M);
+}
+
+/* The nearest known defect this observation could be of, or null.
+
+   Same type, close enough given both error bars, and pointing the same way
+   where both headings are known. A defect with no position cannot be matched
+   against — there is nothing to compare — so an observation with no fix always
+   becomes its own defect rather than being attached to whichever one happened
+   to be nearest in the list. */
+function defectFor(obs) {
+  var pos = bestPos(obs);
+  if (!pos) return null;
+  var best = null, bestD = Infinity;
+  for (var i = 0; i < S.defects.length; i++) {
+    var d = S.defects[i];
+    if (d.type !== obs.type) continue;
+    if (d.best_lat == null) continue;
+    if (obs.headingDeg != null && d.heading != null &&
+        headingGap(obs.headingDeg, d.heading) > DUP_HEADING_DEG) continue;
+    var gap = metresBetween(pos, { lat: d.best_lat, lon: d.best_lon });
+    if (gap < defectRadius(pos.confM, d.position_confidence_m) && gap < bestD) {
+      best = d; bestD = gap;
+    }
+  }
+  return best;
+}
+
+/* An observation's position, folded into the defect's.
+
+   Weighted by 1/r², so a ±6 m observation moves the estimate a great deal more
+   than a ±40 m one, and the combined radius shrinks as observations accumulate
+   — but never below the best single one, because averaging vague positions
+   cannot manufacture a precise one. */
+function foldPosition(d, obs) {
+  var pos = bestPos(obs);
+  if (!pos) return;
+  if (d.best_lat == null) {
+    d.best_lat = pos.lat; d.best_lon = pos.lon;
+    d.position_confidence_m = pos.confM;
+    d.position_source = pos.source;
+    return;
+  }
+  var ra = d.position_confidence_m, rb = pos.confM;
+  if (ra == null || rb == null || ra <= 0 || rb <= 0) return;
+  var wa = 1 / (ra * ra), wb = 1 / (rb * rb), w = wa + wb;
+  d.best_lat = (d.best_lat * wa + pos.lat * wb) / w;
+  d.best_lon = (d.best_lon * wa + pos.lon * wb) / w;
+  d.position_confidence_m = Math.max(Math.ceil(Math.sqrt(1 / w)), Math.min(ra, rb));
+  if (pos.source === 'estimated') d.position_source = 'estimated';
+}
+
+/* Provisional until a second pass agrees with the first, confirmed after that,
+   verified once a person has been shown it and signed it off.
+
+   Passes are counted as distinct survey runs, which is the only version of
+   "independent" this app can honestly measure: fifty frames of one hole on one
+   drive is one opinion, and three drives on three days is evidence. Defects
+   migrated from before runs were recorded have no run ids at all, so their pass
+   count is null rather than one — not knowing has to mean not knowing. */
+function defectStatus(d) {
+  if (d.verifiedAt) return 'verified';
+  return (d.runs && d.runs.length >= 2) ? 'confirmed' : 'provisional';
+}
+
+function newDefect(obs, runId) {
+  var pos = bestPos(obs);
+  return {
+    defect_id: uuid(),
+    created_at: obs.capturedAt || obs.t,
+    updated_at: obs.capturedAt || obs.t,
+    type: obs.type,
+    best_lat: pos ? pos.lat : null,
+    best_lon: pos ? pos.lon : null,
+    position_confidence_m: pos ? pos.confM : null,
+    position_source: pos ? pos.source : null,
+    heading: obs.headingDeg == null ? null : obs.headingDeg,
+    /* The worst its observations have made it look, so a defect does not get
+       quieter because the last pass caught it in shadow. */
+    score: obs.score == null ? null : obs.score,
+    priority: obs.priority || null,
+    first_seen: obs.capturedAt || obs.t,
+    last_seen: obs.capturedAt || obs.t,
+    observation_count: 1,
+    runs: runId ? [runId] : [],
+    statCat: null, statResp: null, catBy: null, catAt: null,
+    verifiedBy: null, verifiedAt: null,
+    status: 'provisional'
+  };
+}
+
+function foldObservation(d, obs, runId) {
+  d.observation_count = (d.observation_count || 0) + 1;
+  d.last_seen = obs.capturedAt || obs.t;
+  d.updated_at = new Date().toISOString();
+  if (runId && d.runs.indexOf(runId) === -1) d.runs.push(runId);
+  if (obs.score != null && (d.score == null || obs.score > d.score)) {
+    d.score = obs.score; d.priority = obs.priority || d.priority;
+  }
+  if (d.heading == null && obs.headingDeg != null) d.heading = obs.headingDeg;
+  foldPosition(d, obs);
+  d.status = defectStatus(d);
+}
+
+/* Attach an observation to a defect — an existing one where there is a
+   plausible match, a new one otherwise — and write both. */
+function fileObservation(obs, runId) {
+  obs.observation_id = obs.observation_id || uuid();
+  obs.runId = runId || obs.runId || null;
+  var d = defectFor(obs);
+  if (d) {
+    foldObservation(d, obs, obs.runId);
+  } else {
+    d = newDefect(obs, obs.runId);
+    S.defects.push(d);
+  }
+  obs.defect_id = d.defect_id;
+  if (dbBroken) return Promise.resolve(d);
+  return putPhys(d).then(function () { return d; }, function () { return d; });
+}
+
+function defectById(id) {
+  for (var i = 0; i < S.defects.length; i++) if (S.defects[i].defect_id === id) return S.defects[i];
+  return null;
+}
+
+/* An observation leaving the log takes its share of the defect with it, and a
+   defect with no observations left is not a defect. Nothing is orphaned and
+   nothing is silently kept alive by a row that has gone. */
+function unfileObservation(obs) {
+  var d = obs && obs.defect_id ? defectById(obs.defect_id) : null;
+  if (!d) return Promise.resolve();
+  d.observation_count = Math.max(0, (d.observation_count || 1) - 1);
+  if (d.observation_count === 0) {
+    S.defects = S.defects.filter(function (x) { return x.defect_id !== d.defect_id; });
+    return dbBroken ? Promise.resolve() : delPhys(d.defect_id).catch(function () {});
+  }
+  /* The runs are rebuilt from the observations that are actually left, so a
+     defect cannot stay "confirmed on two passes" once the evidence for one of
+     them has been deleted. Losing that status is the point: it is a claim about
+     how much is known, and less is known now. */
+  var runs = [];
+  S.items.forEach(function (o) {
+    if (o.defect_id === d.defect_id && o.runId && runs.indexOf(o.runId) === -1) runs.push(o.runId);
+  });
+  d.runs = runs;
+  d.updated_at = new Date().toISOString();
+  d.status = defectStatus(d);
+  return dbBroken ? Promise.resolve() : putPhys(d).catch(function () {});
+}
+
+/* ---------- giving the rows that came before this a defect each ----------
+
+   Every existing entry becomes one observation of one provisional defect. It
+   would be possible to cluster them retrospectively — they have positions — and
+   it would be wrong: those positions are the vehicle's, recorded with no
+   heading, from fixes that were allowed to be five seconds old. Merging two of
+   them would be a guess presented as a finding, and unmerging it afterwards is
+   not something the app can offer. One each, provisional, and any real grouping
+   comes from passes made after this build.
+
+   Runs are unknown for these, so the pass count is null and not one. */
+function migrateToDefects(rows, existing) {
+  var known = {};
+  (existing || []).forEach(function (d) { known[d.defect_id] = true; });
+  var todo = rows.filter(function (r) {
+    return !r.observation_id || !r.defect_id || !known[r.defect_id];
+  });
+  if (!todo.length) return Promise.resolve([]);
+  var made = [];
+  return todo.reduce(function (chain, obs) {
+    return chain.then(function () {
+      obs.observation_id = obs.observation_id || uuid();
+      if (obs.runId === undefined) obs.runId = null;
+      var d = newDefect(obs, null);
+      d.migrated = true;
+      d.status = 'provisional';
+      obs.defect_id = d.defect_id;
+      made.push(d);
+      return putPhys(d).then(function () { return putEntry(obs); });
+    });
+  }, Promise.resolve()).then(function () { return made; },
+    function () { return made; });      // a partial migration is retried next load
+}
+
+/* ---------- keeping the screen awake ----------
+
+   A survey ends when the screen sleeps, because the browser suspends the page
+   and the camera with it. The Wake Lock API is the fix and is not universally
+   available — Safari came to it late and some Android browsers still refuse —
+   so every path through this treats failure as normal. Nothing about the survey
+   depends on getting one. */
+var wakeLock = null, wakeState = 'not asked';
+
+function requestWake() {
+  if (!navigator.wakeLock || !navigator.wakeLock.request) {
+    wakeState = 'not supported by this browser';
+    return Promise.resolve(null);
+  }
+  return navigator.wakeLock.request('screen').then(function (s) {
+    wakeLock = s; wakeState = 'held';
+    /* The system can take it back — a call arrives, the battery saver comes on.
+       That is not an error, it is a fact to record; the visibility handler asks
+       again when the app is back in front. */
+    s.addEventListener('release', function () {
+      wakeLock = null;
+      if (wakeState === 'held') wakeState = 'released by the system';
+    });
+    return s;
+  }, function (e) {
+    wakeLock = null;
+    wakeState = 'refused (' + ((e && e.name) || 'unknown') + ')';
+    return null;
+  });
+}
+
+function releaseWake() {
+  var s = wakeLock;
+  wakeLock = null;
+  wakeState = 'released';
+  if (!s) return;
+  try { s.release(); } catch (e) { /* already gone */ }
 }
 
 function hud(state, cls) {
@@ -1200,7 +1928,21 @@ $('bRec').addEventListener('click', function () {
 function startSurvey() {
   if (survey.on || !stream) return;
   survey.on = true; survey.logged = 0; survey.last = null;
+  survey.recent = [];
+  /* One id per press of the record button. It is what "independent pass" is
+     counted in: fifty frames of one hole on one drive is one opinion, three
+     drives on three days is evidence. */
+  survey.runId = uuid();
   survey.startedAt = Date.now();
+  /* Asked for, never waited on. A browser that will not give one runs the
+     survey exactly as before — with the screen able to sleep, which is a worse
+     survey but still a survey. */
+  requestWake().then(function (s) {
+    if (!s && survey.on && /not supported/.test(wakeState)) {
+      toast('This browser will not keep the screen awake, so set the phone\u2019s screen ' +
+            'timeout long enough for the run — a survey ends when the screen sleeps.');
+    }
+  });
   clearInterval(survey.clock);
   survey.clock = setInterval(paintClock, 1000);
   paintClock(); paintRec(); paintSurface();
@@ -1222,6 +1964,7 @@ function endSurvey() {
   survey.on = false; survey.busy = false;
   clearTimeout(survey.timer); survey.timer = null;
   clearInterval(survey.clock); survey.clock = null;
+  releaseWake();
   paintRec();
   exitFull();
   toast(survey.logged
@@ -1229,23 +1972,61 @@ function endSurvey() {
     : '');
 }
 
+/* How long until the next look. A distance, converted to a time by whatever
+   speed the device is reporting; the old fixed interval when it reports none. */
+function lookDelay() {
+  var sp = S.gps ? S.gps.speed : null;
+  if (sp == null) return SURVEY_MS;
+  if (sp < STATIONARY_MPS) return LOOK_MAX_MS;      // stopped: idle, do not stare
+  var ms = (SURVEY_M / sp) * 1000;
+  return Math.max(LOOK_MIN_MS, Math.min(LOOK_MAX_MS, ms));
+}
+
 function tick() {
   if (!survey.on) return;
-  survey.timer = setTimeout(look, SURVEY_MS);
+  survey.timer = setTimeout(look, lookDelay());
 }
 
 function look() {
   if (!survey.on) return;
   var v = $('vid');
   if (survey.busy || !stream || !v.videoWidth || document.hidden) return tick();
+  /* Standing still, and the device is sure enough about that to say so. Nothing
+     new is coming into frame, so nothing is looked for — which saves the
+     battery and stops a queue at a junction becoming forty rows of the same
+     hole. A device that reports no speed is not standing still; it is a device
+     that reports no speed, and the survey carries on. */
+  if (S.gps && S.gps.speed != null && S.gps.speed < STATIONARY_MPS) {
+    hud('Stopped — not looking');
+    return tick();
+  }
   survey.busy = true;
   var vw = v.videoWidth, vh = v.videoHeight;
   var sq = squareFrame(v, vw, vh);
+  /* When the picture was taken, and what the fix said at that moment.
+
+     Both used to be read at the end, when the entry was written — after
+     inference, after the shadow test, after the JPEG was encoded. On a
+     mid-range phone that is a second or more, during which the vehicle has
+     moved and watchPosition has very likely replaced the fix. The entry then
+     recorded a position the camera was never at, timestamped when the database
+     was written rather than when the road was looked at.
+
+     The frame is the observation. It is stamped here, and the fix is copied
+     rather than referenced so that a later update cannot change what this
+     frame was taken against. */
+  var capturedAt = Date.now();
+  var fixAtCapture = S.gps ? {
+    lat: S.gps.lat, lon: S.gps.lon, acc: S.gps.acc, at: S.gps.at,
+    heading: S.gps.heading, speed: S.gps.speed
+  } : null;
+  survey.lastLookAt = capturedAt;
+  survey.lastLookFix = fixAtCapture;
   createImageBitmap(sq.canvas).then(function (input) {
     return import('./vendor/inference.es.js').then(function (m) {
       return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
         return { preds: takeDiag(preds), w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
-                 vw: vw, vh: vh };
+                 vw: vw, vh: vh, capturedAt: capturedAt, fix: fixAtCapture };
       });
     });
   }).then(function (out) {
@@ -1284,8 +2065,26 @@ function look() {
     if (!hits.length) return hud('Shadow, not a defect');
     var holes = hits.filter(function (f) { return typeFor(f.cls) === 'Pothole'; });
     if (!holes.length) return hud('Ironwork — sound cover, not logged');
-    if (alreadyLogged()) return hud('Same defect — not logged again');
-    return logFind(holes, out, c);
+    /* Compared as defect to defect where there is enough to work one out, not
+       as vehicle to vehicle. */
+    var est = estimatePosition(out.fix, out.capturedAt, null);
+    var cand = {
+      at: out.capturedAt,
+      lat: est.lat != null ? est.lat : (out.fix ? out.fix.lat : null),
+      lon: est.lat != null ? est.lon : (out.fix ? out.fix.lon : null),
+      confM: est.confM != null ? est.confM : (out.fix ? out.fix.acc : null),
+      heading: out.fix ? out.fix.heading : null,
+      vlat: out.fix ? out.fix.lat : null, vlon: out.fix ? out.fix.lon : null
+    };
+    var dup = alreadyLogged(cand);
+    if (dup) {
+      /* Suppressed, but not forgotten: the match's clock is moved forward so a
+         defect that stays in shot keeps suppressing rather than timing out and
+         being logged a second time from the same view. */
+      dup.at = out.capturedAt;
+      return hud('Same defect — not logged again');
+    }
+    return logFind(holes, out, c, cand);
   }).catch(function (e) {
     hud('Look failed', 'bad');
     toast(whyLocal(e));
@@ -1296,7 +2095,7 @@ function look() {
 
 /* Writes the entry with no one looking, which is exactly why it is marked as
    such: the log has to keep saying which scores a person stood over. */
-function logFind(hits, out, c) {
+function logFind(hits, out, c, cand) {
   var best = hits.reduce(function (a, b) { return (b.conf || 0) > (a.conf || 0) ? b : a; });
   var det = { conf: best.conf, share: best.share, count: hits.length,
               cls: best.cls, box: best.box };
@@ -1304,43 +2103,85 @@ function logFind(hits, out, c) {
   var p = proposal(det);
   S.det = was;
   if (!p) { hud('Found something, could not measure it', 'bad'); return Promise.resolve(); }
-  var n = p.imp * p.prb, cat = category(n);
+  var n = p.imp * p.prb, pri = priorityFor(n) || PRIORITY[PRIORITY.length - 1];
+
+  /* The fix as it was when the frame was taken, not as it is now. */
+  var capturedAt = (out && out.capturedAt) || Date.now();
+  var f = (out && out.fix) || null;
+  var est = estimatePosition(f, capturedAt, null);
 
   return new Promise(function (resolve) {
     c.toBlob(function (blob) {
       if (!blob) { hud('Could not save the frame', 'bad'); return resolve(); }
-      var f = S.gps ? { lat: S.gps.lat, lon: S.gps.lon, acc: S.gps.acc, age: fixAge() } : null;
+      var capturedIso = new Date(capturedAt).toISOString();
       var e = {
-        id: nextId(), t: new Date().toISOString(), img: blob,
-        imp: p.imp, prob: p.prb, score: n, cat: cat.k, resp: cat.r, key: cat.key,
+        id: nextId(),
+        /* t is when the road was looked at, not when the row was written. The
+           two are a second or so apart and it is the first that is the
+           observation; storedAt keeps the second, because the gap between them
+           is itself worth being able to see. */
+        t: capturedIso, capturedAt: capturedIso, storedAt: new Date().toISOString(),
+        img: blob,
+        imp: p.imp, prob: p.prb, score: n,
+        /* No category and no response time. The survey has not measured a
+           depth, nobody has looked at the photograph, and a field called
+           `resp` holding the words "2 hours" is read by whatever imports this
+           as an obligation. What it may say is which of its own finds it
+           thinks is worth looking at first. */
+        priority: pri.p, priorityWord: pri.word, key: pri.key,
+        cat: null, resp: null,
+        statCat: null, statResp: null, catBy: null, catAt: null,
         surface: S.foot ? 'Footway/cycleway' : 'Carriageway',
         tag: S.tag || '',
         scoredBy: 'survey, unconfirmed',
         detConf: det.conf, detShare: det.share, detCount: det.count,
         detBox: det.box,          // kept so a wrong entry can be diagnosed later
         type: typeFor(best.cls), note: '',
+        /* Where the vehicle was, unmodified. These keep the names they have
+           always had and mean what they have always meant, so nothing reading
+           an older export changes behaviour. */
         lat: f ? f.lat : null, lon: f ? f.lon : null,
-        acc: f ? Math.round(f.acc) : null, fixAge: f ? f.age : null
+        acc: f ? Math.round(f.acc) : null,
+        fixAge: f ? Math.round((capturedAt - f.at) / 1000) : null,
+        fixAgeMs: f ? Math.max(0, capturedAt - f.at) : null,
+        headingDeg: f ? f.heading : null,
+        speedMps: f ? f.speed : null,
+        /* Where the defect probably is, kept apart from where the vehicle was
+           and never mistaken for it. estWhy holds the reason when there is no
+           estimate, so the log can say why rather than showing a blank. */
+        estLat: est.lat, estLon: est.lon,
+        posConfM: est.confM, estBy: est.by, estWhy: est.why,
+        cameraLeadM: est.leadM == null ? null : est.leadM
       };
-      (dbBroken ? Promise.resolve() : putEntry(e)).then(function () {
+      /* The observation is attached to a defect before it is written, so the
+         row that lands in the store already knows what it is an observation
+         of — rather than being written first and patched afterwards, which
+         leaves a window where a crash orphans it. */
+      fileObservation(e, survey.runId).then(function () {
+      return (dbBroken ? Promise.resolve() : putEntry(e)).then(function () {
         S.items.unshift(e);
         addWords(e);
-        survey.logged++; survey.last = { at: Date.now(), gps: S.gps ? { lat: S.gps.lat, lon: S.gps.lon } : null };
+        survey.logged++;
+        rememberFind(cand || { at: capturedAt, lat: est.lat, lon: est.lon, confM: est.confM,
+          heading: f ? f.heading : null,
+          vlat: f ? f.lat : null, vlon: f ? f.lon : null });
         $('hudCount').textContent = survey.logged + ' logged';
         render();
         hud('Watching');
         /* A missing confidence used to just not appear, which reads exactly
            like a confident find. It is the one number that says whether the
            model is being decoded at all, so its absence is now said out loud. */
-        toast('Logged ' + typeFor(best.cls).toLowerCase() + ' — ' + cat.k +
+        toast('Logged ' + typeFor(best.cls).toLowerCase() + ' — ' + pri.p + ', ' +
+            pri.word.toLowerCase() +
             (det.conf == null ? ' (sureness out of range — the model is not being read properly)'
                               : ' (' + Math.round(det.conf * 100) + '% sure)') +
-            '. Unconfirmed.');
+            '. Not classified — nobody has looked at it.');
         resolve();
       }, function () {
         hud('Could not write it down', 'bad');
         toast('This device refused the write. Export what is in the log.');
         resolve();
+      });
       });
     }, 'image/jpeg', 0.82);
   });
@@ -1435,14 +2276,14 @@ function loadMap() {
 }
 
 function located() {
-  return S.items.filter(function (i) { return i.lat != null && i.lon != null; });
+  return S.items.filter(function (i) { return !!bestPos(i); });
 }
 
 function pinFor(it) {
   var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
   return L.divIcon({
     className: '',
-    html: '<i class="mappin ' + it.key + (unconfirmed ? ' unconf' : '') + '"></i>',
+    html: '<i class="mappin ' + markKey(it) + (unconfirmed ? ' unconf' : '') + '"></i>',
     iconSize: [18, 18], iconAnchor: [9, 9]
   });
 }
@@ -1458,12 +2299,30 @@ function drawMap() {
     pins.clearLayers();
     rows.forEach(function (it) {
       var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
+      var pos = bestPos(it);
       var where = (it.w3w ? '///' + esc(it.w3w)
-                          : it.lat.toFixed(5) + ', ' + it.lon.toFixed(5)) +
-                  (it.acc != null ? ' (±' + it.acc + 'm)' : '');
-      L.marker([it.lat, it.lon], { icon: pinFor(it) })
-        .bindPopup('<b>' + esc(it.cat) + '</b><br>' + esc(it.type) + ' · ' + esc(it.surface) +
-                   '<br>' + where + '<br>' + new Date(it.t).toLocaleString() +
+                          : pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5)) +
+                  (pos.confM != null ? ' (±' + pos.confM + 'm)' : '');
+      var st = statutoryOf(it), pr = priorityOf(it);
+      var title = st ? esc(st.cat) + ' — ' + esc(st.resp)
+                     : (pr ? pr.p + ' — ' + esc(pr.word) : 'Not scored') +
+                       ' <em>(app priority, not classified)</em>';
+      /* The pin is a point and the defect is not. A circle the size of the
+         honest error bar is drawn under it, so a pin sitting confidently on the
+         wrong side of a road is read as what it is — a best guess with a
+         radius — rather than as a survey mark. */
+      if (pos.confM != null && pos.confM > 0) {
+        L.circle([pos.lat, pos.lon], { radius: pos.confM, weight: 1,
+          color: unconfirmed ? '#FF6B1A' : '#8C93A0', opacity: 0.5,
+          fillOpacity: 0.06, interactive: false }).addTo(pins);
+      }
+      L.marker([pos.lat, pos.lon], { icon: pinFor(it) })
+        .bindPopup('<b>' + title + '</b><br>' + esc(it.type) + ' · ' + esc(it.surface) +
+                   '<br>' + where +
+                   '<br><em>' + (pos.estimated
+                     ? 'estimated defect position, ±' + pos.confM + ' m'
+                     : 'vehicle position — no defect estimate') + '</em>' +
+                   '<br>' + new Date(it.t).toLocaleString() +
                    (unconfirmed ? '<br><em>Unconfirmed survey find</em>' : ''))
         .addTo(pins);
     });
@@ -1479,7 +2338,9 @@ function drawMap() {
 function fitMap() {
   var rows = located();
   if (!map || !rows.length) return;
-  var b = L.latLngBounds(rows.map(function (i) { return [i.lat, i.lon]; }));
+  var b = L.latLngBounds(rows.map(function (i) {
+    var p = bestPos(i); return [p.lat, p.lon];
+  }));
   map.fitBounds(b, { padding: [40, 40], maxZoom: 17 });
 }
 $('bFit').addEventListener('click', fitMap);
@@ -1521,11 +2382,47 @@ $('pTag').addEventListener('input', function () {
 var W3W_KEY_STORE = 'deflog.w3w';
 var W3W_DEFAULT = 'GNB4B5O7';
 
+/* ---------- the built-in key, and what can honestly be done about it ----------
+
+   The key above is in a public repository on a public page. Anyone who opens
+   the source has it. That is not a mistake that can be corrected in this file:
+   a static site has no server to keep a secret on, and any key the page can use
+   is a key the page has handed to whoever is reading it. Obfuscating it would
+   only make it slower to find, which is not the same thing as protecting it,
+   and pretending otherwise is worse than saying so.
+
+   Two things are true and worth separating.
+
+     The real protection is at what3words' end. Their dashboard restricts a key
+     to a list of referring domains. Restricted, a copy of this key is worth
+     nothing anywhere else, and that — not anything in this file — is what stops
+     it being spent by a stranger. It has to be set there. Until it is, this key
+     is billable by anybody.
+
+     What this file can do is smaller, and it is this: the built-in key is used
+     only on the site it belongs to. A fork, a preview deployment, a copy
+     someone runs from their own Pages account — none of them spend this
+     account's quota by default, because none of them is on the list below. They
+     are not blocked from using what3words; they are asked to paste their own
+     key, which is kept on the device and works everywhere.
+
+   When there is a backend, the lookup moves behind it and the key stops being
+   in the page at all. That is the fix. This is the mitigation until then. */
+var W3W_HOSTS = ['jonathan-longden.github.io'];
+
+function w3wOwnSite() {
+  var h = String(location.hostname || '').toLowerCase();
+  return W3W_HOSTS.indexOf(h) !== -1;
+}
+
+/* Empty string is a decision — someone turned the lookups off — and is honoured
+   everywhere. null means nothing has been chosen, and only then does the site
+   the app is running on decide whether the built-in key applies. */
 function w3wKey() {
-  try {
-    var v = localStorage.getItem(W3W_KEY_STORE);
-    return v === null ? W3W_DEFAULT : v;   // '' means someone turned it off on purpose
-  } catch (e) { return W3W_DEFAULT; }
+  var v = null;
+  try { v = localStorage.getItem(W3W_KEY_STORE); } catch (e) { v = null; }
+  if (v !== null) return v;
+  return w3wOwnSite() ? W3W_DEFAULT : '';
 }
 
 function words(lat, lon) {
@@ -1546,20 +2443,76 @@ function words(lat, lon) {
 /* Written to the entry after the fact, so a slow or refused lookup costs the
    log nothing. */
 function addWords(entry) {
-  if (entry.w3w || entry.lat == null) return;
-  words(entry.lat, entry.lon).then(function (w) {
+  /* The address someone reads out should be of the road they are being sent
+     to, so this looks up the best position the entry has rather than the
+     vehicle's. Where there is no estimate the two are the same thing. */
+  var pos = bestPos(entry);
+  if (entry.w3w || !pos) return;
+  entry.w3wOf = pos.source;
+  words(pos.lat, pos.lon).then(function (w) {
     if (!w) return;
     entry.w3w = w;
     (dbBroken ? Promise.resolve() : putEntry(entry)).then(render, function () {});
   });
 }
 
+/* Which key is in use, and why, said on the screen where it can be changed.
+   The three states are genuinely different and were previously all described
+   by the same sentence. */
+function paintW3w() {
+  var n = $('w3wState'); if (!n) return;
+  var stored = null;
+  try { stored = localStorage.getItem(W3W_KEY_STORE); } catch (e) {}
+  if (stored) {
+    n.innerHTML = '<b>Using the key you pasted.</b> It is kept on this device only and is ' +
+      'billed to your own what3words account.';
+  } else if (stored === '') {
+    n.innerHTML = '<b>Lookups are off.</b> Entries keep their coordinates and get no ' +
+      'three-word address. Paste a key to turn them back on.';
+  } else if (w3wOwnSite()) {
+    n.innerHTML = '<b>Using the built-in key.</b> It belongs to this site and is metered and ' +
+      'paid — see below.';
+  } else {
+    n.innerHTML = '<b>No key, so no lookups.</b> The built-in key is only used on ' +
+      W3W_HOSTS.join(', ') + ', so this copy of the app does not spend that account\'s quota. ' +
+      'Paste your own key to record three-word addresses here. Coordinates are recorded either way.';
+  }
+}
+
+/* The camera lead is on screen and editable because it is the one number in
+   the app that can only be settled by driving at a defect somebody has already
+   measured. Burying it would mean nobody ever calibrates it. */
+function paintLead() {
+  var n = $('leadState'); if (!n) return;
+  var lead = cameraLead();
+  var stored = null;
+  try { stored = localStorage.getItem(LEAD_STORE); } catch (e) {}
+  n.innerHTML = stored == null
+    ? '<b>' + lead + ' m, the built-in guess.</b> Every estimate made with it carries ±' +
+      (lead * (1 + LEAD_UNCERTAINTY)) + ' m or worse, because an uncalibrated lead is a metre ' +
+      'of doubt for every metre of lead.'
+    : '<b>' + lead + ' m, set on this device.</b> Kept here only, and used for finds logged from ' +
+      'now on — entries already in the log keep the lead they were recorded with.';
+}
+
+$('camLead').value = cameraLead();
+paintLead();
+$('camLead').addEventListener('change', function () {
+  var v = reading(this.value, 0, LEAD_MAX_M);
+  if (v == null) { this.value = cameraLead(); return paintLead(); }
+  try { localStorage.setItem(LEAD_STORE, String(v)); } catch (e) {}
+  this.value = v;
+  paintLead();
+});
+
 $('w3wKey').value = w3wKey();
+paintW3w();
 $('w3wKey').addEventListener('change', function () {
   /* An emptied field is a decision, not an absence: it is stored as an empty
      string so it stays off, rather than quietly reverting to the built-in key
      on the next load. */
   try { localStorage.setItem(W3W_KEY_STORE, this.value.trim()); } catch (e) {}
+  paintW3w();
 });
 
 /* ---------- log ---------- */
@@ -1587,23 +2540,36 @@ function render() {
       'to go on a map' + (loose ? ', and ' + loose + ' ' + (loose === 1 ? 'has' : 'have') +
       ' none' : '') + '.' +
       (unconf ? ' <b>' + unconf + ' unconfirmed</b>, marked <code>confirmed: false</code> — ' +
-                'filter on it before anything here starts a response clock.' : '');
+                'filter on it before anything here starts a response clock.' : '') +
+      ' Every export carries <code>app_priority</code>, which is this app\'s own ordering. ' +
+      '<code>statutory_category</code> is empty except where a person assigned one.';
   }
   $('saveNote').hidden = !has;
 
   urls.forEach(URL.revokeObjectURL); urls = [];
   $('list').innerHTML = S.items.map(function (it) {
-    var loc, flag = '';
-    if (it.lat != null) {
+    var loc, flag = '', pos = bestPos(it);
+    if (pos) {
       /* The three-word address is what someone reads out on a radio and types
          into a van's satnav; six decimal places of latitude is not. So it
          stands in place of the coordinates once it arrives — the coordinates
          are still what is stored and exported, they are simply not the useful
-         thing to show. Accuracy stays either way, because how well the fix is
-         known is not a detail. */
-      loc = it.w3w ? '///' + esc(it.w3w) : it.lat.toFixed(5) + ', ' + it.lon.toFixed(5);
-      if (it.acc != null) loc += ' (±' + it.acc + 'm)';
-      if (it.acc > POOR_ACC) flag = ' <span class="flag">coarse fix</span>';
+         thing to show. The error bar stays either way, because how well the
+         position is known is not a detail: it is the difference between "this
+         road" and "one of these two roads". */
+      loc = it.w3w ? '///' + esc(it.w3w) : pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5);
+      if (pos.confM != null) loc += ' (±' + pos.confM + 'm)';
+      /* Which of the two positions this is. An estimate that read like a
+         measurement would be the whole problem back again. */
+      loc += pos.estimated ? ' · estimated defect position'
+                           : ' · vehicle position, not the defect\u2019s';
+      if (pos.confM != null && pos.confM > POOR_ACC) {
+        flag = ' <span class="flag">±' + pos.confM + ' m — could be either side of the road</span>';
+      }
+      if (!pos.estimated && it.lat != null) {
+        flag += ' <span class="flag">' +
+          esc(it.estWhy || 'no defect estimate') + '</span>';
+      }
       if (it.fixAge != null && it.fixAge > STALE_MS / 1000) {
         flag += ' <span class="flag">fix ' + it.fixAge + 's old</span>';
       }
@@ -1617,20 +2583,60 @@ function render() {
     } else if (it.detShare != null) {
       how += ' · model, ' + Math.round(it.detShare * 100) + '% of frame';
     }
+    if (it.headingDeg != null) {
+      how += ' · heading ' + Math.round(it.headingDeg) + '°';
+      if (it.speedMps != null) how += ' at ' + (it.speedMps * 2.23694).toFixed(0) + ' mph';
+    }
+    /* What this row is an observation of. A defect seen once is provisional and
+       says so: one pass is one opinion, and the app has no business claiming a
+       hole exists on the strength of a single drive past it. */
+    var od = it.defect_id ? defectById(it.defect_id) : null;
+    var obsLine = '';
+    if (od) {
+      var passes = od.runs && od.runs.length ? od.runs.length : null;
+      obsLine = '<div class="obs">Defect <code>' + esc(od.defect_id.slice(0, 8)) + '</code> · ' +
+        od.observation_count + ' observation' + (od.observation_count === 1 ? '' : 's') +
+        (passes ? ' over ' + passes + ' pass' + (passes === 1 ? '' : 'es') : '') +
+        ' · <b class="st-' + esc(od.status) + '">' + esc(od.status) + '</b>' +
+        (od.status === 'provisional'
+          ? ' <span class="obsnote">seen on one pass — not yet claimed to exist</span>' : '') +
+        '</div>';
+    }
     /* Gauged depth is real measured data. The fields that collected it are gone,
        but an entry that already carries one still shows it. */
     var dep = (it.depth != null) ? it.depth + 'mm at deepest point (gauged)' : null;
     var src = '';
     if (it.img) { src = URL.createObjectURL(it.img); urls.push(src); }
-    return '<div class="item ' + it.key + (unconfirmed ? ' unconf' : '') + '">' +
+
+    /* The headline is either a statutory category a person assigned or the
+       app's own priority, and the two are never allowed to look alike. A
+       category comes with a response time; a priority comes with a line saying
+       in as many words that nothing has been classified. Entries logged by
+       older builds, which carry a category the survey wrote for itself, fall on
+       the priority side — statutoryOf() is what decides, not the field. */
+    var st = statutoryOf(it), pr = priorityOf(it);
+    var head, sub;
+    if (st) {
+      head = '<span class="cat">' + esc(st.cat) + '</span>';
+      sub = esc(st.resp) + ' · assigned by ' + esc(st.by);
+    } else {
+      /* The chip sits inside the heading rather than beside it: .top stacks its
+         children, so a sibling would put "app priority" on a line of its own,
+         a whole line away from the P4 it is qualifying. */
+      head = '<span class="cat prio">' + esc(pr ? pr.p : '—') +
+             '<span class="prionote">app priority</span></span>';
+      sub = (pr ? esc(pr.word) : 'Not scored') + ' · <b>not classified</b> — no response time';
+    }
+
+    return '<div class="item ' + markKey(it) + (unconfirmed ? ' unconf' : '') + '">' +
       (src ? '<button type="button" class="thumb" data-full="' + it.id + '">' +
              '<img src="' + src + '" alt="Defect photograph, tap for full size"></button>' : '') +
-      '<div class="body"><div class="top"><span class="cat">' + esc(it.cat) + '</span>' +
+      '<div class="body"><div class="top">' + head +
       '<span class="sc">' + it.imp + ' × ' + it.prob + ' = ' + it.score + '</span></div>' +
-      '<div class="det">' + esc(it.resp) + ' · ' + esc(it.type) + ' · ' + esc(it.surface) + '<br>' +
+      '<div class="det">' + sub + ' · ' + esc(it.type) + ' · ' + esc(it.surface) + '<br>' +
       (dep ? esc(dep) + '<br>' : '') + how + '<br>' + esc(loc) + flag + '<br>' +
       new Date(it.t).toLocaleString() +
-      (it.note ? '<br>' + esc(it.note) : '') + '</div>' +
+      (it.note ? '<br>' + esc(it.note) : '') + '</div>' + obsLine +
       '<div class="acts">' +
       (unconfirmed ? '<button class="del go" data-id="' + it.id + '">Confirm</button>' : '') +
       '<button class="del amend-open" data-id="' + it.id + '">Amend</button>' +
@@ -1679,13 +2685,20 @@ $('list').addEventListener('click', function (e) {
        score is recomputed rather than left describing the other surface. A
        score a person chose is theirs and is left alone. */
     var nowFoot = sit.surface === 'Footway/cycleway';
-    if (nowFoot !== wasFoot && sit.detShare != null && sit.scoredBy !== 'inspector') {
+    /* Only the app's own priority is recomputed, and only on an entry the app
+       is still the sole author of. Once a person has assigned a category,
+       changing the surface is a note about the entry — it is not permission for
+       the app to reclassify what somebody signed. */
+    if (nowFoot !== wasFoot && sit.detShare != null &&
+        sit.scoredBy !== 'inspector' && !statutoryOf(sit)) {
       var keep = S.foot; S.foot = nowFoot;
       var p = proposal({ share: sit.detShare, count: sit.detCount || 1, conf: sit.detConf });
       S.foot = keep;
-      var c2 = category(p.imp * p.prb);
-      sit.imp = p.imp; sit.prob = p.prb; sit.score = p.imp * p.prb;
-      sit.cat = c2.k; sit.resp = c2.r; sit.key = c2.key;
+      if (p) {
+        var n2 = p.imp * p.prb, pr2 = priorityFor(n2);
+        sit.imp = p.imp; sit.prob = p.prb; sit.score = n2;
+        if (pr2) { sit.priority = pr2.p; sit.priorityWord = pr2.word; sit.key = pr2.key; }
+      }
     }
     return (dbBroken ? Promise.resolve() : putEntry(sit)).then(render, render);
   }
@@ -1699,24 +2712,40 @@ $('list').addEventListener('click', function (e) {
                  'correction, so it can be used to teach the model.')) return;
     S.items = S.items.filter(function (x) { return x.id !== wid; });
     wit.markedWrongAt = new Date().toISOString();
-    var done = dbBroken ? Promise.resolve()
-      : putWrong(wit).then(function () { return delEntry(wid); });
+    var done = unfileObservation(wit).then(function () {
+      return dbBroken ? Promise.resolve()
+        : putWrong(wit).then(function () { return delEntry(wid); });
+    });
     return done.then(render, render);
   }
 
   var b = e.target.closest('.del.remove'); if (!b) return;
   var id = +b.dataset.id;
   var it = S.items.filter(function (x) { return x.id === id; })[0];
-  if (!confirm('Remove this ' + (it ? it.cat.toLowerCase() : 'entry') + ' and its photograph? ' +
+  var itSt = it ? statutoryOf(it) : null, itPr = it ? priorityOf(it) : null;
+  var what = itSt ? itSt.cat.toLowerCase() : (itPr ? itPr.p + ' find' : 'entry');
+  if (!confirm('Remove this ' + what + ' and its photograph? ' +
                'This cannot be undone.')) return;
   S.items = S.items.filter(function (x) { return x.id !== id; });
-  (dbBroken ? Promise.resolve() : delEntry(id)).then(render, render);
+  unfileObservation(it).then(function () {
+    return dbBroken ? Promise.resolve() : delEntry(id);
+  }).then(render, render);
 });
 
 $('bClear').addEventListener('click', function () {
   if (!confirm('Remove all ' + S.items.length + ' entries? This cannot be undone.')) return;
   S.items = [];
-  (dbBroken ? Promise.resolve() : clearEntries()).then(render, render);
+  var gone = S.defects.slice();
+  S.defects = [];
+  (dbBroken ? Promise.resolve()
+            : clearEntries().then(function () {
+                /* The defects go with their observations. A defect store left
+                   full after the log was emptied would put every one of them
+                   back on the next pass as a thing with no evidence. */
+                return Promise.all(gone.map(function (d) {
+                  return delPhys(d.defect_id).catch(function () {});
+                }));
+              })).then(render, render);
 });
 
 /* ---------- full-size photo ---------- */
@@ -1773,13 +2802,48 @@ $('bCsv').addEventListener('click', function () {
      dropped them would lose measurements taken before they went. The columns
      appear only while some entry still has one. */
   var old = S.items.some(function (i) { return i.depth != null || i.wide != null; });
-  var head = ['timestamp', 'latitude', 'longitude', 'gps_accuracy_m', 'gps_fix_age_s',
-    'defect_type', 'surface', 'impact', 'probability', 'risk_factor', 'category', 'response_time',
+  /* app_priority is the app's own ordering and is always filled in.
+     statutory_category and statutory_response_time are filled in only where a
+     person assigned one, and are empty everywhere else — an empty cell is the
+     honest answer to "what category is this", and a spreadsheet that sorts on
+     it puts the unclassified finds together where they belong.
+
+     category and response_time are kept under their old names as well, because
+     a spreadsheet or an import template keyed on them should not break on this
+     release. They hold the same thing statutory_category holds — which is
+     nothing at all unless a person put it there. */
+  var head = ['observation_id', 'defect_id', 'defect_status',
+    'defect_observation_count', 'independent_pass_count', 'run_id',
+    'timestamp', 'captured_at', 'stored_at',
+    'latitude', 'longitude', 'gps_accuracy_m', 'gps_fix_age_s',
+    'heading_deg', 'speed_mps',
+    'estimated_defect_lat', 'estimated_defect_lon', 'position_confidence_m',
+    'position_source', 'position_note', 'camera_lead_m',
+    'defect_type', 'surface', 'impact', 'probability', 'risk_factor',
+    'app_priority', 'app_priority_note',
+    'category', 'response_time',
+    'statutory_category', 'statutory_response_time', 'categorised_by', 'categorised_at',
     'tag', 'scored_by', 'model_confidence', 'model_share_of_frame', 'model_detections']
     .concat(old ? ['depth_mm_deepest', 'wider_than_tyre'] : []).concat(['what3words', 'notes']);
   var rows = S.items.map(function (i) {
-    return [i.t, i.lat, i.lon, i.acc, i.fixAge, i.type, i.surface,
-      i.imp, i.prob, i.score, i.cat, i.resp,
+    var st = statutoryOf(i), pr = priorityOf(i);
+    var pos = bestPos(i);
+    var d = i.defect_id ? defectById(i.defect_id) : null;
+    /* Null rather than 1 where the runs are unknown — the rows migrated from
+       before runs were recorded cannot honestly claim a pass count. */
+    var passes = d && d.runs && d.runs.length ? d.runs.length : '';
+    return [i.observation_id || '', i.defect_id || '', d ? d.status : '',
+      d ? d.observation_count : '', passes, i.runId || '',
+      i.t, i.capturedAt || i.t, i.storedAt || '',
+      i.lat, i.lon, i.acc, i.fixAge,
+      i.headingDeg, i.speedMps,
+      i.estLat, i.estLon, pos ? pos.confM : '',
+      pos ? pos.source : '', i.estBy || i.estWhy || '', i.cameraLeadM,
+      i.type, i.surface,
+      i.imp, i.prob, i.score,
+      pr ? pr.p : '', pr ? pr.word : '',
+      st ? st.cat : '', st ? st.resp : '',
+      st ? st.cat : '', st ? st.resp : '', st ? st.by : '', st ? st.at : '',
       i.tag || '', i.scoredBy || 'inspector', i.detConf, i.detShare, i.detCount]
       .concat(old ? [i.depth, i.wide === null || i.wide === undefined ? '' : (i.wide ? 'yes' : 'no')] : [])
       .concat([i.w3w ? '///' + i.w3w : '', i.note]).map(q).join(',');
@@ -1804,24 +2868,61 @@ $('bCsv').addEventListener('click', function () {
    so `confirmed` is there to be filtered on before any of this reaches a system
    that starts a clock. */
 $('bGeo').addEventListener('click', function () {
-  var rows = S.items.filter(function (i) { return i.lat != null && i.lon != null; });
+  var rows = S.items.filter(function (i) { return !!bestPos(i); });
   if (!rows.length) {
     return alert('Nothing to export: no entry in the log has a location on it.');
   }
   var fc = {
     type: 'FeatureCollection',
     features: rows.map(function (i) {
+      var st = statutoryOf(i), pr = priorityOf(i), pos = bestPos(i);
+      var dfc = i.defect_id ? defectById(i.defect_id) : null;
       return {
         type: 'Feature',
         id: i.id,
-        geometry: { type: 'Point', coordinates: [i.lon, i.lat] },
+        /* The geometry is the best estimate of where the defect is, because
+           that is what anything with a map in it is going to drive somebody
+           to. Where the vehicle was is carried in the properties beside it,
+           under its own names, along with which of the two this point is and
+           how wide the error bar around it is. A point with no radius beside it
+           would be the same false precision in a different file format. */
+        geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
         properties: {
+          observation_id: i.observation_id || null,
+          defect_id: i.defect_id || null,
+          defect_status: dfc ? dfc.status : null,
+          defect_observation_count: dfc ? dfc.observation_count : null,
+          independent_pass_count: (dfc && dfc.runs && dfc.runs.length) ? dfc.runs.length : null,
           logged: i.t,
+          captured_at: i.capturedAt || i.t,
+          stored_at: i.storedAt || null,
+          position_source: pos.source,
+          position_confidence_m: pos.confM == null ? null : pos.confM,
+          position_note: pos.estimated
+            ? 'projected ' + (i.cameraLeadM || 0) + ' m along the recorded heading; the camera ' +
+              'lead is uncalibrated and most of the radius is that'
+            : (i.estWhy || 'no heading, so no defect estimate — this is the vehicle position'),
+          vehicle_lat: i.lat == null ? null : i.lat,
+          vehicle_lon: i.lon == null ? null : i.lon,
+          heading_deg: i.headingDeg == null ? null : i.headingDeg,
+          speed_mps: i.speedMps == null ? null : i.speedMps,
+          camera_lead_m: i.cameraLeadM == null ? null : i.cameraLeadM,
           defect_type: i.type,
           tag: i.tag || null,
           surface: i.surface,
-          category: i.cat,
-          response_time: i.resp,
+          /* Null, not a category, wherever nobody assigned one. A GIS that
+             styles on statutory_category will show these as unclassified,
+             which is what they are. The old key names stay, holding the same
+             value, so an existing import does not lose a column — but they are
+             null on everything the app classified for itself, which is the
+             whole point of the change. */
+          category: st ? st.cat : null,
+          response_time: st ? st.resp : null,
+          statutory_category: st ? st.cat : null,
+          statutory_response_time: st ? st.resp : null,
+          categorised_by: st ? st.by : null,
+          app_priority: pr ? pr.p : null,
+          app_priority_note: pr ? pr.word + ' — the app\'s own ordering, not a statutory category' : null,
           impact: i.imp,
           probability: i.prob,
           risk_factor: i.score,
@@ -1843,47 +2944,141 @@ $('bGeo').addEventListener('click', function () {
      new Blob([JSON.stringify(fc, null, 2)], { type: 'application/geo+json' }));
 });
 
+/* ---------- the JSON export, and why it is built the long way round ----------
+
+   It used to read every photograph at once — Promise.all over the whole log,
+   each one turned into a base64 data URL — and then hand the lot to
+   JSON.stringify, which built one more string containing all of them again. A
+   200 kB JPEG is about 270 kB as base64, so four hundred entries is somewhere
+   over 100 MB of JavaScript string, held twice, on a phone. It does not fail
+   politely: the tab is killed and the export is simply gone.
+
+   Two changes fix that without changing the file that comes out.
+
+   The photographs are read one at a time, so only one is on the heap at once.
+   And the pieces of the document are handed to a Blob as they are made rather
+   than concatenated: once a few megabytes have gathered they are collapsed into
+   a Blob, which the browser holds outside the JavaScript heap and spills to
+   disk, and the collapsed Blob becomes the first piece of the next batch. Peak
+   memory is the chunk size plus one photograph, whatever the size of the log.
+
+   It is a true stream in the sense that matters — nothing whole is ever
+   resident — but it is not a streaming download: the file is finished before
+   the browser is asked to save it, because a page cannot hand a save dialogue
+   something it is still writing. A log large enough to fill the device's free
+   space would still fail, and that is a disk limit rather than a memory one. */
+function parts(limitBytes) {
+  var buf = [], pending = 0, limit = limitBytes || 4 * 1024 * 1024;
+  return {
+    add: function (s) {
+      buf.push(s); pending += s.length;
+      /* Collapsing turns however many strings have gathered into one Blob, and
+         a Blob does not live on the heap. The strings become unreachable the
+         moment the array is replaced. */
+      if (pending >= limit) { buf = [new Blob(buf)]; pending = 0; }
+    },
+    blob: function (type) { return new Blob(buf, { type: type }); }
+  };
+}
+
+/* One photograph, as a data URL, resolved rather than rejected on failure: an
+   image that will not read must cost that entry its picture and nothing else. */
+function imgDataUrl(blob) {
+  return new Promise(function (resolve) {
+    if (!blob) return resolve(null);
+    var fr = new FileReader();
+    fr.onload = function () { resolve(fr.result); };
+    fr.onerror = function () { resolve(null); };
+    try { fr.readAsDataURL(blob); } catch (e) { resolve(null); }
+  });
+}
+
+/* Rows are written into the document one at a time, in order, each one read,
+   serialised and released before the next is touched. */
+function writeRows(out, list, withImages, onProgress) {
+  var i = 0;
+  function step() {
+    if (i >= list.length) return Promise.resolve();
+    var it = list[i], row = {};
+    for (var k in it) if (k !== 'img') row[k] = it[k];
+    return (withImages ? imgDataUrl(it.img) : Promise.resolve(null)).then(function (url) {
+      row.img = url;
+      if (!withImages && it.img) row.imgOmitted = true;
+      out.add((i ? ',\n' : '') + JSON.stringify(row));
+      row = null; url = null;          // nothing from this entry outlives the step
+      i++;
+      if (onProgress) onProgress(i, list.length);
+      return step();
+    });
+  }
+  return step();
+}
+
+function imageBytes(list) {
+  return list.reduce(function (n, i) { return n + (i.img ? i.img.size : 0); }, 0);
+}
+
 $('bJson').addEventListener('click', function () {
-  var btn = this; btn.disabled = true;
-  Promise.all(S.items.map(function (it) {
-    var out = {};
-    for (var k in it) if (k !== 'img') out[k] = it[k];
-    if (!it.img) { out.img = null; return Promise.resolve(out); }
-    return new Promise(function (resolve) {
-      var fr = new FileReader();
-      fr.onload = function () { out.img = fr.result; resolve(out); };
-      fr.onerror = function () { out.img = null; resolve(out); };
-      fr.readAsDataURL(it.img);      // photographs travel as data URLs, as before
+  var btn = this, label = btn.textContent;
+  btn.disabled = true;
+
+  allWrong().then(function (wrong) {
+    var all = S.items.concat(wrong);
+    var raw = imageBytes(all);
+    var encoded = Math.round(raw * 4 / 3);            // base64 costs a third more
+    var mb = Math.round(encoded / 1048576);
+    var withImages = true;
+
+    /* Above a few hundred megabytes this stops being a question of memory and
+       becomes a question of whether the phone has the room and the patience.
+       The choice is offered rather than made: the photographs are the thing a
+       retrain needs, so quietly dropping them would be the wrong default. */
+    if (encoded > 250 * 1024 * 1024) {
+      withImages = confirm(
+        'This export contains ' + all.filter(function (i) { return i.img; }).length +
+        ' photographs — about ' + mb + ' MB once encoded. Writing it will take a while and ' +
+        'needs that much free space on this device.\n\n' +
+        'OK to include the photographs.\n' +
+        'Cancel to export the same records without them (a few hundred kilobytes), which ' +
+        'keeps every measurement and loses only the images.');
+    }
+
+    var out = parts();
+    var meta;
+    out.add('{\n"defects": [\n');
+    return writeRows(out, S.items, withImages, function (n, total) {
+      btn.textContent = 'JSON ' + n + '/' + total;
+    }).then(function () {
+      out.add('\n],\n"notDefects": [\n');
+      return writeRows(out, wrong, withImages);
+    }).then(function () {
+      out.add('\n],\n');
+      return modelMeta();
+    }).then(function (m) {
+      meta = m;
+      out.add('"model": ' + JSON.stringify({
+        id: RF_MODEL_ID || (RF_MODEL + '/' + RF_VERSION),
+        loadedBy: RF_MODEL_ID ? 'model id' : 'project and version',
+        build: BUILD,
+        roboflow: meta,               // what the service says it is, and what decodes it
+        selfTest: selfTest
+      }, null, 2) + ',\n');
+      /* The defects the observations above are observations of. `defects` is
+         the observation list and keeps that name for compatibility; this is the
+         new thing beside it. */
+      out.add('"physicalDefects": ' + JSON.stringify(S.defects, null, 2) + ',\n');
+      out.add('"photographs": ' + JSON.stringify(withImages ? 'included' : 'omitted at export') + ',\n');
+      // what the model returned when it made no sense
+      out.add('"lastUnusableOutput": ' + JSON.stringify(lastRaw == null ? null : lastRaw) + '\n}\n');
+      dl('defects-' + stamp() + '.json', out.blob('application/json'));
     });
-  })).then(function (rows) {
-    return allWrong().then(function (wrong) {
-      return Promise.all(wrong.map(function (it) {
-        var out = {};
-        for (var k in it) if (k !== 'img') out[k] = it[k];
-        if (!it.img) { out.img = null; return Promise.resolve(out); }
-        return new Promise(function (resolve) {
-          var fr = new FileReader();
-          fr.onload = function () { out.img = fr.result; resolve(out); };
-          fr.onerror = function () { out.img = null; resolve(out); };
-          fr.readAsDataURL(it.img);
-        });
-      })).then(function (wrongRows) {
-        return modelMeta().then(function (meta) { return { wrongRows: wrongRows, meta: meta }; });
-      }).then(function (bundle) {
-        var wrongRows = bundle.wrongRows, meta = bundle.meta;
-        dl('defects-' + stamp() + '.json', new Blob([JSON.stringify({
-          defects: rows,
-          notDefects: wrongRows,      // the examples a retrain would need
-          model: { id: RF_MODEL_ID || (RF_MODEL + '/' + RF_VERSION),
-                   loadedBy: RF_MODEL_ID ? 'model id' : 'project and version',
-                   build: BUILD,
-                   roboflow: meta,     // what the service says it is, and what decodes it
-                   selfTest: selfTest },
-          lastUnusableOutput: lastRaw // what the model returned when it made no sense
-        }, null, 2)], { type: 'application/json' }));
-      });
-    });
-  }).then(function () { btn.disabled = false; }, function () { btn.disabled = false; });
+  }).then(function () {
+    btn.disabled = false; btn.textContent = label;
+  }, function (e) {
+    btn.disabled = false; btn.textContent = label;
+    alert('The export could not be written (' + (e && e.name ? e.name : 'unknown') + '). ' +
+          'The log is untouched. CSV carries every measurement without the photographs.');
+  });
 });
 
 /* ---------- diagnostics ----------
@@ -1898,6 +3093,19 @@ function diagLines() {
   L.push('Defect Log ' + BUILD);
   L.push('when       ' + new Date().toISOString());
   L.push('page       ' + location.host);
+  /* Which key is being spent, without printing the key. A support question
+     that starts "why are there no three-word addresses" is answered here. */
+  var w3wStored = null;
+  try { w3wStored = localStorage.getItem(W3W_KEY_STORE); } catch (e) {}
+  L.push('what3words ' + (w3wStored ? 'a key kept on this device'
+    : w3wStored === '' ? 'off — lookups turned off here'
+    : w3wOwnSite() ? 'the built-in key (this is its own site)'
+    : 'none — the built-in key is only used on ' + W3W_HOSTS.join(', ')));
+  L.push('screen     wake lock ' + wakeState);
+  L.push('cadence    ' + (S.gps && S.gps.speed != null
+    ? Math.round(lookDelay()) + ' ms — one look per ' + SURVEY_M + ' m at ' +
+      (S.gps.speed * 2.23694).toFixed(0) + ' mph'
+    : SURVEY_MS + ' ms fixed — no speed reported, so distance cannot be used'));
   L.push('');
   L.push('MODEL');
   L.push('id         ' + (RF_MODEL_ID || RF_MODEL + '/' + RF_VERSION));
@@ -1945,6 +3153,12 @@ function diagLines() {
   var pre = describePrecision(lastDiag) || describePrecision(selfTest && selfTest.diag);
   L.push(pre ? '           ' + pre : '           nothing yet');
   L.push('');
+  /* The one block somebody actually needs to send back. It goes near the end
+     rather than the top only because the model block above says which model
+     produced it. */
+  L.push(frameTest ? frameLines(frameTest)
+    : 'REAL FRAME\n           not run — press "Test the camera" at the top of this screen');
+  L.push('');
   L.push('LAST UNUSABLE OUTPUT');
   if (!lastRaw) {
     L.push('           nothing yet');
@@ -1957,10 +3171,216 @@ function diagLines() {
   return L.join('\n');
 }
 
+/* ---------- putting one real picture through it ----------
+
+   Everything else on the diagnostics screen describes the model in the
+   abstract: what Roboflow says it is, what shape it returns, what it does with
+   a flat grey square. None of that answers the only question that matters —
+   point it at a pothole and does it see one.
+
+   This does, and it does it through the same code the survey uses: the same
+   squareFrame, the same CVImage, the same engine.infer, the same worker, the
+   same usableFind and the same shadow test. There is deliberately no separate
+   inference path here, because a diagnostic that exercises different code from
+   the thing being diagnosed is worse than none.
+
+   The picture is drawn, inferred and shown. It is not written to the database
+   and it does not leave the device. */
+var frameTest = null, testUrl = null;
+
+/* What the survey's own filters would do with these detections, and where each
+   one was lost. "The model found it and the shadow test threw it away" and "the
+   model never found it" are different faults, and they used to look identical
+   from outside. */
+function filterTrace(raw, ctx) {
+  var trace = [], kept = [];
+  raw.forEach(function (p, i) {
+    var f = usableFind(p, RF_SIZE, RF_SIZE);
+    if (!f) {
+      trace.push('#' + (i + 1) + ' dropped — not a usable find (unknown class, or a box ' +
+                 'that is not a box)');
+      return;
+    }
+    if (f.conf != null && f.conf < SURVEY_CONF) {
+      trace.push('#' + (i + 1) + ' ' + f.cls + ' ' + round4(f.conf) +
+                 ' dropped — under the survey threshold of ' + SURVEY_CONF);
+      return;
+    }
+    var why = rejectReason(ctx, RF_SIZE, RF_SIZE, f.box);
+    if (why) {
+      trace.push('#' + (i + 1) + ' ' + f.cls + ' ' + round4(f.conf) + ' dropped — ' + why);
+      return;
+    }
+    if (typeFor(f.cls) !== 'Pothole') {
+      trace.push('#' + (i + 1) + ' ' + f.cls + ' ' + round4(f.conf) +
+                 ' recognised but not logged — ' + typeFor(f.cls).toLowerCase() +
+                 ' is not a defect');
+      return;
+    }
+    kept.push(f);
+    trace.push('#' + (i + 1) + ' ' + f.cls + ' ' + round4(f.conf) + ' KEPT — the survey would ' +
+               'log this');
+  });
+  return { trace: trace, kept: kept };
+}
+
+/* One picture, from wherever it came, through the pipeline. */
+function testFrame(source, w, h, label) {
+  if (!engine || !worker) {
+    return Promise.reject(new Error('the model is not loaded'));
+  }
+  var t0 = performance.now();
+  var sq = squareFrame(source, w, h);          // the survey's own preprocessing
+  return createImageBitmap(sq.canvas).then(function (input) {
+    return import('./vendor/inference.es.js').then(function (m) {
+      return engine.infer(worker, new m.CVImage(input));
+    });
+  }).then(function (preds) {
+    var wall = performance.now() - t0;
+    var raw = takeDiag(preds) || [];           // also refreshes lastDiag for the screen below
+    var d = lastDiag || {};
+    var f = filterTrace(raw, sq.ctx);
+    return new Promise(function (resolve) {
+      sq.canvas.toBlob(function (blob) {
+        resolve({
+          label: label, at: new Date().toISOString(),
+          raw: raw, trace: f.trace, kept: f.kept,
+          diag: d, wall: Math.round(wall), shot: blob
+        });
+      }, 'image/jpeg', 0.8);
+    });
+  });
+}
+
+function frameLines(f) {
+  if (!f) return '';
+  var d = f.diag || {}, L = [];
+  var pr = d.precision || {}, th = d.thresholds || {};
+
+  L.push('REAL FRAME  (' + f.label + ')');
+  L.push('when         ' + f.at);
+  L.push('backend      ' + (pr.using || 'not reported') +
+    (precisionForced(d) ? '  (forced — WebGL would not answer sensibly)' : ''));
+  L.push('inference    ' + (d.ms == null ? '?' : Math.round(d.ms)) + ' ms' +
+    '   (whole test ' + f.wall + ' ms, including drawing and encoding the frame)');
+  L.push('raw output   ' + (Array.isArray(d.rawShape) ? [].concat(d.rawShape).join('×') : '?') +
+    (d.frameRange ? ', min ' + round4(d.frameRange.min) + ', max ' + round4(d.frameRange.max)
+                  : ''));
+  L.push('sane?        ' + (d.frameRange && isFinite(d.frameRange.max) &&
+      Math.abs(d.frameRange.max) < 1e4
+    ? 'yes — box values in pixels for a ' + RF_SIZE + ' model, scores in 0..1'
+    : 'NO — the runtime is not executing this graph'));
+  L.push('');
+
+  /* The number that makes a nil return readable. Without it, "0 detections" is
+     two different findings wearing the same words. */
+  L.push('BEST ANCHOR  (the highest the model scored anywhere in the frame,');
+  L.push('              before NMS and before any threshold)');
+  if (d.best) {
+    var b = d.best;
+    L.push('             ' + (b.cls || 'class ?') + '  ' + round4(b.score) +
+      '  box x ' + Math.round(b.box.x) + ' y ' + Math.round(b.box.y) +
+      ' w ' + Math.round(b.box.width) + ' h ' + Math.round(b.box.height));
+    L.push('             library keeps ≥ ' + (th.score == null ? '?' : th.score) +
+      ', the survey keeps ≥ ' + SURVEY_CONF);
+    if (th.score != null && b.score < th.score) {
+      L.push('             SO THIS ONE NEVER REACHED THE APP — it was dropped inside the');
+      L.push('             library, not by anything in this repository.');
+    }
+  } else {
+    L.push('             nothing scored above zero anywhere in the frame');
+  }
+  L.push('');
+
+  L.push('DETECTIONS   ' + f.raw.length + ' came back from the library');
+  if (!f.raw.length) {
+    L.push('             (the library returns at most ' + (th.maxBoxes == null ? '?' : th.maxBoxes) +
+      ' and drops anything under ' + (th.score == null ? '?' : th.score) + ')');
+  }
+  f.raw.forEach(function (p, i) {
+    var bx = p.bbox || {};
+    L.push('  #' + (i + 1) + '  ' + p.class + '  ' + round4(p.confidence) +
+      '  box x ' + Math.round(bx.x) + ' y ' + Math.round(bx.y) +
+      ' w ' + Math.round(bx.width) + ' h ' + Math.round(bx.height));
+  });
+  L.push('');
+
+  L.push('THROUGH THE SURVEY\'S OWN FILTERS');
+  if (!f.trace.length) L.push('             nothing to filter');
+  f.trace.forEach(function (t) { L.push('  ' + t); });
+  L.push('');
+  L.push('WOULD LOG    ' + f.kept.length + ' pothole' + (f.kept.length === 1 ? '' : 's'));
+  return L.join('\n');
+}
+
+function paintFrameTest() {
+  var pre = $('frameText'), wrap = $('tShotWrap');
+  pre.hidden = !frameTest;
+  if (!frameTest) { wrap.hidden = true; return; }
+  pre.textContent = frameLines(frameTest);
+  if (testUrl) { URL.revokeObjectURL(testUrl); testUrl = null; }
+  if (frameTest.shot) {
+    testUrl = URL.createObjectURL(frameTest.shot);
+    $('tShot').src = testUrl;
+    wrap.hidden = false;
+  } else { wrap.hidden = true; }
+}
+
+function runTest(label, get) {
+  var s = $('tState');
+  $('bTestCam').disabled = true;
+  s.textContent = 'Loading the model…';
+  loadModel().then(function () {
+    s.textContent = 'Running the model on the frame…';
+    return get();
+  }).then(function (args) {
+    return testFrame(args[0], args[1], args[2], label);
+  }).then(function (f) {
+    frameTest = f;
+    paintFrameTest();
+    paintDiag();
+    s.textContent = f.kept.length
+      ? 'Done — the survey would have logged ' + f.kept.length + ' of these.'
+      : 'Done — nothing the survey would log. Read the result below before concluding anything.';
+    $('bTestCam').disabled = false;
+  }, function (e) {
+    frameTest = null; paintFrameTest();
+    s.textContent = 'Could not run it: ' + whyLocal(e);
+    $('bTestCam').disabled = false;
+  });
+}
+
+$('bTestCam').addEventListener('click', function () {
+  var v = $('vid');
+  if (!stream || !v.videoWidth) {
+    $('tState').textContent = 'The camera is not running. Go back, start it, then come here — ' +
+      'or use Test a photo.';
+    return;
+  }
+  runTest('camera', function () {
+    return Promise.resolve([v, v.videoWidth, v.videoHeight]);
+  });
+});
+
+$('tFile').addEventListener('change', function () {
+  var file = this.files && this.files[0];
+  this.value = '';                       // so the same file can be picked twice
+  if (!file) return;
+  runTest('photo · ' + file.name, function () {
+    /* from-image honours the EXIF rotation a phone camera writes, so a picture
+       taken in portrait is not analysed on its side. Browsers that do not know
+       the option ignore it. */
+    return createImageBitmap(file, { imageOrientation: 'from-image' })
+      .catch(function () { return createImageBitmap(file); })
+      .then(function (bmp) { return [bmp, bmp.width, bmp.height]; });
+  });
+});
+
 function paintDiag() { $('diagText').textContent = diagLines(); }
 
 function openDiag() {
   show('diag');
+  paintFrameTest();
   paintDiag();
   /* Both are cached and cheap the second time, and this is the screen someone
      opens precisely because something is wrong — so ask now rather than wait
@@ -2007,6 +3427,18 @@ function show(which) {
      measure a container that is on screen, so this happens here rather than at
      startup. */
   if (which === 'map') drawMap();
+  /* A second view of the same stream, so the phone can be aimed at a pothole
+     while the diagnostics screen is up. It is the same MediaStream — no second
+     camera is opened — and it is released the moment the screen is left, so
+     nothing keeps decoding video behind a sheet nobody is looking at. */
+  var tv = $('tVid');
+  if (tv) {
+    if (which === 'diag' && stream) {
+      tv.srcObject = stream; $('tNo').hidden = true;
+    } else {
+      tv.srcObject = null; $('tNo').hidden = !!stream;
+    }
+  }
 }
 
 function backToCamera() { confirming = null; show('live'); }
@@ -2053,6 +3485,10 @@ document.addEventListener('keydown', function (e) {
 document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'hidden') { if (stream) stopAll(); return; }
   if (!stream) openCamera(false);
+  /* A wake lock does not survive the page being hidden, and the system can take
+     one back at any time. If a survey is somehow still running when the app
+     comes back, ask again — and carry on regardless if the answer is no. */
+  if (survey.on && !wakeLock) requestWake();
 });
 window.addEventListener('pagehide', stopAll);
 
@@ -2064,7 +3500,18 @@ lockLandscape();          // granted when installed off the manifest; refused in
 
 openDb().then(function (d) {
   db = d;
-  return migrateLegacy().then(allEntries);
+  return migrateLegacy().then(function () {
+    return Promise.all([allEntries(), allPhys()]);
+  }).then(function (both) {
+    var rows = both[0] || [], phys = both[1] || [];
+    /* Anything written before the split gets an observation id and a defect of
+       its own, once. Rows that already have both are left alone, so this is a
+       no-op on every load after the first. */
+    return migrateToDefects(rows, phys).then(function (made) {
+      S.defects = phys.concat(made);
+      return rows;
+    });
+  });
 }).catch(function () {
   dbBroken = true;
   return [];

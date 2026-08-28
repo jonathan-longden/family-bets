@@ -340,6 +340,11 @@ textarea{min-height:70px;resize:vertical}
 .item.k1{border-left-color:var(--mark-w)} .item.k2{border-left-color:var(--mark-y)}
 .item.k3{border-left-color:var(--r4)} .item.kem{border-left-color:var(--r1)}
 .item.k0{border-left-color:var(--refl)}
+/* The app's own priority. Deliberately not the statutory palette: orange is
+   the app talking, and a P1 must never be mistaken at a glance for an
+   Emergency somebody signed. */
+.item.p1{border-left-color:var(--hiviz)} .item.p2{border-left-color:#B4661F}
+.item.p3{border-left-color:#6E5A44} .item.p4{border-left-color:var(--refl)}
 .item .thumb{display:block;width:100%;padding:0;border:0;border-bottom:1px solid var(--line);
   background:#000;line-height:0}
 /* Landscape makes an entry's photograph as wide as the screen, which pushed
@@ -389,6 +394,10 @@ textarea{min-height:70px;resize:vertical}
 .mappin.k2,.pin.k2{background:var(--mark-y)}
 .mappin.k3,.pin.k3{background:var(--r4)}
 .mappin.k0,.pin.k0{background:var(--refl)}
+.mappin.p1,.pin.p1{background:var(--hiviz)}
+.mappin.p2,.pin.p2{background:#B4661F}
+.mappin.p3,.pin.p3{background:#6E5A44}
+.mappin.p4,.pin.p4{background:var(--refl)}
 .mappin.unconf,.pin.unconf{background:transparent;border-color:var(--hiviz);
   box-shadow:0 0 0 1px rgba(255,255,255,.35)}
 
@@ -397,6 +406,32 @@ textarea{min-height:70px;resize:vertical}
 .mapbar .btn{width:auto;margin-top:0;padding:11px 16px;font-size:15px}
 .key{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--refl)}
 .key span{display:flex;align-items:center;gap:5px}
+/* ---- the real-frame test ----
+   The first thing on the diagnostics screen, because it is the only thing on it
+   that answers a question about the road rather than about the software. */
+.ftest{border:1px solid var(--line);border-left:4px solid var(--hiviz);
+  background:var(--tar2);padding:14px 14px 16px;margin:0 0 18px}
+.ftest h2{font-size:19px;margin-bottom:6px}
+.ftest .row{margin-top:12px}
+.ftest .btn{margin-top:0}
+/* A label styled as a button still has to behave like one when tapped. */
+label.btn{display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.tprev{position:relative;margin-top:12px;background:#000;border:1px solid var(--line);
+  border-radius:4px;overflow:hidden;aspect-ratio:16/9}
+.tprev video{width:100%;height:100%;object-fit:cover;display:block}
+.tno{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:12px;font-size:13px;color:var(--refl)}
+.tshot{margin-top:12px}
+.tshot img{width:100%;max-width:320px;display:block;border:1px solid var(--line);
+  border-radius:4px;background:#000}
+.tshot .cap{display:block;margin-top:5px;font-family:var(--disp);text-transform:uppercase;
+  letter-spacing:.07em;font-size:11px;color:var(--refl)}
+
+/* The one hint on the screen that is a warning rather than an explanation. */
+.warnhint{border-left:3px solid var(--hiviz);padding-left:10px;margin-top:8px !important;
+  display:block;color:#C9D0DA}
+.key .keysep{font-family:var(--disp);text-transform:uppercase;letter-spacing:.06em;
+  font-size:11px;opacity:.75;padding-right:6px;border-right:1px solid var(--line)}
 
 /* ---- full-size photo ---- */
 /* Above the sheets: it is opened from the log, so it has to land on top of
@@ -418,5 +453,25 @@ footer{padding:22px 16px 30px;color:var(--refl);font-size:12px;line-height:1.6;t
 
 /* An entry nobody has stood over reads as provisional at a glance, and carries
    the one button that changes that. */
+/* What a row is an observation of. A line of its own rather than another
+   clause in the provenance run-on, because "provisional" is a statement about
+   the defect and everything above it is about this one sighting. */
+.item .obs{font-size:12px;color:var(--refl);margin:7px 0 6px;padding-top:6px;
+  border-top:1px dashed var(--line);line-height:1.5}
+.item .obs code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
+  background:var(--tar3);padding:1px 4px;border-radius:3px;color:#C9D0DA}
+.item .obs .st-provisional{color:var(--hiviz)}
+.item .obs .st-confirmed{color:var(--mark-y)}
+.item .obs .st-verified{color:var(--ok)}
+.item .obs .obsnote{opacity:.8}
+
 .item.unconf{border-style:dashed;border-left-style:solid}
+/* A priority is shown in the app's own colour with the words "app priority"
+   beside it, because the slot it sits in used to hold "Category 2" and a
+   reader who skims will otherwise carry that reading over. */
+.item .cat.prio{color:var(--hiviz)}
+.item .prionote{display:inline-block;vertical-align:2px;
+  font-family:var(--disp);text-transform:uppercase;letter-spacing:.07em;
+  font-size:11px;color:var(--hiviz);border:1px solid var(--hiviz);border-radius:3px;
+  padding:1px 5px;margin-left:7px;white-space:nowrap;opacity:.85}
 .item .del.go{border-color:var(--hiviz);color:var(--hiviz);font-weight:700}

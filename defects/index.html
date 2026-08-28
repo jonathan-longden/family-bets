@@ -137,11 +137,18 @@
     <div><span>Longitude</span><b id="mLon">—</b></div>
     <div><span>Accuracy</span><b id="mAcc">—</b></div>
     <div><span>Fix age</span><b id="mAge">—</b></div>
+    <!-- A phone reports a heading only while it is moving, and some never
+         report a speed at all. "not reported" is the honest reading and is
+         what the log stores: null, never a plausible zero. -->
+    <div><span>Heading</span><b id="mHead">—</b></div>
+    <div><span>Speed</span><b id="mSpeed">—</b></div>
   </div>
   <button type="button" role="menuitem" class="mi quiet" id="bStop">Stop camera</button>
   <div class="mi-foot">
     Screening aid, not an inspection. Everything the survey logs on its own is marked
     unconfirmed until someone opens it and scores it.<br>
+    The survey gives a find a priority — P1 to P4 — which is this app's own ordering and
+    carries no response time. A statutory category exists only where a person assigned one.<br>
     Depth is never estimated from an image.<br>
     <span class="build">Build <span id="build">—</span></span>
   </div>
@@ -165,14 +172,34 @@
     </div>
     <div class="note" id="wrongCount" hidden></div>
 
+    <label class="fld" id="leadBox">
+      <span class="cap">Camera lead</span>
+      <input type="number" id="camLead" min="0" max="60" step="0.5" inputmode="decimal">
+      <span class="hint" id="leadState"></span>
+      <span class="hint warnhint"><b>This number has not been calibrated.</b> The defect is on the
+        road ahead of the vehicle, not under it, so its position is worked out by projecting the
+        GPS fix forward along the recorded heading by this many metres. How far ahead the camera
+        actually looks depends on the mount angle, the height and the lens, and nobody has
+        measured it for this setup. Until somebody does, the whole of this figure is added to the
+        error bar on every estimate — a metre of lead buys a metre of doubt.
+        <br><br>To calibrate: drive a defect whose position you know, compare it against what the
+        app recorded, and change this until they agree. Then say so in the log's notes, because
+        the number means nothing without the vehicle it was measured in.</span>
+    </label>
+
     <label class="fld" id="w3wBox">
       <span class="cap">what3words key</span>
       <input type="text" id="w3wKey" placeholder="Paste an API key to record what3words addresses"
              autocomplete="off" spellcheck="false">
-      <span class="hint">A key is built in, so entries get a three-word address without you doing
-        anything. Paste your own over it to bill a different account — it is kept on this device —
-        or clear the field to stop the lookups and keep coordinates only. Entries are filled in as
-        they are logged, not retrospectively.</span>
+      <span class="hint" id="w3wState"></span>
+      <span class="hint">Paste your own key over it to bill a different account — it is kept on
+        this device — or clear the field to stop the lookups and keep coordinates only. Entries are
+        filled in as they are logged, not retrospectively.</span>
+      <span class="hint warnhint"><b>This key is not a secret.</b> It is in the page source, and
+        anything served to a browser can be read by whoever it is served to. The only real
+        protection is at what3words' end: restrict the key to this site's domain in their
+        dashboard, and a copy of it is worth nothing anywhere else. Until a backend exists there is
+        nowhere on this app's side to keep a key that the page itself can still use.</span>
     </label>
   </div>
 </section>
@@ -184,10 +211,18 @@
   <div class="sh-body">
     <div id="map"></div>
     <div class="mapbar">
+      <!-- Two palettes, and the difference between them is the point. The grey
+           and yellow pins are statutory categories a person assigned. The
+           orange ones are the app's own priority on a find nobody has looked
+           at, which is an order to work in and not a classification. -->
       <div class="key">
+        <span><i class="pin p1"></i>P1</span><span><i class="pin p2"></i>P2</span>
+        <span><i class="pin p3"></i>P3</span><span><i class="pin p4"></i>P4</span>
+        <span class="keysep">app priority — not classified</span>
         <span><i class="pin kem"></i>Emergency</span><span><i class="pin k1"></i>Cat 1</span>
         <span><i class="pin k2"></i>Cat 2</span><span><i class="pin k3"></i>Cat 3</span>
         <span><i class="pin k0"></i>Below</span>
+        <span class="keysep">assigned by a person</span>
         <span><i class="pin unconf"></i>Unconfirmed</span>
       </div>
       <button type="button" class="btn ghost" id="bFit">Fit to defects</button>
@@ -212,6 +247,33 @@
   <header class="sh"><button type="button" class="back" id="xDiag" aria-label="Back to camera">Back</button>
     <h1>Diagnostics</h1></header>
   <div class="sh-body">
+
+    <!-- The whole point of this screen. Everything below it describes the
+         model in the abstract; this puts a real picture through it and says
+         what came back. -->
+    <div class="ftest">
+      <h2 class="disp">Real-frame test</h2>
+      <p class="hint">Point the camera at a pothole and press <b>Test the camera</b>. The frame
+        goes through the same preprocessing, the same model and the same decoder the survey
+        uses — this is not a separate code path, and the picture is not saved or sent
+        anywhere.</p>
+      <div class="tprev">
+        <video id="tVid" playsinline muted autoplay></video>
+        <div class="tno" id="tNo">Camera is off — use <b>Test a photo</b> instead</div>
+      </div>
+      <div class="row">
+        <button class="btn" id="bTestCam">Test the camera</button>
+        <label class="btn ghost" for="tFile" id="tFileLabel">Test a photo</label>
+        <input type="file" id="tFile" accept="image/*" hidden>
+      </div>
+      <div class="hint" id="tState">Not run yet.</div>
+      <div class="tshot" id="tShotWrap" hidden>
+        <img id="tShot" alt="The 640 by 640 frame that was actually analysed">
+        <span class="cap">what the model was shown</span>
+      </div>
+      <pre class="diag" id="frameText" hidden></pre>
+    </div>
+
     <div class="row">
       <button class="btn" id="bCopyDiag">Copy</button>
       <button class="btn ghost" id="bDiagFile">Save as text</button>

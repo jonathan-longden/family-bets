@@ -166,6 +166,75 @@ dimensions. Stretching preserves proportions, so a defect covers the same
 fraction either way — but a box measured in one space and divided by the other
 does not, which is what the older numbers were.
 
+## The real-frame test
+
+The diagnostics screen used to describe the model in the abstract: what Roboflow
+says it is, what shape it returns, what it makes of a flat grey square. None of
+that answers the only question that matters — point it at a pothole and does it
+see one.
+
+**Diagnostics now opens on a real-frame test.** A live preview of the camera
+already running, a *Test the camera* button, and a *Test a photo* button that
+takes a picture from the phone. Either one puts the frame through
+`squareFrame` → `CVImage` → `engine.infer` → `usableFind` → the shadow test:
+**the survey's own code, not a parallel path.** A diagnostic that exercises
+different code from the thing being diagnosed is worse than none.
+
+The picture is shown, not stored. It is never written to the database and never
+leaves the device.
+
+### What it reports, and why each line is there
+
+```
+REAL FRAME  (camera)
+when         2026-08-28T10:17:18.459Z
+backend      cpu  (forced — WebGL would not answer sensibly)
+inference    412 ms   (whole test 460 ms, including drawing and encoding)
+raw output   1×6×8400, min 0, max 636.4215
+sane?        yes — box values in pixels for a 640 model, scores in 0..1
+
+BEST ANCHOR  (the highest the model scored anywhere in the frame,
+              before NMS and before any threshold)
+             pothole  0.83  box x 320 y 360 w 180 h 150
+             library keeps ≥ 0.5, the survey keeps ≥ 0.65
+
+DETECTIONS   1 came back from the library
+  #1  pothole  0.83  box x 320 y 360 w 180 h 150
+
+THROUGH THE SURVEY'S OWN FILTERS
+  #1  pothole 0.83 KEPT — the survey would log this
+
+WOULD LOG    1 pothole
+```
+
+**The best-anchor line is the one that was missing.** Without it, "0 detections"
+is two completely different findings wearing the same words: *the model saw
+nothing*, or *the model saw it at 0.42 and the library's own 0.5 gate dropped it
+before anything in this repository could look*. It is taken from the raw scores
+before NMS and before any threshold, so it reports what the model actually
+thinks regardless of what the pipeline then does about it.
+
+**The filter trace is the second.** "The model found it and the shadow test
+threw it away" and "the model never found it" used to look identical from
+outside. Now each detection says which gate it died at, by name.
+
+### The thresholds it prints
+
+These are the library's own defaults, not the app's, and they were invisible
+until now:
+
+| | Value | Whose |
+| --- | --- | --- |
+| `scoreThreshold` | 0.5 | the library — drops detections before the app sees them |
+| `iouThreshold` | 0.5 | the library — NMS overlap |
+| `maxNumBoxes` | **20** | the library — the cap on returned detections |
+| `SURVEY_CONF` | 0.65 | this app, applied on top |
+
+That `maxNumBoxes: 20` is also the explanation for a symptom that went unexplained
+for a long time: every broken run reported **exactly 20 results**. It was the cap
+being hit, not a coincidence — when the output was noise, every anchor scored
+above 0.5 and NMS returned as many as it was allowed to.
+
 ## Not knowing means not knowing
 
 A find is believed only once every part of it has been checked: a class the app
@@ -539,9 +608,58 @@ identical until something separates them. They are different problems with diffe
 collapses them into "the service did not answer" leaves you guessing at one the
 server already explained.
 
+## Priority is the app's; category is a person's
+
+The survey used to write a statutory response category on every find. It worked
+it out from the defect's share of a 640-pixel square, which is a function of how
+far away the camera was at least as much as of how big the hole is — and then
+printed *Emergency, 2 hours* or *Category 2, 28 calendar days* beside it. Those
+words are the categories a highway authority works to, and in practice they key
+on **depth and plan dimensions**, neither of which this app measures. It no
+longer writes them.
+
+What it writes on its own is a **priority**:
+
+| Risk factor | Priority | Meaning |
+| --- | --- | --- |
+| 16 and over | P1 | Look at first |
+| 9–15 | P2 | Look at soon |
+| 6–8 | P3 | Look at later |
+| Under 6 | P4 | Lowest |
+
+There is no time attached to any of them, because attaching one would be
+inventing a legal obligation out of a box on a screen. The thresholds are the
+same numbers the risk matrix is coloured by, reused so a survey find and a
+scored find sort together. They are the app's own ordering of its own finds and
+they are not taken from any standard — if they are wrong, they are wrong about
+the order of a work list rather than about a duty. The export says as much on
+every row.
+
+A **statutory category** is created in exactly one place: the confirm screen,
+where someone is looking at the photograph and choosing a cell. It is written
+with `catBy` and `catAt` beside it, naming who assigned it and when, and
+`statutoryOf()` is what decides whether an entry has one — it looks for that
+name, not for a filled-in field.
+
+That last part is what makes old data safe. Entries written by earlier builds
+carry a category the survey chose for itself and nobody ever read. The fields
+are kept, because deleting them would lose what the app said at the time, but
+they no longer read as a classification anywhere: not in the log, not on the
+map, not in any export. Their score still yields a priority, so nothing sorts
+differently and nothing disappears.
+
+On screen the two never look alike. A priority is shown in the app's own orange
+with the words *app priority* beside it and *not classified — no response time*
+under it; a category is shown with its response time and who assigned it. The
+map key shows both palettes and labels which is which. In the exports,
+`app_priority` is always filled and `statutory_category` is empty except where a
+person put something there — `category` and `response_time` keep their old names
+so an existing import does not lose a column, and hold the same nothing.
+
 ## The matrix
 
-Risk factor is impact × probability, and the category follows the number:
+The matrix is what a person uses on the confirm screen. Risk factor is
+impact × probability, and the category follows the number:
 
 | Risk factor | Category | Response |
 | --- | --- | --- |
@@ -571,14 +689,267 @@ is harder to steer around. Everything else — depth, speed, volume — is yours
 ## What gets recorded
 
 Time, coordinates, GPS accuracy and fix age, defect type, surface, impact,
-probability, risk factor, category, response time, whether the score was
-yours, an app proposal you accepted, or an unconfirmed survey find, what the model saw (its confidence, the share of the
-frame, how many defects), your notes, and the photograph.
+probability, risk factor, the app's priority, the statutory category and
+response time where a person assigned one along with who assigned it and when,
+whether the score was yours, an app proposal you accepted, or an unconfirmed
+survey find, what the model saw (its confidence, the share of the frame, how
+many defects), your notes, and the photograph.
 
 Depth and "wider than a tyre" are no longer collected, and the Cat 1
 escalation test that stood on them has gone with them. Entries saved before
 that change keep their gauged depth, still show it in the log, and still export
 it — the CSV carries those two columns for as long as any entry has one.
+
+## Where the defect is, as opposed to where the phone was
+
+The app used to write down the last GPS fix at the moment the row was written.
+Three things were wrong with that and all three are fixed.
+
+**The fix could be five seconds old.** `maximumAge: 5000` let the browser hand
+back a cached position, and at 30 mph a vehicle covers 13.4 metres a second — so
+the recorded point could be sixty-seven metres behind the camera with nothing to
+say it was. One second is asked for now. The trade is worth stating: with
+`enableHighAccuracy` the receiver is already running, so `maximumAge` governs
+whether a cached fix may be reused rather than how often the chip is woken — the
+battery cost is small but not nothing. It buys nothing about how *good* a fix is,
+only about how *current*; a ±10 m fix from five seconds ago is wrong about where
+you are as well as vague about where you were. The 15-second timeout stays, because
+shortening it turns a slow cold start under trees into an error rather than a fix.
+
+**The timestamp was the write time.** Inference, the shadow test and encoding a
+JPEG take a second or more on a mid-range phone, during which the vehicle moves
+and `watchPosition` very likely replaces the fix. The frame is the observation,
+so it is stamped when it is taken, and the fix is *copied* at that moment rather
+than referenced — a later update cannot change what a frame was taken against.
+`t` and `captured_at` are the frame; `stored_at` is the write, kept separately
+because the gap between them is itself worth being able to see.
+
+**Nothing recorded which way the vehicle was pointing.** `coords.heading` and
+`coords.speed` are free, already in the payload, and were being thrown away.
+Heading is what separates the two carriageways of a dual carriageway: without it
+there is no way to tell a defect seen going north from a different defect seen
+going south at the same coordinates.
+
+A phone reports a heading only while it is moving, and some devices never report
+a speed at all. **What comes back for those is `null`, and it stays `null`.** A
+survey that filled in a plausible zero would be claiming the vehicle was pointing
+north and standing still, which is a statement about the world rather than an
+absence of one. (`+null` is `0` in JavaScript, so this had to be rejected before
+the coercion rather than after it — the test suite caught that as a fabricated
+due-north heading and a camera lead of zero metres.)
+
+### The estimated defect position
+
+The defect is on the road *ahead*, not under the vehicle. Every entry now carries
+two positions and never confuses them:
+
+| Field | What it is |
+| --- | --- |
+| `lat`, `lon`, `acc` | Where the vehicle was. Measured, unmodified, same names as before. |
+| `heading_deg`, `speed_mps` | What the device reported, or null. |
+| `estimated_defect_lat/lon` | The fix projected forward along the heading. |
+| `position_confidence_m` | How wrong that could be. |
+| `camera_lead_m` | The lead it was worked out with. |
+| `position_note` | When there is no estimate, why not. |
+
+The estimate is made only when there is a fix, a heading, and a frame taken
+within three seconds of it. Missing any of those means **no estimate** rather
+than a worse one, and the reason travels with the entry so the log can say why.
+
+### The camera lead, which is not calibrated
+
+How far ahead the camera looks depends on the mount angle, the height and the
+lens — somewhere between about five and fifteen metres for a phone on a
+windscreen. **Nobody has measured it for this setup.** Eight metres is a guess.
+
+It is a field at the bottom of the log rather than a constant buried in the
+source, precisely so that somebody can calibrate it: drive a defect whose
+position you know, compare it against what the app recorded, set this to what
+closes the gap, and write down which vehicle it was measured in. Until then the
+whole of the lead is added to the error bar — a metre of lead buys a metre of
+doubt.
+
+The radius is the sum of three separate ignorances rather than a statistical
+combination of them: the fix's own accuracy, the whole of the camera lead, and
+half the distance travelled between the fix and the frame (or the lead again, if
+the speed is unknown). Adding them gives a number larger than a careful treatment
+would. That is the right direction to be wrong in — the radius is a promise that
+the defect is probably inside it, and one that is too generous costs somebody a
+longer look, while one that is too tight sends them to the wrong place.
+
+**None of this is claimed to be accurate.** It has not been tested against a
+defect whose real position is known. What it does is stop the app implying a
+precision it never had: the log labels every position as *estimated defect
+position* or *vehicle position, not the defect's*, and the map draws the
+confidence radius as a circle under the pin, so a pin sitting confidently on the
+wrong side of a road reads as a best guess with a radius rather than as a survey
+mark.
+
+The GeoJSON geometry is the estimated position, because that is what anything
+with a map in it will drive somebody to; the vehicle position rides alongside in
+`vehicle_lat` / `vehicle_lon` with `position_source` saying which is which.
+
+## An observation is not a defect
+
+Every row in this app used to be a sighting, and a sighting was treated as a
+thing. Drive the same road twice and you had two defects; drive it fifty times
+and you had fifty. Nothing downstream of that works — you cannot say a defect is
+getting worse, or that a repair happened, or how sure you are that it exists,
+because there is nothing for those to be properties of.
+
+There are two stores now.
+
+An **observation** is one detection event: a frame, a box, a position, a
+photograph, a timestamp. It never changes after it is written. A **defect** is
+the thing in the road that observations are of, and it does change — it gains
+observations, its position estimate improves, its status moves on.
+
+The object store names are historical and deliberately left alone: `defects`
+holds observations, because renaming an object store means copying every
+photograph in it and there is no version of that worth the risk. The code says
+*observation* everywhere it means one.
+
+Ids are UUIDs rather than timestamps. Two phones surveying the same round
+produce colliding millisecond ids, and the day anything is combined the
+collision is silent.
+
+### What decides that two observations are of one defect
+
+Same type; within `max(20 m, the two error bars added)` capped at 80 m; and
+pointing the same way where both headings are known. More generous than the
+within-a-run duplicate radius, because this is mostly asking about a later pass
+on a different day where the two fixes are independent rather than nearly
+identical. An observation with no position becomes its own defect rather than
+being attached to whichever one happened to be nearest in the list.
+
+A defect's position is the accuracy-weighted mean of its observations —
+`1/r²`, so a ±6 m observation moves it far more than a ±40 m one — and the
+combined radius shrinks as evidence accumulates but **never below the best
+single observation**, because averaging vague positions cannot manufacture a
+precise one.
+
+### Provisional, confirmed, verified
+
+| Status | What it means |
+| --- | --- |
+| `provisional` | Seen on one pass. Not yet claimed to exist. |
+| `confirmed` | Seen on two or more independent passes. |
+| `verified` | A person has looked at it and signed it off. |
+
+A **pass** is one press of the record button — one survey run, with its own id.
+That is the only version of "independent" this app can honestly measure: fifty
+frames of one hole on one drive is one opinion; three drives on three days is
+evidence.
+
+Remove one of a defect's two observations and it goes back to `provisional`. The
+runs are rebuilt from the observations that are actually left, so a defect cannot
+keep claiming two passes once the evidence for one of them has been deleted.
+Losing the status is the point — it is a claim about how much is known, and less
+is known now. Remove the last observation and the defect goes with it: nothing is
+left in the store with no evidence behind it.
+
+### Migrating what was already there
+
+Every existing entry becomes **one observation of one provisional defect**.
+
+It would be possible to cluster them retrospectively — they have positions — and
+it would be wrong. Those positions are the *vehicle's*, recorded with no heading,
+from fixes that were allowed to be five seconds old. Merging two of them would be
+a guess presented as a finding, and unmerging it afterwards is not something the
+app can offer. One each, provisional, and any real grouping comes from passes
+made after this build.
+
+The runs behind them were never recorded, so their pass count is **null, not
+one**. Not knowing has to mean not knowing.
+
+The upgrade transaction only creates the store; giving the existing rows their
+defects happens afterwards in ordinary code, where a failure can be reported
+rather than aborting the upgrade and leaving the database on the old version with
+no explanation. A partial migration is simply retried on the next load, and rows
+that already have both ids are left alone — so it is a no-op on every load after
+the first.
+
+### In the exports
+
+CSV and GeoJSON gain `observation_id`, `defect_id`, `defect_status`,
+`defect_observation_count`, `independent_pass_count` and `run_id`. The JSON
+export keeps `defects` as the observation list, for compatibility, and carries
+the defects themselves beside it as `physicalDefects`.
+
+### What this deliberately is not
+
+It does not cluster retrospectively, it does not merge defects, and it does not
+run in the background. Anything cleverer belongs on a server with every device's
+observations in front of it, and building it here would mean building it twice.
+
+## Telling one defect from the one before it
+
+The old check compared the current vehicle position against the vehicle position
+of **the single most recent find**. Two things were wrong with that. One slot,
+so driving past a defect, logging something else twenty-five metres on and
+coming back logged the first one again. And vehicle-to-vehicle rather than
+defect-to-defect, so it was really asking *have I moved* rather than *is this
+the same hole*.
+
+A ring of the last thirty finds replaces it, compared on the estimated defect
+position where there is one. A candidate has to match on **all three** of these
+before it is called the same defect:
+
+- **Position**, within `max(15 m, 2 × the worse of the two error bars)`. A fixed
+  radius is either too tight for a poor fix or too loose for a good one. Past
+  60 m the fixes are too vague to separate anything, and position is abandoned
+  rather than trusted — it falls back to the crude time rule instead, because a
+  threshold wide enough to cover a bad fix is wide enough to swallow every real
+  neighbour on the street.
+- **Heading**, within ±45° where both are known. The same coordinates seen
+  travelling the other way is the other carriageway, which is a different asset
+  with a different crew going to it.
+- **Time**, either within a minute or the vehicle has not travelled 30 m — so a
+  hole that stays in shot keeps suppressing, and one left behind stops.
+
+A test that *cannot* be applied — no heading on one side, no position on either
+— abstains rather than voting either way. Suppressing a real defect is the more
+expensive mistake of the two, so the tie goes to logging it.
+
+### Standing still
+
+A vehicle stopped with a pothole in shot will photograph it as many times as it
+is asked to. Below **1 m/s** nothing new is coming into frame, so nothing is
+looked for: it saves the battery and stops a queue at a junction becoming forty
+rows.
+
+Only when the speed is actually known. A device that does not report one is not
+standing still — it is a device that does not report a speed, and treating the
+two the same would silently stop the survey on hardware that works perfectly
+well.
+
+### One look every ten metres, not every 1.2 seconds
+
+A fixed cadence means a survey at 40 mph looks every 21 metres and the same
+survey at a red light looks every 21 centimetres. The interval that matters to a
+survey is a *distance*, so coverage does not change with the traffic.
+
+Speed converts one into the other, and it is not always reported — so this
+refines the old behaviour rather than replacing it. **With no speed the fixed
+1.2 s interval stands.** With one, the delay is `10 m ÷ speed`, clamped between
+0.7 s (below which the phone cannot finish one inference before the next is due)
+and 4 s (above which a crawl stops being a survey). Stopped, it idles at the
+ceiling — waking to check, not staring.
+
+### The screen staying awake
+
+A survey ends when the screen sleeps, because the browser suspends the page and
+the camera with it. The Screen Wake Lock API is asked for when a survey starts
+and released when it stops.
+
+It is asked for and **never waited on**. Safari came to it late and some Android
+browsers still refuse, so every path treats failure as normal: a browser with no
+`navigator.wakeLock` at all surveys and logs exactly as it would with one, and
+says once that the phone's own screen timeout needs setting long enough for the
+run. A lock the system takes back — a call arrives, the battery saver comes on —
+is recorded rather than treated as an error, and asked for again when the app is
+back in front. Diagnostics reports which of those happened, and the cadence the
+survey is actually running at.
 
 ## Three-word addresses
 
@@ -594,14 +965,37 @@ thing to put on screen. Accuracy stays alongside it either way, because how well
 the fix is known is not a detail. An entry logged before the lookup could run,
 or with no signal, still shows its coordinates.
 
+### The key is not a secret, and cannot be made one here
+
 That key is readable by anyone who opens the source. That is not a slip; it is
-what putting a key in a static site means, and what3words is metered and paid.
-The protection has to be at their end: **restrict the key to this domain in the
-what3words dashboard**, and a copy of it is worth nothing anywhere else. The
-field in the log stays for that reason too — paste a different key over it to
-bill another account, or clear it to stop the lookups and keep coordinates
-only. An emptied field is treated as a decision and stays empty; it does not
-quietly revert to the built-in key on the next load.
+what putting a key in a static site means. A page with no server behind it has
+nowhere to keep a secret that the page itself can still use, so any key the app
+can spend is a key it has handed to whoever is reading it. Obfuscating it would
+make it slower to find, which is not the same as protecting it.
+
+**The protection has to be at what3words' end.** Their dashboard restricts a key
+to a list of referring domains. Restricted, a copy of this key is worth nothing
+anywhere else, and that — not anything in this repository — is what stops it
+being spent by a stranger. It has to be set there. Until it is, the key is
+billable by anybody who finds it.
+
+What the app can do is narrower, and it does it: **the built-in key is used only
+on the site it belongs to.** `W3W_HOSTS` in `app.js` lists the hostname the key
+is for. A fork, a preview deployment, a copy someone runs from their own Pages
+account or a developer running it on localhost gets no key at all rather than
+this one — so none of them spends this account's quota by default. They are not
+locked out of what3words; they are asked to paste their own key, which is kept
+on the device and works everywhere. The log says which of the three states it is
+in, and so does the Diagnostics screen, without printing the key.
+
+This is a mitigation, not a fix. The fix is a backend: the lookup moves behind
+it, the key lives in server configuration, and it stops being in the page at
+all. That is deliberately not built yet.
+
+The field in the log stays for the same reason it always did — paste a different
+key over it to bill another account, or clear it to stop the lookups and keep
+coordinates only. An emptied field is treated as a decision and stays empty; it
+does not quietly revert to the built-in key on the next load.
 
 The lookup needs a signal, which coordinates do not, so it is never allowed to
 hold up or fail a save: the entry is written first and the words are added
@@ -609,11 +1003,13 @@ afterwards if they arrive.
 
 ## The map
 
-**Map** in the menu puts every located defect on one. Pins are coloured by category,
-and a survey find nobody has confirmed is drawn hollow rather than filled — a
-map that showed a guess and a judgement as the same mark would be worse than no
-map. Tap one for its category, type, surface, coordinates, three-word address
-where there is one, and when it was logged.
+**Map** in the menu puts every located defect on one. Pins carry a statutory
+category's colour where a person assigned one, and the app's own priority colour
+— orange, deliberately not the statutory palette — where nobody has. A survey
+find nobody has confirmed is drawn hollow rather than filled: a map that showed a
+guess and a judgement as the same mark would be worse than no map. Tap one for
+what it is, its type, surface, coordinates, three-word address where there is
+one, and when it was logged.
 
 Leaflet is vendored, so the map is part of the app and runs with no signal. Its
 tiles are not: they come from OpenStreetMap as you pan, and are cached as they
@@ -621,24 +1017,48 @@ arrive. Ground you have already looked at stays available offline; ground you
 have not comes up blank until there is a signal. The app says so on the screen
 rather than leaving you to wonder why a map is empty in a lay-by.
 
-## what3words
-
-Off unless you turn it on, because it is a paid service and the key is yours,
-not the app's. Get one at developer.what3words.com and paste it into the field
-at the bottom of the log; it stays on the device. With no key nothing changes
-and entries carry coordinates as they always did.
-
-The lookup happens once, when an entry is saved: a three-word address for a
-fixed point never changes, so there is nothing to refresh and no reason to spend
-a call on it twice. It needs a signal, which coordinates do not, so it is never
-allowed to hold up or fail a save — the entry is written first and the words are
-added afterwards if they arrive. Entries already in the log are left as they
-are; only new ones are looked up.
-
-Addresses show in the log, in a pin's popup, and in a `what3words` column in the
-CSV.
-
 ## Storage and export
+
+### Two ways this could have lost a day's work
+
+**Map tiles used to share the app's cache, uncapped.** A deploy deletes every
+cache but the current one, so a new build threw away a county's worth of tiles
+somebody had driven to collect — and with no cap at all, panning around long
+enough grows the cache until the origin hits its storage quota, at which point
+the browser is entitled to evict the whole origin, defect database included. A
+map's convenience must not be able to take the log with it. Tiles now live in
+their own cache, which survives deploys and holds about 600 of them (roughly
+6–18 MB at OpenStreetMap's tile sizes). Over that, the oldest go first —
+`cache.keys()` answers in insertion order, so the front of the list is the
+ground looked at longest ago. Trimming happens off the response path, so a tile
+that has already been handed back never waits for housekeeping.
+
+**The JSON export used to build the whole file in memory, twice.** Every
+photograph was read to a base64 data URL, all of them at once, and then
+`JSON.stringify` built one more string containing all of them again. A 200 kB
+JPEG is about 270 kB as base64, so four hundred entries is over 100 MB of
+JavaScript string held twice on a phone — and it does not fail politely: the tab
+is killed and the export is gone.
+
+It is now written a row at a time. Photographs are read one at a time, so only
+one is on the heap at once, and the pieces of the document are handed to a Blob
+as they are made: once a few megabytes have gathered they collapse into a Blob,
+which the browser holds outside the JavaScript heap and spills to disk, and that
+Blob becomes the first piece of the next batch. **Peak memory is one chunk plus
+one photograph, whatever the size of the log.** The file that comes out is
+unchanged.
+
+It is a stream in the sense that matters — nothing whole is ever resident — but
+it is **not a streaming download**: the file is finished before the browser is
+asked to save it, because a page cannot hand a save dialogue something it is
+still writing. A log large enough to fill the device's free space would still
+fail, and that is a disk limit rather than a memory one. Above about 250 MB of
+encoded photographs the export asks first, and offers the same records without
+the images — every measurement kept, a few hundred kilobytes instead of a few
+hundred megabytes. Rows written that way carry `imgOmitted: true` so nothing has
+to guess why a picture is missing.
+
+CSV and GeoJSON carry no photographs and were never at risk; they are unchanged.
 
 Everything is on the one device, in that browser. Clearing the browser's site
 data takes the log with it, and there is no copy anywhere else.

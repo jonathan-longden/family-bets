@@ -1,4 +1,21 @@
-const CACHE_NAME = 'defect-log-v18';
+const CACHE_NAME = 'defect-log-v19';
+/* Tiles live in their own cache, and the reason is not tidiness.
+
+   They used to share the shell's cache, which meant two things that both went
+   wrong. A version bump deleted every cache but the current one, so a deploy
+   threw away a county's worth of tiles somebody had driven to collect. And the
+   tile cache had no cap at all: pan around long enough and it grows until the
+   origin hits its storage quota, at which point the browser is entitled to
+   evict the whole origin — the defect database with it. A map's convenience
+   must not be able to take the log with it.
+
+   Separate cache, kept across deploys, and capped. */
+const TILE_CACHE = 'defect-log-tiles-v1';
+/* About 600 tiles. A 256-pixel PNG from OpenStreetMap is 10–30 kB, so this is
+   roughly 6–18 MB — enough for a day's ground at the zoom levels this app
+   uses, and small enough that it cannot crowd out the photographs. */
+const TILE_CAP = 600;
+const TILE_SLACK = 60;   // trim in batches rather than one at a time
 const FILES_TO_CACHE = [
   './',
   './index.html',
@@ -27,7 +44,11 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))))
+      /* Old shell caches go; the tile cache stays. Tiles are somebody's
+         driving, not this build's assets, and a deploy is no reason to make
+         them fetch them again. */
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE_NAME && k !== TILE_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -85,8 +106,8 @@ async function unstorable(res) {
 /* The two typefaces are the exception: they never change under a given URL, and
    a condensed face that only arrives when there's signal is exactly the wrong
    way round for a van in a lay-by. Cache first, keep them. */
-async function cacheFirst(req) {
-  const cache = await caches.open(CACHE_NAME);
+async function cacheFirst(req, name) {
+  const cache = await caches.open(name || CACHE_NAME);
   const hit = await cache.match(req);
   if (hit) return hit;
   const res = await fetch(req);
@@ -94,11 +115,38 @@ async function cacheFirst(req) {
   return res;
 }
 
+/* Oldest out first.
+
+   cache.keys() answers in insertion order, so the front of that list is the
+   ground looked at longest ago — which is the right thing to lose. Trimming is
+   done in batches and off the response path: a tile that has already been
+   handed back does not wait for housekeeping, and a second trim cannot start
+   while one is running. */
+let trimming = false;
+async function trimTiles() {
+  if (trimming) return;
+  trimming = true;
+  try {
+    const cache = await caches.open(TILE_CACHE);
+    const keys = await cache.keys();
+    if (keys.length <= TILE_CAP + TILE_SLACK) return;
+    const drop = keys.length - TILE_CAP;
+    for (let i = 0; i < drop; i++) await cache.delete(keys[i]);
+  } catch { /* a cache that will not open is not worth failing a map over */ }
+  finally { trimming = false; }
+}
+
+async function tile(req) {
+  const res = await cacheFirst(req, TILE_CACHE);
+  trimTiles();          // deliberately not awaited
+  return res;
+}
+
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
   if (FONT_HOSTS.some(h => req.url.startsWith(h))) return event.respondWith(cacheFirst(req));
-  if (req.url.startsWith(TILE_HOST)) return event.respondWith(cacheFirst(req));
+  if (req.url.startsWith(TILE_HOST)) return event.respondWith(tile(req));
   if (!req.url.startsWith(self.location.origin)) return;
   event.respondWith(networkFirst(req));
 });
