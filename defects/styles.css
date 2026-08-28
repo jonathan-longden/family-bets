@@ -406,6 +406,9 @@ textarea{min-height:70px;resize:vertical}
 .mapbar .btn{width:auto;margin-top:0;padding:11px 16px;font-size:15px}
 .key{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--refl)}
 .key span{display:flex;align-items:center;gap:5px}
+/* The one hint on the screen that is a warning rather than an explanation. */
+.warnhint{border-left:3px solid var(--hiviz);padding-left:10px;margin-top:8px !important;
+  display:block;color:#C9D0DA}
 .key .keysep{font-family:var(--disp);text-transform:uppercase;letter-spacing:.06em;
   font-size:11px;opacity:.75;padding-right:6px;border-right:1px solid var(--line)}
 

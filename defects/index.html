@@ -171,10 +171,15 @@
       <span class="cap">what3words key</span>
       <input type="text" id="w3wKey" placeholder="Paste an API key to record what3words addresses"
              autocomplete="off" spellcheck="false">
-      <span class="hint">A key is built in, so entries get a three-word address without you doing
-        anything. Paste your own over it to bill a different account — it is kept on this device —
-        or clear the field to stop the lookups and keep coordinates only. Entries are filled in as
-        they are logged, not retrospectively.</span>
+      <span class="hint" id="w3wState"></span>
+      <span class="hint">Paste your own key over it to bill a different account — it is kept on
+        this device — or clear the field to stop the lookups and keep coordinates only. Entries are
+        filled in as they are logged, not retrospectively.</span>
+      <span class="hint warnhint"><b>This key is not a secret.</b> It is in the page source, and
+        anything served to a browser can be read by whoever it is served to. The only real
+        protection is at what3words' end: restrict the key to this site's domain in their
+        dashboard, and a copy of it is worth nothing anywhere else. Until a backend exists there is
+        nowhere on this app's side to keep a key that the page itself can still use.</span>
     </label>
   </div>
 </section>

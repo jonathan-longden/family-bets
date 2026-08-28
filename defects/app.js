@@ -1631,11 +1631,47 @@ $('pTag').addEventListener('input', function () {
 var W3W_KEY_STORE = 'deflog.w3w';
 var W3W_DEFAULT = 'GNB4B5O7';
 
+/* ---------- the built-in key, and what can honestly be done about it ----------
+
+   The key above is in a public repository on a public page. Anyone who opens
+   the source has it. That is not a mistake that can be corrected in this file:
+   a static site has no server to keep a secret on, and any key the page can use
+   is a key the page has handed to whoever is reading it. Obfuscating it would
+   only make it slower to find, which is not the same thing as protecting it,
+   and pretending otherwise is worse than saying so.
+
+   Two things are true and worth separating.
+
+     The real protection is at what3words' end. Their dashboard restricts a key
+     to a list of referring domains. Restricted, a copy of this key is worth
+     nothing anywhere else, and that — not anything in this file — is what stops
+     it being spent by a stranger. It has to be set there. Until it is, this key
+     is billable by anybody.
+
+     What this file can do is smaller, and it is this: the built-in key is used
+     only on the site it belongs to. A fork, a preview deployment, a copy
+     someone runs from their own Pages account — none of them spend this
+     account's quota by default, because none of them is on the list below. They
+     are not blocked from using what3words; they are asked to paste their own
+     key, which is kept on the device and works everywhere.
+
+   When there is a backend, the lookup moves behind it and the key stops being
+   in the page at all. That is the fix. This is the mitigation until then. */
+var W3W_HOSTS = ['jonathan-longden.github.io'];
+
+function w3wOwnSite() {
+  var h = String(location.hostname || '').toLowerCase();
+  return W3W_HOSTS.indexOf(h) !== -1;
+}
+
+/* Empty string is a decision — someone turned the lookups off — and is honoured
+   everywhere. null means nothing has been chosen, and only then does the site
+   the app is running on decide whether the built-in key applies. */
 function w3wKey() {
-  try {
-    var v = localStorage.getItem(W3W_KEY_STORE);
-    return v === null ? W3W_DEFAULT : v;   // '' means someone turned it off on purpose
-  } catch (e) { return W3W_DEFAULT; }
+  var v = null;
+  try { v = localStorage.getItem(W3W_KEY_STORE); } catch (e) { v = null; }
+  if (v !== null) return v;
+  return w3wOwnSite() ? W3W_DEFAULT : '';
 }
 
 function words(lat, lon) {
@@ -1664,12 +1700,37 @@ function addWords(entry) {
   });
 }
 
+/* Which key is in use, and why, said on the screen where it can be changed.
+   The three states are genuinely different and were previously all described
+   by the same sentence. */
+function paintW3w() {
+  var n = $('w3wState'); if (!n) return;
+  var stored = null;
+  try { stored = localStorage.getItem(W3W_KEY_STORE); } catch (e) {}
+  if (stored) {
+    n.innerHTML = '<b>Using the key you pasted.</b> It is kept on this device only and is ' +
+      'billed to your own what3words account.';
+  } else if (stored === '') {
+    n.innerHTML = '<b>Lookups are off.</b> Entries keep their coordinates and get no ' +
+      'three-word address. Paste a key to turn them back on.';
+  } else if (w3wOwnSite()) {
+    n.innerHTML = '<b>Using the built-in key.</b> It belongs to this site and is metered and ' +
+      'paid — see below.';
+  } else {
+    n.innerHTML = '<b>No key, so no lookups.</b> The built-in key is only used on ' +
+      W3W_HOSTS.join(', ') + ', so this copy of the app does not spend that account\'s quota. ' +
+      'Paste your own key to record three-word addresses here. Coordinates are recorded either way.';
+  }
+}
+
 $('w3wKey').value = w3wKey();
+paintW3w();
 $('w3wKey').addEventListener('change', function () {
   /* An emptied field is a decision, not an absence: it is stored as an empty
      string so it stays off, rather than quietly reverting to the built-in key
      on the next load. */
   try { localStorage.setItem(W3W_KEY_STORE, this.value.trim()); } catch (e) {}
+  paintW3w();
 });
 
 /* ---------- log ---------- */
@@ -2066,6 +2127,14 @@ function diagLines() {
   L.push('Defect Log ' + BUILD);
   L.push('when       ' + new Date().toISOString());
   L.push('page       ' + location.host);
+  /* Which key is being spent, without printing the key. A support question
+     that starts "why are there no three-word addresses" is answered here. */
+  var w3wStored = null;
+  try { w3wStored = localStorage.getItem(W3W_KEY_STORE); } catch (e) {}
+  L.push('what3words ' + (w3wStored ? 'a key kept on this device'
+    : w3wStored === '' ? 'off — lookups turned off here'
+    : w3wOwnSite() ? 'the built-in key (this is its own site)'
+    : 'none — the built-in key is only used on ' + W3W_HOSTS.join(', ')));
   L.push('');
   L.push('MODEL');
   L.push('id         ' + (RF_MODEL_ID || RF_MODEL + '/' + RF_VERSION));

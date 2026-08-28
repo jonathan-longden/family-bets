@@ -539,9 +539,58 @@ identical until something separates them. They are different problems with diffe
 collapses them into "the service did not answer" leaves you guessing at one the
 server already explained.
 
+## Priority is the app's; category is a person's
+
+The survey used to write a statutory response category on every find. It worked
+it out from the defect's share of a 640-pixel square, which is a function of how
+far away the camera was at least as much as of how big the hole is — and then
+printed *Emergency, 2 hours* or *Category 2, 28 calendar days* beside it. Those
+words are the categories a highway authority works to, and in practice they key
+on **depth and plan dimensions**, neither of which this app measures. It no
+longer writes them.
+
+What it writes on its own is a **priority**:
+
+| Risk factor | Priority | Meaning |
+| --- | --- | --- |
+| 16 and over | P1 | Look at first |
+| 9–15 | P2 | Look at soon |
+| 6–8 | P3 | Look at later |
+| Under 6 | P4 | Lowest |
+
+There is no time attached to any of them, because attaching one would be
+inventing a legal obligation out of a box on a screen. The thresholds are the
+same numbers the risk matrix is coloured by, reused so a survey find and a
+scored find sort together. They are the app's own ordering of its own finds and
+they are not taken from any standard — if they are wrong, they are wrong about
+the order of a work list rather than about a duty. The export says as much on
+every row.
+
+A **statutory category** is created in exactly one place: the confirm screen,
+where someone is looking at the photograph and choosing a cell. It is written
+with `catBy` and `catAt` beside it, naming who assigned it and when, and
+`statutoryOf()` is what decides whether an entry has one — it looks for that
+name, not for a filled-in field.
+
+That last part is what makes old data safe. Entries written by earlier builds
+carry a category the survey chose for itself and nobody ever read. The fields
+are kept, because deleting them would lose what the app said at the time, but
+they no longer read as a classification anywhere: not in the log, not on the
+map, not in any export. Their score still yields a priority, so nothing sorts
+differently and nothing disappears.
+
+On screen the two never look alike. A priority is shown in the app's own orange
+with the words *app priority* beside it and *not classified — no response time*
+under it; a category is shown with its response time and who assigned it. The
+map key shows both palettes and labels which is which. In the exports,
+`app_priority` is always filled and `statutory_category` is empty except where a
+person put something there — `category` and `response_time` keep their old names
+so an existing import does not lose a column, and hold the same nothing.
+
 ## The matrix
 
-Risk factor is impact × probability, and the category follows the number:
+The matrix is what a person uses on the confirm screen. Risk factor is
+impact × probability, and the category follows the number:
 
 | Risk factor | Category | Response |
 | --- | --- | --- |
@@ -571,9 +620,11 @@ is harder to steer around. Everything else — depth, speed, volume — is yours
 ## What gets recorded
 
 Time, coordinates, GPS accuracy and fix age, defect type, surface, impact,
-probability, risk factor, category, response time, whether the score was
-yours, an app proposal you accepted, or an unconfirmed survey find, what the model saw (its confidence, the share of the
-frame, how many defects), your notes, and the photograph.
+probability, risk factor, the app's priority, the statutory category and
+response time where a person assigned one along with who assigned it and when,
+whether the score was yours, an app proposal you accepted, or an unconfirmed
+survey find, what the model saw (its confidence, the share of the frame, how
+many defects), your notes, and the photograph.
 
 Depth and "wider than a tyre" are no longer collected, and the Cat 1
 escalation test that stood on them has gone with them. Entries saved before
@@ -594,14 +645,37 @@ thing to put on screen. Accuracy stays alongside it either way, because how well
 the fix is known is not a detail. An entry logged before the lookup could run,
 or with no signal, still shows its coordinates.
 
+### The key is not a secret, and cannot be made one here
+
 That key is readable by anyone who opens the source. That is not a slip; it is
-what putting a key in a static site means, and what3words is metered and paid.
-The protection has to be at their end: **restrict the key to this domain in the
-what3words dashboard**, and a copy of it is worth nothing anywhere else. The
-field in the log stays for that reason too — paste a different key over it to
-bill another account, or clear it to stop the lookups and keep coordinates
-only. An emptied field is treated as a decision and stays empty; it does not
-quietly revert to the built-in key on the next load.
+what putting a key in a static site means. A page with no server behind it has
+nowhere to keep a secret that the page itself can still use, so any key the app
+can spend is a key it has handed to whoever is reading it. Obfuscating it would
+make it slower to find, which is not the same as protecting it.
+
+**The protection has to be at what3words' end.** Their dashboard restricts a key
+to a list of referring domains. Restricted, a copy of this key is worth nothing
+anywhere else, and that — not anything in this repository — is what stops it
+being spent by a stranger. It has to be set there. Until it is, the key is
+billable by anybody who finds it.
+
+What the app can do is narrower, and it does it: **the built-in key is used only
+on the site it belongs to.** `W3W_HOSTS` in `app.js` lists the hostname the key
+is for. A fork, a preview deployment, a copy someone runs from their own Pages
+account or a developer running it on localhost gets no key at all rather than
+this one — so none of them spends this account's quota by default. They are not
+locked out of what3words; they are asked to paste their own key, which is kept
+on the device and works everywhere. The log says which of the three states it is
+in, and so does the Diagnostics screen, without printing the key.
+
+This is a mitigation, not a fix. The fix is a backend: the lookup moves behind
+it, the key lives in server configuration, and it stops being in the page at
+all. That is deliberately not built yet.
+
+The field in the log stays for the same reason it always did — paste a different
+key over it to bill another account, or clear it to stop the lookups and keep
+coordinates only. An emptied field is treated as a decision and stays empty; it
+does not quietly revert to the built-in key on the next load.
 
 The lookup needs a signal, which coordinates do not, so it is never allowed to
 hold up or fail a save: the entry is written first and the words are added
@@ -609,34 +683,19 @@ afterwards if they arrive.
 
 ## The map
 
-**Map** in the menu puts every located defect on one. Pins are coloured by category,
-and a survey find nobody has confirmed is drawn hollow rather than filled — a
-map that showed a guess and a judgement as the same mark would be worse than no
-map. Tap one for its category, type, surface, coordinates, three-word address
-where there is one, and when it was logged.
+**Map** in the menu puts every located defect on one. Pins carry a statutory
+category's colour where a person assigned one, and the app's own priority colour
+— orange, deliberately not the statutory palette — where nobody has. A survey
+find nobody has confirmed is drawn hollow rather than filled: a map that showed a
+guess and a judgement as the same mark would be worse than no map. Tap one for
+what it is, its type, surface, coordinates, three-word address where there is
+one, and when it was logged.
 
 Leaflet is vendored, so the map is part of the app and runs with no signal. Its
 tiles are not: they come from OpenStreetMap as you pan, and are cached as they
 arrive. Ground you have already looked at stays available offline; ground you
 have not comes up blank until there is a signal. The app says so on the screen
 rather than leaving you to wonder why a map is empty in a lay-by.
-
-## what3words
-
-Off unless you turn it on, because it is a paid service and the key is yours,
-not the app's. Get one at developer.what3words.com and paste it into the field
-at the bottom of the log; it stays on the device. With no key nothing changes
-and entries carry coordinates as they always did.
-
-The lookup happens once, when an entry is saved: a three-word address for a
-fixed point never changes, so there is nothing to refresh and no reason to spend
-a call on it twice. It needs a signal, which coordinates do not, so it is never
-allowed to hold up or fail a save — the entry is written first and the words are
-added afterwards if they arrive. Entries already in the log are left as they
-are; only new ones are looked up.
-
-Addresses show in the log, in a pin's popup, and in a `what3words` column in the
-CSV.
 
 ## Storage and export
 
