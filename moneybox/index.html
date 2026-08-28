@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=16">
+<link rel="stylesheet" href="styles.css?v=17">
 </head>
 <body>
 
@@ -243,32 +243,6 @@
     </fieldset>
 
     <fieldset class="fs">
-      <legend>Starling</legend>
-      <p class="hint"><b>Starling refuses calls made from a web page</b>, so this section will almost
-        certainly say so when you press Connect — that is the browser's rule, not your token. The way that
-        works is the worker in <code>moneybox/worker</code>: it runs on Cloudflare every half hour, holds the
-        token itself, and pays while this app is shut. What is below is left for anything that does allow
-        the call. Whichever pays, the transfer is stamped with the match, so the same win cannot be paid
-        twice.</p>
-      <label class="lbl">Personal access token
-        <input type="password" id="starToken" autocomplete="off" placeholder="eyJhbGciOi…">
-      </label>
-      <div class="row">
-        <button type="button" class="secondary" id="starConnect">Connect</button>
-        <span class="hint" id="starOut"></span>
-      </div>
-      <label class="lbl">Account <select id="starAccount"></select></label>
-      <label class="lbl">Space <select id="starSpace"></select></label>
-      <label class="check"><input type="checkbox" id="starAuto"> Move the money on every win</label>
-      <div class="row">
-        <button type="button" class="secondary" id="starTest">Move 1p now</button>
-        <span class="hint" id="starTestOut"></span>
-      </div>
-      <p class="hint">The token stays on this phone. Every transfer is stamped with the match it is for, so
-        the same win cannot be paid twice however many times the app is opened.</p>
-    </fieldset>
-
-    <fieldset class="fs">
       <legend>Scores</legend>
       <label class="lbl">TheSportsDB API key
         <input type="text" id="apiKey" placeholder="123" autocomplete="off">
@@ -356,6 +330,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=16"></script>
+<script src="app.js?v=17"></script>
 </body>
 </html>

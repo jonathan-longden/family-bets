@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-28 · 16';
+var BUILD = '2026-08-28 · 17';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -49,7 +49,6 @@ function freshState() {
     entries: [],                           // newest first
     seen: {},                              // eventId -> entry id, or 'skip'
     hook: { url: '', headerName: '', headerValue: '', auto: true },
-    starling: { token: '', accountUid: '', accountName: '', spaceUid: '', spaceName: '', auto: true },
     sound: { mode: 'cannon', name: '' },
     league: { id: '4328', name: 'English Premier League' },
     tableOpen: true,
@@ -800,144 +799,6 @@ function fireHook(entry) {
     });
 }
 
-// ------------------------------------------------------------ the Starling
-
-/* Moving the money for real, inside one bank.
-
-   Starling gives an individual a personal access token and an endpoint that
-   puts money into one of their own spaces. That is the whole trick: no payment
-   to another institution, nobody else's account details anywhere, and a scope
-   narrow enough that the worst this token can do is tidy your own money away.
-
-   The transfer id is the interesting part. Starling takes one from the caller
-   and treats a repeat of the same id as the same transfer, so it is derived
-   from the match rather than made up fresh: the same win asks for the same
-   transfer however many times the app is opened, and the bank refuses to pay
-   it twice on its own account rather than relying on this app remembering. */
-
-var STARLING_HOST = 'https://api.starlingbank.com';
-
-function starlingFetch(path, options) {
-  var o = options || {};
-  var headers = { Authorization: 'Bearer ' + (state.starling.token || '').trim(), Accept: 'application/json' };
-  Object.keys(o.headers || {}).forEach(function (k) { headers[k] = o.headers[k]; });
-  return fetch(STARLING_HOST + path, { method: o.method || 'GET', headers: headers, body: o.body })
-    .then(function (res) {
-      return res.text().then(function (text) {
-        var data = null;
-        try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
-        if (!res.ok) {
-          var said = data && data.errors && data.errors[0] && data.errors[0].message;
-          throw new Error(said || ('Starling answered ' + res.status));
-        }
-        return data;
-      });
-    })
-    .catch(function (err) {
-      /* A browser refused at the door reports the same thing as a dead
-         network, so the likely cause is named rather than left as "failed". */
-      if (err instanceof TypeError) {
-        throw new Error('the browser would not let the app call Starling from this page');
-      }
-      throw err;
-    });
-}
-
-/* A transfer id has to be a UUID and has to be the same every time for the
-   same match, so it is hashed out of the match id rather than randomly made. */
-function uuidFrom(seed) {
-  var h = 2166136261 >>> 0;
-  function mix(str) {
-    for (var i = 0; i < str.length; i++) {
-      h ^= str.charCodeAt(i);
-      h = Math.imul(h, 16777619) >>> 0;
-    }
-  }
-  var bytes = [];
-  for (var round = 0; round < 16; round++) {
-    mix(seed + '|' + round);
-    bytes.push(h & 0xff);
-  }
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;      // version 4 shape
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;      // variant
-  var hex = bytes.map(function (b) { return (b + 0x100).toString(16).slice(1); });
-  return hex.slice(0, 4).join('') + '-' + hex.slice(4, 6).join('') + '-' + hex.slice(6, 8).join('') +
-    '-' + hex.slice(8, 10).join('') + '-' + hex.slice(10).join('');
-}
-
-function starlingReady() {
-  var st = state.starling;
-  return !!(st.token && st.accountUid && st.spaceUid);
-}
-
-function starlingAccounts() {
-  return starlingFetch('/api/v2/accounts').then(function (d) {
-    return ((d && d.accounts) || []).map(function (a) {
-      return { uid: a.accountUid, name: a.name || a.accountType || 'account', currency: a.currency || 'GBP' };
-    });
-  });
-}
-
-/* Spaces answer under one name on newer accounts and another on older ones. */
-function starlingSpaces(accountUid) {
-  return starlingFetch('/api/v2/account/' + accountUid + '/spaces').then(function (d) {
-    var goals = (d && (d.savingsGoals || d.savingsGoalList)) || [];
-    if (goals.length) return goals;
-    throw new Error('no spaces on that account');
-  }).catch(function (err) {
-    return starlingFetch('/api/v2/account/' + accountUid + '/savings-goals').then(function (d) {
-      var goals = (d && (d.savingsGoalList || d.savingsGoals)) || [];
-      if (!goals.length) throw err;
-      return goals;
-    });
-  }).then(function (goals) {
-    return goals.map(function (g) {
-      return { uid: g.savingsGoalUid, name: g.name || 'space' };
-    });
-  });
-}
-
-function starlingDeposit(pence, transferSeed) {
-  var st = state.starling;
-  var uid = uuidFrom(transferSeed);
-  return starlingFetch(
-    '/api/v2/account/' + st.accountUid + '/savings-goals/' + st.spaceUid + '/add-money/' + uid,
-    {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ amount: { currency: 'GBP', minorUnits: pence } })
-    }
-  ).then(function (d) {
-    if (d && d.success === false) {
-      var said = d.errors && d.errors[0] && d.errors[0].message;
-      throw new Error(said || 'Starling would not make the transfer');
-    }
-    return d;
-  });
-}
-
-/* One win, one transfer into the space. A success is recorded as the money
-   having actually moved — because it has — so the trophy stops asking you to
-   move it by hand. */
-function sendToSpace(entry) {
-  if (!starlingReady()) return Promise.resolve(false);
-  entry.starling = { state: 'sending', at: new Date().toISOString() };
-  render();
-
-  return starlingDeposit(entry.amount, 'tenawin-' + (entry.eventId || entry.id))
-    .then(function () {
-      entry.starling = { state: 'sent', at: new Date().toISOString(), space: state.starling.spaceName };
-      entry.paid = entry.paid || new Date().toISOString();
-      save(); render();
-      return true;
-    })
-    .catch(function (err) {
-      entry.starling = { state: 'failed', at: new Date().toISOString(), detail: String(err.message || err) };
-      save(); render();
-      return false;
-    });
-}
-
 // -------------------------------------------------------------- the checks
 
 var checking = false;
@@ -1015,7 +876,6 @@ function bank(m, source) {
 
   if (amount > 0) {
     if (state.hook.url && state.hook.auto) fireHook(entry);
-    if (starlingReady() && state.starling.auto) sendToSpace(entry);
     announce(entry);
     if (m.result === 'W') soundTheWin();
   }
@@ -1290,7 +1150,7 @@ function render() {
 
   var moveBtn = $('moveBtn');
   moveBtn.hidden = t.owed <= 0;
-  moveBtn.textContent = 'Mark ' + money(t.owed) + ' moved';
+  moveBtn.textContent = "I've moved " + money(t.owed);
 
   renderLedger();
   $('buildLine').textContent = 'Build ' + BUILD + (state.lastCheck ? ' · checked ' + ago(state.lastCheck) : '');
@@ -1336,10 +1196,7 @@ function renderLedger() {
     if (e.kind === 'in' && e.amount > 0) {
       var flag = document.createElement('span');
       flag.className = 'flag';
-      if (e.starling && e.starling.state === 'sent') flag.textContent = ' · moved into ' + (e.starling.space || 'the space');
-      else if (e.starling && e.starling.state === 'sending') flag.textContent = ' · moving…';
-      else if (e.starling && e.starling.state === 'failed') { flag.className = 'flag bad'; flag.textContent = ' · Starling: ' + e.starling.detail; }
-      else if (e.hook && e.hook.state === 'sent') flag.textContent = ' · sent to the bank link';
+      if (e.hook && e.hook.state === 'sent') flag.textContent = ' · sent to the bank link';
       else if (e.hook && e.hook.state === 'blind') flag.textContent = ' · fired at the bank link';
       else if (e.hook && e.hook.state === 'sending') flag.textContent = ' · sending…';
       else if (e.hook && e.hook.state === 'failed') { flag.className = 'flag bad'; flag.textContent = ' · bank link failed'; }
@@ -1363,10 +1220,6 @@ function renderLedger() {
     }
     if (e.kind === 'in' && e.amount > 0 && state.hook.url && (!e.hook || e.hook.state === 'failed')) {
       btns.appendChild(button('Send', 'ghost', function () { fireHook(e); }));
-    }
-    if (e.kind === 'in' && e.amount > 0 && starlingReady() &&
-        (!e.starling || e.starling.state === 'failed')) {
-      btns.appendChild(button('Move', 'ghost', function () { sendToSpace(e); }));
     }
     btns.appendChild(button('✕', 'ghost', function () {
       if (!confirm('Take this line out of the trophy?')) return;
@@ -1425,11 +1278,11 @@ $('checkBtn').addEventListener('click', function () { checkNow(true); });
 $('moveBtn').addEventListener('click', function () {
   var owed = totals().owed;
   if (owed <= 0) return;
-  if (!confirm('Mark ' + money(owed) + ' as moved into your savings?')) return;
+  if (!confirm('Tick off ' + money(owed) + ' as moved into your savings?')) return;
   var now = new Date().toISOString();
   state.entries.forEach(function (e) { if (e.kind === 'in' && e.amount > 0 && !e.paid) e.paid = now; });
   save(); render();
-  setStatus(money(owed) + ' marked moved.', 'ok');
+  setStatus(money(owed) + ' ticked off. The trophy will stop asking.', 'ok');
 });
 
 $('aboutBtn').addEventListener('click', function () { $('aboutSheet').showModal(); });
@@ -1486,7 +1339,6 @@ $('addForm').addEventListener('submit', function (ev) {
   };
   addEntry(entry);
   if (entry.amount > 0 && state.hook.url && state.hook.auto) fireHook(entry);
-  if (entry.amount > 0 && starlingReady() && state.starling.auto) sendToSpace(entry);
   render();
   if (entry.amount > 0) { celebrate(); if (result === 'W') soundTheWin(); }
   $('addSheet').close();
@@ -1539,13 +1391,6 @@ $('settingsBtn').addEventListener('click', function () {
   $('hookAuto').checked = !!state.hook.auto;
   $('apiKey').value = state.apiKey;
   $('soundMode').value = (state.sound && state.sound.mode) || 'cannon';
-  $('starToken').value = state.starling.token;
-  $('starAuto').checked = !!state.starling.auto;
-  $('starOut').textContent = starlingReady()
-    ? 'Paying into ' + state.starling.spaceName + '.'
-    : (state.starling.token ? 'Connect to choose a space.' : '');
-  $('starTestOut').textContent = '';
-  fillStarlingPickers();
   showSoundName();
   $('notifyOn').checked = !!state.notify;
   $('teamCurrent').textContent = 'Currently following ' + state.team.name + '.';
@@ -1574,146 +1419,6 @@ bindSetting('hookHeaderValue', function (el) { state.hook.headerValue = el.value
 bindSetting('hookAuto', function (el) { state.hook.auto = el.checked; });
 bindSetting('apiKey', function (el) { state.apiKey = el.value.trim(); });
 bindSetting('soundMode', function (el) { state.sound.mode = el.value; });
-bindSetting('starToken', function (el) { state.starling.token = el.value.trim(); });
-bindSetting('starAuto', function (el) { state.starling.auto = el.checked; });
-
-/* The pickers show what was chosen even before a connection is made, so a
-   phone that opens Settings offline still says where the money is going. */
-function fillStarlingPickers(accounts, spaces) {
-  var acc = $('starAccount'), sp = $('starSpace');
-  function put(select, list, chosenUid, chosenName) {
-    select.innerHTML = '';
-    var items = list;
-    if (!items) {
-      items = chosenUid ? [{ uid: chosenUid, name: chosenName || chosenUid }] : [];
-    }
-    if (!items.length) {
-      var none = document.createElement('option');
-      none.textContent = 'connect first';
-      none.value = '';
-      select.appendChild(none);
-      return;
-    }
-    items.forEach(function (item) {
-      var opt = document.createElement('option');
-      opt.value = item.uid;
-      opt.textContent = item.name;
-      if (item.uid === chosenUid) opt.selected = true;
-      select.appendChild(opt);
-    });
-  }
-  put(acc, accounts, state.starling.accountUid, state.starling.accountName);
-  put(sp, spaces, state.starling.spaceUid, state.starling.spaceName);
-}
-
-function rememberStarlingChoice() {
-  var acc = $('starAccount'), sp = $('starSpace');
-  if (acc.value) {
-    state.starling.accountUid = acc.value;
-    state.starling.accountName = acc.options[acc.selectedIndex].textContent;
-  }
-  if (sp.value) {
-    state.starling.spaceUid = sp.value;
-    state.starling.spaceName = sp.options[sp.selectedIndex].textContent;
-  }
-  save();
-  $('starOut').textContent = starlingReady() ? 'Paying into ' + state.starling.spaceName + '.' : '';
-}
-
-$('starAccount').addEventListener('change', function () {
-  rememberStarlingChoice();
-  loadStarlingSpaces();
-});
-$('starSpace').addEventListener('change', rememberStarlingChoice);
-
-function loadStarlingSpaces() {
-  if (!state.starling.accountUid) return Promise.resolve();
-  $('starOut').textContent = 'Reading the spaces…';
-  return starlingSpaces(state.starling.accountUid).then(function (spaces) {
-    fillStarlingPickers(null, spaces);
-    if (!state.starling.spaceUid && spaces.length) {
-      state.starling.spaceUid = spaces[0].uid;
-      state.starling.spaceName = spaces[0].name;
-    }
-    rememberStarlingChoice();
-  }).catch(function (err) {
-    $('starOut').textContent = String(err.message || err);
-  });
-}
-
-$('starConnect').addEventListener('click', function () {
-  state.starling.token = $('starToken').value.trim();
-  save();
-  if (!state.starling.token) { $('starOut').textContent = 'Paste a token first.'; return; }
-  $('starOut').textContent = 'Asking Starling…';
-  starlingAccounts().then(function (accounts) {
-    if (!accounts.length) throw new Error('that token sees no accounts');
-    fillStarlingPickers(accounts, null);
-    if (!state.starling.accountUid || !accounts.some(function (a) { return a.uid === state.starling.accountUid; })) {
-      state.starling.accountUid = accounts[0].uid;
-      state.starling.accountName = accounts[0].name;
-    }
-    rememberStarlingChoice();
-    return loadStarlingSpaces();
-  }).catch(function (err) {
-    $('starOut').textContent = String(err.message || err);
-  });
-});
-
-$('starTest').addEventListener('click', function () {
-  if (!starlingReady()) { $('starTestOut').textContent = 'Connect and pick a space first.'; return; }
-  $('starTestOut').textContent = 'Moving 1p…';
-  /* A fresh seed every time, so the test is not swallowed as a repeat of the
-     last one by the very idempotency that protects the real transfers. */
-  starlingDeposit(1, 'tenawin-test-' + Date.now()).then(function () {
-    $('starTestOut').textContent = '1p is in ' + state.starling.spaceName + '.';
-  }).catch(function (err) {
-    $('starTestOut').textContent = String(err.message || err);
-  });
-});
-
-function showSoundName() {
-  var el = $('soundName');
-  if (!el) return;
-  el.textContent = state.sound && state.sound.name
-    ? state.sound.name
-    : 'no file chosen';
-}
-
-$('soundPick').addEventListener('click', function () { $('soundFile').click(); });
-
-$('soundFile').addEventListener('change', function () {
-  var file = $('soundFile').files[0];
-  if (!file) return;
-  /* Fifteen megabytes is several minutes of audio and well inside what the
-     store will hold; the point of the limit is to fail here, with a sentence,
-     rather than at the moment of a win. */
-  if (file.size > 15 * 1024 * 1024) {
-    $('soundName').textContent = 'that file is too big — trim it first';
-    $('soundFile').value = '';
-    return;
-  }
-  saveSound(file).then(function () {
-    state.sound.name = file.name;
-    state.sound.mode = 'mine';
-    $('soundMode').value = 'mine';
-    save();
-    showSoundName();
-  }).catch(function (err) {
-    $('soundName').textContent = 'could not keep that file — ' + (err.message || err);
-  }).finally(function () { $('soundFile').value = ''; });
-});
-
-$('soundTest').addEventListener('click', function () {
-  armAudio();
-  var mode = $('soundMode').value;
-  if (mode === 'off') { $('soundName').textContent = 'nothing to hear — set it to the cannon or your own sound'; return; }
-  if (mode === 'cannon') { fireCannon(); return; }
-  playOwnSound().catch(function (err) {
-    $('soundName').textContent = (err.message || String(err));
-  });
-});
-
 $('notifyOn').addEventListener('change', function () {
   var want = $('notifyOn').checked;
   if (!want) { state.notify = false; save(); return; }

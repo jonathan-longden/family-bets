@@ -132,53 +132,23 @@ because a page that is shut gets no time to run. And phones will not make a
 sound until the person has touched the screen, so a win found on the way in
 is held and fired on your first tap rather than being swallowed.
 
-## Starling: moving the money for real
+## Moving the money
 
-This is the one route where the app moves money itself rather than asking
-something else to. It works because it never leaves your bank: Starling gives
-an individual a personal access token and an endpoint that puts money into one
-of their own spaces, so there is no payment to another institution and nobody
-else's account details are involved anywhere.
+The app does not move money, and after trying every way a page can, that is a
+decision rather than a shortfall. A browser will not let a page call a bank at
+all — Starling refuses it outright — and a page that is shut cannot notice
+that Arsenal have won in the first place.
 
-1. Go to developer.starlingbank.com, sign in with your Starling account and
-   create a **personal access token**. Give it the narrowest scopes that work:
-   reading accounts, reading spaces, and paying into a space. Nothing that can
-   pay another person — this app has no use for that, and a token that cannot
-   do it cannot be made to.
-2. Paste the token into **Settings → Starling** and press **Connect**. The
-   account and the space are then chosen from what your own token can see.
-   The app talks to Starling directly: no proxy, no server of mine, nothing
-   in the middle.
-3. **Move 1p now** proves the wiring before a match does.
+So the trophy keeps the count and you make the transfer. When there is
+something owed, the second button on the trophy card reads **I've moved £10**:
+move it into your space or pot however you normally would, tap that, and the
+trophy stops asking. Individual lines have a **Moved** button of their own if
+you would rather tick them off one at a time.
 
-Every win then puts the stake straight into that space. A transfer that
-succeeds is recorded as money that has actually moved, so the trophy stops
-asking you to move it by hand.
-
-**A win cannot be paid twice**, and not because the app remembers. Starling
-takes the transfer id from the caller and treats a repeat of the same id as
-the same transfer, so the id is derived from the match itself: the same win
-always asks for the same transfer, and the bank refuses the second one on its
-own account. Retrying a failed transfer is therefore safe — it reuses the same
-id rather than making a new one.
-
-The token lives on this phone in the same place as everything else, and goes
-nowhere near the bank link or any server of mine.
-
-### It will not work from the phone — use the worker
-
-That is not a maybe any more: Starling does not allow calls from a web page,
-and the app has now been told so by the real thing. No code inside a browser
-can get past that.
-
-**[`worker/`](worker/) is the way that works.** It runs on Cloudflare's free
-plan, wakes every half hour, reads the results and pays into the space itself.
-The token lives in the worker's secrets rather than on the phone, and it pays
-while the app is shut — which is what "automatically when Arsenal win" ought to
-have meant all along. Its README has the setup, and it is about five minutes.
-
-The Starling section stays in the app for anything that does allow the call,
-and both use the same transfer id, so having both on cannot pay a win twice.
+If you ever do want it done for you, [`worker/`](worker/) still holds a
+Cloudflare worker that pays into a Starling space on a schedule, with the token
+living on Cloudflare rather than on the phone. It is about ten minutes of
+setting up, and nothing in the app depends on it.
 
 ## How the money actually moves
 
@@ -295,10 +265,10 @@ the browser has never seen. It leaves the trophy, the results and the bank
 link alone — they are not part of the app's copy. The build the phone is
 running is printed just above that button, and in the footer.
 
-The stylesheet and the script are also asked for by version (`app.js?v=16`).
+The stylesheet and the script are also asked for by version (`app.js?v=17`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=16`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=17`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 
