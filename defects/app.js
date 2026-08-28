@@ -2072,47 +2072,137 @@ $('bGeo').addEventListener('click', function () {
      new Blob([JSON.stringify(fc, null, 2)], { type: 'application/geo+json' }));
 });
 
+/* ---------- the JSON export, and why it is built the long way round ----------
+
+   It used to read every photograph at once — Promise.all over the whole log,
+   each one turned into a base64 data URL — and then hand the lot to
+   JSON.stringify, which built one more string containing all of them again. A
+   200 kB JPEG is about 270 kB as base64, so four hundred entries is somewhere
+   over 100 MB of JavaScript string, held twice, on a phone. It does not fail
+   politely: the tab is killed and the export is simply gone.
+
+   Two changes fix that without changing the file that comes out.
+
+   The photographs are read one at a time, so only one is on the heap at once.
+   And the pieces of the document are handed to a Blob as they are made rather
+   than concatenated: once a few megabytes have gathered they are collapsed into
+   a Blob, which the browser holds outside the JavaScript heap and spills to
+   disk, and the collapsed Blob becomes the first piece of the next batch. Peak
+   memory is the chunk size plus one photograph, whatever the size of the log.
+
+   It is a true stream in the sense that matters — nothing whole is ever
+   resident — but it is not a streaming download: the file is finished before
+   the browser is asked to save it, because a page cannot hand a save dialogue
+   something it is still writing. A log large enough to fill the device's free
+   space would still fail, and that is a disk limit rather than a memory one. */
+function parts(limitBytes) {
+  var buf = [], pending = 0, limit = limitBytes || 4 * 1024 * 1024;
+  return {
+    add: function (s) {
+      buf.push(s); pending += s.length;
+      /* Collapsing turns however many strings have gathered into one Blob, and
+         a Blob does not live on the heap. The strings become unreachable the
+         moment the array is replaced. */
+      if (pending >= limit) { buf = [new Blob(buf)]; pending = 0; }
+    },
+    blob: function (type) { return new Blob(buf, { type: type }); }
+  };
+}
+
+/* One photograph, as a data URL, resolved rather than rejected on failure: an
+   image that will not read must cost that entry its picture and nothing else. */
+function imgDataUrl(blob) {
+  return new Promise(function (resolve) {
+    if (!blob) return resolve(null);
+    var fr = new FileReader();
+    fr.onload = function () { resolve(fr.result); };
+    fr.onerror = function () { resolve(null); };
+    try { fr.readAsDataURL(blob); } catch (e) { resolve(null); }
+  });
+}
+
+/* Rows are written into the document one at a time, in order, each one read,
+   serialised and released before the next is touched. */
+function writeRows(out, list, withImages, onProgress) {
+  var i = 0;
+  function step() {
+    if (i >= list.length) return Promise.resolve();
+    var it = list[i], row = {};
+    for (var k in it) if (k !== 'img') row[k] = it[k];
+    return (withImages ? imgDataUrl(it.img) : Promise.resolve(null)).then(function (url) {
+      row.img = url;
+      if (!withImages && it.img) row.imgOmitted = true;
+      out.add((i ? ',\n' : '') + JSON.stringify(row));
+      row = null; url = null;          // nothing from this entry outlives the step
+      i++;
+      if (onProgress) onProgress(i, list.length);
+      return step();
+    });
+  }
+  return step();
+}
+
+function imageBytes(list) {
+  return list.reduce(function (n, i) { return n + (i.img ? i.img.size : 0); }, 0);
+}
+
 $('bJson').addEventListener('click', function () {
-  var btn = this; btn.disabled = true;
-  Promise.all(S.items.map(function (it) {
-    var out = {};
-    for (var k in it) if (k !== 'img') out[k] = it[k];
-    if (!it.img) { out.img = null; return Promise.resolve(out); }
-    return new Promise(function (resolve) {
-      var fr = new FileReader();
-      fr.onload = function () { out.img = fr.result; resolve(out); };
-      fr.onerror = function () { out.img = null; resolve(out); };
-      fr.readAsDataURL(it.img);      // photographs travel as data URLs, as before
+  var btn = this, label = btn.textContent;
+  btn.disabled = true;
+
+  allWrong().then(function (wrong) {
+    var all = S.items.concat(wrong);
+    var raw = imageBytes(all);
+    var encoded = Math.round(raw * 4 / 3);            // base64 costs a third more
+    var mb = Math.round(encoded / 1048576);
+    var withImages = true;
+
+    /* Above a few hundred megabytes this stops being a question of memory and
+       becomes a question of whether the phone has the room and the patience.
+       The choice is offered rather than made: the photographs are the thing a
+       retrain needs, so quietly dropping them would be the wrong default. */
+    if (encoded > 250 * 1024 * 1024) {
+      withImages = confirm(
+        'This export contains ' + all.filter(function (i) { return i.img; }).length +
+        ' photographs — about ' + mb + ' MB once encoded. Writing it will take a while and ' +
+        'needs that much free space on this device.\n\n' +
+        'OK to include the photographs.\n' +
+        'Cancel to export the same records without them (a few hundred kilobytes), which ' +
+        'keeps every measurement and loses only the images.');
+    }
+
+    var out = parts();
+    var meta;
+    out.add('{\n"defects": [\n');
+    return writeRows(out, S.items, withImages, function (n, total) {
+      btn.textContent = 'JSON ' + n + '/' + total;
+    }).then(function () {
+      out.add('\n],\n"notDefects": [\n');
+      return writeRows(out, wrong, withImages);
+    }).then(function () {
+      out.add('\n],\n');
+      return modelMeta();
+    }).then(function (m) {
+      meta = m;
+      out.add('"model": ' + JSON.stringify({
+        id: RF_MODEL_ID || (RF_MODEL + '/' + RF_VERSION),
+        loadedBy: RF_MODEL_ID ? 'model id' : 'project and version',
+        build: BUILD,
+        roboflow: meta,               // what the service says it is, and what decodes it
+        selfTest: selfTest
+      }, null, 2) + ',\n');
+      out.add('"photographs": ' + JSON.stringify(withImages ? 'included' : 'omitted at export') + ',\n');
+      // what the model returned when it made no sense
+      out.add('"lastUnusableOutput": ' + JSON.stringify(lastRaw == null ? null : lastRaw) + '\n}\n');
+      dl('defects-' + stamp() + '.json', out.blob('application/json'));
     });
-  })).then(function (rows) {
-    return allWrong().then(function (wrong) {
-      return Promise.all(wrong.map(function (it) {
-        var out = {};
-        for (var k in it) if (k !== 'img') out[k] = it[k];
-        if (!it.img) { out.img = null; return Promise.resolve(out); }
-        return new Promise(function (resolve) {
-          var fr = new FileReader();
-          fr.onload = function () { out.img = fr.result; resolve(out); };
-          fr.onerror = function () { out.img = null; resolve(out); };
-          fr.readAsDataURL(it.img);
-        });
-      })).then(function (wrongRows) {
-        return modelMeta().then(function (meta) { return { wrongRows: wrongRows, meta: meta }; });
-      }).then(function (bundle) {
-        var wrongRows = bundle.wrongRows, meta = bundle.meta;
-        dl('defects-' + stamp() + '.json', new Blob([JSON.stringify({
-          defects: rows,
-          notDefects: wrongRows,      // the examples a retrain would need
-          model: { id: RF_MODEL_ID || (RF_MODEL + '/' + RF_VERSION),
-                   loadedBy: RF_MODEL_ID ? 'model id' : 'project and version',
-                   build: BUILD,
-                   roboflow: meta,     // what the service says it is, and what decodes it
-                   selfTest: selfTest },
-          lastUnusableOutput: lastRaw // what the model returned when it made no sense
-        }, null, 2)], { type: 'application/json' }));
-      });
-    });
-  }).then(function () { btn.disabled = false; }, function () { btn.disabled = false; });
+  }).then(function () {
+    btn.disabled = false; btn.textContent = label;
+  }, function (e) {
+    btn.disabled = false; btn.textContent = label;
+    alert('The export could not be written (' + (e && e.name ? e.name : 'unknown') + '). ' +
+          'The log is untouched. CSV carries every measurement without the photographs.');
+  });
 });
 
 /* ---------- diagnostics ----------

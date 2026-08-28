@@ -699,6 +699,47 @@ rather than leaving you to wonder why a map is empty in a lay-by.
 
 ## Storage and export
 
+### Two ways this could have lost a day's work
+
+**Map tiles used to share the app's cache, uncapped.** A deploy deletes every
+cache but the current one, so a new build threw away a county's worth of tiles
+somebody had driven to collect — and with no cap at all, panning around long
+enough grows the cache until the origin hits its storage quota, at which point
+the browser is entitled to evict the whole origin, defect database included. A
+map's convenience must not be able to take the log with it. Tiles now live in
+their own cache, which survives deploys and holds about 600 of them (roughly
+6–18 MB at OpenStreetMap's tile sizes). Over that, the oldest go first —
+`cache.keys()` answers in insertion order, so the front of the list is the
+ground looked at longest ago. Trimming happens off the response path, so a tile
+that has already been handed back never waits for housekeeping.
+
+**The JSON export used to build the whole file in memory, twice.** Every
+photograph was read to a base64 data URL, all of them at once, and then
+`JSON.stringify` built one more string containing all of them again. A 200 kB
+JPEG is about 270 kB as base64, so four hundred entries is over 100 MB of
+JavaScript string held twice on a phone — and it does not fail politely: the tab
+is killed and the export is gone.
+
+It is now written a row at a time. Photographs are read one at a time, so only
+one is on the heap at once, and the pieces of the document are handed to a Blob
+as they are made: once a few megabytes have gathered they collapse into a Blob,
+which the browser holds outside the JavaScript heap and spills to disk, and that
+Blob becomes the first piece of the next batch. **Peak memory is one chunk plus
+one photograph, whatever the size of the log.** The file that comes out is
+unchanged.
+
+It is a stream in the sense that matters — nothing whole is ever resident — but
+it is **not a streaming download**: the file is finished before the browser is
+asked to save it, because a page cannot hand a save dialogue something it is
+still writing. A log large enough to fill the device's free space would still
+fail, and that is a disk limit rather than a memory one. Above about 250 MB of
+encoded photographs the export asks first, and offers the same records without
+the images — every measurement kept, a few hundred kilobytes instead of a few
+hundred megabytes. Rows written that way carry `imgOmitted: true` so nothing has
+to guess why a picture is missing.
+
+CSV and GeoJSON carry no photographs and were never at risk; they are unchanged.
+
 Everything is on the one device, in that browser. Clearing the browser's site
 data takes the log with it, and there is no copy anywhere else.
 
