@@ -27,10 +27,10 @@ pot live, connect it to a free Firebase Realtime Database.
 >   Arsenal win, £10 goes in. It reads the results itself, banks each
 >   win once, and — pointed at a webhook wired to your bank — moves the
 >   tenner into a savings pot for you.
-> - **[Bloody Weather](outside/)** (`/outside/`) — an accurate forecast
->   with a running commentary: now, hour by hour, and fifteen days out,
->   with a headline chosen by what the sky is actually doing. Swearing
->   optional.
+> - **[Fucking Weather](outside/)** (`/outside/`) — a proper weather app
+>   that tells you exactly what the sky is doing, then takes the mickey
+>   out of it: now, hour by hour, today's best and worst bits, tomorrow,
+>   and fifteen days out. Swearing optional.
 >
 > All seven are separate PWAs with the same no-build setup.
 

@@ -305,6 +305,42 @@
     weekendWashout: [
       ['THE WEEKEND IS GOING TO BE A WET ONE.', 'THE WEEKEND IS GOING TO BE A WET ONE.'],
       ['BAD NEWS FOR THE WEEKEND. BRING IT INDOORS.', 'BAD NEWS FOR THE WEEKEND. BRING IT INDOORS.']
+    ],
+    sunAfterRain: [
+      ["LOOK WHO'S TURNED UP. SUN FROM ABOUT {time}.", "LOOK WHO'S TURNED UP. SUN FROM ABOUT {time}."],
+      ['RAIN OFF, SUN ON. AROUND {time}.', 'RAIN OFF, SUN ON. AROUND {time}.']
+    ],
+    firstSunAfterGrey: [
+      ['FINALLY. FUCKING FINALLY. THE SUN IS BACK.', 'FINALLY. HONESTLY, FINALLY. THE SUN IS BACK.'],
+      ['FIRST PROPER SUNSHINE IN DAYS.', 'FIRST PROPER SUNSHINE IN DAYS.']
+    ],
+    firstRainAfterDry: [
+      ["WELL, THAT DIDN'T LAST. RAIN IS BACK.", "WELL, THAT DIDN'T LAST. RAIN IS BACK."],
+      ['THE DRY SPELL IS OVER. IT WAS NICE.', 'THE DRY SPELL IS OVER. IT WAS NICE.']
+    ],
+    bigJump: [
+      ['BLOODY HELL, THAT GOT WARM — UP {by}° ON YESTERDAY.', 'GOODNESS, THAT GOT WARM — UP {by}° ON YESTERDAY.'],
+      ['{by}° WARMER THAN YESTERDAY. ENJOY.', '{by}° WARMER THAN YESTERDAY. ENJOY.']
+    ],
+    bigDrop: [
+      ['WHO TURNED THE HEATING OFF? DOWN {by}° ON YESTERDAY.', 'WHO TURNED THE HEATING OFF? DOWN {by}° ON YESTERDAY.'],
+      ['{by}° COLDER THAN YESTERDAY. COAT.', '{by}° COLDER THAN YESTERDAY. COAT.']
+    ],
+    veryWindy: [
+      ['THE ATMOSPHERE IS HAVING A FUCKING TANTRUM.', 'THE ATMOSPHERE IS HAVING AN ABSOLUTE TANTRUM.'],
+      ['HOLD ONTO SOMETHING. GUSTS TO {gust}.', 'HOLD ONTO SOMETHING. GUSTS TO {gust}.']
+    ],
+    thunderComing: [
+      ['THE SKY IS THROWING FURNITURE AROUND. STORMS AT {time}.', 'THE SKY IS THROWING FURNITURE AROUND. STORMS AT {time}.'],
+      ['THUNDER DUE ABOUT {time}.', 'THUNDER DUE ABOUT {time}.']
+    ],
+    snowComing: [
+      ["THE SKY'S SENT US CONFETTI. SNOW FROM {time}.", "THE SKY'S SENT US CONFETTI. SNOW FROM {time}."],
+      ['SNOW ON THE WAY, AROUND {time}.', 'SNOW ON THE WAY, AROUND {time}.']
+    ],
+    goodSunrise: [
+      ["THE DAY'S MADE A FUCKING EFFORT. SUNRISE {time}.", "THE DAY'S MADE A PROPER EFFORT. SUNRISE {time}."],
+      ['CLEAR SKY AT SUNRISE, {time}. WORTH GETTING UP FOR.', 'CLEAR SKY AT SUNRISE, {time}. WORTH GETTING UP FOR.']
     ]
   };
 
@@ -484,23 +520,39 @@
     var offset = forecast.offset;
     var todayIndex = W.todayIndex(forecast, now);
     var today = forecast.days[todayIndex];
+    var yesterday = forecast.days[todayIndex - 1];
     var tomorrow = forecast.days[todayIndex + 1];
     var seedDay = W.dayOf(now, offset);
+    var seen = {};
 
     function add(key, icon, vars) {
       var bank = MOMENTS[key];
-      if (!bank) return;
+      if (!bank || seen[key]) return;
+      seen[key] = true;
       out.push({ key: key, icon: icon, text: fill(choose(bank, seedDay + ':' + key, settings.sweary), vars) });
     }
 
-    /* Rain that stops, or rain that starts — the two most useful facts in a
-       British day, and both come straight off the hourly numbers. */
-    var hours = W.hoursFrom(forecast, now, 14);
+    var hours = W.hoursFrom(forecast, now, 16);
+    var recent = W.recent(forecast, now);
+
+    /* The loud stuff first: things that change what you do in the next few
+       hours, and only where the forecast actually contains them. */
+    var thunder = hours.filter(function (h) { return W.family(h.code) === 'thunder'; })[0];
+    if (thunder) add('thunderComing', '⛈️', { time: W.clock(thunder.t, offset, settings.ampm) });
+
+    var snow = hours.filter(function (h) { return W.family(h.code) === 'snow'; })[0];
+    if (snow) add('snowComing', '❄️', { time: W.clock(snow.t, offset, settings.ampm) });
+
+    var gust = hours.reduce(function (a, h) { return Math.max(a, h.gust); }, 0);
+    if (gust >= 65) add('veryWindy', '💨', { gust: W.speed(gust, settings.units) });
+
+    /* Rain starting, stopping, or giving way to actual sunshine. */
     var wetNow = hours.length && isWet(hours[0]);
     if (wetNow) {
       for (var i = 1; i < hours.length; i++) {
         if (!isWet(hours[i]) && !isWet(hours[Math.min(i + 1, hours.length - 1)])) {
-          add('rainEnding', '🌤️', { time: W.clock(hours[i].t, offset, settings.ampm) });
+          if (W.isBright(hours[i])) add('sunAfterRain', '🌤️', { time: W.clock(hours[i].t, offset, settings.ampm) });
+          else add('rainEnding', '🌤️', { time: W.clock(hours[i].t, offset, settings.ampm) });
           break;
         }
       }
@@ -513,6 +565,17 @@
       }
     }
 
+    /* Breaking a run: only sayable because the request asks for past days. */
+    if (recent.greyRun >= 2 && today && W.family(today.code) === 'clear') add('firstSunAfterGrey', '☀️');
+    if (recent.dryRun >= 3 && today && today.prob !== null && today.prob >= 60) add('firstRainAfterDry', '🌧️');
+
+    /* Yesterday against today, which is how people actually feel temperature. */
+    if (yesterday && today && yesterday.max !== null && today.max !== null) {
+      var jump = today.max - yesterday.max;
+      if (jump >= 6) add('bigJump', '🌡️', { by: Math.round(jump) });
+      else if (jump <= -6) add('bigDrop', '🥶', { by: Math.round(-jump) });
+    }
+
     /* Tomorrow, when tomorrow is a different animal. */
     if (today && tomorrow && today.max !== null && tomorrow.max !== null) {
       var warmer = tomorrow.max - today.max;
@@ -521,7 +584,7 @@
       else if (warmer <= -5 || (dryer <= -40 && warmer <= 0)) add('worseTomorrow', '🌧️');
     }
 
-    /* A run at something extreme in the week ahead. */
+    /* A spell of something extreme in the week ahead. */
     var hotDays = 0, coldDays = 0;
     for (var k = todayIndex; k < Math.min(forecast.days.length, todayIndex + 6); k++) {
       var d = forecast.days[k];
@@ -531,11 +594,21 @@
     if (hotDays >= 2) add('heatwave', '🥵');
     else if (coldDays >= 2) add('coldSnap', '🥶');
 
-    /* A sunset worth walking to the window for: clear at the time it happens. */
+    /* The sky putting on a show, at either end of the day. */
     if (today && today.sunset > now && today.sunset - now < 5 * 3600) {
       var atSunset = nearestHour(forecast, today.sunset);
       if (atSunset && W.family(atSunset.code) === 'clear') {
         add('goodSunset', '🌇', { time: W.clock(today.sunset, offset, settings.ampm) });
+      }
+    }
+    var nextSunrise = null;
+    for (var r = todayIndex; r < forecast.days.length; r++) {
+      if (forecast.days[r].sunrise > now) { nextSunrise = forecast.days[r].sunrise; break; }
+    }
+    if (nextSunrise && nextSunrise - now < 4 * 3600) {
+      var atSunrise = nearestHour(forecast, nextSunrise);
+      if (atSunrise && W.family(atSunrise.code) === 'clear') {
+        add('goodSunrise', '🌅', { time: W.clock(nextSunrise, offset, settings.ampm) });
       }
     }
 
@@ -550,7 +623,7 @@
       else if (fine === 2) add('weekend', '🎉');
     }
 
-    return out.slice(0, 2);
+    return out.slice(0, 3);
   };
 
   function isWet(h) {
@@ -584,6 +657,283 @@
   /* Exposed so the tests can walk every line in the app and check that the
      clean half is genuinely clean and genuinely different work. */
   V.banks = { LINES: LINES, DAY_LINES: DAY_LINES, MOMENTS: MOMENTS, ERRORS: ERRORS, NO_PLACE: NO_PLACE };
+
+  /* ------------------------------------------------------------- sky mood */
+
+  /* The sky, as a person. Derived from the same numbers as everything else —
+     a grey day is never "delighted". */
+  var MOODS = {
+    delighted: [
+      ['Absolutely fucking delighted.', 'Absolutely delighted with itself.'],
+      ['In a spectacularly good mood.', 'In a spectacularly good mood.']
+    ],
+    showingOff: [
+      ['Showing off. Shamelessly.', 'Showing off. Shamelessly.'],
+      ['Peacocking, frankly.', 'Peacocking, frankly.']
+    ],
+    wellBehaved: [
+      ['Surprisingly well behaved.', 'Surprisingly well behaved.'],
+      ['Quietly getting on with it.', 'Quietly getting on with it.']
+    ],
+    unavailable: [
+      ['Grey and emotionally unavailable.', 'Grey and emotionally unavailable.'],
+      ['Present, but not really here.', 'Present, but not really here.']
+    ],
+    annoyed: [
+      ['Mildly pissed off.', 'Mildly put out.'],
+      ['In a bit of a strop.', 'In a bit of a strop.']
+    ],
+    undecided: [
+      ["Can't make its bloody mind up.", "Can't make its mind up."],
+      ['Wildly indecisive.', 'Wildly indecisive.']
+    ],
+    tantrum: [
+      ['Having a proper tantrum.', 'Having a proper tantrum.'],
+      ['Absolutely losing it.', 'Absolutely losing it.']
+    ],
+    sulking: [
+      ['Sulking, and taking it out on us.', 'Sulking, and taking it out on us.'],
+      ['Thoroughly fed up.', 'Thoroughly fed up.']
+    ],
+    freezing: [
+      ['Cold. Emotionally and literally.', 'Cold. Emotionally and literally.'],
+      ['Bitter. In every sense.', 'Bitter. In every sense.']
+    ],
+    melting: [
+      ['Overheating and unrepentant.', 'Overheating and unrepentant.'],
+      ['Turned itself up to eleven.', 'Turned itself up to eleven.']
+    ],
+    questionable: [
+      ['Questionable. Very questionable.', 'Questionable. Very questionable.'],
+      ['Up to something.', 'Up to something.']
+    ]
+  };
+
+  V.moodKind = function (forecast, now) {
+    var n = W.now(forecast, now);
+    var fam = W.family(n.code);
+    if (fam === 'thunder' || n.gust >= 60) return 'tantrum';
+    if (fam === 'snow' || fam === 'ice') return 'questionable';
+    if (fam === 'fog') return 'questionable';
+    if (fam === 'downpour') return 'sulking';
+    if (fam === 'rain') return n.feels <= 5 ? 'sulking' : 'annoyed';
+    if (fam === 'showers' || V.changeable(forecast, now)) return 'undecided';
+    if (fam === 'drizzle') return 'annoyed';
+    if (n.feels >= 30) return 'melting';
+    if (n.feels <= -1) return 'freezing';
+    if (fam === 'clear') {
+      if (n.feels >= 24) return 'showingOff';
+      if (n.feels >= 14) return 'delighted';
+      return 'showingOff';
+    }
+    if (fam === 'grey') return 'unavailable';
+    return 'wellBehaved';
+  };
+
+  V.mood = function (forecast, settings, now) {
+    var kind = V.moodKind(forecast, now);
+    var bank = MOODS[kind] || MOODS.wellBehaved;
+    var seed = W.dayOf(now, forecast.offset) + ':' + W.hourOf(now, forecast.offset) + ':' + kind;
+    return { kind: kind, text: choose(bank, seed, settings.sweary) };
+  };
+
+  /* ------------------------------------------------- how is it looking, then */
+
+  /* The most useful thing in the app, and the least funny: the forecast in a
+     sentence or three, the way a person would say it. Assembled entirely from
+     the numbers — every clause below is a fact the forecast contains. */
+  function warmth(t) {
+    if (t >= 28) return 'Baking';
+    if (t >= 23) return 'Warm';
+    if (t >= 18) return 'Mild';
+    if (t >= 12) return 'Cool';
+    if (t >= 6) return 'Chilly';
+    if (t >= 0) return 'Cold';
+    return 'Freezing';
+  }
+
+  function skyOf(hours) {
+    var count = {};
+    hours.forEach(function (h) {
+      var fam = W.family(h.code);
+      count[fam] = (count[fam] || 0) + 1;
+    });
+    var best = 'cloud', most = 0;
+    Object.keys(count).forEach(function (k) { if (count[k] > most) { most = count[k]; best = k; } });
+    return best;
+  }
+
+  var SKY_WORDS = {
+    clear: 'sunny', cloud: 'a mix of sun and cloud', grey: 'grey',
+    drizzle: 'drizzly', rain: 'wet', downpour: 'very wet', showers: 'showery',
+    snow: 'snowy', ice: 'icy', fog: 'foggy', thunder: 'stormy'
+  };
+
+  function partName(hour) {
+    if (hour < 12) return 'this morning';
+    if (hour < 17) return 'this afternoon';
+    if (hour < 22) return 'this evening';
+    return 'tonight';
+  }
+
+  V.brief = function (forecast, settings, now) {
+    var hours = W.todayHours(forecast, now);
+    /* Late in the evening there is no day left to describe, so the brief
+       becomes tonight and tomorrow morning instead of pretending. */
+    var borrowed = false;
+    if (hours.length < 3) {
+      hours = W.hoursFrom(forecast, now, 14);
+      borrowed = true;
+    }
+    if (!hours.length) return '';
+
+    var offset = forecast.offset;
+    var temps = hours.map(function (h) { return h.temp; });
+    var hi = Math.max.apply(null, temps), lo = Math.min.apply(null, temps);
+    var sky = skyOf(hours);
+    var wettest = hours.reduce(function (a, h) { return Math.max(a, h.prob || 0); }, 0);
+    var gusty = hours.reduce(function (a, h) { return Math.max(a, h.gust); }, 0);
+    var startHour = W.hourOf(hours[0].t, offset);
+
+    var when = borrowed ? 'through the night and into tomorrow' : ('for the rest of ' + partName(startHour).replace('this ', 'the '));
+    if (!borrowed && startHour < 10) when = 'today';
+
+    var sentence = warmth(hi) + ', mostly ' + (SKY_WORDS[sky] || 'cloudy');
+    if (wettest < 25) sentence += ' and dry ' + when + '.';
+    else if (wettest < 55) sentence += ' ' + when + ', with the odd shower about.';
+    else sentence += ' ' + when + ', and rain is likely.';
+
+    var out = [sentence];
+
+    /* The one change that matters most, named with its time. */
+    var moves = W.transitions(forecast, now, borrowed ? 14 : 12).filter(function (m) {
+      return m.kind === 'rainStarts' || m.kind === 'rainStops' || m.kind === 'brightens' || m.kind === 'clouds';
+    });
+    if (moves.length) {
+      var m = moves[0];
+      var at = W.clock(m.t, offset, settings.ampm);
+      if (m.kind === 'rainStarts') out.push('Rain arrives around ' + at + '.');
+      else if (m.kind === 'rainStops') out.push('It dries up around ' + at + '.');
+      else if (m.kind === 'brightens') out.push('The sun gets through around ' + at + '.');
+      else out.push('Cloud builds in around ' + at + '.');
+    }
+
+    /* And the thing you would want warning about, if there is one. */
+    if (gusty >= 55) out.push('Windy with it — gusts to ' + W.speed(gusty, settings.units) + '.');
+    else if (hi - lo >= 9) out.push('A big swing in temperature, ' + W.temp(lo, settings.units) + ' to ' + W.temp(hi, settings.units) + '.');
+    else if (wettest < 20 && (sky === 'clear' || sky === 'cloud')) out.push('Nothing dramatic.');
+
+    return out.join(' ');
+  };
+
+  /* ------------------------------------------------------- best and worst bit */
+
+  var BEST = [
+    ['THIS. THIS IS THE BIT.', 'THIS. THIS IS THE BIT.'],
+    ['PEAK SKY. RIGHT THERE.', 'PEAK SKY. RIGHT THERE.'],
+    ['IF YOU LOOK UP ONCE TODAY, MAKE IT THEN.', 'IF YOU LOOK UP ONCE TODAY, MAKE IT THEN.']
+  ];
+  var WORST = [
+    ['AND THERE IT FUCKING IS.', 'AND THERE IT IS.'],
+    ['THE LOW POINT, WEATHER-WISE.', 'THE LOW POINT, WEATHER-WISE.'],
+    ['BRACE YOURSELF FOR THAT ONE.', 'BRACE YOURSELF FOR THAT ONE.']
+  ];
+
+  V.bestWorst = function (forecast, settings, now) {
+    var hours = W.todayHours(forecast, now);
+    /* One hour left is not a best and a worst, it is just an hour. */
+    if (hours.length < 3) return null;
+    var best = W.nicest(hours);
+    var worst = W.grimmest(hours);
+    if (!best || !worst || best.t === worst.t) return null;
+    var seed = W.dayOf(now, forecast.offset);
+    return {
+      best: { hour: best, line: choose(BEST, seed + ':best', settings.sweary) },
+      worst: { hour: worst, line: choose(WORST, seed + ':worst', settings.sweary) }
+    };
+  };
+
+  /* ------------------------------------------------------------- tomorrow */
+
+  var TOMORROW = {
+    better: [
+      ['TOMORROW LOOKS FUCKING PROMISING.', 'TOMORROW LOOKS SERIOUSLY PROMISING.'],
+      ['TOMORROW JUST GOT BETTER.', 'TOMORROW JUST GOT BETTER.']
+    ],
+    worse: [
+      ["TOMORROW'S A BIT OF A BASTARD.", "TOMORROW'S A BIT OF A STINKER."],
+      ['ENJOY TODAY. TOMORROW TURNS.', 'ENJOY TODAY. TOMORROW TURNS.']
+    ],
+    same: [
+      ['MUCH THE SAME AGAIN TOMORROW.', 'MUCH THE SAME AGAIN TOMORROW.'],
+      ['TOMORROW: SEE ABOVE.', 'TOMORROW: SEE ABOVE.']
+    ]
+  };
+
+  V.tomorrow = function (forecast, settings, now) {
+    var i = W.todayIndex(forecast, now);
+    var today = forecast.days[i];
+    var day = forecast.days[i + 1];
+    if (!day) return null;
+    var kind = 'same';
+    if (today && today.max !== null && day.max !== null) {
+      var warmer = day.max - today.max;
+      var dryer = (today.prob || 0) - (day.prob || 0);
+      if (warmer >= 3 || dryer >= 35) kind = 'better';
+      else if (warmer <= -3 || dryer <= -35) kind = 'worse';
+    }
+    return {
+      day: day,
+      kind: kind,
+      line: choose(TOMORROW[kind], day.t + ':' + kind, settings.sweary)
+    };
+  };
+
+  /* --------------------------------------------------------------- warnings */
+
+  /* The lead-in to a real warning. Light, never flippant — the detail under it
+     comes from weather.js and is never funny. */
+  var ALERT_HEADS = [
+    ['BIT SERIOUS OUT THERE', 'BIT SERIOUS OUT THERE'],
+    ['WORTH KNOWING', 'WORTH KNOWING'],
+    ['HEADS UP', 'HEADS UP']
+  ];
+  V.alertHead = function (alert, settings) {
+    return choose(ALERT_HEADS, alert.kind, settings.sweary);
+  };
+
+  /* -------------------------------------------------------- what has changed */
+
+  var CHANGES = {
+    warmer: [
+      ['{when} JUST GOT FUCKING BETTER — UP {by}°.', '{when} JUST GOT BETTER — UP {by}°.'],
+      ['THE FORECAST HAS WARMED {when} BY {by}°.', 'THE FORECAST HAS WARMED {when} BY {by}°.']
+    ],
+    colder: [
+      ['WHO TURNED THE HEATING OFF? {when} IS DOWN {by}°.', 'WHO TURNED THE HEATING OFF? {when} IS DOWN {by}°.'],
+      ['{when} HAS DROPPED {by}° SINCE THE LAST LOOK.', '{when} HAS DROPPED {by}° SINCE THE LAST LOOK.']
+    ],
+    wetter: [
+      ['SMALL PROBLEM: THE RAIN HAS MADE PLANS FOR {when}.', 'SMALL PROBLEM: THE RAIN HAS MADE PLANS FOR {when}.'],
+      ['{when} HAS GOT WETTER. SORRY.', '{when} HAS GOT WETTER. SORRY.']
+    ],
+    dryer: [
+      ["WE'VE FOUND A PATCH OF SUNSHINE — {when} IS DRYING OUT.", "WE'VE FOUND A PATCH OF SUNSHINE — {when} IS DRYING OUT."],
+      ['{when} IS LOOKING DRIER THAN IT DID.', '{when} IS LOOKING DRIER THAN IT DID.']
+    ]
+  };
+
+  V.changeLines = function (changes, settings) {
+    return changes.map(function (c) {
+      var text = choose(CHANGES[c.kind] || CHANGES.warmer, c.kind + ':' + c.when, settings.sweary);
+      var when = c.when.charAt(0).toUpperCase() + c.when.slice(1);
+      return {
+        key: c.kind,
+        icon: c.kind === 'warmer' ? '🌞' : (c.kind === 'colder' ? '🥶' : (c.kind === 'wetter' ? '☔' : '🌤️')),
+        text: fill(text, { when: when, by: c.by })
+      };
+    });
+  };
 
   root.Voice = V;
 

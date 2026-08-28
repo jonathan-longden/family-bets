@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "Bloody Weather",
-  "short_name": "Bloody Weather",
-  "description": "An accurate forecast with a running commentary. Now, hour by hour, and fifteen days ahead.",
+  "name": "Fucking Weather",
+  "short_name": "Fucking Weather",
+  "description": "A proper weather app that tells you exactly what the sky is doing, then takes the mickey out of it.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

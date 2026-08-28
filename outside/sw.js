@@ -1,4 +1,4 @@
-/* Bloody Weather's service worker.
+/* The service worker.
 
    One job now, and only one: keep the app itself on the phone so it opens
    instantly and still opens with no signal at all. There is no background
@@ -9,16 +9,16 @@
    because cache-first with nothing behind it is how a phone ends up running
    last month's app forever. */
 
-const CACHE_NAME = 'bloody-weather-v3';
+const CACHE_NAME = 'weather-v4';
 const NETWORK_WAIT_MS = 2500;
 const FILES_TO_CACHE = [
   './',
   './index.html',
-  './styles.css?v=3',
-  './brand.js?v=3',
-  './weather.js?v=3',
-  './voice.js?v=3',
-  './app.js?v=3',
+  './styles.css?v=4',
+  './brand.js?v=4',
+  './weather.js?v=4',
+  './voice.js?v=4',
+  './app.js?v=4',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
