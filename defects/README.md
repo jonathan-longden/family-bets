@@ -720,6 +720,75 @@ The GeoJSON geometry is the estimated position, because that is what anything
 with a map in it will drive somebody to; the vehicle position rides alongside in
 `vehicle_lat` / `vehicle_lon` with `position_source` saying which is which.
 
+## Telling one defect from the one before it
+
+The old check compared the current vehicle position against the vehicle position
+of **the single most recent find**. Two things were wrong with that. One slot,
+so driving past a defect, logging something else twenty-five metres on and
+coming back logged the first one again. And vehicle-to-vehicle rather than
+defect-to-defect, so it was really asking *have I moved* rather than *is this
+the same hole*.
+
+A ring of the last thirty finds replaces it, compared on the estimated defect
+position where there is one. A candidate has to match on **all three** of these
+before it is called the same defect:
+
+- **Position**, within `max(15 m, 2 × the worse of the two error bars)`. A fixed
+  radius is either too tight for a poor fix or too loose for a good one. Past
+  60 m the fixes are too vague to separate anything, and position is abandoned
+  rather than trusted — it falls back to the crude time rule instead, because a
+  threshold wide enough to cover a bad fix is wide enough to swallow every real
+  neighbour on the street.
+- **Heading**, within ±45° where both are known. The same coordinates seen
+  travelling the other way is the other carriageway, which is a different asset
+  with a different crew going to it.
+- **Time**, either within a minute or the vehicle has not travelled 30 m — so a
+  hole that stays in shot keeps suppressing, and one left behind stops.
+
+A test that *cannot* be applied — no heading on one side, no position on either
+— abstains rather than voting either way. Suppressing a real defect is the more
+expensive mistake of the two, so the tie goes to logging it.
+
+### Standing still
+
+A vehicle stopped with a pothole in shot will photograph it as many times as it
+is asked to. Below **1 m/s** nothing new is coming into frame, so nothing is
+looked for: it saves the battery and stops a queue at a junction becoming forty
+rows.
+
+Only when the speed is actually known. A device that does not report one is not
+standing still — it is a device that does not report a speed, and treating the
+two the same would silently stop the survey on hardware that works perfectly
+well.
+
+### One look every ten metres, not every 1.2 seconds
+
+A fixed cadence means a survey at 40 mph looks every 21 metres and the same
+survey at a red light looks every 21 centimetres. The interval that matters to a
+survey is a *distance*, so coverage does not change with the traffic.
+
+Speed converts one into the other, and it is not always reported — so this
+refines the old behaviour rather than replacing it. **With no speed the fixed
+1.2 s interval stands.** With one, the delay is `10 m ÷ speed`, clamped between
+0.7 s (below which the phone cannot finish one inference before the next is due)
+and 4 s (above which a crawl stops being a survey). Stopped, it idles at the
+ceiling — waking to check, not staring.
+
+### The screen staying awake
+
+A survey ends when the screen sleeps, because the browser suspends the page and
+the camera with it. The Screen Wake Lock API is asked for when a survey starts
+and released when it stops.
+
+It is asked for and **never waited on**. Safari came to it late and some Android
+browsers still refuse, so every path treats failure as normal: a browser with no
+`navigator.wakeLock` at all surveys and logs exactly as it would with one, and
+says once that the phone's own screen timeout needs setting long enough for the
+run. A lock the system takes back — a call arrives, the battery saver comes on —
+is recorded rather than treated as an error, and asked for again when the app is
+back in front. Diagnostics reports which of those happened, and the cadence the
+survey is actually running at.
+
 ## Three-word addresses
 
 A what3words key ships with the app, so every located entry picks up a

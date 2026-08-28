@@ -172,10 +172,61 @@ function squareFrame(source, w, h) {
    compare, the fallback is time alone, which is cruder and is why a survey
    without GPS says so. SURVEY_CONF is higher than the deliberate-capture
    threshold because nobody is looking at these before they land. */
-var SURVEY_MS = 1200;    // between looks; faster mainly costs battery
+var SURVEY_MS = 1200;    // between looks when there is no speed to go on
 var SURVEY_CONF = 0.65;  // unattended entries should be surer than watched ones
-var NEAR_M = 20;         // a find this close to one already logged is the same defect
+var NEAR_M = 20;         // kept: the distance an older build called "the same defect"
 var QUIET_MS = 45000;    // with no fix, this long before the same view counts again
+
+/* ---------- one look every so many metres, rather than every so many seconds ----------
+
+   A fixed 1.2-second cadence means a survey at 40 mph looks every 21 metres and
+   the same survey stopped at a red light looks every 21 centimetres. The
+   interval that matters to a survey is a distance: one look per stretch of
+   road, so coverage does not change with the traffic.
+
+   Speed is what turns one into the other, and it is not always reported — so
+   this is a refinement of the old behaviour rather than a replacement for it.
+   With no speed the fixed interval stands. The clamps stop it becoming silly at
+   either end: below the floor the phone cannot finish one inference before the
+   next is due, and above the ceiling a survey crawling in traffic would stop
+   looking at the road altogether. */
+var SURVEY_M = 10;        // metres of road per look
+var LOOK_MIN_MS = 700;    // faster than this and inference cannot keep up
+var LOOK_MAX_MS = 4000;   // slower than this and a crawl stops being a survey
+
+/* ---------- what counts as standing still ----------
+
+   A vehicle stopped with a pothole in shot will photograph it as many times as
+   it is asked to. Below a metre a second nothing new is coming into frame, so
+   nothing new is looked for: it saves the battery and it stops a queue at a
+   junction becoming forty rows.
+
+   Only when the speed is actually known. A device that does not report one is
+   not standing still — it is a device that does not report a speed, and
+   treating the two the same would silently stop the survey on hardware that
+   works perfectly well. */
+var STATIONARY_MPS = 1;
+
+/* ---------- telling one defect from the one before it ----------
+
+   The old test compared the current vehicle position against the vehicle
+   position of the single most recent find. One slot, so driving past a defect,
+   logging something else twenty-five metres on and coming back logged the first
+   one again; and vehicle-to-vehicle rather than defect-to-defect, so it was
+   really asking "have I moved" rather than "is this the same hole".
+
+   A small ring of recent finds replaces it, and a candidate has to match one of
+   them on position, on heading and on time before it is called the same defect.
+   The position threshold scales with how good the fixes actually are, because a
+   fixed radius is either too tight for a poor fix or too loose for a good one —
+   and past a point the fixes are too vague to separate anything at all, at
+   which point position is abandoned rather than trusted. */
+var RECENT_MAX = 30;         // finds kept in mind during a run
+var DUP_MIN_M = 15;          // never call two things the same when they are further apart
+var DUP_MAX_M = 60;          // beyond this the fixes cannot tell anything apart
+var DUP_HEADING_DEG = 45;    // seen travelling the other way is the other carriageway
+var DUP_WINDOW_MS = 60000;   // recent enough to still be the same hole in shot
+var DUP_TRAVEL_M = 30;       // or the vehicle has not gone far enough to have left it
 var TEX_MIN = 1.18;      // below this the dark patch is grained like the road around it
 var ASPECT_MAX = 4.5;    // a band far longer than it is wide is a shadow, not a hole
 
@@ -510,6 +561,7 @@ $('bStop').addEventListener('click', function () { closeMenu(); stopAll(); });
 
 function stopAll() {
   if (survey.on) endSurvey();
+  releaseWake();          // in case the survey was already off and the lock was not
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
   if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   if (ageTimer) { clearInterval(ageTimer); ageTimer = null; }
@@ -1433,7 +1485,8 @@ function rejectReason(ctx, cw, ch, box) {
 
 /* ---------- survey ---------- */
 var survey = { on: false, busy: false, timer: null, logged: 0, last: null,
-               startedAt: null, clock: null };
+               recent: [], startedAt: null, clock: null,
+               lastLookAt: null, lastLookFix: null };
 
 function metresBetween(a, b) {
   var R = 6371000, rad = Math.PI / 180;
@@ -1444,15 +1497,115 @@ function metresBetween(a, b) {
   return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-/* Is this the same defect we just wrote down? Distance settles it when there is
-   a fix; without one, only time can, and time alone cannot tell a second
-   pothole from the first one still in shot. */
-function alreadyLogged() {
-  if (!survey.last) return false;
-  if (S.gps && survey.last.gps) {
-    return metresBetween(S.gps, survey.last.gps) < NEAR_M;
+/* The smaller of the two ways round a compass. 350° and 10° are 20° apart. */
+function headingGap(a, b) {
+  var d = Math.abs(a - b) % 360;
+  return d > 180 ? 360 - d : d;
+}
+
+/* How far apart two things can be and still be the same thing.
+
+   Twice the worse of the two error bars, floored so a pair of very good fixes
+   cannot start separating a hole from itself, and reported as unusable beyond
+   the ceiling — at which point the caller falls back to time, because a
+   threshold wide enough to cover a bad fix is wide enough to swallow every real
+   neighbour on the street. */
+function dupRadius(a, b) {
+  var worst = Math.max(a == null ? 0 : a, b == null ? 0 : b);
+  var r = Math.max(DUP_MIN_M, 2 * worst);
+  return r > DUP_MAX_M ? null : r;
+}
+
+/* Have we already written this one down?
+
+   Returns the recent find it matches, or null. Every test that can be applied
+   has to agree before two things are called one thing, and a test that cannot
+   be applied — no heading on one side, no position on either — abstains rather
+   than voting either way. Suppressing a real defect is the more expensive
+   mistake of the two, so the tie goes to logging it. */
+function alreadyLogged(cand) {
+  if (!cand) return null;
+  var here = (cand.vlat != null) ? { lat: cand.vlat, lon: cand.vlon } : null;
+  for (var i = survey.recent.length - 1; i >= 0; i--) {
+    var r = survey.recent[i];
+
+    /* Seen travelling the other way is the other carriageway, which is a
+       different asset with a different owner's crew going to it. Only decisive
+       when both headings are known. */
+    if (cand.heading != null && r.heading != null &&
+        headingGap(cand.heading, r.heading) > DUP_HEADING_DEG) continue;
+
+    var dt = cand.at - r.at;
+    var moved = (here && r.vlat != null) ? metresBetween(here, { lat: r.vlat, lon: r.vlon }) : null;
+    /* Still recent enough to be the same hole still in shot: either not long
+       ago, or the vehicle has not gone far enough to have left it behind. */
+    var fresh = dt < DUP_WINDOW_MS || (moved != null && moved < DUP_TRAVEL_M);
+    if (!fresh) continue;
+
+    if (cand.lat != null && r.lat != null) {
+      var radius = dupRadius(cand.confM, r.confM);
+      if (radius == null) {
+        /* The fixes are too vague to separate anything. Fall back to the crude
+           rule the app used before it had positions worth trusting. */
+        if (dt < QUIET_MS) return r;
+        continue;
+      }
+      if (metresBetween(cand, r) < radius) return r;
+      continue;
+    }
+
+    /* No position on one side or the other, so only time can settle it — and
+       time alone cannot tell a second pothole from the first one still in
+       shot. It errs towards not logging, which is why a survey with no fix
+       says so on the screen. */
+    if (dt < QUIET_MS) return r;
   }
-  return (Date.now() - survey.last.at) < QUIET_MS;
+  return null;
+}
+
+function rememberFind(cand) {
+  survey.recent.push(cand);
+  if (survey.recent.length > RECENT_MAX) survey.recent.shift();
+  survey.last = { at: cand.at, gps: cand.vlat == null ? null : { lat: cand.vlat, lon: cand.vlon } };
+}
+
+/* ---------- keeping the screen awake ----------
+
+   A survey ends when the screen sleeps, because the browser suspends the page
+   and the camera with it. The Wake Lock API is the fix and is not universally
+   available — Safari came to it late and some Android browsers still refuse —
+   so every path through this treats failure as normal. Nothing about the survey
+   depends on getting one. */
+var wakeLock = null, wakeState = 'not asked';
+
+function requestWake() {
+  if (!navigator.wakeLock || !navigator.wakeLock.request) {
+    wakeState = 'not supported by this browser';
+    return Promise.resolve(null);
+  }
+  return navigator.wakeLock.request('screen').then(function (s) {
+    wakeLock = s; wakeState = 'held';
+    /* The system can take it back — a call arrives, the battery saver comes on.
+       That is not an error, it is a fact to record; the visibility handler asks
+       again when the app is back in front. */
+    s.addEventListener('release', function () {
+      wakeLock = null;
+      if (wakeState === 'held') wakeState = 'released by the system';
+    });
+    return s;
+  }, function (e) {
+    wakeLock = null;
+    wakeState = 'refused (' + ((e && e.name) || 'unknown') + ')';
+    return null;
+  });
+}
+
+function releaseWake() {
+  var s = wakeLock;
+  wakeLock = null;
+  wakeState = 'released';
+  if (!s) return;
+  try { s.release(); } catch (e) { /* already gone */ }
 }
 
 function hud(state, cls) {
@@ -1502,7 +1655,17 @@ $('bRec').addEventListener('click', function () {
 function startSurvey() {
   if (survey.on || !stream) return;
   survey.on = true; survey.logged = 0; survey.last = null;
+  survey.recent = [];
   survey.startedAt = Date.now();
+  /* Asked for, never waited on. A browser that will not give one runs the
+     survey exactly as before — with the screen able to sleep, which is a worse
+     survey but still a survey. */
+  requestWake().then(function (s) {
+    if (!s && survey.on && /not supported/.test(wakeState)) {
+      toast('This browser will not keep the screen awake, so set the phone\u2019s screen ' +
+            'timeout long enough for the run — a survey ends when the screen sleeps.');
+    }
+  });
   clearInterval(survey.clock);
   survey.clock = setInterval(paintClock, 1000);
   paintClock(); paintRec(); paintSurface();
@@ -1524,6 +1687,7 @@ function endSurvey() {
   survey.on = false; survey.busy = false;
   clearTimeout(survey.timer); survey.timer = null;
   clearInterval(survey.clock); survey.clock = null;
+  releaseWake();
   paintRec();
   exitFull();
   toast(survey.logged
@@ -1531,15 +1695,34 @@ function endSurvey() {
     : '');
 }
 
+/* How long until the next look. A distance, converted to a time by whatever
+   speed the device is reporting; the old fixed interval when it reports none. */
+function lookDelay() {
+  var sp = S.gps ? S.gps.speed : null;
+  if (sp == null) return SURVEY_MS;
+  if (sp < STATIONARY_MPS) return LOOK_MAX_MS;      // stopped: idle, do not stare
+  var ms = (SURVEY_M / sp) * 1000;
+  return Math.max(LOOK_MIN_MS, Math.min(LOOK_MAX_MS, ms));
+}
+
 function tick() {
   if (!survey.on) return;
-  survey.timer = setTimeout(look, SURVEY_MS);
+  survey.timer = setTimeout(look, lookDelay());
 }
 
 function look() {
   if (!survey.on) return;
   var v = $('vid');
   if (survey.busy || !stream || !v.videoWidth || document.hidden) return tick();
+  /* Standing still, and the device is sure enough about that to say so. Nothing
+     new is coming into frame, so nothing is looked for — which saves the
+     battery and stops a queue at a junction becoming forty rows of the same
+     hole. A device that reports no speed is not standing still; it is a device
+     that reports no speed, and the survey carries on. */
+  if (S.gps && S.gps.speed != null && S.gps.speed < STATIONARY_MPS) {
+    hud('Stopped — not looking');
+    return tick();
+  }
   survey.busy = true;
   var vw = v.videoWidth, vh = v.videoHeight;
   var sq = squareFrame(v, vw, vh);
@@ -1605,8 +1788,26 @@ function look() {
     if (!hits.length) return hud('Shadow, not a defect');
     var holes = hits.filter(function (f) { return typeFor(f.cls) === 'Pothole'; });
     if (!holes.length) return hud('Ironwork — sound cover, not logged');
-    if (alreadyLogged()) return hud('Same defect — not logged again');
-    return logFind(holes, out, c);
+    /* Compared as defect to defect where there is enough to work one out, not
+       as vehicle to vehicle. */
+    var est = estimatePosition(out.fix, out.capturedAt, null);
+    var cand = {
+      at: out.capturedAt,
+      lat: est.lat != null ? est.lat : (out.fix ? out.fix.lat : null),
+      lon: est.lat != null ? est.lon : (out.fix ? out.fix.lon : null),
+      confM: est.confM != null ? est.confM : (out.fix ? out.fix.acc : null),
+      heading: out.fix ? out.fix.heading : null,
+      vlat: out.fix ? out.fix.lat : null, vlon: out.fix ? out.fix.lon : null
+    };
+    var dup = alreadyLogged(cand);
+    if (dup) {
+      /* Suppressed, but not forgotten: the match's clock is moved forward so a
+         defect that stays in shot keeps suppressing rather than timing out and
+         being logged a second time from the same view. */
+      dup.at = out.capturedAt;
+      return hud('Same defect — not logged again');
+    }
+    return logFind(holes, out, c, cand);
   }).catch(function (e) {
     hud('Look failed', 'bad');
     toast(whyLocal(e));
@@ -1617,7 +1818,7 @@ function look() {
 
 /* Writes the entry with no one looking, which is exactly why it is marked as
    such: the log has to keep saying which scores a person stood over. */
-function logFind(hits, out, c) {
+function logFind(hits, out, c, cand) {
   var best = hits.reduce(function (a, b) { return (b.conf || 0) > (a.conf || 0) ? b : a; });
   var det = { conf: best.conf, share: best.share, count: hits.length,
               cls: best.cls, box: best.box };
@@ -1678,7 +1879,10 @@ function logFind(hits, out, c) {
       (dbBroken ? Promise.resolve() : putEntry(e)).then(function () {
         S.items.unshift(e);
         addWords(e);
-        survey.logged++; survey.last = { at: Date.now(), gps: S.gps ? { lat: S.gps.lat, lon: S.gps.lon } : null };
+        survey.logged++;
+        rememberFind(cand || { at: capturedAt, lat: est.lat, lon: est.lon, confM: est.confM,
+          heading: f ? f.heading : null,
+          vlat: f ? f.lat : null, vlon: f ? f.lon : null });
         $('hudCount').textContent = survey.logged + ' logged';
         render();
         hud('Watching');
@@ -2564,6 +2768,11 @@ function diagLines() {
     : w3wStored === '' ? 'off — lookups turned off here'
     : w3wOwnSite() ? 'the built-in key (this is its own site)'
     : 'none — the built-in key is only used on ' + W3W_HOSTS.join(', ')));
+  L.push('screen     wake lock ' + wakeState);
+  L.push('cadence    ' + (S.gps && S.gps.speed != null
+    ? Math.round(lookDelay()) + ' ms — one look per ' + SURVEY_M + ' m at ' +
+      (S.gps.speed * 2.23694).toFixed(0) + ' mph'
+    : SURVEY_MS + ' ms fixed — no speed reported, so distance cannot be used'));
   L.push('');
   L.push('MODEL');
   L.push('id         ' + (RF_MODEL_ID || RF_MODEL + '/' + RF_VERSION));
@@ -2719,6 +2928,10 @@ document.addEventListener('keydown', function (e) {
 document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'hidden') { if (stream) stopAll(); return; }
   if (!stream) openCamera(false);
+  /* A wake lock does not survive the page being hidden, and the system can take
+     one back at any time. If a survey is somehow still running when the app
+     comes back, ask again — and carry on regardless if the answer is no. */
+  if (survey.on && !wakeLock) requestWake();
 });
 window.addEventListener('pagehide', stopAll);
 
