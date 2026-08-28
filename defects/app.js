@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-28 · 36';
+var BUILD = '2026-08-28 · 37';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -3387,14 +3387,40 @@ function frameLines(f) {
   L.push('  app turned ' + (fa.appRot == null ? '?' : fa.appRot + '°') +
     '   video turned ' + (fa.videoRot == null ? '?' : fa.videoRot + '°') + ' (on screen only)');
   L.push('  fed to model  the raw camera frame, turned ' + (f.rotate || 0) + '°');
+  /* Not a rotation, and easy to miss because of that. The frame is stretched
+     into a square, so a source that is not already square is distorted — and by
+     how much depends on which way up the phone is. The model was trained on
+     images stretched the same way, so a source shaped like the training set is
+     distorted like the training set, and one shaped the other way round is
+     not. */
+  if (fa.srcW && fa.srcH) {
+    var ratio = (fa.srcW / fa.srcH);
+    var squash = ratio >= 1 ? ratio : 1 / ratio;
+    L.push('  squashed to   ' + RF_SIZE + '×' + RF_SIZE + ' from ' +
+      fa.srcW + '×' + fa.srcH + ' — ' +
+      (Math.abs(ratio - 1) < 0.02 ? 'already square, no distortion'
+        : (ratio < 1 ? 'vertical' : 'horizontal') + ' squeezed ' +
+          (Math.round(squash * 100) / 100) + '× more than the other axis'));
+  }
   /* The line worth reading. CSS turning the preview does not turn the pixels
      squareFrame draws from, so when the app is in forced-landscape the picture
      on the glass and the picture the model gets are a quarter turn apart. */
-  var seen = (fa.videoRot || 0), fed = (f.rotate || 0);
-  if (seen !== fed) {
-    L.push('  >> WHAT YOU SEE IS TURNED ' + seen + '° BY CSS. WHAT THE MODEL GOT IS TURNED ' +
+  /* The net turn, not the video's own transform.
+
+     The first version of this compared videoRot against what the model got and
+     shouted whenever they differed — which is always, in forced-landscape,
+     because the video's -90° exists precisely to cancel the +90° on #app it
+     sits inside. Net zero. It cried wolf on every portrait test, and the
+     rotation probe standing next to it proved it wrong. Add the two. */
+  var seen = ((fa.appRot || 0) + (fa.videoRot || 0) % 360 + 540) % 360 - 180;
+  var fed = (f.rotate || 0);
+  var apart = Math.abs(((seen - fed) % 360 + 540) % 360 - 180);
+  L.push('  net on screen ' + seen + '°   (the app\'s ' + (fa.appRot || 0) +
+    '° and the video\'s ' + (fa.videoRot || 0) + '° together)');
+  if (apart >= 45) {
+    L.push('  >> WHAT YOU SEE IS TURNED ' + seen + '°. WHAT THE MODEL GOT IS TURNED ' +
       fed + '°.');
-    L.push('     They are ' + Math.abs(((seen - fed) % 360 + 540) % 360 - 180) +
+    L.push('     They are ' + apart +
       '° apart. The preview is not evidence of what the model was shown.');
   } else {
     L.push('  >> the preview and the model agree on which way up this is');
@@ -3427,6 +3453,13 @@ function frameLines(f) {
     }
   } else {
     L.push('             nothing scored above zero anywhere in the frame');
+  }
+  /* The winner hides the other class entirely, and the other class is usually
+     the one being asked about. */
+  if (d.perClass && d.perClass.length) {
+    L.push('  by class   ' + d.perClass.map(function (c) {
+      return (c.cls || '?') + ' ' + round4(c.score);
+    }).join('    '));
   }
   L.push('');
 
