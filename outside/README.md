@@ -95,6 +95,79 @@ running in the background — and all of it is decorative: the app is complete
 with it switched off. It is off automatically for anyone whose phone asks for
 reduced motion, and there is a toggle in Settings on top of that.
 
+## On the home screen
+
+A web app cannot install a real widget by itself — iOS and Android only accept
+widgets from native app packages, and a page saved to the home screen is an
+icon, not a widget. So there are two things here instead, one of each.
+
+### The number on the icon
+
+The installed app writes the current temperature onto its own icon, the way a
+mail app writes an unread count. Nothing to set up: install it, and the number
+appears. Two honesty rules apply, the same ones the rest of the app follows:
+
+- **Nothing stale.** If the last forecast is more than three hours old the
+  number comes off the icon entirely rather than sitting there being wrong.
+- **Nothing below zero.** The badge is a positive whole number — the platform
+  will not carry a minus sign — so at minus three the icon shows nothing and
+  the screen shows `-3`. A badge reading `3` in a hard frost would be a lie.
+
+There is a toggle in Settings. Turning it off clears the icon immediately. It
+works on iOS 16.4+ and on Android through Chrome, both only once the app is
+installed to the home screen; in a browser tab there is no icon to write on,
+and Settings says so rather than pretending.
+
+### A real widget on iPhone, via Scriptable
+
+`widget/scriptable-widget.js` is a proper iOS home-screen widget — small or
+medium, temperature, icon, high/low, rain chance and the headline — that runs
+inside [Scriptable](https://apps.apple.com/app/scriptable/id1405459188), a free
+app that hosts scripts as widgets.
+
+It does not reimplement anything. It downloads the app's own `weather.js` and
+`voice.js` and runs them, so the widget and the app read the same forecast and
+tell the same joke. Tapping it opens the app.
+
+1. Install Scriptable from the App Store.
+2. Open it, tap **+**, paste in the whole of `widget/scriptable-widget.js`, and
+   name it **Fucking Weather**.
+3. Long-press the home screen → **+** → **Scriptable** → pick a size → **Add**.
+4. Long-press the new widget → **Edit Widget** → set **Script** to *Fucking
+   Weather*. Leave **Parameter** empty to use where the phone is, or type a
+   place as `Name,lat,lon` — e.g. `Ilkley,53.925,-1.822`.
+5. Done. The script asks iOS to refresh hourly; iOS treats that as a hint.
+
+`UNITS` and `SWEARY` at the top of the script are yours to change, and `SITE`
+points at wherever the app is hosted. If the widget cannot reach the weather it
+draws the last reading it had, labelled with how old it is — never a stale
+number passed off as current.
+
+### A real widget on Android, what it would take
+
+Android will not run the Scriptable trick — there is no equivalent host app —
+so a genuine Android widget means shipping a native package. It is not a large
+job, but it is a different kind of job to this one:
+
+1. **Wrap the site in a Trusted Web Activity.** Android Studio, or Bubblewrap
+   (`npx @bubblewrap/cli init --manifest .../manifest.json`), turns the PWA into
+   an APK that opens the real site full screen with no browser chrome. The web
+   app stays the product; the package is a shell around it.
+2. **Add an `AppWidgetProvider`.** A small Kotlin class plus a
+   `RemoteViews` layout — Android widgets are drawn by the system from a fixed
+   set of views, so the widget layout is written natively rather than in HTML.
+3. **Feed it.** A `WorkManager` job every hour or so calls Open-Meteo directly,
+   writes the reading to `SharedPreferences`, and pokes the widget to redraw.
+   The forecast-reading and line-choosing logic would have to be ported to
+   Kotlin, or the job could call a tiny endpoint that runs the existing
+   JavaScript — the first is more work up front, the second adds a server.
+4. **Get it onto the phone.** Either sideload the APK (fine for a family; needs
+   "install unknown apps" turned on and a manual re-install for each update) or
+   pay the one-off Google Play developer fee and publish it, which also gets
+   automatic updates and Play Store install.
+
+Until that exists, Android gets the icon badge, which needs nothing.
+
 ## What it will not do
 
 No notifications, no reminders, no goals, no streaks, nothing to maintain and
@@ -150,6 +223,8 @@ outside/
   sw.js           the shell cache, and nothing else
   manifest.json
   icon-192.png  icon-512.png
+  widget/
+    scriptable-widget.js   the iPhone home-screen widget (not served, pasted)
 ```
 
 On a release, bump the build stamp in `app.js`, the `?v=` on the stylesheet and

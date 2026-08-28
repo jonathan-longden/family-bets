@@ -30,7 +30,8 @@ pot live, connect it to a free Firebase Realtime Database.
 > - **[Fucking Weather](outside/)** (`/outside/`) — a proper weather app
 >   that tells you exactly what the sky is doing, then takes the mickey
 >   out of it: now, hour by hour, today's best and worst bits, tomorrow,
->   and fifteen days out. Swearing optional.
+>   and fifteen days out. Puts the temperature on its own icon, and comes
+>   with an iPhone home-screen widget. Swearing optional.
 >
 > All seven are separate PWAs with the same no-build setup.
 
