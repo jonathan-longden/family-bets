@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 15';
+var BUILD = '2026-08-28 · 16';
 
 var STORE_KEY = 'tenAWin.v1';
 
