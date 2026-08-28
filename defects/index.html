@@ -266,6 +266,14 @@
         <label class="btn ghost" for="tFile" id="tFileLabel">Test a photo</label>
         <input type="file" id="tFile" accept="image/*" hidden>
       </div>
+      <!-- The app turns its own chrome when the viewport is portrait and does
+           not turn the pixels the model is given, so an operator looking at an
+           upright road can be handing the model a road on its side. This is the
+           experiment that tells the two apart. -->
+      <button class="btn ghost wide" id="bTestSpin">Test all four rotations</button>
+      <span class="hint">Runs the same frame four times, turned 0°, 90°, 180° and 270°. It answers
+        one question: is the model failing on this road, or on this road sideways? Four inferences,
+        so it is slow — on the CPU backend allow a minute or more.</span>
       <div class="hint" id="tState">Not run yet.</div>
       <div class="tshot" id="tShotWrap" hidden>
         <img id="tShot" alt="The 640 by 640 frame that was actually analysed">

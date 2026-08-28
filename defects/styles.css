@@ -41,7 +41,15 @@ button{font:inherit;color:inherit}
    about the normal case changes.
 
    The picture itself is not turned by this: the video element is measured in
-   its own pixels, so what the model is shown is the camera's frame either way. */
+   its own pixels, so what the model is shown is the camera's frame either way.
+
+   That last sentence is true and was written as a reassurance, which is what
+   makes it dangerous. The video below is counter-rotated so the preview looks
+   upright — but squareFrame draws the video element's own pixels, which no CSS
+   touches. So in forced-landscape the operator is looking at an upright road
+   and the model is being handed the same road a quarter turn over, with nothing
+   on screen to say so. The diagnostics screen now measures and reports both
+   rotations rather than leaving this comment to be believed. */
 #app{position:fixed;inset:0}
 @media (orientation:portrait){
   #app{inset:auto;top:50%;left:50%;
@@ -414,6 +422,10 @@ textarea{min-height:70px;resize:vertical}
 .ftest h2{font-size:19px;margin-bottom:6px}
 .ftest .row{margin-top:12px}
 .ftest .btn{margin-top:0}
+.ftest .btn.wide{width:100%;margin-top:10px}
+/* A label cannot be disabled, so it is dimmed and made unclickable while a
+   test is running rather than left looking available. */
+label.btn.off{opacity:.45;pointer-events:none}
 /* A label styled as a button still has to behave like one when tapped. */
 label.btn{display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
 .tprev{position:relative;margin-top:12px;background:#000;border:1px solid var(--line);

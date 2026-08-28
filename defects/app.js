@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-28 · 34';
+var BUILD = '2026-08-28 · 35';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -3224,32 +3224,106 @@ function filterTrace(raw, ctx) {
   return { trace: trace, kept: kept };
 }
 
-/* One picture, from wherever it came, through the pipeline. */
-function testFrame(source, w, h, label) {
+/* ---------- what is upright, and what is not ----------
+
+   The app turns itself when the viewport is portrait: #app is rotated 90° so
+   the chrome reads landscape, and the video is counter-rotated so the picture
+   on screen looks the right way up. Neither of those touches the video
+   element's own pixels, and squareFrame draws those — so what the operator is
+   looking at and what the model is handed can differ by ninety degrees, with
+   nothing on screen to say so.
+
+   Read out of the DOM rather than assumed, because "the model sees the camera's
+   frame either way" is exactly the sort of thing that is written down once as a
+   reassurance and then quietly stops being true. */
+function cssRotation(el) {
+  if (!el) return null;
+  var t;
+  try { t = getComputedStyle(el).transform; } catch (e) { return null; }
+  if (!t || t === 'none') return 0;
+  var m = t.match(/matrix\(([^)]+)\)/);
+  if (!m) return null;
+  var p = m[1].split(',').map(parseFloat);
+  if (p.length < 4) return null;
+  return Math.round(Math.atan2(p[1], p[0]) * 180 / Math.PI);
+}
+
+function orientationFacts(srcW, srcH, from) {
+  var v = $('vid');
+  var o = (screen && screen.orientation) || null;
+  return {
+    from: from,
+    srcW: srcW, srcH: srcH,
+    videoW: v ? v.videoWidth : null, videoH: v ? v.videoHeight : null,
+    screenType: o ? o.type : null,
+    screenAngle: o ? o.angle : null,
+    portraitViewport: window.matchMedia
+      ? window.matchMedia('(orientation: portrait)').matches : null,
+    appRot: cssRotation($('app')),
+    videoRot: cssRotation(v)
+  };
+}
+
+/* One picture, from wherever it came, through the pipeline.
+
+   Timed in four separate pieces, because "21 seconds" is not a finding until
+   you know which piece it was in. */
+function testFrame(source, w, h, label, from, rotate) {
   if (!engine || !worker) {
     return Promise.reject(new Error('the model is not loaded'));
   }
+  var facts = orientationFacts(w, h, from);
   var t0 = performance.now();
-  var sq = squareFrame(source, w, h);          // the survey's own preprocessing
+  var sq = rotate ? rotatedFrame(source, w, h, rotate) : squareFrame(source, w, h);
   return createImageBitmap(sq.canvas).then(function (input) {
+    var tPre = performance.now();
     return import('./vendor/inference.es.js').then(function (m) {
-      return engine.infer(worker, new m.CVImage(input));
+      return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
+        return { preds: preds, tPre: tPre, tInf: performance.now() };
+      });
     });
-  }).then(function (preds) {
-    var wall = performance.now() - t0;
-    var raw = takeDiag(preds) || [];           // also refreshes lastDiag for the screen below
+  }).then(function (out) {
+    var raw = takeDiag(out.preds) || [];       // also refreshes lastDiag for the screen below
     var d = lastDiag || {};
     var f = filterTrace(raw, sq.ctx);
     return new Promise(function (resolve) {
+      var tEnc = performance.now();
       sq.canvas.toBlob(function (blob) {
         resolve({
           label: label, at: new Date().toISOString(),
-          raw: raw, trace: f.trace, kept: f.kept,
-          diag: d, wall: Math.round(wall), shot: blob
+          raw: raw, trace: f.trace, kept: f.kept, diag: d, shot: blob,
+          rotate: rotate || 0, facts: facts,
+          t: {
+            pre: Math.round(out.tPre - t0),
+            infer: Math.round(out.tInf - out.tPre),
+            encode: Math.round(performance.now() - tEnc),
+            wall: Math.round(performance.now() - t0)
+          }
         });
       }, 'image/jpeg', 0.8);
     });
   });
+}
+
+/* The same square the survey builds, turned by a quarter turn first.
+
+   The point of it is one question: is the model failing on this road, or
+   failing on this road sideways? Nothing else in the app rotates anything, and
+   this does not change what the survey does — it only asks the model the same
+   question four ways round. */
+function rotatedFrame(source, w, h, deg) {
+  var c = document.createElement('canvas');
+  c.width = c.height = RF_SIZE;
+  var ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.save();
+  ctx.translate(RF_SIZE / 2, RF_SIZE / 2);
+  ctx.rotate(deg * Math.PI / 180);
+  ctx.translate(-RF_SIZE / 2, -RF_SIZE / 2);
+  /* Drawn to the same stretched square first, so the only difference from the
+     survey's own frame is the quarter turn. */
+  ctx.drawImage(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE);
+  ctx.restore();
+  return { canvas: c, ctx: ctx };
 }
 
 function frameLines(f) {
@@ -3257,12 +3331,59 @@ function frameLines(f) {
   var d = f.diag || {}, L = [];
   var pr = d.precision || {}, th = d.thresholds || {};
 
-  L.push('REAL FRAME  (' + f.label + ')');
+  var t = f.t || {}, fa = f.facts || {};
+
+  L.push('REAL FRAME  (' + f.label + (f.rotate ? ', turned ' + f.rotate + '°' : '') + ')');
   L.push('when         ' + f.at);
   L.push('backend      ' + (pr.using || 'not reported') +
+    (d.backendNow && d.backendNow !== pr.using ? ' (now ' + d.backendNow + ')' : '') +
     (precisionForced(d) ? '  (forced — WebGL would not answer sensibly)' : ''));
-  L.push('inference    ' + (d.ms == null ? '?' : Math.round(d.ms)) + ' ms' +
-    '   (whole test ' + f.wall + ' ms, including drawing and encoding the frame)');
+
+  /* Where the time actually went. One total is not a finding — it cannot tell
+     a slow graph from a model being rebuilt on every press. */
+  L.push('');
+  L.push('TIME         preprocess    ' + t.pre + ' ms   (draw to ' + RF_SIZE +
+    '² and make a bitmap)');
+  L.push('             execute       ' + (d.msExecute == null ? '?' : Math.round(d.msExecute)) +
+    ' ms   (the graph itself)');
+  L.push('             read+decode   ' + (d.msDecode == null ? '?' : Math.round(d.msDecode)) +
+    ' ms   (readback, boxes, scores, NMS)');
+  L.push('             encode        ' + t.encode + ' ms   (the JPEG for the screen)');
+  L.push('             whole test    ' + t.wall + ' ms');
+  /* The first question a twenty-second inference raises: is it the graph, or is
+     the model being loaded again every time? */
+  L.push('model loads  ' + (d.inits == null ? '?' : d.inits) + ' initialise' +
+    (d.inits === 1 ? '' : 's') + ' for ' + (d.infers == null ? '?' : d.infers) +
+    ' inference' + (d.infers === 1 ? '' : 's') +
+    (d.inits === 1 ? '  — loaded once and reused, so the time above is the graph running'
+                   : '  — MORE THAN ONE LOAD: the model is being rebuilt'));
+  L.push('');
+
+  /* Everything the app knows about which way up things are. */
+  L.push('ORIENTATION');
+  L.push('  source     ' + fa.srcW + '×' + fa.srcH + ' (' + fa.from + ')');
+  if (fa.videoW) L.push('  camera     ' + fa.videoW + '×' + fa.videoH + ' — ' +
+    (fa.videoW >= fa.videoH ? 'landscape' : 'portrait') + ' as the browser hands it over');
+  L.push('  screen     ' + (fa.screenType || 'not reported') +
+    (fa.screenAngle == null ? '' : ', angle ' + fa.screenAngle));
+  L.push('  viewport   ' + (fa.portraitViewport ? 'portrait' : 'landscape'));
+  L.push('  app turned ' + (fa.appRot == null ? '?' : fa.appRot + '°') +
+    '   video turned ' + (fa.videoRot == null ? '?' : fa.videoRot + '°') + ' (on screen only)');
+  L.push('  fed to model  the raw camera frame, turned ' + (f.rotate || 0) + '°');
+  /* The line worth reading. CSS turning the preview does not turn the pixels
+     squareFrame draws from, so when the app is in forced-landscape the picture
+     on the glass and the picture the model gets are a quarter turn apart. */
+  var seen = (fa.videoRot || 0), fed = (f.rotate || 0);
+  if (seen !== fed) {
+    L.push('  >> WHAT YOU SEE IS TURNED ' + seen + '° BY CSS. WHAT THE MODEL GOT IS TURNED ' +
+      fed + '°.');
+    L.push('     They are ' + Math.abs(((seen - fed) % 360 + 540) % 360 - 180) +
+      '° apart. The preview is not evidence of what the model was shown.');
+  } else {
+    L.push('  >> the preview and the model agree on which way up this is');
+  }
+  L.push('');
+
   L.push('raw output   ' + (Array.isArray(d.rawShape) ? [].concat(d.rawShape).join('×') : '?') +
     (d.frameRange ? ', min ' + round4(d.frameRange.min) + ', max ' + round4(d.frameRange.max)
                   : ''));
@@ -3310,6 +3431,8 @@ function frameLines(f) {
   f.trace.forEach(function (t) { L.push('  ' + t); });
   L.push('');
   L.push('WOULD LOG    ' + f.kept.length + ' pothole' + (f.kept.length === 1 ? '' : 's'));
+  var spin = spinLines();
+  if (spin) { L.push(''); L.push(spin); }
   return L.join('\n');
 }
 
@@ -3326,15 +3449,21 @@ function paintFrameTest() {
   } else { wrap.hidden = true; }
 }
 
-function runTest(label, get) {
+function busy(on) {
+  $('bTestCam').disabled = on;
+  $('bTestSpin').disabled = on;
+  $('tFileLabel').classList.toggle('off', on);
+}
+
+function runTest(label, get, from) {
   var s = $('tState');
-  $('bTestCam').disabled = true;
+  busy(true);
   s.textContent = 'Loading the model…';
   loadModel().then(function () {
     s.textContent = 'Running the model on the frame…';
     return get();
   }).then(function (args) {
-    return testFrame(args[0], args[1], args[2], label);
+    return testFrame(args[0], args[1], args[2], label, from || 'camera', 0);
   }).then(function (f) {
     frameTest = f;
     paintFrameTest();
@@ -3342,12 +3471,91 @@ function runTest(label, get) {
     s.textContent = f.kept.length
       ? 'Done — the survey would have logged ' + f.kept.length + ' of these.'
       : 'Done — nothing the survey would log. Read the result below before concluding anything.';
-    $('bTestCam').disabled = false;
+    busy(false);
   }, function (e) {
     frameTest = null; paintFrameTest();
     s.textContent = 'Could not run it: ' + whyLocal(e);
-    $('bTestCam').disabled = false;
+    busy(false);
   });
+}
+
+/* ---------- the same frame, four ways up ----------
+
+   The one experiment that separates "the model cannot see this pothole" from
+   "the model cannot see this pothole sideways". It matters because the app
+   turns its own chrome when the viewport is portrait and does not turn the
+   pixels the model is given, so an operator looking at an upright road can be
+   handing the model a road on its side.
+
+   Four inferences, and on the CPU backend those are not fast — which is why
+   the button says how long it will take and why it is a separate button rather
+   than something every test does. */
+var spinTest = null;
+
+function runSpin() {
+  var v = $('vid'), s = $('tState');
+  if (!stream || !v.videoWidth) {
+    s.textContent = 'The camera is not running — start it, then come back.';
+    return;
+  }
+  busy(true);
+  spinTest = { at: new Date().toISOString(), rows: [] };
+  var angles = [0, 90, 180, 270], i = 0;
+
+  function step() {
+    if (i >= angles.length) return Promise.resolve();
+    var deg = angles[i];
+    s.textContent = 'Turning the frame ' + deg + '° and asking again… (' +
+      (i + 1) + ' of 4, this is slow on the CPU backend)';
+    return testFrame(v, v.videoWidth, v.videoHeight, 'camera', 'camera', deg)
+      .then(function (f) {
+        var b = (f.diag && f.diag.best) || null;
+        spinTest.rows.push({
+          deg: deg, best: b, kept: f.kept.length, raw: f.raw.length,
+          ms: f.diag && f.diag.msExecute
+        });
+        if (deg === 0) { frameTest = f; paintFrameTest(); }
+        i++;
+        return step();
+      });
+  }
+
+  loadModel().then(step).then(function () {
+    paintFrameTest(); paintDiag();
+    var best = spinTest.rows.reduce(function (a, b) {
+      return (b.best && b.best.score || 0) > (a.best && a.best.score || 0) ? b : a;
+    });
+    s.textContent = 'Done. Best at ' + best.deg + '°: ' +
+      (best.best ? best.best.cls + ' ' + round4(best.best.score) : 'nothing') +
+      '. Read the table below.';
+    busy(false);
+  }, function (e) {
+    s.textContent = 'Could not run it: ' + whyLocal(e);
+    busy(false);
+  });
+}
+
+function spinLines() {
+  if (!spinTest || !spinTest.rows.length) return '';
+  var L = ['FOUR WAYS UP  (the same camera frame, turned before the model sees it)'];
+  L.push('  turn   best class   score    detections   would log');
+  spinTest.rows.forEach(function (r) {
+    L.push('  ' + String(r.deg + '°').padEnd(6) + ' ' +
+      String((r.best && r.best.cls) || '—').padEnd(12) + ' ' +
+      String(r.best ? round4(r.best.score) : '—').padEnd(8) + ' ' +
+      String(r.raw).padEnd(12) + ' ' + r.kept);
+  });
+  var top = spinTest.rows.reduce(function (a, b) {
+    return (b.best && b.best.score || 0) > (a.best && a.best.score || 0) ? b : a;
+  });
+  L.push('');
+  L.push('  Best at ' + top.deg + '°. ' + (top.deg === 0
+    ? 'The frame the survey already feeds the model is the best of the four, so'
+    : 'The survey feeds the model 0°, which is NOT the best of the four, so'));
+  L.push('  ' + (top.deg === 0
+    ? 'orientation is not what is holding this back.'
+    : 'the frame is reaching the model a quarter turn from upright.'));
+  return L.join('\n');
 }
 
 $('bTestCam').addEventListener('click', function () {
@@ -3359,8 +3567,10 @@ $('bTestCam').addEventListener('click', function () {
   }
   runTest('camera', function () {
     return Promise.resolve([v, v.videoWidth, v.videoHeight]);
-  });
+  }, 'camera');
 });
+
+$('bTestSpin').addEventListener('click', runSpin);
 
 $('tFile').addEventListener('change', function () {
   var file = this.files && this.files[0];
@@ -3373,7 +3583,7 @@ $('tFile').addEventListener('change', function () {
     return createImageBitmap(file, { imageOrientation: 'from-image' })
       .catch(function () { return createImageBitmap(file); })
       .then(function (bmp) { return [bmp, bmp.width, bmp.height]; });
-  });
+  }, 'photo, EXIF rotation applied');
 });
 
 function paintDiag() { $('diagText').textContent = diagLines(); }

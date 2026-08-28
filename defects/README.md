@@ -166,6 +166,68 @@ dimensions. Stretching preserves proportions, so a defect covers the same
 fraction either way — but a box measured in one space and divided by the other
 does not, which is what the older numbers were.
 
+## Which way up the model is being shown the road
+
+The app turns itself when the viewport is portrait: `#app` rotates **+90°** so
+the chrome reads landscape, and `.live video` is counter-rotated **−90°** so the
+preview looks upright.
+
+Neither of those touches the video element's own pixels — and `squareFrame()`
+draws exactly those. **So in forced-landscape the operator is looking at an
+upright road and the model is being handed the same road a quarter turn over.**
+Nothing on screen said so, and the CSS carried a comment claiming the opposite.
+
+The diagnostics screen now reads both rotations out of the DOM and prints them:
+
+```
+ORIENTATION
+  source     1920×1080 (camera)
+  camera     1920×1080 — landscape as the browser hands it over
+  screen     portrait-primary, angle 0
+  viewport   portrait
+  app turned 90°   video turned -90° (on screen only)
+  fed to model  the raw camera frame, turned 0°
+  >> WHAT YOU SEE IS TURNED -90° BY CSS. WHAT THE MODEL GOT IS TURNED 0°.
+     They are 90° apart. The preview is not evidence of what the model was shown.
+```
+
+### Four ways up
+
+One button runs the same frame at 0°, 90°, 180° and 270° and prints the best
+score for each. It answers one question and answers it decisively: **is the
+model failing on this road, or on this road sideways?** If 0° wins, orientation
+is ruled out. If it does not, the frame is reaching the model a quarter turn
+from upright and no amount of retraining is the right response.
+
+It is four inferences, so it is slow, which is why it is a separate button
+rather than something every test does.
+
+**The survey loop is untouched.** This release measures the problem; it does not
+rotate anything.
+
+## Where the time goes
+
+A single "inference: 21353 ms" is not a finding — it cannot tell a slow graph
+from a model being rebuilt on every press. The report splits it:
+
+```
+TIME         preprocess    18 ms   (draw to 640² and make a bitmap)
+             execute       21200 ms   (the graph itself)
+             read+decode   153 ms   (readback, boxes, scores, NMS)
+             encode        41 ms   (the JPEG for the screen)
+             whole test    21412 ms
+model loads  1 initialise for 3 inferences  — loaded once and reused
+```
+
+The split matters for a second reason: on the CPU backend `execute` is
+synchronous and its figure is the real cost, but on WebGL `execute` only
+enqueues kernels and the cost lands later at the `dataSync` inside the decode.
+One combined number would hide which of those was happening.
+
+`model loads` is the first question a twenty-second inference raises. If it
+stays at 1 while `inferences` climbs, the model is loaded once and reused, and
+the time above is genuinely the graph running.
+
 ## The real-frame test
 
 The diagnostics screen used to describe the model in the abstract: what Roboflow
