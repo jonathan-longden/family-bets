@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-28 · 33';
+var BUILD = '2026-08-28 · 34';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -3153,6 +3153,12 @@ function diagLines() {
   var pre = describePrecision(lastDiag) || describePrecision(selfTest && selfTest.diag);
   L.push(pre ? '           ' + pre : '           nothing yet');
   L.push('');
+  /* The one block somebody actually needs to send back. It goes near the end
+     rather than the top only because the model block above says which model
+     produced it. */
+  L.push(frameTest ? frameLines(frameTest)
+    : 'REAL FRAME\n           not run — press "Test the camera" at the top of this screen');
+  L.push('');
   L.push('LAST UNUSABLE OUTPUT');
   if (!lastRaw) {
     L.push('           nothing yet');
@@ -3165,10 +3171,216 @@ function diagLines() {
   return L.join('\n');
 }
 
+/* ---------- putting one real picture through it ----------
+
+   Everything else on the diagnostics screen describes the model in the
+   abstract: what Roboflow says it is, what shape it returns, what it does with
+   a flat grey square. None of that answers the only question that matters —
+   point it at a pothole and does it see one.
+
+   This does, and it does it through the same code the survey uses: the same
+   squareFrame, the same CVImage, the same engine.infer, the same worker, the
+   same usableFind and the same shadow test. There is deliberately no separate
+   inference path here, because a diagnostic that exercises different code from
+   the thing being diagnosed is worse than none.
+
+   The picture is drawn, inferred and shown. It is not written to the database
+   and it does not leave the device. */
+var frameTest = null, testUrl = null;
+
+/* What the survey's own filters would do with these detections, and where each
+   one was lost. "The model found it and the shadow test threw it away" and "the
+   model never found it" are different faults, and they used to look identical
+   from outside. */
+function filterTrace(raw, ctx) {
+  var trace = [], kept = [];
+  raw.forEach(function (p, i) {
+    var f = usableFind(p, RF_SIZE, RF_SIZE);
+    if (!f) {
+      trace.push('#' + (i + 1) + ' dropped — not a usable find (unknown class, or a box ' +
+                 'that is not a box)');
+      return;
+    }
+    if (f.conf != null && f.conf < SURVEY_CONF) {
+      trace.push('#' + (i + 1) + ' ' + f.cls + ' ' + round4(f.conf) +
+                 ' dropped — under the survey threshold of ' + SURVEY_CONF);
+      return;
+    }
+    var why = rejectReason(ctx, RF_SIZE, RF_SIZE, f.box);
+    if (why) {
+      trace.push('#' + (i + 1) + ' ' + f.cls + ' ' + round4(f.conf) + ' dropped — ' + why);
+      return;
+    }
+    if (typeFor(f.cls) !== 'Pothole') {
+      trace.push('#' + (i + 1) + ' ' + f.cls + ' ' + round4(f.conf) +
+                 ' recognised but not logged — ' + typeFor(f.cls).toLowerCase() +
+                 ' is not a defect');
+      return;
+    }
+    kept.push(f);
+    trace.push('#' + (i + 1) + ' ' + f.cls + ' ' + round4(f.conf) + ' KEPT — the survey would ' +
+               'log this');
+  });
+  return { trace: trace, kept: kept };
+}
+
+/* One picture, from wherever it came, through the pipeline. */
+function testFrame(source, w, h, label) {
+  if (!engine || !worker) {
+    return Promise.reject(new Error('the model is not loaded'));
+  }
+  var t0 = performance.now();
+  var sq = squareFrame(source, w, h);          // the survey's own preprocessing
+  return createImageBitmap(sq.canvas).then(function (input) {
+    return import('./vendor/inference.es.js').then(function (m) {
+      return engine.infer(worker, new m.CVImage(input));
+    });
+  }).then(function (preds) {
+    var wall = performance.now() - t0;
+    var raw = takeDiag(preds) || [];           // also refreshes lastDiag for the screen below
+    var d = lastDiag || {};
+    var f = filterTrace(raw, sq.ctx);
+    return new Promise(function (resolve) {
+      sq.canvas.toBlob(function (blob) {
+        resolve({
+          label: label, at: new Date().toISOString(),
+          raw: raw, trace: f.trace, kept: f.kept,
+          diag: d, wall: Math.round(wall), shot: blob
+        });
+      }, 'image/jpeg', 0.8);
+    });
+  });
+}
+
+function frameLines(f) {
+  if (!f) return '';
+  var d = f.diag || {}, L = [];
+  var pr = d.precision || {}, th = d.thresholds || {};
+
+  L.push('REAL FRAME  (' + f.label + ')');
+  L.push('when         ' + f.at);
+  L.push('backend      ' + (pr.using || 'not reported') +
+    (precisionForced(d) ? '  (forced — WebGL would not answer sensibly)' : ''));
+  L.push('inference    ' + (d.ms == null ? '?' : Math.round(d.ms)) + ' ms' +
+    '   (whole test ' + f.wall + ' ms, including drawing and encoding the frame)');
+  L.push('raw output   ' + (Array.isArray(d.rawShape) ? [].concat(d.rawShape).join('×') : '?') +
+    (d.frameRange ? ', min ' + round4(d.frameRange.min) + ', max ' + round4(d.frameRange.max)
+                  : ''));
+  L.push('sane?        ' + (d.frameRange && isFinite(d.frameRange.max) &&
+      Math.abs(d.frameRange.max) < 1e4
+    ? 'yes — box values in pixels for a ' + RF_SIZE + ' model, scores in 0..1'
+    : 'NO — the runtime is not executing this graph'));
+  L.push('');
+
+  /* The number that makes a nil return readable. Without it, "0 detections" is
+     two different findings wearing the same words. */
+  L.push('BEST ANCHOR  (the highest the model scored anywhere in the frame,');
+  L.push('              before NMS and before any threshold)');
+  if (d.best) {
+    var b = d.best;
+    L.push('             ' + (b.cls || 'class ?') + '  ' + round4(b.score) +
+      '  box x ' + Math.round(b.box.x) + ' y ' + Math.round(b.box.y) +
+      ' w ' + Math.round(b.box.width) + ' h ' + Math.round(b.box.height));
+    L.push('             library keeps ≥ ' + (th.score == null ? '?' : th.score) +
+      ', the survey keeps ≥ ' + SURVEY_CONF);
+    if (th.score != null && b.score < th.score) {
+      L.push('             SO THIS ONE NEVER REACHED THE APP — it was dropped inside the');
+      L.push('             library, not by anything in this repository.');
+    }
+  } else {
+    L.push('             nothing scored above zero anywhere in the frame');
+  }
+  L.push('');
+
+  L.push('DETECTIONS   ' + f.raw.length + ' came back from the library');
+  if (!f.raw.length) {
+    L.push('             (the library returns at most ' + (th.maxBoxes == null ? '?' : th.maxBoxes) +
+      ' and drops anything under ' + (th.score == null ? '?' : th.score) + ')');
+  }
+  f.raw.forEach(function (p, i) {
+    var bx = p.bbox || {};
+    L.push('  #' + (i + 1) + '  ' + p.class + '  ' + round4(p.confidence) +
+      '  box x ' + Math.round(bx.x) + ' y ' + Math.round(bx.y) +
+      ' w ' + Math.round(bx.width) + ' h ' + Math.round(bx.height));
+  });
+  L.push('');
+
+  L.push('THROUGH THE SURVEY\'S OWN FILTERS');
+  if (!f.trace.length) L.push('             nothing to filter');
+  f.trace.forEach(function (t) { L.push('  ' + t); });
+  L.push('');
+  L.push('WOULD LOG    ' + f.kept.length + ' pothole' + (f.kept.length === 1 ? '' : 's'));
+  return L.join('\n');
+}
+
+function paintFrameTest() {
+  var pre = $('frameText'), wrap = $('tShotWrap');
+  pre.hidden = !frameTest;
+  if (!frameTest) { wrap.hidden = true; return; }
+  pre.textContent = frameLines(frameTest);
+  if (testUrl) { URL.revokeObjectURL(testUrl); testUrl = null; }
+  if (frameTest.shot) {
+    testUrl = URL.createObjectURL(frameTest.shot);
+    $('tShot').src = testUrl;
+    wrap.hidden = false;
+  } else { wrap.hidden = true; }
+}
+
+function runTest(label, get) {
+  var s = $('tState');
+  $('bTestCam').disabled = true;
+  s.textContent = 'Loading the model…';
+  loadModel().then(function () {
+    s.textContent = 'Running the model on the frame…';
+    return get();
+  }).then(function (args) {
+    return testFrame(args[0], args[1], args[2], label);
+  }).then(function (f) {
+    frameTest = f;
+    paintFrameTest();
+    paintDiag();
+    s.textContent = f.kept.length
+      ? 'Done — the survey would have logged ' + f.kept.length + ' of these.'
+      : 'Done — nothing the survey would log. Read the result below before concluding anything.';
+    $('bTestCam').disabled = false;
+  }, function (e) {
+    frameTest = null; paintFrameTest();
+    s.textContent = 'Could not run it: ' + whyLocal(e);
+    $('bTestCam').disabled = false;
+  });
+}
+
+$('bTestCam').addEventListener('click', function () {
+  var v = $('vid');
+  if (!stream || !v.videoWidth) {
+    $('tState').textContent = 'The camera is not running. Go back, start it, then come here — ' +
+      'or use Test a photo.';
+    return;
+  }
+  runTest('camera', function () {
+    return Promise.resolve([v, v.videoWidth, v.videoHeight]);
+  });
+});
+
+$('tFile').addEventListener('change', function () {
+  var file = this.files && this.files[0];
+  this.value = '';                       // so the same file can be picked twice
+  if (!file) return;
+  runTest('photo · ' + file.name, function () {
+    /* from-image honours the EXIF rotation a phone camera writes, so a picture
+       taken in portrait is not analysed on its side. Browsers that do not know
+       the option ignore it. */
+    return createImageBitmap(file, { imageOrientation: 'from-image' })
+      .catch(function () { return createImageBitmap(file); })
+      .then(function (bmp) { return [bmp, bmp.width, bmp.height]; });
+  });
+});
+
 function paintDiag() { $('diagText').textContent = diagLines(); }
 
 function openDiag() {
   show('diag');
+  paintFrameTest();
   paintDiag();
   /* Both are cached and cheap the second time, and this is the screen someone
      opens precisely because something is wrong — so ask now rather than wait
@@ -3215,6 +3427,18 @@ function show(which) {
      measure a container that is on screen, so this happens here rather than at
      startup. */
   if (which === 'map') drawMap();
+  /* A second view of the same stream, so the phone can be aimed at a pothole
+     while the diagnostics screen is up. It is the same MediaStream — no second
+     camera is opened — and it is released the moment the screen is left, so
+     nothing keeps decoding video behind a sheet nobody is looking at. */
+  var tv = $('tVid');
+  if (tv) {
+    if (which === 'diag' && stream) {
+      tv.srcObject = stream; $('tNo').hidden = true;
+    } else {
+      tv.srcObject = null; $('tNo').hidden = !!stream;
+    }
+  }
 }
 
 function backToCamera() { confirming = null; show('live'); }

@@ -406,6 +406,27 @@ textarea{min-height:70px;resize:vertical}
 .mapbar .btn{width:auto;margin-top:0;padding:11px 16px;font-size:15px}
 .key{display:flex;flex-wrap:wrap;gap:10px;font-size:12px;color:var(--refl)}
 .key span{display:flex;align-items:center;gap:5px}
+/* ---- the real-frame test ----
+   The first thing on the diagnostics screen, because it is the only thing on it
+   that answers a question about the road rather than about the software. */
+.ftest{border:1px solid var(--line);border-left:4px solid var(--hiviz);
+  background:var(--tar2);padding:14px 14px 16px;margin:0 0 18px}
+.ftest h2{font-size:19px;margin-bottom:6px}
+.ftest .row{margin-top:12px}
+.ftest .btn{margin-top:0}
+/* A label styled as a button still has to behave like one when tapped. */
+label.btn{display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+.tprev{position:relative;margin-top:12px;background:#000;border:1px solid var(--line);
+  border-radius:4px;overflow:hidden;aspect-ratio:16/9}
+.tprev video{width:100%;height:100%;object-fit:cover;display:block}
+.tno{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  text-align:center;padding:12px;font-size:13px;color:var(--refl)}
+.tshot{margin-top:12px}
+.tshot img{width:100%;max-width:320px;display:block;border:1px solid var(--line);
+  border-radius:4px;background:#000}
+.tshot .cap{display:block;margin-top:5px;font-family:var(--disp);text-transform:uppercase;
+  letter-spacing:.07em;font-size:11px;color:var(--refl)}
+
 /* The one hint on the screen that is a warning rather than an explanation. */
 .warnhint{border-left:3px solid var(--hiviz);padding-left:10px;margin-top:8px !important;
   display:block;color:#C9D0DA}

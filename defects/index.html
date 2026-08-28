@@ -247,6 +247,33 @@
   <header class="sh"><button type="button" class="back" id="xDiag" aria-label="Back to camera">Back</button>
     <h1>Diagnostics</h1></header>
   <div class="sh-body">
+
+    <!-- The whole point of this screen. Everything below it describes the
+         model in the abstract; this puts a real picture through it and says
+         what came back. -->
+    <div class="ftest">
+      <h2 class="disp">Real-frame test</h2>
+      <p class="hint">Point the camera at a pothole and press <b>Test the camera</b>. The frame
+        goes through the same preprocessing, the same model and the same decoder the survey
+        uses — this is not a separate code path, and the picture is not saved or sent
+        anywhere.</p>
+      <div class="tprev">
+        <video id="tVid" playsinline muted autoplay></video>
+        <div class="tno" id="tNo">Camera is off — use <b>Test a photo</b> instead</div>
+      </div>
+      <div class="row">
+        <button class="btn" id="bTestCam">Test the camera</button>
+        <label class="btn ghost" for="tFile" id="tFileLabel">Test a photo</label>
+        <input type="file" id="tFile" accept="image/*" hidden>
+      </div>
+      <div class="hint" id="tState">Not run yet.</div>
+      <div class="tshot" id="tShotWrap" hidden>
+        <img id="tShot" alt="The 640 by 640 frame that was actually analysed">
+        <span class="cap">what the model was shown</span>
+      </div>
+      <pre class="diag" id="frameText" hidden></pre>
+    </div>
+
     <div class="row">
       <button class="btn" id="bCopyDiag">Copy</button>
       <button class="btn ghost" id="bDiagFile">Save as text</button>

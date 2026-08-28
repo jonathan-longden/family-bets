@@ -166,6 +166,75 @@ dimensions. Stretching preserves proportions, so a defect covers the same
 fraction either way — but a box measured in one space and divided by the other
 does not, which is what the older numbers were.
 
+## The real-frame test
+
+The diagnostics screen used to describe the model in the abstract: what Roboflow
+says it is, what shape it returns, what it makes of a flat grey square. None of
+that answers the only question that matters — point it at a pothole and does it
+see one.
+
+**Diagnostics now opens on a real-frame test.** A live preview of the camera
+already running, a *Test the camera* button, and a *Test a photo* button that
+takes a picture from the phone. Either one puts the frame through
+`squareFrame` → `CVImage` → `engine.infer` → `usableFind` → the shadow test:
+**the survey's own code, not a parallel path.** A diagnostic that exercises
+different code from the thing being diagnosed is worse than none.
+
+The picture is shown, not stored. It is never written to the database and never
+leaves the device.
+
+### What it reports, and why each line is there
+
+```
+REAL FRAME  (camera)
+when         2026-08-28T10:17:18.459Z
+backend      cpu  (forced — WebGL would not answer sensibly)
+inference    412 ms   (whole test 460 ms, including drawing and encoding)
+raw output   1×6×8400, min 0, max 636.4215
+sane?        yes — box values in pixels for a 640 model, scores in 0..1
+
+BEST ANCHOR  (the highest the model scored anywhere in the frame,
+              before NMS and before any threshold)
+             pothole  0.83  box x 320 y 360 w 180 h 150
+             library keeps ≥ 0.5, the survey keeps ≥ 0.65
+
+DETECTIONS   1 came back from the library
+  #1  pothole  0.83  box x 320 y 360 w 180 h 150
+
+THROUGH THE SURVEY'S OWN FILTERS
+  #1  pothole 0.83 KEPT — the survey would log this
+
+WOULD LOG    1 pothole
+```
+
+**The best-anchor line is the one that was missing.** Without it, "0 detections"
+is two completely different findings wearing the same words: *the model saw
+nothing*, or *the model saw it at 0.42 and the library's own 0.5 gate dropped it
+before anything in this repository could look*. It is taken from the raw scores
+before NMS and before any threshold, so it reports what the model actually
+thinks regardless of what the pipeline then does about it.
+
+**The filter trace is the second.** "The model found it and the shadow test
+threw it away" and "the model never found it" used to look identical from
+outside. Now each detection says which gate it died at, by name.
+
+### The thresholds it prints
+
+These are the library's own defaults, not the app's, and they were invisible
+until now:
+
+| | Value | Whose |
+| --- | --- | --- |
+| `scoreThreshold` | 0.5 | the library — drops detections before the app sees them |
+| `iouThreshold` | 0.5 | the library — NMS overlap |
+| `maxNumBoxes` | **20** | the library — the cap on returned detections |
+| `SURVEY_CONF` | 0.65 | this app, applied on top |
+
+That `maxNumBoxes: 20` is also the explanation for a symptom that went unexplained
+for a long time: every broken run reported **exactly 20 results**. It was the cap
+being hit, not a coincidence — when the output was noise, every anchor scored
+above 0.5 and NMS returned as many as it was allowed to.
+
 ## Not knowing means not knowing
 
 A find is believed only once every part of it has been checked: a class the app
