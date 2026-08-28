@@ -631,6 +631,95 @@ escalation test that stood on them has gone with them. Entries saved before
 that change keep their gauged depth, still show it in the log, and still export
 it — the CSV carries those two columns for as long as any entry has one.
 
+## Where the defect is, as opposed to where the phone was
+
+The app used to write down the last GPS fix at the moment the row was written.
+Three things were wrong with that and all three are fixed.
+
+**The fix could be five seconds old.** `maximumAge: 5000` let the browser hand
+back a cached position, and at 30 mph a vehicle covers 13.4 metres a second — so
+the recorded point could be sixty-seven metres behind the camera with nothing to
+say it was. One second is asked for now. The trade is worth stating: with
+`enableHighAccuracy` the receiver is already running, so `maximumAge` governs
+whether a cached fix may be reused rather than how often the chip is woken — the
+battery cost is small but not nothing. It buys nothing about how *good* a fix is,
+only about how *current*; a ±10 m fix from five seconds ago is wrong about where
+you are as well as vague about where you were. The 15-second timeout stays, because
+shortening it turns a slow cold start under trees into an error rather than a fix.
+
+**The timestamp was the write time.** Inference, the shadow test and encoding a
+JPEG take a second or more on a mid-range phone, during which the vehicle moves
+and `watchPosition` very likely replaces the fix. The frame is the observation,
+so it is stamped when it is taken, and the fix is *copied* at that moment rather
+than referenced — a later update cannot change what a frame was taken against.
+`t` and `captured_at` are the frame; `stored_at` is the write, kept separately
+because the gap between them is itself worth being able to see.
+
+**Nothing recorded which way the vehicle was pointing.** `coords.heading` and
+`coords.speed` are free, already in the payload, and were being thrown away.
+Heading is what separates the two carriageways of a dual carriageway: without it
+there is no way to tell a defect seen going north from a different defect seen
+going south at the same coordinates.
+
+A phone reports a heading only while it is moving, and some devices never report
+a speed at all. **What comes back for those is `null`, and it stays `null`.** A
+survey that filled in a plausible zero would be claiming the vehicle was pointing
+north and standing still, which is a statement about the world rather than an
+absence of one. (`+null` is `0` in JavaScript, so this had to be rejected before
+the coercion rather than after it — the test suite caught that as a fabricated
+due-north heading and a camera lead of zero metres.)
+
+### The estimated defect position
+
+The defect is on the road *ahead*, not under the vehicle. Every entry now carries
+two positions and never confuses them:
+
+| Field | What it is |
+| --- | --- |
+| `lat`, `lon`, `acc` | Where the vehicle was. Measured, unmodified, same names as before. |
+| `heading_deg`, `speed_mps` | What the device reported, or null. |
+| `estimated_defect_lat/lon` | The fix projected forward along the heading. |
+| `position_confidence_m` | How wrong that could be. |
+| `camera_lead_m` | The lead it was worked out with. |
+| `position_note` | When there is no estimate, why not. |
+
+The estimate is made only when there is a fix, a heading, and a frame taken
+within three seconds of it. Missing any of those means **no estimate** rather
+than a worse one, and the reason travels with the entry so the log can say why.
+
+### The camera lead, which is not calibrated
+
+How far ahead the camera looks depends on the mount angle, the height and the
+lens — somewhere between about five and fifteen metres for a phone on a
+windscreen. **Nobody has measured it for this setup.** Eight metres is a guess.
+
+It is a field at the bottom of the log rather than a constant buried in the
+source, precisely so that somebody can calibrate it: drive a defect whose
+position you know, compare it against what the app recorded, set this to what
+closes the gap, and write down which vehicle it was measured in. Until then the
+whole of the lead is added to the error bar — a metre of lead buys a metre of
+doubt.
+
+The radius is the sum of three separate ignorances rather than a statistical
+combination of them: the fix's own accuracy, the whole of the camera lead, and
+half the distance travelled between the fix and the frame (or the lead again, if
+the speed is unknown). Adding them gives a number larger than a careful treatment
+would. That is the right direction to be wrong in — the radius is a promise that
+the defect is probably inside it, and one that is too generous costs somebody a
+longer look, while one that is too tight sends them to the wrong place.
+
+**None of this is claimed to be accurate.** It has not been tested against a
+defect whose real position is known. What it does is stop the app implying a
+precision it never had: the log labels every position as *estimated defect
+position* or *vehicle position, not the defect's*, and the map draws the
+confidence radius as a circle under the pin, so a pin sitting confidently on the
+wrong side of a road reads as a best guess with a radius rather than as a survey
+mark.
+
+The GeoJSON geometry is the estimated position, because that is what anything
+with a map in it will drive somebody to; the vehicle position rides alongside in
+`vehicle_lat` / `vehicle_lon` with `position_source` saying which is which.
+
 ## Three-word addresses
 
 A what3words key ships with the app, so every located entry picks up a

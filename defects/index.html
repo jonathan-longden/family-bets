@@ -137,6 +137,11 @@
     <div><span>Longitude</span><b id="mLon">—</b></div>
     <div><span>Accuracy</span><b id="mAcc">—</b></div>
     <div><span>Fix age</span><b id="mAge">—</b></div>
+    <!-- A phone reports a heading only while it is moving, and some never
+         report a speed at all. "not reported" is the honest reading and is
+         what the log stores: null, never a plausible zero. -->
+    <div><span>Heading</span><b id="mHead">—</b></div>
+    <div><span>Speed</span><b id="mSpeed">—</b></div>
   </div>
   <button type="button" role="menuitem" class="mi quiet" id="bStop">Stop camera</button>
   <div class="mi-foot">
@@ -166,6 +171,21 @@
       <span id="quota"></span>
     </div>
     <div class="note" id="wrongCount" hidden></div>
+
+    <label class="fld" id="leadBox">
+      <span class="cap">Camera lead</span>
+      <input type="number" id="camLead" min="0" max="60" step="0.5" inputmode="decimal">
+      <span class="hint" id="leadState"></span>
+      <span class="hint warnhint"><b>This number has not been calibrated.</b> The defect is on the
+        road ahead of the vehicle, not under it, so its position is worked out by projecting the
+        GPS fix forward along the recorded heading by this many metres. How far ahead the camera
+        actually looks depends on the mount angle, the height and the lens, and nobody has
+        measured it for this setup. Until somebody does, the whole of this figure is added to the
+        error bar on every estimate — a metre of lead buys a metre of doubt.
+        <br><br>To calibrate: drive a defect whose position you know, compare it against what the
+        app recorded, and change this until they agree. Then say so in the log's notes, because
+        the number means nothing without the vehicle it was measured in.</span>
+    </label>
 
     <label class="fld" id="w3wBox">
       <span class="cap">what3words key</span>

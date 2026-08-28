@@ -20,6 +20,63 @@ var STALE_MS = 30000;   // a fix older than this is called out, not trusted quie
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
 var MAX_EDGE = 1600;    // longest side of a saved photograph
 
+/* ---------- how old a fix may be, and what it costs ----------
+
+   maximumAge was five seconds. At 30 mph a vehicle covers 13.4 metres a
+   second, so the browser was free to hand back a position sixty-seven metres
+   behind the camera and the app had no way to know it had. For a survey done
+   at a walking pace that is invisible; for one done from a windscreen mount it
+   is the difference between two roads.
+
+   One second is asked for instead. The trade is real and is worth stating:
+
+     Battery. watchPosition with enableHighAccuracy already keeps the GNSS
+     receiver running; maximumAge governs whether a cached fix may be reused,
+     not how often the chip is woken. The cost of asking for a fresher one is
+     therefore small — but it is not nothing, because fewer cache hits means
+     more fixes are actually computed.
+
+     Reliability. A tighter window does not make the browser produce fixes it
+     does not have. It makes it hand back the one it has, which is what the
+     age is recorded for. Nothing here fails because a fix is old; the app
+     simply stops using an old one to place a defect.
+
+     Accuracy. This buys nothing about how good a fix is — only about how
+     current. A ±10 m fix from a second ago and a ±10 m fix from five seconds
+     ago are equally vague about where you were, and the second one is wrong
+     about where you are.
+
+   The timeout stays at fifteen seconds. It governs how long the browser may
+   take to produce the first fix in a cold start under trees, and shortening it
+   would turn a slow fix into an error rather than a fix. */
+var FIX_MAX_AGE_MS = 1000;    // how stale a cached fix may be before one is computed
+var GPS_TIMEOUT_MS = 15000;   // how long a cold start may take before it is an error
+
+/* Separately from either: how old the fix behind a frame may be before it is
+   no longer good enough to say where the defect was. Three seconds is 40 m at
+   30 mph, which is already generous; past it the app records the raw fix and
+   declines to estimate a defect position from it. */
+var USABLE_FIX_MS = 3000;
+
+/* ---------- the camera lead ----------
+
+   The defect is not where the vehicle is. It is on the road ahead, inside the
+   part of the frame the camera can see, which for a phone on a windscreen
+   mount is somewhere between about five and fifteen metres in front of the
+   lens depending on the mount angle, the height and the lens.
+
+   This is the one number in the app that has to be calibrated against reality
+   and has not been. It is exposed rather than buried for exactly that reason:
+   drive a known pothole, compare what the app recorded against where the hole
+   actually is, and set this to what closes the gap. Until somebody does that,
+   eight metres is a guess, the app says so, and the uncertainty it adds to
+   every estimate is the whole of the lead — a ±100% error bar on a number
+   nobody has measured. */
+var CAMERA_LEAD_M = 8;
+var LEAD_STORE = 'deflog.lead';
+var LEAD_UNCERTAINTY = 1.0;   // ±100% of the lead, because it is uncalibrated
+var LEAD_MAX_M = 60;          // beyond this somebody has typed a number, not a lead
+
 /* Detection runs on the phone.
 
    The obvious way — post the photograph to the hosted inference API — is a
@@ -521,22 +578,156 @@ function paintSpace() {
   }).catch(function () {});
 }
 
+/* A number, or null. Never a substitute.
+
+   coords.heading and coords.speed are absent far more often than they are
+   present: a phone reports a heading only while it is moving, and some devices
+   never report a speed at all. What comes back for those is null, or NaN, or
+   occasionally a negative. All of it means "not known", and all of it becomes
+   null here — because a survey that filled in a plausible zero would be
+   claiming the vehicle was pointing north and standing still, which is a
+   statement about the world rather than an absence of one. */
+function reading(v, lo, hi) {
+  /* null, undefined and '' have to be rejected before the coercion rather than
+     after it, because +null is 0 and +'' is 0 — so "the device did not report a
+     heading" would come out of this as a confident due north, and "no camera
+     lead has been set" as a lead of zero metres. Both were exactly the kind of
+     fabricated reading this function exists to prevent, and both got past it
+     until the suite caught them. */
+  if (v === null || v === undefined || v === '') return null;
+  var n = +v;
+  return (isFinite(n) && n >= lo && n <= hi) ? n : null;
+}
+
+/* Where a point that far along that bearing lands. Great-circle, which is
+   overkill at eight metres and costs nothing. */
+function project(lat, lon, bearingDeg, metres) {
+  var R = 6371000, rad = Math.PI / 180;
+  var d = metres / R, br = bearingDeg * rad, la1 = lat * rad, lo1 = lon * rad;
+  var la2 = Math.asin(Math.sin(la1) * Math.cos(d) +
+                      Math.cos(la1) * Math.sin(d) * Math.cos(br));
+  var lo2 = lo1 + Math.atan2(Math.sin(br) * Math.sin(d) * Math.cos(la1),
+                             Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+  return { lat: la2 / rad, lon: ((lo2 / rad + 540) % 360) - 180 };
+}
+
+function cameraLead() {
+  var v = null;
+  try { v = localStorage.getItem(LEAD_STORE); } catch (e) {}
+  var n = reading(v, 0, LEAD_MAX_M);
+  return n == null ? CAMERA_LEAD_M : n;
+}
+
+/* ---------- where the defect probably is ----------
+
+   Given the fix behind a frame and when that frame was taken, put a point on
+   the road ahead and say how wrong it might be. Everything it needs is
+   something the app now records; anything missing means no estimate rather
+   than a worse one, and the reason travels with the entry so the log can say
+   why a find has no estimated position.
+
+   The error bar is deliberately pessimistic and is the sum of three separate
+   ignorances, not a statistical combination of them:
+
+     the fix's own accuracy — how vague the GPS is about where the vehicle was;
+     the whole of the camera lead — because nobody has calibrated it;
+     half the distance travelled between the fix and the frame.
+
+   Adding them rather than combining them in quadrature means the number is
+   larger than a careful treatment would give. That is the right direction to
+   be wrong in: the radius is a promise that the defect is probably inside it,
+   and a promise that is too generous costs somebody a longer look, while one
+   that is too tight sends them to the wrong place. */
+function estimatePosition(fix, capturedAt, leadM) {
+  if (!fix) return { lat: null, lon: null, confM: null, by: null, why: 'no fix' };
+  var age = capturedAt - fix.at;
+  if (!(age >= 0)) age = 0;
+  if (age > USABLE_FIX_MS) {
+    return { lat: null, lon: null, confM: null, by: null,
+             why: 'the fix was ' + Math.round(age / 100) / 10 + ' s old when the frame was taken' };
+  }
+  if (fix.heading == null) {
+    return { lat: null, lon: null, confM: null, by: null,
+             why: 'no heading — a phone reports one only while it is moving' };
+  }
+  var travel = fix.speed == null ? 0 : fix.speed * (age / 1000);
+  var lead = leadM == null ? cameraLead() : leadM;
+  var p = project(fix.lat, fix.lon, fix.heading, lead + travel);
+  var conf = fix.acc + lead * LEAD_UNCERTAINTY + travel * 0.5;
+  /* With no speed, the distance covered between fix and frame is unknown
+     rather than zero, so the lead's own width stands in for it. */
+  if (fix.speed == null) conf += lead;
+  return { lat: p.lat, lon: p.lon, confM: Math.ceil(conf),
+           by: 'projected along heading', why: null,
+           leadM: lead, travelM: Math.round(travel * 10) / 10 };
+}
+
+/* The one place that decides which of an entry's two positions to use.
+
+   An entry can carry both: where the vehicle was, which is measured, and where
+   the defect probably is, which is worked out from it. Anything pointing a
+   person at the road wants the second — the map pin, the three-word address,
+   the geometry in a GeoJSON export. Anything reporting what was measured wants
+   the first, and gets it under the field names it has always had.
+
+   Entries logged before this existed, and entries logged with no heading, have
+   only the vehicle position. They come back marked as such rather than
+   silently promoted. */
+function bestPos(it) {
+  if (!it) return null;
+  if (it.estLat != null && it.estLon != null) {
+    return { lat: it.estLat, lon: it.estLon, confM: it.posConfM,
+             source: 'estimated', estimated: true };
+  }
+  if (it.lat != null && it.lon != null) {
+    return { lat: it.lat, lon: it.lon, confM: it.acc == null ? null : it.acc,
+             source: 'vehicle', estimated: false };
+  }
+  return null;
+}
+
 function startGps() {
   if (!navigator.geolocation) { $('recTxt').textContent = 'No GPS'; gauge('rec', 'No GPS', 'none'); return; }
   $('gpsBox').hidden = false;
   watchId = navigator.geolocation.watchPosition(function (p) {
-    S.gps = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, at: Date.now() };
+    var c = p.coords;
+    S.gps = {
+      lat: c.latitude, lon: c.longitude, acc: c.accuracy, at: Date.now(),
+      /* Free, already in the payload, and never captured until now. A heading
+         is what separates the two carriageways of a dual carriageway; without
+         one there is no way to tell a defect seen going north from a different
+         defect seen going south at the same coordinates. */
+      heading: reading(c.heading, 0, 360),
+      speed: reading(c.speed, 0, 200)
+    };
     $('mLat').textContent = S.gps.lat.toFixed(6);
     $('mLon').textContent = S.gps.lon.toFixed(6);
     $('mAcc').textContent = '±' + Math.round(S.gps.acc) + ' m';
     $('mAcc').className = S.gps.acc > POOR_ACC ? 'warn' : '';
+    $('mHead').textContent = S.gps.heading == null ? 'not reported'
+      : Math.round(S.gps.heading) + '°';
+    $('mSpeed').textContent = S.gps.speed == null ? 'not reported'
+      : (S.gps.speed * 2.23694).toFixed(1) + ' mph';
     paintFix();
-  }, function () {
-    $('recTxt').textContent = 'GPS denied'; gauge('rec', 'GPS denied', 'none'); S.gps = null;
-    $('gpsBox').hidden = true;
-    toast('Location was refused, so finds will be logged with no coordinates — they cannot go ' +
-          'on the map or into GeoJSON. Allow it for this site, then stop and start the camera.');
-  }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
+  }, function (err) {
+    /* A refusal and a timeout are not the same problem and used to produce the
+       same message. Only the first is permanent, and only the first is worth
+       telling somebody to go and change a setting for. */
+    var denied = err && err.code === 1;
+    if (denied) {
+      $('recTxt').textContent = 'GPS denied'; gauge('rec', 'GPS denied', 'none');
+      S.gps = null; $('gpsBox').hidden = true;
+      toast('Location was refused, so finds will be logged with no coordinates — they cannot go ' +
+            'on the map or into GeoJSON. Allow it for this site, then stop and start the camera.');
+      return;
+    }
+    /* No fix yet. The watch is still running and may well produce one, so the
+       last fix is left where it is and the strip says what is happening. */
+    if (!S.gps) { $('recTxt').textContent = 'Waiting for GPS'; gauge('rec', 'No fix yet', 'poor'); }
+    toast(err && err.code === 3
+      ? 'No GPS fix yet — still trying. Under trees or between buildings this can take a while.'
+      : 'The device could not work out where it is. Still trying.');
+  }, { enableHighAccuracy: true, maximumAge: FIX_MAX_AGE_MS, timeout: GPS_TIMEOUT_MS });
   ageTimer = setInterval(paintFix, 2000);
 }
 
@@ -609,13 +800,27 @@ function paintFixNote() {
   var bits = [];
   if (it.acc > POOR_ACC) bits.push('the fix is only good to ±' + it.acc + ' m');
   if (it.fixAge != null && it.fixAge > STALE_MS / 1000) {
-    bits.push('it was ' + it.fixAge + ' seconds old when the find was logged');
+    bits.push('it was ' + it.fixAge + ' seconds old when the frame was taken');
   }
   if (!bits.length) n.className = 'fixnote ok';
-  n.innerHTML = '<b>Location.</b> ' + it.lat.toFixed(5) + ', ' + it.lon.toFixed(5) +
+
+  /* Two positions, said as two things. The vehicle's is measured; the
+     defect's is worked out from it and carries a radius that is deliberately
+     generous. Reading them as one number is exactly the mistake this is here
+     to prevent. */
+  var est = (it.estLat != null)
+    ? '<br><b>Estimated defect position.</b> ' + it.estLat.toFixed(5) + ', ' +
+      it.estLon.toFixed(5) + ' — ' + (it.cameraLeadM || cameraLead()) + ' m along a heading of ' +
+      Math.round(it.headingDeg) + '°, and it could be anywhere within ±' + it.posConfM +
+      ' m of that. The camera lead has not been calibrated against a known defect, so most of ' +
+      'that radius is the app admitting it does not know how far ahead it is looking.'
+    : '<br><b>No estimated defect position.</b> ' + esc(it.estWhy || 'not enough to work one out') +
+      ', so what is recorded is where the vehicle was and not where the defect is.';
+
+  n.innerHTML = '<b>Vehicle position.</b> ' + it.lat.toFixed(5) + ', ' + it.lon.toFixed(5) +
     ' at ±' + it.acc + ' m' +
     (bits.length ? ' — ' + bits.join(', ') + '. It stands as it is, and stays flagged in the log.'
-                 : '. Kept with the entry.');
+                 : '. Kept with the entry.') + est;
 }
 
 $('bDiscard').addEventListener('click', function () { confirming = null; show('log'); });
@@ -1338,11 +1543,30 @@ function look() {
   survey.busy = true;
   var vw = v.videoWidth, vh = v.videoHeight;
   var sq = squareFrame(v, vw, vh);
+  /* When the picture was taken, and what the fix said at that moment.
+
+     Both used to be read at the end, when the entry was written — after
+     inference, after the shadow test, after the JPEG was encoded. On a
+     mid-range phone that is a second or more, during which the vehicle has
+     moved and watchPosition has very likely replaced the fix. The entry then
+     recorded a position the camera was never at, timestamped when the database
+     was written rather than when the road was looked at.
+
+     The frame is the observation. It is stamped here, and the fix is copied
+     rather than referenced so that a later update cannot change what this
+     frame was taken against. */
+  var capturedAt = Date.now();
+  var fixAtCapture = S.gps ? {
+    lat: S.gps.lat, lon: S.gps.lon, acc: S.gps.acc, at: S.gps.at,
+    heading: S.gps.heading, speed: S.gps.speed
+  } : null;
+  survey.lastLookAt = capturedAt;
+  survey.lastLookFix = fixAtCapture;
   createImageBitmap(sq.canvas).then(function (input) {
     return import('./vendor/inference.es.js').then(function (m) {
       return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
         return { preds: takeDiag(preds), w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
-                 vw: vw, vh: vh };
+                 vw: vw, vh: vh, capturedAt: capturedAt, fix: fixAtCapture };
       });
     });
   }).then(function (out) {
@@ -1403,12 +1627,23 @@ function logFind(hits, out, c) {
   if (!p) { hud('Found something, could not measure it', 'bad'); return Promise.resolve(); }
   var n = p.imp * p.prb, pri = priorityFor(n) || PRIORITY[PRIORITY.length - 1];
 
+  /* The fix as it was when the frame was taken, not as it is now. */
+  var capturedAt = (out && out.capturedAt) || Date.now();
+  var f = (out && out.fix) || null;
+  var est = estimatePosition(f, capturedAt, null);
+
   return new Promise(function (resolve) {
     c.toBlob(function (blob) {
       if (!blob) { hud('Could not save the frame', 'bad'); return resolve(); }
-      var f = S.gps ? { lat: S.gps.lat, lon: S.gps.lon, acc: S.gps.acc, age: fixAge() } : null;
+      var capturedIso = new Date(capturedAt).toISOString();
       var e = {
-        id: nextId(), t: new Date().toISOString(), img: blob,
+        id: nextId(),
+        /* t is when the road was looked at, not when the row was written. The
+           two are a second or so apart and it is the first that is the
+           observation; storedAt keeps the second, because the gap between them
+           is itself worth being able to see. */
+        t: capturedIso, capturedAt: capturedIso, storedAt: new Date().toISOString(),
+        img: blob,
         imp: p.imp, prob: p.prb, score: n,
         /* No category and no response time. The survey has not measured a
            depth, nobody has looked at the photograph, and a field called
@@ -1424,8 +1659,21 @@ function logFind(hits, out, c) {
         detConf: det.conf, detShare: det.share, detCount: det.count,
         detBox: det.box,          // kept so a wrong entry can be diagnosed later
         type: typeFor(best.cls), note: '',
+        /* Where the vehicle was, unmodified. These keep the names they have
+           always had and mean what they have always meant, so nothing reading
+           an older export changes behaviour. */
         lat: f ? f.lat : null, lon: f ? f.lon : null,
-        acc: f ? Math.round(f.acc) : null, fixAge: f ? f.age : null
+        acc: f ? Math.round(f.acc) : null,
+        fixAge: f ? Math.round((capturedAt - f.at) / 1000) : null,
+        fixAgeMs: f ? Math.max(0, capturedAt - f.at) : null,
+        headingDeg: f ? f.heading : null,
+        speedMps: f ? f.speed : null,
+        /* Where the defect probably is, kept apart from where the vehicle was
+           and never mistaken for it. estWhy holds the reason when there is no
+           estimate, so the log can say why rather than showing a blank. */
+        estLat: est.lat, estLon: est.lon,
+        posConfM: est.confM, estBy: est.by, estWhy: est.why,
+        cameraLeadM: est.leadM == null ? null : est.leadM
       };
       (dbBroken ? Promise.resolve() : putEntry(e)).then(function () {
         S.items.unshift(e);
@@ -1541,7 +1789,7 @@ function loadMap() {
 }
 
 function located() {
-  return S.items.filter(function (i) { return i.lat != null && i.lon != null; });
+  return S.items.filter(function (i) { return !!bestPos(i); });
 }
 
 function pinFor(it) {
@@ -1564,16 +1812,30 @@ function drawMap() {
     pins.clearLayers();
     rows.forEach(function (it) {
       var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
+      var pos = bestPos(it);
       var where = (it.w3w ? '///' + esc(it.w3w)
-                          : it.lat.toFixed(5) + ', ' + it.lon.toFixed(5)) +
-                  (it.acc != null ? ' (±' + it.acc + 'm)' : '');
+                          : pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5)) +
+                  (pos.confM != null ? ' (±' + pos.confM + 'm)' : '');
       var st = statutoryOf(it), pr = priorityOf(it);
       var title = st ? esc(st.cat) + ' — ' + esc(st.resp)
                      : (pr ? pr.p + ' — ' + esc(pr.word) : 'Not scored') +
                        ' <em>(app priority, not classified)</em>';
-      L.marker([it.lat, it.lon], { icon: pinFor(it) })
+      /* The pin is a point and the defect is not. A circle the size of the
+         honest error bar is drawn under it, so a pin sitting confidently on the
+         wrong side of a road is read as what it is — a best guess with a
+         radius — rather than as a survey mark. */
+      if (pos.confM != null && pos.confM > 0) {
+        L.circle([pos.lat, pos.lon], { radius: pos.confM, weight: 1,
+          color: unconfirmed ? '#FF6B1A' : '#8C93A0', opacity: 0.5,
+          fillOpacity: 0.06, interactive: false }).addTo(pins);
+      }
+      L.marker([pos.lat, pos.lon], { icon: pinFor(it) })
         .bindPopup('<b>' + title + '</b><br>' + esc(it.type) + ' · ' + esc(it.surface) +
-                   '<br>' + where + '<br>' + new Date(it.t).toLocaleString() +
+                   '<br>' + where +
+                   '<br><em>' + (pos.estimated
+                     ? 'estimated defect position, ±' + pos.confM + ' m'
+                     : 'vehicle position — no defect estimate') + '</em>' +
+                   '<br>' + new Date(it.t).toLocaleString() +
                    (unconfirmed ? '<br><em>Unconfirmed survey find</em>' : ''))
         .addTo(pins);
     });
@@ -1589,7 +1851,9 @@ function drawMap() {
 function fitMap() {
   var rows = located();
   if (!map || !rows.length) return;
-  var b = L.latLngBounds(rows.map(function (i) { return [i.lat, i.lon]; }));
+  var b = L.latLngBounds(rows.map(function (i) {
+    var p = bestPos(i); return [p.lat, p.lon];
+  }));
   map.fitBounds(b, { padding: [40, 40], maxZoom: 17 });
 }
 $('bFit').addEventListener('click', fitMap);
@@ -1692,8 +1956,13 @@ function words(lat, lon) {
 /* Written to the entry after the fact, so a slow or refused lookup costs the
    log nothing. */
 function addWords(entry) {
-  if (entry.w3w || entry.lat == null) return;
-  words(entry.lat, entry.lon).then(function (w) {
+  /* The address someone reads out should be of the road they are being sent
+     to, so this looks up the best position the entry has rather than the
+     vehicle's. Where there is no estimate the two are the same thing. */
+  var pos = bestPos(entry);
+  if (entry.w3w || !pos) return;
+  entry.w3wOf = pos.source;
+  words(pos.lat, pos.lon).then(function (w) {
     if (!w) return;
     entry.w3w = w;
     (dbBroken ? Promise.resolve() : putEntry(entry)).then(render, function () {});
@@ -1722,6 +1991,32 @@ function paintW3w() {
       'Paste your own key to record three-word addresses here. Coordinates are recorded either way.';
   }
 }
+
+/* The camera lead is on screen and editable because it is the one number in
+   the app that can only be settled by driving at a defect somebody has already
+   measured. Burying it would mean nobody ever calibrates it. */
+function paintLead() {
+  var n = $('leadState'); if (!n) return;
+  var lead = cameraLead();
+  var stored = null;
+  try { stored = localStorage.getItem(LEAD_STORE); } catch (e) {}
+  n.innerHTML = stored == null
+    ? '<b>' + lead + ' m, the built-in guess.</b> Every estimate made with it carries ±' +
+      (lead * (1 + LEAD_UNCERTAINTY)) + ' m or worse, because an uncalibrated lead is a metre ' +
+      'of doubt for every metre of lead.'
+    : '<b>' + lead + ' m, set on this device.</b> Kept here only, and used for finds logged from ' +
+      'now on — entries already in the log keep the lead they were recorded with.';
+}
+
+$('camLead').value = cameraLead();
+paintLead();
+$('camLead').addEventListener('change', function () {
+  var v = reading(this.value, 0, LEAD_MAX_M);
+  if (v == null) { this.value = cameraLead(); return paintLead(); }
+  try { localStorage.setItem(LEAD_STORE, String(v)); } catch (e) {}
+  this.value = v;
+  paintLead();
+});
 
 $('w3wKey').value = w3wKey();
 paintW3w();
@@ -1766,17 +2061,28 @@ function render() {
 
   urls.forEach(URL.revokeObjectURL); urls = [];
   $('list').innerHTML = S.items.map(function (it) {
-    var loc, flag = '';
-    if (it.lat != null) {
+    var loc, flag = '', pos = bestPos(it);
+    if (pos) {
       /* The three-word address is what someone reads out on a radio and types
          into a van's satnav; six decimal places of latitude is not. So it
          stands in place of the coordinates once it arrives — the coordinates
          are still what is stored and exported, they are simply not the useful
-         thing to show. Accuracy stays either way, because how well the fix is
-         known is not a detail. */
-      loc = it.w3w ? '///' + esc(it.w3w) : it.lat.toFixed(5) + ', ' + it.lon.toFixed(5);
-      if (it.acc != null) loc += ' (±' + it.acc + 'm)';
-      if (it.acc > POOR_ACC) flag = ' <span class="flag">coarse fix</span>';
+         thing to show. The error bar stays either way, because how well the
+         position is known is not a detail: it is the difference between "this
+         road" and "one of these two roads". */
+      loc = it.w3w ? '///' + esc(it.w3w) : pos.lat.toFixed(5) + ', ' + pos.lon.toFixed(5);
+      if (pos.confM != null) loc += ' (±' + pos.confM + 'm)';
+      /* Which of the two positions this is. An estimate that read like a
+         measurement would be the whole problem back again. */
+      loc += pos.estimated ? ' · estimated defect position'
+                           : ' · vehicle position, not the defect\u2019s';
+      if (pos.confM != null && pos.confM > POOR_ACC) {
+        flag = ' <span class="flag">±' + pos.confM + ' m — could be either side of the road</span>';
+      }
+      if (!pos.estimated && it.lat != null) {
+        flag += ' <span class="flag">' +
+          esc(it.estWhy || 'no defect estimate') + '</span>';
+      }
       if (it.fixAge != null && it.fixAge > STALE_MS / 1000) {
         flag += ' <span class="flag">fix ' + it.fixAge + 's old</span>';
       }
@@ -1789,6 +2095,10 @@ function render() {
       if (it.detShare != null) how += ', ' + Math.round(it.detShare * 100) + '% of frame';
     } else if (it.detShare != null) {
       how += ' · model, ' + Math.round(it.detShare * 100) + '% of frame';
+    }
+    if (it.headingDeg != null) {
+      how += ' · heading ' + Math.round(it.headingDeg) + '°';
+      if (it.speedMps != null) how += ' at ' + (it.speedMps * 2.23694).toFixed(0) + ' mph';
     }
     /* Gauged depth is real measured data. The fields that collected it are gone,
        but an entry that already carries one still shows it. */
@@ -1983,7 +2293,11 @@ $('bCsv').addEventListener('click', function () {
      a spreadsheet or an import template keyed on them should not break on this
      release. They hold the same thing statutory_category holds — which is
      nothing at all unless a person put it there. */
-  var head = ['timestamp', 'latitude', 'longitude', 'gps_accuracy_m', 'gps_fix_age_s',
+  var head = ['timestamp', 'captured_at', 'stored_at',
+    'latitude', 'longitude', 'gps_accuracy_m', 'gps_fix_age_s',
+    'heading_deg', 'speed_mps',
+    'estimated_defect_lat', 'estimated_defect_lon', 'position_confidence_m',
+    'position_source', 'position_note', 'camera_lead_m',
     'defect_type', 'surface', 'impact', 'probability', 'risk_factor',
     'app_priority', 'app_priority_note',
     'category', 'response_time',
@@ -1992,7 +2306,13 @@ $('bCsv').addEventListener('click', function () {
     .concat(old ? ['depth_mm_deepest', 'wider_than_tyre'] : []).concat(['what3words', 'notes']);
   var rows = S.items.map(function (i) {
     var st = statutoryOf(i), pr = priorityOf(i);
-    return [i.t, i.lat, i.lon, i.acc, i.fixAge, i.type, i.surface,
+    var pos = bestPos(i);
+    return [i.t, i.capturedAt || i.t, i.storedAt || '',
+      i.lat, i.lon, i.acc, i.fixAge,
+      i.headingDeg, i.speedMps,
+      i.estLat, i.estLon, pos ? pos.confM : '',
+      pos ? pos.source : '', i.estBy || i.estWhy || '', i.cameraLeadM,
+      i.type, i.surface,
       i.imp, i.prob, i.score,
       pr ? pr.p : '', pr ? pr.word : '',
       st ? st.cat : '', st ? st.resp : '',
@@ -2021,20 +2341,39 @@ $('bCsv').addEventListener('click', function () {
    so `confirmed` is there to be filtered on before any of this reaches a system
    that starts a clock. */
 $('bGeo').addEventListener('click', function () {
-  var rows = S.items.filter(function (i) { return i.lat != null && i.lon != null; });
+  var rows = S.items.filter(function (i) { return !!bestPos(i); });
   if (!rows.length) {
     return alert('Nothing to export: no entry in the log has a location on it.');
   }
   var fc = {
     type: 'FeatureCollection',
     features: rows.map(function (i) {
-      var st = statutoryOf(i), pr = priorityOf(i);
+      var st = statutoryOf(i), pr = priorityOf(i), pos = bestPos(i);
       return {
         type: 'Feature',
         id: i.id,
-        geometry: { type: 'Point', coordinates: [i.lon, i.lat] },
+        /* The geometry is the best estimate of where the defect is, because
+           that is what anything with a map in it is going to drive somebody
+           to. Where the vehicle was is carried in the properties beside it,
+           under its own names, along with which of the two this point is and
+           how wide the error bar around it is. A point with no radius beside it
+           would be the same false precision in a different file format. */
+        geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
         properties: {
           logged: i.t,
+          captured_at: i.capturedAt || i.t,
+          stored_at: i.storedAt || null,
+          position_source: pos.source,
+          position_confidence_m: pos.confM == null ? null : pos.confM,
+          position_note: pos.estimated
+            ? 'projected ' + (i.cameraLeadM || 0) + ' m along the recorded heading; the camera ' +
+              'lead is uncalibrated and most of the radius is that'
+            : (i.estWhy || 'no heading, so no defect estimate — this is the vehicle position'),
+          vehicle_lat: i.lat == null ? null : i.lat,
+          vehicle_lon: i.lon == null ? null : i.lon,
+          heading_deg: i.headingDeg == null ? null : i.headingDeg,
+          speed_mps: i.speedMps == null ? null : i.speedMps,
+          camera_lead_m: i.cameraLeadM == null ? null : i.cameraLeadM,
           defect_type: i.type,
           tag: i.tag || null,
           surface: i.surface,
