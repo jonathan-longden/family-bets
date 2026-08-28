@@ -71,6 +71,9 @@
          zone, and the browser's is the wrong one the moment you look up a
          place you are not standing in. */
       '&timeformat=unixtime' +
+      /* Three days of history, so the app can say "first dry day this week"
+         and mean it rather than guess it. */
+      '&past_days=3' +
       '&forecast_days=' + (days || W.DAYS);
   };
 
@@ -382,12 +385,251 @@
     };
   };
 
-  /* How far into the future a day is allowed to pretend to know things.
-     Nothing in the app claims day fifteen is as solid as tomorrow. */
+  /* How far into the future a day is allowed to pretend to know things. The
+     app shows all fifteen days; it just never pretends day fifteen is
+     tomorrow. */
   W.confidence = function (index) {
-    if (index <= 2) return { tier: 'near', label: 'Pretty confident' };
-    if (index <= 6) return { tier: 'mid', label: 'Fair bet' };
-    return { tier: 'far', label: 'Best guess' };
+    if (index <= 2) return { tier: 'near', label: 'High confidence' };
+    if (index <= 6) return { tier: 'mid', label: 'Good confidence' };
+    return { tier: 'far', label: 'Lower confidence' };
+  };
+
+  /* ------------------------------------------------------- reading the day */
+
+  /* The hours left in today, at the place being forecast. */
+  W.todayHours = function (forecast, now) {
+    var key = W.dayOf(now, forecast.offset);
+    var out = [];
+    for (var i = 0; i < forecast.hours.length; i++) {
+      var h = forecast.hours[i];
+      if (W.dayOf(h.t, forecast.offset) === key && h.t + 3600 > now) out.push(h);
+    }
+    return out;
+  };
+
+  W.hoursOfDay = function (forecast, dayKey) {
+    var out = [];
+    for (var i = 0; i < forecast.hours.length; i++) {
+      if (W.dayOf(forecast.hours[i].t, forecast.offset) === dayKey) out.push(forecast.hours[i]);
+    }
+    return out;
+  };
+
+  /* How pleasant an hour is, purely as weather. Not a recommendation and not
+     a score for doing anything — it exists so the app can point at the nicest
+     and grimmest moments of a day, which is what people actually ask about. */
+  W.pleasantness = function (h) {
+    var fam = W.family(h.code);
+    var score = 50;
+    if (fam === 'clear') score += 26;
+    else if (fam === 'cloud') score += 12;
+    else if (fam === 'grey') score += 0;
+    else if (fam === 'fog') score -= 12;
+    else if (fam === 'drizzle') score -= 16;
+    else if (fam === 'showers') score -= 20;
+    else if (fam === 'rain') score -= 26;
+    else if (fam === 'downpour') score -= 34;
+    else if (fam === 'snow') score -= 20;
+    else if (fam === 'ice') score -= 34;
+    else if (fam === 'thunder') score -= 38;
+
+    /* Comfort, as a curve around eighteen degrees rather than a threshold. */
+    score -= Math.min(30, Math.abs(h.feels - 18) * 1.6);
+    score -= Math.min(18, (h.prob || 0) * 0.16);
+    score -= Math.min(16, Math.max(0, h.gust - 30) * 0.35);
+    if (!h.day) score -= 8;
+    return Math.round(score);
+  };
+
+  W.nicest = function (hours) {
+    return hours.reduce(function (best, h) {
+      return (!best || W.pleasantness(h) > W.pleasantness(best)) ? h : best;
+    }, null);
+  };
+
+  W.grimmest = function (hours) {
+    return hours.reduce(function (worst, h) {
+      return (!worst || W.pleasantness(h) < W.pleasantness(worst)) ? h : worst;
+    }, null);
+  };
+
+  W.isWet = function (h) {
+    var fam = W.family(h.code);
+    return h.mm >= 0.15 || fam === 'rain' || fam === 'downpour' || fam === 'showers' ||
+      fam === 'drizzle' || fam === 'snow' || fam === 'thunder';
+  };
+
+  W.isBright = function (h) { return W.family(h.code) === 'clear' && h.day; };
+
+  /* ----------------------------------------------------------- the timeline */
+
+  /* The moments in the next stretch where the weather actually changes its
+     mind. Everything here is a comparison between consecutive hours, so a
+     transition can only be reported if the forecast contains it. */
+  W.transitions = function (forecast, now, hoursAhead) {
+    var hours = W.hoursFrom(forecast, now, hoursAhead || 24);
+    var out = [];
+    if (hours.length < 2) return out;
+
+    var wasWet = W.isWet(hours[0]);
+    var wasBright = W.isBright(hours[0]);
+    var wasWindy = hours[0].gust >= 45;
+
+    for (var i = 1; i < hours.length; i++) {
+      var h = hours[i];
+      var wet = W.isWet(h);
+      var bright = W.isBright(h);
+      var windy = h.gust >= 45;
+
+      if (wet && !wasWet) out.push({ t: h.t, kind: 'rainStarts', text: 'Rain arrives' });
+      if (!wet && wasWet) out.push({ t: h.t, kind: 'rainStops', text: 'Rain clears' });
+      if (bright && !wasBright && h.day) out.push({ t: h.t, kind: 'brightens', text: 'Sun breaks through' });
+      if (!bright && wasBright && h.day) out.push({ t: h.t, kind: 'clouds', text: 'Cloud moves in' });
+      if (windy && !wasWindy) out.push({ t: h.t, kind: 'windUp', text: 'Wind picks up' });
+
+      wasWet = wet; wasBright = bright; wasWindy = windy;
+    }
+
+    /* Sunrise and sunset are transitions too, and the two people plan around. */
+    for (var d = 0; d < forecast.days.length; d++) {
+      var day = forecast.days[d];
+      var limit = now + (hoursAhead || 24) * 3600;
+      if (day.sunrise > now && day.sunrise < limit) out.push({ t: day.sunrise, kind: 'sunrise', text: 'Sunrise' });
+      if (day.sunset > now && day.sunset < limit) out.push({ t: day.sunset, kind: 'sunset', text: 'Sunset' });
+    }
+
+    out.sort(function (a, b) { return a.t - b.t; });
+
+    /* Two things happening in the same hour is one line, not two — "rain
+       arrives" and "cloud moves in" at seven o'clock is the same event
+       described twice, and only the wetter half is worth the row. */
+    var rank = { rainStarts: 5, rainStops: 5, brightens: 4, sunset: 3, sunrise: 3, clouds: 2, windUp: 2 };
+    var kept = [];
+    out.forEach(function (m) {
+      var clash = null;
+      for (var i = 0; i < kept.length; i++) {
+        if (Math.abs(kept[i].t - m.t) < 3600) { clash = i; break; }
+      }
+      if (clash === null) kept.push(m);
+      else if ((rank[m.kind] || 0) > (rank[kept[clash].kind] || 0)) kept[clash] = m;
+    });
+    return kept;
+  };
+
+  /* -------------------------------------------------------------- warnings */
+
+  /* Factual, and only where the numbers are unambiguous. The app is allowed
+     to be funny about the weather; it is not allowed to be funny about being
+     caught out in it. */
+  W.alerts = function (forecast, now) {
+    var out = [];
+    var soon = W.hoursFrom(forecast, now, 36);
+    var todayIndex = W.todayIndex(forecast, now);
+    var days = forecast.days.slice(todayIndex, todayIndex + 2);
+
+    function add(kind, title, detail) { out.push({ kind: kind, title: title, detail: detail }); }
+
+    var maxGust = soon.reduce(function (a, h) { return Math.max(a, h.gust); }, 0);
+    if (maxGust >= 90) add('wind', 'Severe gusts', 'Gusts near ' + Math.round(maxGust) + ' km/h. Bins, fences and trampolines beware.');
+    else if (maxGust >= 70) add('wind', 'Strong winds', 'Gusts up to ' + Math.round(maxGust) + ' km/h in the next day or so.');
+
+    var hottest = days.reduce(function (a, d) { return d.max !== null ? Math.max(a, d.max) : a; }, -99);
+    if (hottest >= 35) add('heat', 'Extreme heat', 'Up to ' + Math.round(hottest) + '°. Shade, water, and check on people who need it.');
+    else if (hottest >= 30) add('heat', 'Serious heat', 'Up to ' + Math.round(hottest) + '° over the next couple of days.');
+
+    var coldest = days.reduce(function (a, d) { return d.min !== null ? Math.min(a, d.min) : a; }, 99);
+    if (coldest <= -8) add('cold', 'Severe cold', 'Down to ' + Math.round(coldest) + '°. Pipes, cars and fingers at risk.');
+    else if (coldest <= -3) add('cold', 'Hard frost', 'Down to ' + Math.round(coldest) + '° overnight.');
+
+    var thunder = soon.filter(function (h) { return W.family(h.code) === 'thunder'; });
+    if (thunder.length) add('thunder', 'Thunderstorms', 'Storms expected around ' + W.clock(thunder[0].t, forecast.offset, false) + '.');
+
+    var ice = soon.filter(function (h) { return W.family(h.code) === 'ice'; });
+    if (ice.length) add('ice', 'Ice', 'Freezing rain around ' + W.clock(ice[0].t, forecast.offset, false) + '. Roads and paths will be lethal.');
+
+    var snowfall = days.reduce(function (a, d) {
+      return (W.family(d.code) === 'snow' && d.mm !== null) ? Math.max(a, d.mm) : a;
+    }, 0);
+    if (snowfall >= 10) add('snow', 'Heavy snow', 'Significant snow expected. Travel will be affected.');
+
+    var rainfall = days.reduce(function (a, d) { return d.mm !== null ? Math.max(a, d.mm) : a; }, 0);
+    if (rainfall >= 30) add('rain', 'Very heavy rain', Math.round(rainfall) + ' mm expected in a day. Surface water likely.');
+
+    return out.slice(0, 2);
+  };
+
+  /* --------------------------------------------------------- what has been */
+
+  /* The days behind us, which is what makes "first dry day this week" a fact
+     rather than a flourish. Needs `past_days` in the request. */
+  W.recent = function (forecast, now) {
+    var today = W.todayIndex(forecast, now);
+    var past = forecast.days.slice(Math.max(0, today - 3), today);
+    var greyRun = 0, wetRun = 0, dryRun = 0;
+    for (var i = past.length - 1; i >= 0; i--) {
+      var fam = W.family(past[i].code);
+      var wet = fam === 'rain' || fam === 'showers' || fam === 'downpour' || fam === 'drizzle' || fam === 'snow';
+      if (fam === 'grey' || fam === 'cloud' || wet) greyRun++; else break;
+    }
+    for (var j = past.length - 1; j >= 0; j--) {
+      var f2 = W.family(past[j].code);
+      if (f2 === 'rain' || f2 === 'showers' || f2 === 'downpour' || f2 === 'drizzle' || f2 === 'snow') wetRun++; else break;
+    }
+    for (var k = past.length - 1; k >= 0; k--) {
+      var f3 = W.family(past[k].code);
+      var dry = !(f3 === 'rain' || f3 === 'showers' || f3 === 'downpour' || f3 === 'drizzle' || f3 === 'snow');
+      if (dry && (past[k].mm === null || past[k].mm < 1)) dryRun++; else break;
+    }
+    return { days: past.length, greyRun: greyRun, wetRun: wetRun, dryRun: dryRun };
+  };
+
+  /* A small, storable summary of a forecast, so the next one can be compared
+     against it. Kept deliberately tiny — it lives in local storage. */
+  W.snapshot = function (forecast) {
+    return {
+      at: forecast.fetchedAt,
+      place: forecast.place ? forecast.place.name : '',
+      days: forecast.days.map(function (d) {
+        return { key: W.dayOf(d.t, forecast.offset), max: d.max, min: d.min, prob: d.prob, code: d.code };
+      })
+    };
+  };
+
+  /* What has actually changed since the last forecast this phone saw. Returns
+     nothing at all when there is nothing to compare against — the app never
+     invents a change it cannot show its working for. */
+  W.changes = function (previous, forecast, now) {
+    if (!previous || !previous.days || !previous.days.length) return [];
+    if (previous.place && forecast.place && previous.place !== forecast.place.name) return [];
+    /* Two readings minutes apart are the same forecast; give it an hour. */
+    if (forecast.fetchedAt - previous.at < 3600) return [];
+
+    var out = [];
+    var todayKey = W.dayOf(now, forecast.offset);
+    var byKey = {};
+    previous.days.forEach(function (d) { byKey[d.key] = d; });
+
+    for (var i = 0; i < forecast.days.length && out.length < 2; i++) {
+      var day = forecast.days[i];
+      var key = W.dayOf(day.t, forecast.offset);
+      /* Only today and the two days after it: a change to next Tuesday is not
+         news, it is a forecast doing its job. */
+      if (key < todayKey || key > todayKey + 2) continue;
+      var was = byKey[key];
+      if (!was || was.max === null || day.max === null) continue;
+
+      var when = key === todayKey ? 'today' : (key === todayKey + 1 ? 'tomorrow' : W.dayName(day.t, forecast.offset));
+      var warmer = day.max - was.max;
+      if (warmer >= 3) out.push({ kind: 'warmer', when: when, by: Math.round(warmer) });
+      else if (warmer <= -3) out.push({ kind: 'colder', when: when, by: Math.round(-warmer) });
+
+      if (was.prob !== null && day.prob !== null) {
+        var wetter = day.prob - was.prob;
+        if (wetter >= 30) out.push({ kind: 'wetter', when: when, by: Math.round(wetter) });
+        else if (wetter <= -30) out.push({ kind: 'dryer', when: when, by: Math.round(-wetter) });
+      }
+    }
+    return out.slice(0, 2);
   };
 
   root.Weather = W;

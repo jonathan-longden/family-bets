@@ -1,29 +1,41 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en-GB">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0d1b3e">
-<meta name="description" content="Bloody Weather — an accurate forecast with a running commentary. Now, hour by hour, and fifteen days ahead.">
-<title>Bloody Weather</title>
+<meta name="description" content="Fucking Weather — a proper forecast that tells you exactly what the sky is doing, then takes the mickey out of it. Now, hour by hour, and fifteen days ahead.">
+<title>Fucking Weather</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Bloody Weather">
-<link rel="stylesheet" href="styles.css?v=3">
+<meta name="apple-mobile-web-app-title" content="Fucking Weather">
+<link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
+
+<!-- The weather, moving. Purely decorative: no information lives in here, so
+     it is hidden from screen readers and switched off entirely for anyone who
+     asks for less motion. -->
+<div class="sky" id="sky" aria-hidden="true"></div>
 
 <div class="app">
 
   <header class="top">
-    <button class="place" id="placeBtn" type="button">
+    <button class="place" id="placeBtn" type="button" aria-label="Change location">
       <span class="pin" aria-hidden="true">◉</span>
       <span id="placeName">Pick a place</span>
       <span class="caret" aria-hidden="true">▾</span>
+    </button>
+    <button class="icon-btn" id="shareBtn" type="button" aria-label="Share the weather" title="Share">
+      <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"
+           stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 16V4"></path><path d="m7 9 5-5 5 5"></path>
+        <path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"></path>
+      </svg>
     </button>
     <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings" title="Settings">
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"
@@ -37,83 +49,121 @@
   <!-- ---------------------------------------------------------- first run -->
   <section class="card setup" id="setup" hidden>
     <h1 id="setupTitle">Where are you, then?</h1>
-    <p>Give it a place and it will tell you exactly what the sky is up to — now, hour by hour, and a
+    <p>Give it a place and it will tell you exactly what the sky is doing — now, hour by hour, and a
       fortnight out.</p>
     <div class="row">
       <button class="primary" type="button" id="useHereBtn">Use where I am</button>
       <button class="secondary" type="button" id="searchPlaceBtn">Search for a town</button>
     </div>
-    <p class="hint" id="setupOut"></p>
+    <p class="hint" id="setupOut" role="status"></p>
   </section>
 
-  <!-- ------------------------------------------------------------ the hero -->
-  <!-- The headline changes with the actual weather. The numbers under it are
-       the facts, and they never move to make room for a joke. -->
-  <section class="card hero" id="hero" hidden>
-    <p class="shout" id="shout"></p>
+  <!-- ------------------------------------------------------ current weather -->
+  <section class="card hero" id="hero" hidden aria-labelledby="nowHeading">
+    <h1 class="sr-only" id="nowHeading">Current weather</h1>
     <div class="hero-read">
-      <div class="hero-temp">
-        <span id="nowTemp">—</span><span class="unit" id="nowUnit">°C</span>
+      <div>
+        <div class="hero-temp"><span id="nowTemp">—</span><span class="unit" id="nowUnit">°C</span></div>
+        <div class="hero-feels" id="nowFeels"></div>
       </div>
       <div class="hero-side">
         <div class="hero-icon" id="nowIcon" aria-hidden="true">☀️</div>
-        <div class="hero-sub" id="nowSub"></div>
+        <div class="hero-cond" id="nowCond"></div>
       </div>
     </div>
+    <p class="shout" id="shout"></p>
+  </section>
+
+  <!-- ------------------------------------------------------------- warnings -->
+  <section class="alerts" id="alerts" hidden aria-label="Weather warnings"></section>
+
+  <!-- ------------------------------------------------------ what changed -->
+  <section class="moments" id="moments" hidden aria-label="Worth knowing"></section>
+
+  <!-- --------------------------------------------------- how's it looking -->
+  <section class="card brief" id="briefCard" hidden aria-labelledby="briefHeading">
+    <div class="card-head"><h2 id="briefHeading">How's it looking?</h2></div>
+    <p class="brief-text" id="briefText"></p>
+    <div class="mood">
+      <span class="mood-label">Sky mood</span>
+      <span class="mood-text" id="moodText"></span>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------- the numbers -->
+  <section class="card factcard" id="factCard" hidden aria-labelledby="factHeading">
+    <div class="card-head"><h2 id="factHeading">The numbers</h2></div>
     <div class="facts" id="facts"></div>
   </section>
 
-  <!-- ------------------------------------------------------- little moments -->
-  <section class="moments" id="moments" hidden></section>
-
-  <!-- ------------------------------------------------------------- the hours -->
-  <section class="card strip" id="stripCard" hidden>
+  <!-- ------------------------------------------------------------- timeline -->
+  <section class="card strip" id="stripCard" hidden aria-labelledby="hourHeading">
     <div class="card-head">
-      <h2>Next 24 hours</h2>
+      <h2 id="hourHeading">Next 24 hours</h2>
       <span class="hint" id="stripHint"></span>
     </div>
-    <div class="hours" id="hours"></div>
+    <div class="hours" id="hours" role="list"></div>
+    <ul class="timeline" id="timeline"></ul>
+  </section>
+
+  <!-- ---------------------------------------------------------------- today -->
+  <section class="card today" id="todayCard" hidden aria-labelledby="todayHeading">
+    <div class="card-head"><h2 id="todayHeading">Today</h2></div>
+    <div class="bits" id="bits"></div>
+  </section>
+
+  <!-- ------------------------------------------------------------- tomorrow -->
+  <section class="card tomorrow" id="tomorrowCard" hidden aria-labelledby="tomorrowHeading">
+    <div class="card-head"><h2 id="tomorrowHeading">Tomorrow</h2></div>
+    <div class="tom-read">
+      <div class="tom-icon" id="tomIcon" aria-hidden="true">☀️</div>
+      <div class="tom-temps"><b id="tomHigh">—</b><span id="tomLow">—</span></div>
+      <div class="tom-side">
+        <div class="tom-cond" id="tomCond"></div>
+        <div class="tom-rain" id="tomRain"></div>
+      </div>
+    </div>
+    <p class="shout shout--small" id="tomLine"></p>
   </section>
 
   <!-- ------------------------------------------------------- fifteen days -->
-  <section class="card days" id="daysCard" hidden>
+  <section class="card days" id="daysCard" hidden aria-labelledby="daysHeading">
     <div class="card-head">
-      <h2>The next 15 days</h2>
+      <h2 id="daysHeading">The next 15 days</h2>
       <span class="hint">Tap a day</span>
     </div>
     <ul class="daylist" id="dayList"></ul>
-    <p class="hint tier-note">The further out it goes, the more it is guessing. Anything past a week is
-      the shape of the weather rather than a promise.</p>
+    <p class="hint tier-note">The further out it goes, the more it is guessing. Everything here is the
+      best available forecast — the confidence label tells you how much to lean on it.</p>
   </section>
 
   <!-- -------------------------------------------------------------- trouble -->
-  <section class="card trouble" id="trouble" hidden>
+  <section class="card trouble" id="trouble" hidden role="alert">
     <p class="shout shout--small" id="troubleLine"></p>
     <p class="hint" id="troubleWhy"></p>
-    <div class="row">
-      <button class="primary" type="button" id="retryBtn">Try again</button>
-    </div>
+    <div class="row"><button class="primary" type="button" id="retryBtn">Try again</button></div>
   </section>
 
   <footer class="foot">
-    <span id="footStatus"></span>
+    <span id="footStatus" role="status"></span>
     <button class="link" type="button" id="aboutBtn">About</button>
   </footer>
 
 </div>
 
 <!-- ------------------------------------------------------------ place sheet -->
-<dialog class="sheet" id="placeSheet">
+<dialog class="sheet" id="placeSheet" aria-label="Choose a location">
   <form class="sheet-in" id="placeForm">
     <div class="sheet-head">
       <h2>Where to?</h2>
       <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
     </div>
     <div class="row">
-      <input type="search" id="placeQuery" placeholder="Town or city" autocomplete="off" enterkeyhint="search">
+      <input type="search" id="placeQuery" placeholder="Town or city" autocomplete="off" enterkeyhint="search"
+             aria-label="Search for a town or city">
       <button class="secondary" type="submit">Find</button>
     </div>
-    <p class="hint" id="placeOut"></p>
+    <p class="hint" id="placeOut" role="status"></p>
     <ul class="results" id="placeResults"></ul>
     <div class="sheet-foot">
       <button class="ghost" type="button" data-close>Cancel</button>
@@ -123,7 +173,7 @@
 </dialog>
 
 <!-- --------------------------------------------------------- settings sheet -->
-<dialog class="sheet" id="settingsSheet">
+<dialog class="sheet" id="settingsSheet" aria-label="Settings">
   <form class="sheet-in" id="settingsForm" method="dialog">
     <div class="sheet-head">
       <h2>Settings</h2>
@@ -131,14 +181,7 @@
     </div>
 
     <fieldset class="fs">
-      <legend>The mouth on it</legend>
-      <label class="check"><input type="checkbox" id="swearyOn"> Let it swear at me</label>
-      <p class="hint">Turn it off and every line has a clean one written to be just as funny — not the
-        same sentence with the word cut out. The app changes its own name too.</p>
-    </fieldset>
-
-    <fieldset class="fs">
-      <legend>Units</legend>
+      <legend>Weather</legend>
       <div class="grid2">
         <label class="lbl">Temperature
           <select id="unitsSel">
@@ -157,11 +200,27 @@
     </fieldset>
 
     <fieldset class="fs">
-      <legend>This phone</legend>
+      <legend>Personality</legend>
+      <label class="check"><input type="checkbox" id="swearyOn"> Let it swear at me</label>
+      <p class="hint">Off, every line has a clean one written to be just as funny — not the same sentence
+        with the word cut out. The app changes its own name too.</p>
+      <label class="check"><input type="checkbox" id="animOn"> Weather animation</label>
+      <p class="hint">Subtle rain, drifting cloud, that sort of thing. Switched off automatically if your
+        phone is set to reduce motion.</p>
+    </fieldset>
+
+    <fieldset class="fs">
+      <legend>Data</legend>
       <div class="row">
         <button type="button" class="secondary" id="refreshBtn">Refresh the forecast</button>
+      </div>
+      <p class="hint" id="dataStatus"></p>
+      <div class="row">
+        <button type="button" class="secondary" id="exportBtn">Export</button>
+        <button type="button" class="secondary" id="importBtn">Import</button>
         <button type="button" class="danger" id="resetBtn">Erase everything</button>
       </div>
+      <input type="file" id="importFile" accept="application/json,.json" hidden>
       <p class="hint" id="buildHint"></p>
       <div class="row">
         <button type="button" class="secondary" id="updateBtn">Fetch the latest version</button>
@@ -174,31 +233,30 @@
 </dialog>
 
 <!-- ------------------------------------------------------------ about sheet -->
-<dialog class="sheet" id="aboutSheet">
+<dialog class="sheet" id="aboutSheet" aria-label="About">
   <form method="dialog" class="sheet-in">
     <div class="sheet-head">
       <h2 id="aboutTitle">About</h2>
       <button class="icon-btn" value="close" aria-label="Close">✕</button>
     </div>
     <p id="aboutTagline"></p>
-    <p><b>The weather is real.</b> Every number on this screen comes straight from the forecast —
-      temperature, what it feels like, humidity, wind, gusts, chance of rain, visibility, sunrise and
-      sunset. The jokes sit on top of those numbers and are chosen by them. If it is grey, nothing here
-      will tell you the sun is out.</p>
-    <p><b>Fifteen days, honestly labelled.</b> The first three days are the detailed ones. Days four to
-      seven are a fair bet. Anything past that is the shape of the weather rather than a promise, and the
-      app says so rather than dressing a guess up as a fact.</p>
+    <p><b>The weather is real.</b> Every number on this screen comes straight from the forecast. The jokes
+      sit on top of those numbers and are chosen by them — if it is grey, nothing here will tell you the
+      sun is out.</p>
+    <p><b>Fifteen days, honestly labelled.</b> High confidence for the first few days, good for the rest of
+      the week, lower after that. The app shows the best forecast available and never pretends day fifteen
+      is tomorrow.</p>
     <p><b>Where it comes from.</b> <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>,
       which answers this page directly and wants no key, no account and no email address. The only thing
       that ever leaves your phone is a pair of coordinates.</p>
-    <p><b>No signal?</b> It shows you the last forecast it managed to get, with the time it got it, rather
-      than pretending that is the weather now.</p>
+    <p><b>No signal?</b> It shows the last forecast it managed to get, with the time it got it, rather than
+      pretending that is the weather now.</p>
     <p class="hint" id="aboutBuild"></p>
   </form>
 </dialog>
 
 <!-- ------------------------------------------------------------- day detail -->
-<dialog class="sheet" id="daySheet">
+<dialog class="sheet" id="daySheet" aria-label="Day detail">
   <form method="dialog" class="sheet-in">
     <div class="sheet-head">
       <h2 id="dayTitle">Day</h2>
@@ -211,9 +269,26 @@
   </form>
 </dialog>
 
-<script src="brand.js?v=3"></script>
-<script src="weather.js?v=3"></script>
-<script src="voice.js?v=3"></script>
-<script src="app.js?v=3"></script>
+<!-- ----------------------------------------------------------- share sheet -->
+<dialog class="sheet" id="shareSheet" aria-label="Share the weather">
+  <form method="dialog" class="sheet-in">
+    <div class="sheet-head">
+      <h2>Share it</h2>
+      <button class="icon-btn" value="close" aria-label="Close">✕</button>
+    </div>
+    <div class="share-preview"><canvas id="shareCanvas" width="1080" height="1350"></canvas></div>
+    <div class="row">
+      <button type="button" class="primary" id="shareGoBtn">Share</button>
+      <button type="button" class="secondary" id="shareSaveBtn">Save the image</button>
+      <button type="button" class="secondary" id="shareCopyBtn">Copy as text</button>
+    </div>
+    <p class="hint" id="shareOut" role="status"></p>
+  </form>
+</dialog>
+
+<script src="brand.js?v=4"></script>
+<script src="weather.js?v=4"></script>
+<script src="voice.js?v=4"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
