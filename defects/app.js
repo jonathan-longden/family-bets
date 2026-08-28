@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-28 · 35';
+var BUILD = '2026-08-28 · 36';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -3156,8 +3156,25 @@ function diagLines() {
   /* The one block somebody actually needs to send back. It goes near the end
      rather than the top only because the model block above says which model
      produced it. */
-  L.push(frameTest ? frameLines(frameTest)
-    : 'REAL FRAME\n           not run — press "Test the camera" at the top of this screen');
+  if (frameTest) {
+    L.push(frameLines(frameTest));
+  } else {
+    /* A test that was pressed and failed used to produce a paste identical to
+       one that was never pressed: the reason lived only in the status line on
+       screen, which Copy does not include. So the not-run state now carries
+       what the screen last said and the three preconditions the button checks,
+       which is the difference between a diagnosable report and a shrug. */
+    var v = $('vid'), st = $('tState');
+    L.push('REAL FRAME');
+    L.push('           not run — press "Test the camera" at the top of this screen');
+    L.push('last said  ' + ((st && st.textContent) || '(nothing)'));
+    L.push('camera     ' + (!stream ? 'NOT RUNNING — that is why the button refuses'
+      : (v && v.videoWidth) ? 'live, ' + v.videoWidth + '×' + v.videoHeight
+                            : 'open, but no frames have arrived yet'));
+    L.push('model      ' + (worker ? 'worker ready'
+      : engine ? 'engine loaded but no worker — the model would not start'
+               : 'not loaded'));
+  }
   L.push('');
   L.push('LAST UNUSABLE OUTPUT');
   if (!lastRaw) {
