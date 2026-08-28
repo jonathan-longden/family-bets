@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-23 · 14';
+var BUILD = '2026-08-23 · 15';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -49,7 +49,7 @@ function freshState() {
     entries: [],                           // newest first
     seen: {},                              // eventId -> entry id, or 'skip'
     hook: { url: '', headerName: '', headerValue: '', auto: true },
-    starling: { token: '', proxy: '', accountUid: '', accountName: '', spaceUid: '', spaceName: '', auto: true },
+    starling: { token: '', accountUid: '', accountName: '', spaceUid: '', spaceName: '', auto: true },
     sound: { mode: 'cannon', name: '' },
     league: { id: '4328', name: 'English Premier League' },
     tableOpen: true,
@@ -817,16 +817,11 @@ function fireHook(entry) {
 
 var STARLING_HOST = 'https://api.starlingbank.com';
 
-function starlingBase() {
-  var proxy = (state.starling.proxy || '').trim().replace(/\/$/, '');
-  return proxy || STARLING_HOST;
-}
-
 function starlingFetch(path, options) {
   var o = options || {};
   var headers = { Authorization: 'Bearer ' + (state.starling.token || '').trim(), Accept: 'application/json' };
   Object.keys(o.headers || {}).forEach(function (k) { headers[k] = o.headers[k]; });
-  return fetch(starlingBase() + path, { method: o.method || 'GET', headers: headers, body: o.body })
+  return fetch(STARLING_HOST + path, { method: o.method || 'GET', headers: headers, body: o.body })
     .then(function (res) {
       return res.text().then(function (text) {
         var data = null;
@@ -842,7 +837,7 @@ function starlingFetch(path, options) {
       /* A browser refused at the door reports the same thing as a dead
          network, so the likely cause is named rather than left as "failed". */
       if (err instanceof TypeError) {
-        throw new Error('the browser could not reach Starling directly — a proxy is needed');
+        throw new Error('the browser would not let the app call Starling from this page');
       }
       throw err;
     });
@@ -1545,7 +1540,6 @@ $('settingsBtn').addEventListener('click', function () {
   $('apiKey').value = state.apiKey;
   $('soundMode').value = (state.sound && state.sound.mode) || 'cannon';
   $('starToken').value = state.starling.token;
-  $('starProxy').value = state.starling.proxy;
   $('starAuto').checked = !!state.starling.auto;
   $('starOut').textContent = starlingReady()
     ? 'Paying into ' + state.starling.spaceName + '.'
@@ -1581,7 +1575,6 @@ bindSetting('hookAuto', function (el) { state.hook.auto = el.checked; });
 bindSetting('apiKey', function (el) { state.apiKey = el.value.trim(); });
 bindSetting('soundMode', function (el) { state.sound.mode = el.value; });
 bindSetting('starToken', function (el) { state.starling.token = el.value.trim(); });
-bindSetting('starProxy', function (el) { state.starling.proxy = el.value.trim(); });
 bindSetting('starAuto', function (el) { state.starling.auto = el.checked; });
 
 /* The pickers show what was chosen even before a connection is made, so a
@@ -1650,7 +1643,6 @@ function loadStarlingSpaces() {
 
 $('starConnect').addEventListener('click', function () {
   state.starling.token = $('starToken').value.trim();
-  state.starling.proxy = $('starProxy').value.trim();
   save();
   if (!state.starling.token) { $('starOut').textContent = 'Paste a token first.'; return; }
   $('starOut').textContent = 'Asking Starling…';
