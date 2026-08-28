@@ -2620,8 +2620,11 @@ function render() {
       head = '<span class="cat">' + esc(st.cat) + '</span>';
       sub = esc(st.resp) + ' · assigned by ' + esc(st.by);
     } else {
-      head = '<span class="cat prio">' + esc(pr ? pr.p : '—') + '</span>' +
-             '<span class="prionote">app priority</span>';
+      /* The chip sits inside the heading rather than beside it: .top stacks its
+         children, so a sibling would put "app priority" on a line of its own,
+         a whole line away from the P4 it is qualifying. */
+      head = '<span class="cat prio">' + esc(pr ? pr.p : '—') +
+             '<span class="prionote">app priority</span></span>';
       sub = (pr ? esc(pr.word) : 'Not scored') + ' · <b>not classified</b> — no response time';
     }
 

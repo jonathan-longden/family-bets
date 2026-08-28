@@ -449,7 +449,8 @@ footer{padding:22px 16px 30px;color:var(--refl);font-size:12px;line-height:1.6;t
    beside it, because the slot it sits in used to hold "Category 2" and a
    reader who skims will otherwise carry that reading over. */
 .item .cat.prio{color:var(--hiviz)}
-.item .prionote{font-family:var(--disp);text-transform:uppercase;letter-spacing:.07em;
+.item .prionote{display:inline-block;vertical-align:2px;
+  font-family:var(--disp);text-transform:uppercase;letter-spacing:.07em;
   font-size:11px;color:var(--hiviz);border:1px solid var(--hiviz);border-radius:3px;
   padding:1px 5px;margin-left:7px;white-space:nowrap;opacity:.85}
 .item .del.go{border-color:var(--hiviz);color:var(--hiviz);font-weight:700}
