@@ -165,13 +165,20 @@ id rather than making a new one.
 The token lives on this phone in the same place as everything else, and goes
 nowhere near the bank link or any server of mine.
 
-### One thing that may stop it
+### It will not work from the phone — use the worker
 
-Banks generally do not let a web page call them directly, and this app calls
-Starling straight from the page — there is nothing in between and nothing else
-holding your token. If **Connect** says the browser would not let it, that is
-what has happened, and it is not something the app can talk its way out of
-from inside the browser.
+That is not a maybe any more: Starling does not allow calls from a web page,
+and the app has now been told so by the real thing. No code inside a browser
+can get past that.
+
+**[`worker/`](worker/) is the way that works.** It runs on Cloudflare's free
+plan, wakes every half hour, reads the results and pays into the space itself.
+The token lives in the worker's secrets rather than on the phone, and it pays
+while the app is shut — which is what "automatically when Arsenal win" ought to
+have meant all along. Its README has the setup, and it is about five minutes.
+
+The Starling section stays in the app for anything that does allow the call,
+and both use the same transfer id, so having both on cannot pay a win twice.
 
 ## How the money actually moves
 
@@ -288,10 +295,10 @@ the browser has never seen. It leaves the trophy, the results and the bank
 link alone — they are not part of the app's copy. The build the phone is
 running is printed just above that button, and in the footer.
 
-The stylesheet and the script are also asked for by version (`app.js?v=15`).
+The stylesheet and the script are also asked for by version (`app.js?v=16`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=15`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=16`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 

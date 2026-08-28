@@ -1,0 +1,22 @@
+name = "ten-a-win"
+main = "worker.js"
+compatibility_date = "2026-08-01"
+
+# Every half hour. A moneybox does not need the minute, and a match that
+# finished at 19:05 is paid for by 19:30 either way.
+[triggers]
+crons = ["*/30 * * * *"]
+
+[vars]
+TEAM_ID = "133604"        # Arsenal, in TheSportsDB
+TEAM_NAME = "Arsenal"     # only used when the feed omits team ids
+STAKE_PENCE = "1000"      # £10
+ACCOUNT_UID = ""          # fill both of these in from /spaces — see README
+SPACE_UID = ""
+# SPORTSDB_KEY = "123"    # your own key, if the free one stops answering
+# PAY_BACKLOG = "false"   # "true" only if you want the season so far paid for
+
+# wrangler kv namespace create JAR — then paste the id it prints here
+[[kv_namespaces]]
+binding = "JAR"
+id = "paste-your-kv-namespace-id-here"

@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=15">
+<link rel="stylesheet" href="styles.css?v=16">
 </head>
 <body>
 
@@ -244,10 +244,12 @@
 
     <fieldset class="fs">
       <legend>Starling</legend>
-      <p class="hint">The one way this app can move real money on its own. A personal access token from
-        developer.starlingbank.com lets it put the stake straight into one of your spaces — inside your own
-        bank, so there is no payment to anyone else. Give the token the narrowest scopes that work:
-        reading accounts and spaces, and paying into a space. Nothing that can pay another person.</p>
+      <p class="hint"><b>Starling refuses calls made from a web page</b>, so this section will almost
+        certainly say so when you press Connect — that is the browser's rule, not your token. The way that
+        works is the worker in <code>moneybox/worker</code>: it runs on Cloudflare every half hour, holds the
+        token itself, and pays while this app is shut. What is below is left for anything that does allow
+        the call. Whichever pays, the transfer is stamped with the match, so the same win cannot be paid
+        twice.</p>
       <label class="lbl">Personal access token
         <input type="password" id="starToken" autocomplete="off" placeholder="eyJhbGciOi…">
       </label>
@@ -354,6 +356,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>
