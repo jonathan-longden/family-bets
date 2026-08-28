@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-24 · 31';
+var BUILD = '2026-08-24 · 32';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -126,7 +126,7 @@ var TYPES = ['Pothole', 'Edge deterioration', 'Spalled crack / material loss',
              'Ironwork', 'Street furniture', 'Other'];
 
 var S = { imp: 0, prob: 0, foot: false, by: null,
-          prevUrl: null, gps: null, det: null, items: [] };
+          prevUrl: null, gps: null, det: null, tag: '', items: [] };
 var stream = null, watchId = null, ageTimer = null, urls = [], lbUrl = null;
 
 /* ---------- store ---------- */
@@ -350,6 +350,8 @@ async function openCamera(byTap) {
     $('bRec').disabled = false;
     $('recHint').textContent = 'Tap to record';
     paintSurface();
+    paintRec();          // the strip has to hear about the camera too
+    paintSpace();
     startGps();
   } catch (e) {
     /* Opening without being asked is allowed to fail quietly: some browsers
@@ -377,6 +379,7 @@ function stopAll() {
   $('rec').hidden = true;
   $('bRec').disabled = true;
   $('camGate').hidden = false;
+  paintRec();
   primer();
 }
 
@@ -399,18 +402,42 @@ function primer() {
 /* ---------- gps ---------- */
 function fixAge() { return S.gps ? Math.round((Date.now() - S.gps.at) / 1000) : null; }
 
+function gauge(id, text, q) {
+  var g = $(id);
+  if (!g) return;
+  g.setAttribute('data-q', q);
+  var b = g.querySelector('b');
+  if (b && text != null) b.textContent = text;
+}
+
 function paintFix() {
   var age = fixAge();
   if (!S.gps) { $('mAge').textContent = '—'; return; }
   $('mAge').textContent = age + ' s';
   $('mAge').className = age > STALE_MS / 1000 ? 'warn' : '';
-  var r = $('rec');
-  r.className = 'chip fix' + (age > STALE_MS / 1000 ? ' poor' : (S.gps.acc > POOR_ACC ? ' poor' : ''));
-  $('recTxt').textContent = 'GPS ±' + Math.round(S.gps.acc) + 'm';
+  /* A stale fix is worse than a wide one: a wide fix is honestly vague about
+     where you are now, a stale one is confident about where you were. */
+  var stale = age > STALE_MS / 1000;
+  var q = stale ? 'poor' : (S.gps.acc > POOR_ACC ? 'fair' : 'good');
+  gauge('rec', stale ? age + 's old' : '±' + Math.round(S.gps.acc) + ' m', q);
+  $('recTxt').textContent = stale ? age + 's old' : '±' + Math.round(S.gps.acc) + ' m';
+}
+
+/* How much room is left, in the only unit that means anything here: how many
+   more photographs will fit. Roughly 180 kB each at the size they are saved. */
+function paintSpace() {
+  if (!navigator.storage || !navigator.storage.estimate) return;
+  navigator.storage.estimate().then(function (e) {
+    if (!e || !e.quota) return;
+    var free = Math.max(0, e.quota - (e.usage || 0));
+    var shots = Math.round(free / 180000);
+    var q = shots < 100 ? 'none' : shots < 500 ? 'poor' : shots < 2000 ? 'fair' : 'good';
+    gauge('gSpace', shots >= 1000 ? Math.round(shots / 1000) + 'k finds' : shots + ' finds', q);
+  }).catch(function () {});
 }
 
 function startGps() {
-  if (!navigator.geolocation) { $('recTxt').textContent = 'No GPS'; $('rec').className = 'chip fix none'; return; }
+  if (!navigator.geolocation) { $('recTxt').textContent = 'No GPS'; gauge('rec', 'No GPS', 'none'); return; }
   $('gpsBox').hidden = false;
   watchId = navigator.geolocation.watchPosition(function (p) {
     S.gps = { lat: p.coords.latitude, lon: p.coords.longitude, acc: p.coords.accuracy, at: Date.now() };
@@ -420,7 +447,7 @@ function startGps() {
     $('mAcc').className = S.gps.acc > POOR_ACC ? 'warn' : '';
     paintFix();
   }, function () {
-    $('recTxt').textContent = 'GPS denied'; $('rec').className = 'chip fix none'; S.gps = null;
+    $('recTxt').textContent = 'GPS denied'; gauge('rec', 'GPS denied', 'none'); S.gps = null;
     $('gpsBox').hidden = true;
     toast('Location was refused, so finds will be logged with no coordinates — they cannot go ' +
           'on the map or into GeoJSON. Allow it for this site, then stop and start the camera.');
@@ -634,39 +661,31 @@ var engine = null, worker = null, loading = null;
 
 /* Says where the model is up to, since it is now happening before anyone asks
    for it and an invisible download is indistinguishable from a broken one. */
+/* It is a gauge now rather than a chip that comes and goes, so "nothing to
+   say" is a state it shows rather than an absence. An empty model readout and
+   a working one looked identical, which is the wrong way round. */
+var MODEL_Q = { ready: 'good', bad: 'none', poor: 'fair' };
 function modelChip(text, cls) {
-  var c = $('modelChip');
-  if (!text) { c.hidden = true; return; }
-  c.textContent = text;
-  c.className = 'chip model' + (cls ? ' ' + cls : '');
-  c.hidden = false;
+  gauge('gModel', text || 'Ready', MODEL_Q[cls] || (text ? 'idle' : 'good'));
 }
 
 function prefetchModel() {
   if (loading || worker) return;
-  if (!navigator.onLine) return modelChip('Model offline', 'poor');
-  modelChip('Model loading');
+  if (!navigator.onLine) return modelChip('Offline', 'poor');
+  modelChip('Loading');
   loadModel().then(function () {
-    modelChip('Model ready', 'ready');
+    modelChip('Ready', 'ready');
     runSelfTest().then(function (t) {
       if (t && t.state === 'ran' && (t.allInRange === false || layoutsBothBad(t.diag))) {
-        modelChip('Model answers nonsense', 'bad');
+        modelChip('Nonsense', 'bad');
         return;
       }
       /* Worth saying once: the picture is going in the other way round from the
          way the library assumes, because that is the only way this graph
          answers. It is working, and it is not working as shipped. */
-      if (layoutOverridden(t && t.diag)) {
-        modelChip('Model ready (layout corrected)', 'ready');
-        setTimeout(function () { if (worker) modelChip(''); }, 6000);
-        return;
-      }
-      if (precisionForced(t && t.diag)) {
-        modelChip('Model ready (precision forced)', 'ready');
-        setTimeout(function () { if (worker) modelChip(''); }, 6000);
-        return;
-      }
-      setTimeout(function () { if (worker) modelChip(''); }, 4000);
+      if (layoutOverridden(t && t.diag)) return modelChip('Layout fixed', 'ready');
+      if (precisionForced(t && t.diag)) return modelChip('Precision forced', 'ready');
+      modelChip('Ready', 'ready');
     });
   }, function (e) {
     modelChip('No model', 'bad');
@@ -1156,6 +1175,7 @@ function toast(msg) {
    find with a phone on a windscreen mount. */
 function paintRec() {
   var on = survey.on;
+  gauge('gRec', null, on ? 'live' : (stream ? 'good' : 'idle'));
   var b = $('bRec');
   b.setAttribute('aria-pressed', String(on));
   b.setAttribute('aria-label', on ? 'Stop recording' : 'Start recording');
@@ -1294,6 +1314,7 @@ function logFind(hits, out, c) {
         id: nextId(), t: new Date().toISOString(), img: blob,
         imp: p.imp, prob: p.prb, score: n, cat: cat.k, resp: cat.r, key: cat.key,
         surface: S.foot ? 'Footway/cycleway' : 'Carriageway',
+        tag: S.tag || '',
         scoredBy: 'survey, unconfirmed',
         detConf: det.conf, detShare: det.share, detCount: det.count,
         detBox: det.box,          // kept so a wrong entry can be diagnosed later
@@ -1481,6 +1502,22 @@ $('bFit').addEventListener('click', fitMap);
    It needs a signal, which coordinates do not, so it is never allowed to hold
    up or fail a save: the entry is written first and the words are added to it
    afterwards if they arrive. */
+/* A tag belongs to the run, not to the defect: a road name, a job number, the
+   round you are on. It is typed once and rides along on everything logged until
+   it is changed, which is the difference between labelling a survey and
+   labelling four hundred entries. */
+var TAG_STORE = 'deflog.tag';
+
+function loadTag() {
+  try { S.tag = localStorage.getItem(TAG_STORE) || ''; } catch (e) { S.tag = ''; }
+  $('pTag').value = S.tag;
+}
+
+$('pTag').addEventListener('input', function () {
+  S.tag = this.value.trim();
+  try { localStorage.setItem(TAG_STORE, S.tag); } catch (e) {}
+});
+
 var W3W_KEY_STORE = 'deflog.w3w';
 var W3W_DEFAULT = 'GNB4B5O7';
 
@@ -1534,6 +1571,8 @@ function esc(s) {
 
 function render() {
   $('cnt').textContent = S.items.length;
+  $('railCount').textContent = S.items.length;
+  paintSpace();
   var has = S.items.length > 0;
   $('empty').hidden = has; $('expRow').hidden = !has; $('bClear').hidden = !has;
   var placed = S.items.filter(function (i) { return i.lat != null; }).length;
@@ -1570,7 +1609,7 @@ function render() {
       }
     } else { loc = 'No GPS fix'; }
     var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
-    var how = it.scoredBy ? esc(it.scoredBy) : 'inspector';
+    var how = (it.tag ? esc(it.tag) + ' · ' : '') + (it.scoredBy ? esc(it.scoredBy) : 'inspector');
     if (it.amendedAt) how += ' · <span class="amended">amended</span>';
     if (it.detConf != null && it.detConf >= 0 && it.detConf <= 1) {
       how += ' · model ' + Math.round(it.detConf * 100) + '% sure';
@@ -1736,12 +1775,12 @@ $('bCsv').addEventListener('click', function () {
   var old = S.items.some(function (i) { return i.depth != null || i.wide != null; });
   var head = ['timestamp', 'latitude', 'longitude', 'gps_accuracy_m', 'gps_fix_age_s',
     'defect_type', 'surface', 'impact', 'probability', 'risk_factor', 'category', 'response_time',
-    'scored_by', 'model_confidence', 'model_share_of_frame', 'model_detections']
+    'tag', 'scored_by', 'model_confidence', 'model_share_of_frame', 'model_detections']
     .concat(old ? ['depth_mm_deepest', 'wider_than_tyre'] : []).concat(['what3words', 'notes']);
   var rows = S.items.map(function (i) {
     return [i.t, i.lat, i.lon, i.acc, i.fixAge, i.type, i.surface,
       i.imp, i.prob, i.score, i.cat, i.resp,
-      i.scoredBy || 'inspector', i.detConf, i.detShare, i.detCount]
+      i.tag || '', i.scoredBy || 'inspector', i.detConf, i.detShare, i.detCount]
       .concat(old ? [i.depth, i.wide === null || i.wide === undefined ? '' : (i.wide ? 'yes' : 'no')] : [])
       .concat([i.w3w ? '///' + i.w3w : '', i.note]).map(q).join(',');
   });
@@ -1779,6 +1818,7 @@ $('bGeo').addEventListener('click', function () {
         properties: {
           logged: i.t,
           defect_type: i.type,
+          tag: i.tag || null,
           surface: i.surface,
           category: i.cat,
           response_time: i.resp,
@@ -1986,6 +2026,7 @@ function closeMenu() {
 $('bMenu').addEventListener('click', function () { menuOpen() ? closeMenu() : openMenu(); });
 $('scrim').addEventListener('click', closeMenu);
 $('mLog').addEventListener('click', function () { closeMenu(); show('log'); });
+$('bLogQuick').addEventListener('click', function () { closeMenu(); show('log'); });
 $('mMap').addEventListener('click', function () { closeMenu(); show('map'); });
 $('mFull').addEventListener('click', function () {
   closeMenu();
@@ -2018,7 +2059,7 @@ window.addEventListener('pagehide', stopAll);
 /* ---------- go ---------- */
 $('build').textContent = BUILD;
 $('fType').innerHTML = TYPES.map(function (t) { return '<option>' + t + '</option>'; }).join('');
-buildMatrix(); verdict(); paintSurface(); paintRec();
+buildMatrix(); verdict(); paintSurface(); paintRec(); loadTag(); paintSpace();
 lockLandscape();          // granted when installed off the manifest; refused in a tab
 
 openDb().then(function (d) {

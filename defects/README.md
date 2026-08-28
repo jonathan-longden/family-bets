@@ -25,9 +25,22 @@ nothing to dismiss.
   on full screen and the lock rather than waiting for the record button. When
   all of that is refused and the viewport still comes up portrait, **the app
   turns itself** — see below. There is no portrait layout to fall back to.
-- **Three dots, top right** open everything else: the defect log, the map, the
-  surface you are surveying, full screen, and stopping the camera. They are the
-  only thing on the glass that is always tappable.
+- **A strip of readouts along the top** — whether the camera is live, how good
+  the fix is, how much room is left, and what the model is doing — each with a
+  bar under it saying whether the number above is good, marginal or bad. From a
+  driving seat the colour gets read and the number does not, so the colour has
+  to be the honest part: nothing is green that a person should be checking. A
+  fix two minutes old reads worse than one that is merely wide, because a stale
+  fix is confident about where you *were*.
+- **Space left is counted in finds**, not megabytes. Nobody knows what 340 MB
+  buys them; everybody knows what six thousand more photographs means.
+- **A tag and a surface** sit under it. Both belong to the run rather than to any
+  one defect — a road name, a job number, the round you are on — so they are set
+  once and ride along on everything logged until they are changed. The tag
+  survives a reload and travels in the log, the CSV and the GeoJSON.
+- **A rail of round buttons down the right edge**, where a thumb already is:
+  the menu, the record button, and the log with its count on it. The menu
+  reaches the map, diagnostics, full screen and stopping the camera.
 - **The log and the map come up over the road**, not instead of it. Closing one
   is a single tap and the camera never stopped, which is the difference between
   a layer and a tab.

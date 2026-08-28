@@ -85,30 +85,69 @@ canvas.shot{display:none}
    on the glass does not do anything. Only the controls take taps. */
 .chrome{position:absolute;inset:0;display:flex;flex-direction:column;
   justify-content:space-between;pointer-events:none;z-index:6;
-  padding:calc(10px + var(--top)) 12px calc(14px + var(--bot))}
+  padding:calc(10px + var(--top)) 12px calc(20px + var(--bot))}
 
-.top{display:flex;align-items:flex-start;gap:10px;padding-right:56px}
-.chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{background:rgba(0,0,0,.55);backdrop-filter:blur(6px);border-radius:5px;
-  padding:6px 10px;font-family:var(--disp);font-size:13.5px;letter-spacing:.07em;
-  text-transform:uppercase;color:#EEF1F5;display:flex;align-items:center;gap:6px;
-  border:1px solid rgba(255,255,255,.12)}
-.chip.tapme{pointer-events:auto;color:var(--hiviz)}
-.dot{width:9px;height:9px;border-radius:50%;background:var(--hiviz);flex:none}
-.dot.live{animation:p 1.4s infinite}
-.chip.poor .dot{background:var(--r3)} .chip.poor{color:var(--r3)}
-.chip.none .dot{background:var(--r1);animation:none} .chip.none{color:var(--r1)}
-@keyframes p{0%,100%{opacity:1}50%{opacity:.25}}
-@media (prefers-reduced-motion:reduce){.dot.live{animation:none}}
+.top{display:flex;flex-direction:column;gap:8px;padding-right:78px}
 
-/* the three dots — fixed and above everything, including the scrim */
-.dots{position:fixed;z-index:62;top:calc(10px + var(--top));right:12px;
-  width:46px;height:46px;border:1px solid rgba(255,255,255,.14);
-  background:rgba(0,0,0,.55);backdrop-filter:blur(6px);border-radius:23px;
-  display:flex;align-items:center;justify-content:center;padding:0}
-.dots svg{width:4px;height:18px;fill:#EEF1F5}
-.dots[aria-expanded="true"]{background:var(--hiviz);border-color:var(--hiviz)}
-.dots[aria-expanded="true"] svg{fill:#14161A}
+/* ---- the readout strip ----
+   Four numbers that decide whether a run is worth anything, each with a bar
+   underneath saying whether it is good, marginal or bad. From a driving seat
+   the colour is read and the number is not, so the colour has to be the honest
+   part: nothing is green that a person should be checking. */
+/* Sized to its contents and left-aligned. Stretched across a wide screen it
+   stops reading as an instrument cluster and starts reading as a banner. */
+.strip{display:flex;gap:1px;background:rgba(255,255,255,.12);border-radius:9px;
+  overflow:hidden;border:1px solid rgba(255,255,255,.14);
+  align-self:flex-start;max-width:100%}
+.gauge{flex:0 1 auto;min-width:134px;background:rgba(0,0,0,.62);backdrop-filter:blur(8px);
+  padding:7px 10px 0;display:flex;flex-direction:column;gap:2px}
+.gauge .lab{font-family:var(--disp);font-size:11.5px;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--refl);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.gauge b{font-family:var(--disp);font-size:15px;font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase;color:#EEF1F5;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;line-height:1.15}
+.gauge .bar{display:block;height:3px;margin-top:5px;border-radius:2px 2px 0 0;background:var(--line)}
+.gauge[data-q="good"] .bar{background:var(--ok)}
+.gauge[data-q="fair"] .bar{background:var(--mark-y)}
+.gauge[data-q="poor"] .bar{background:var(--r2)}
+.gauge[data-q="none"] .bar{background:var(--r1)}
+.gauge[data-q="live"] .bar{background:var(--hiviz)}
+.gauge[data-q="none"] b,.gauge[data-q="poor"] b{color:var(--r1)}
+.gauge[data-q="live"] b{color:var(--hiviz)}
+/* narrow enough that four will not fit: drop to two across */
+@media (max-width:600px){ .strip{flex-wrap:wrap} .gauge{flex:1 1 44%;min-width:0} }
+
+/* ---- the two settings that belong to a run, not to a defect ---- */
+.pills{display:flex;gap:8px;flex-wrap:wrap}
+.pill{pointer-events:auto;display:flex;align-items:center;gap:8px;
+  background:rgba(0,0,0,.62);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,.14);border-radius:8px;padding:9px 12px;
+  font-family:var(--disp);font-size:14.5px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--hiviz);min-height:40px}
+#hudSurface::after{content:'\25be';color:var(--refl);font-size:12px;margin-left:2px}
+.pill.tag{flex:1;min-width:150px;max-width:340px;color:var(--refl)}
+.pill.tag .cap{font-size:11.5px;letter-spacing:.09em;color:var(--refl);flex:none}
+.pill.tag input{flex:1;min-width:0;background:none;border:0;padding:0;border-radius:0;
+  font-family:var(--disp);font-size:14.5px;letter-spacing:.05em;text-transform:uppercase;
+  color:#EEF1F5}
+.pill.tag input::placeholder{color:rgba(140,147,160,.75);text-transform:none;
+  font-family:var(--body);font-size:12.5px;letter-spacing:0}
+.pill.tag input:focus{outline:none}
+.pill.tag:focus-within{border-color:var(--hiviz)}
+
+/* ---- the rail: everything you press while driving, down one edge ---- */
+.rail{position:fixed;z-index:62;top:calc(10px + var(--top));right:12px;
+  display:flex;flex-direction:column;align-items:center;gap:12px}
+.rbtn{position:relative;width:52px;height:52px;border-radius:26px;padding:0;
+  border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.62);
+  backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center}
+.rbtn svg{width:20px;height:auto;fill:#EEF1F5;stroke:#EEF1F5}
+.rbtn[aria-expanded="true"]{background:var(--hiviz);border-color:var(--hiviz)}
+.rbtn[aria-expanded="true"] svg{fill:#14161A;stroke:#14161A}
+.rbtn .count{position:absolute;top:-3px;right:-3px;min-width:21px;padding:1px 5px;
+  background:var(--hiviz);color:#14161A;border-radius:11px;font-family:var(--disp);
+  font-size:12px;font-weight:700;line-height:1.5}
 
 .mid{display:flex;flex-direction:column;align-items:center;gap:8px;justify-content:center;flex:1;
   padding:10px 0}
@@ -128,32 +167,29 @@ canvas.shot{display:none}
 /* ---- the record button ----
    A ring that fills when it is running. Nothing else on the screen is round, so
    it reads as the control even at a glance in a moving vehicle. */
-.bottom{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.tally{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;
+.bottom{display:flex;align-items:flex-end;gap:12px;padding-right:78px}
+.tally{display:flex;flex-direction:column;gap:2px;
   font-family:var(--disp);font-size:14px;letter-spacing:.07em;text-transform:uppercase;
   text-shadow:0 1px 3px rgba(0,0,0,.9)}
-.tally.right{align-items:flex-end;color:var(--refl)}
 .clock{font-variant-numeric:tabular-nums;color:var(--refl)}
 .clock.on{color:var(--hiviz)}
 .logged{color:#EEF1F5}
 .hintline{color:var(--refl)}
 
-.record{pointer-events:auto;flex:none;width:76px;height:76px;border-radius:50%;padding:0;
-  background:rgba(0,0,0,.35);border:4px solid rgba(255,255,255,.9);
+.record{flex:none;width:66px;height:66px;border-radius:50%;padding:0;margin:2px 0;
+  background:rgba(0,0,0,.4);border:4px solid rgba(255,255,255,.92);
   display:flex;align-items:center;justify-content:center}
-.record .inner{width:56px;height:56px;border-radius:50%;background:var(--hiviz);
+.record .inner{width:48px;height:48px;border-radius:50%;background:var(--hiviz);
   transition:width .16s,height .16s,border-radius .16s}
-.record[aria-pressed="true"] .inner{width:30px;height:30px;border-radius:6px;background:var(--r1)}
+.record[aria-pressed="true"] .inner{width:26px;height:26px;border-radius:5px;background:var(--r1)}
 .record[disabled]{opacity:.45}
 @media (prefers-reduced-motion:reduce){.record .inner{transition:none}}
 
 /* landscape is the shape a windscreen mount holds the phone in */
 @media (orientation:landscape){
   .chrome{padding:calc(10px + var(--top)) calc(14px + env(safe-area-inset-right))
-          calc(10px + var(--bot)) calc(14px + env(safe-area-inset-left))}
-  .dots{right:calc(14px + env(safe-area-inset-right))}
-  .record{width:66px;height:66px}
-  .record .inner{width:48px;height:48px}
+          calc(20px + var(--bot)) calc(14px + env(safe-area-inset-left))}
+  .rail{right:calc(14px + env(safe-area-inset-right))}
   .mid{padding:4px 0}
 }
 
@@ -185,8 +221,8 @@ canvas.shot{display:none}
    the phone's real screen, so a menu capped at 100vh ran off the side of a
    rotated 412-tall container. A percentage resolves against the containing
    block, which is #app when it is turned and the viewport when it is not. */
-.menu{position:fixed;z-index:61;top:calc(62px + var(--top));right:10px;
-  width:min(300px,calc(100% - 20px));max-height:calc(100% - 74px - var(--top) - var(--bot));
+.menu{position:fixed;z-index:61;top:calc(10px + var(--top));right:76px;
+  width:min(300px,calc(100% - 92px));max-height:calc(100% - 22px - var(--top) - var(--bot));
   overflow:auto;background:var(--tar);border:1px solid var(--line);border-radius:8px;
   box-shadow:0 18px 44px rgba(0,0,0,.6);padding:6px}
 .mi{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;

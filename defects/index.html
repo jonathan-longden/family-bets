@@ -34,11 +34,28 @@
 
   <div class="chrome">
     <div class="top">
-      <div class="chips">
-        <span class="chip" id="badge">Camera off</span>
-        <span class="chip model" id="modelChip" hidden>Model</span>
-        <span class="chip fix" id="rec" hidden><i class="dot live"></i><span id="recTxt">GPS</span></span>
-        <button type="button" class="chip tapme" id="hudSurface">Carriageway</button>
+      <!-- A row of readouts, each with a bar underneath saying whether the
+           number under it is good, marginal or bad. The number alone means
+           nothing at a glance from a driving seat; the colour does. -->
+      <div class="strip">
+        <div class="gauge" id="gRec" data-q="idle">
+          <span class="lab">Recording</span><b id="badge">Camera off</b><i class="bar"></i>
+        </div>
+        <div class="gauge" id="rec" data-q="none">
+          <span class="lab">GPS accuracy</span><b id="recTxt">No fix</b><i class="bar"></i>
+        </div>
+        <div class="gauge" id="gSpace" data-q="idle">
+          <span class="lab">Space left</span><b id="spaceTxt">—</b><i class="bar"></i>
+        </div>
+        <div class="gauge" id="gModel" data-q="idle">
+          <span class="lab">Model</span><b id="modelChip">Loading</b><i class="bar"></i>
+        </div>
+      </div>
+      <div class="pills">
+        <button type="button" class="pill" id="hudSurface">Carriageway</button>
+        <label class="pill tag"><span class="cap">Tag</span>
+          <input type="text" id="pTag" placeholder="road, job number, anything"
+                 autocomplete="off" spellcheck="false" maxlength="60"></label>
       </div>
     </div>
 
@@ -49,10 +66,8 @@
 
     <div class="bottom">
       <div class="tally"><span class="clock" id="recTime">Ready</span>
-        <span class="logged" id="hudCount">0 logged</span></div>
-      <button type="button" class="record" id="bRec" aria-pressed="false" disabled
-              aria-label="Start recording"><span class="inner"></span></button>
-      <div class="tally right"><span class="hintline" id="recHint">Tap to record</span></div>
+        <span class="logged" id="hudCount">0 logged</span>
+        <span class="hintline" id="recHint">Tap to record</span></div>
     </div>
   </div>
 
@@ -70,16 +85,31 @@
   </div>
 </div>
 
-<!-- ================= MENU =================
-     The button lives outside the viewfinder so it can sit above the scrim: a
-     control that highlights itself as open and then cannot be tapped shut is
-     worse than no control. -->
-<button type="button" class="dots" id="bMenu" aria-haspopup="menu" aria-expanded="false"
-        aria-label="Menu">
-  <svg viewBox="0 0 4 18" aria-hidden="true" focusable="false">
-    <circle cx="2" cy="2" r="2"/><circle cx="2" cy="9" r="2"/><circle cx="2" cy="16" r="2"/>
-  </svg>
-</button>
+<!-- ================= THE RAIL =================
+     Everything you press while driving, down one edge where a thumb already
+     is. It lives outside the viewfinder so the menu button can sit above the
+     scrim: a control that highlights itself as open and then cannot be tapped
+     shut is worse than no control. -->
+<div class="rail">
+  <button type="button" class="rbtn" id="bMenu" aria-haspopup="menu" aria-expanded="false"
+          aria-label="Menu">
+    <svg viewBox="0 0 20 14" aria-hidden="true" focusable="false">
+      <rect x="0" y="0" width="20" height="2.4" rx="1.2"/>
+      <rect x="0" y="5.8" width="20" height="2.4" rx="1.2"/>
+      <rect x="0" y="11.6" width="20" height="2.4" rx="1.2"/>
+    </svg>
+  </button>
+  <button type="button" class="record" id="bRec" aria-pressed="false" disabled
+          aria-label="Start recording"><span class="inner"></span></button>
+  <button type="button" class="rbtn" id="bLogQuick" aria-label="Defect log">
+    <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+      <rect x="1" y="2" width="18" height="16" rx="2.5" fill="none" stroke-width="2.2"/>
+      <rect x="5" y="6.5" width="10" height="2" rx="1" stroke="none"/>
+      <rect x="5" y="11" width="7" height="2" rx="1" stroke="none"/>
+    </svg>
+    <span class="count" id="railCount">0</span>
+  </button>
+</div>
 <div class="scrim" id="scrim" hidden></div>
 <div class="menu" id="menu" role="menu" hidden>
   <button type="button" role="menuitem" class="mi" id="mLog">Defect log<span class="count" id="cnt">0</span></button>
