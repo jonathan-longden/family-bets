@@ -1,164 +1,134 @@
-# Step Out
+# Bloody Weather
 
-A weather app with one opinion: **you should go outside, and this is when.**
+An accurate forecast with a running commentary.
 
-It reads the forecast for where you are, scores every hour against the things
-you would actually leave the house for, and finds the runs of hours worth
-putting your shoes on for. Then — the bit that matters — it tells you as one
-is starting, rather than sitting there waiting to be opened.
+The weather is real, the numbers are real, and the app has a mouth on it. It is
+the friend who happens to know exactly what the sky is doing and cannot resist
+saying something about it.
 
-It runs on a phone, installs to the home screen, and opens with no signal on
-the last forecast that reached it.
+It runs on a phone, installs to the home screen, and opens with no signal at
+all on the last forecast that reached it.
 
-## The shape of it
+## The rule the whole app is built on
 
-One screen, and the top card is the whole app: what to do, when, and the
-reason it is worth doing now rather than later.
+**The jokes sit on top of the weather. They never replace it, and they never
+contradict it.**
 
-- **The verdict.** *PEAK OF THE DAY, YOU ABSOLUTE LEGEND.* Underneath it, in
-  a normal voice: what to do, when, and why now — the span, what it feels
-  like, the gusts, the chance of rain. **I went** logs it; **Not today** shuts
-  the nudges up until tomorrow.
-- **Now.** What it is doing outside this minute, which is usually why you
-  opened it.
-- **Hour by hour.** The next day and a half, each hour wearing what you would
-  need for it — sunglasses for one you would squint in, an umbrella for one
-  you would get soaked in, a woolly hat for one that will take the skin off
-  your face — over a bar for how good it is. Tap one and it says what that
-  hour is doing, and if it is no good, why not. This is the app's working
-  shown: you can see the window it picked and the hours it threw away.
-- **Windows ahead.** The rest of them, today and tomorrow.
-- **The streak.** Days in a row you have been out. Seven dots, and the one
-  that matters is today's.
+Every line in the app is attached to something the forecast actually said. If
+it is grey, nothing here will tell you the sun is out. If it is raining,
+nothing will call it lovely. The personality picks from a bank of lines that
+match the conditions, so the humour is always about the weather you are
+actually having.
 
-## How an hour is scored
+## What is on screen
 
-Four things, weighted differently for each activity:
+- **The headline.** One enormous line, chosen by the real conditions and the
+  time of day. *GOOD MORNING, YOU RAY OF FUCKING SUNSHINE* on a bright morning;
+  *GREY. MOODY. VERY FUCKING BRITISH* when it is grey; *BLOODY HELL, IT IS
+  WINDY* when the gusts say so.
+- **The temperature**, big, with the place above it and the honest one-line
+  summary beside it.
+- **The facts.** Feels-like, chance of rain, wind, gusts, humidity, visibility,
+  sunrise, sunset, today's high and low. These are the point of a weather app
+  and they never move to make room for a joke.
+- **The moments.** Small true observations pulled out of the forecast: rain
+  ending at four, a much better tomorrow, a hot spell building, a cold snap
+  coming. Two at most, and only when the numbers support them.
+- **Next 24 hours.** Each hour wearing what it actually feels like — 😎 for
+  weather you would squint in, ☔ for a soaking, 🧣 bright but freezing, ❄️, ⛈️,
+  💨, 🥶, 🥵, 🌙 — with its temperature and chance of rain.
+- **The next 15 days.** Every day with its picture, high and low, chance of
+  rain and a one-line opinion. Tap one for the full detail.
 
-- **What it feels like**, not what the thermometer says — the wind is already
-  in that number, and it is the one you dress for.
-- **Rain**: how likely, and how much.
-- **The gusts**, rather than the average wind. The gust is what pushes a bike
-  about.
-- **The sky**. A bright dry hour and a grey dry hour are not the same
-  invitation.
+## Fifteen days, honestly labelled
 
-Each activity has a range where a number is simply right and a range where it
-stops counting as going out at all; between the two the score falls away in a
-straight line. A run wants it colder than a walk, minds rain less, and is the
-only one happy in the dark. Sitting outside with a coffee is the fussiest
-thing on the list. A ride weights the wind like the ride-ruiner it is.
+Day fifteen is not day one, and the app does not pretend otherwise. The list is
+grouped, and the grouping is the honesty:
 
-**How fussy** moves every threshold at once, because "I don't mind a bit of
-drizzle" is one opinion rather than six numbers. What it will not move:
-thunder, freezing rain and heavy snow are refused at any setting.
+| | | |
+|---|---|---|
+| **The next few days** | days 1–3 | high, low, rain, wind, and the hour-by-hour when you open the day |
+| **Later this week** | days 4–7 | high, low, condition, rain probability, wind |
+| **Long range** | days 8–15 | the shape of it: condition, high, low, and rain probability *where the model still offers one* |
 
-## What counts as a window
+Past about a week the forecast stops giving a rain probability at all. Those
+days show a dash rather than a zero, because "no chance of rain" and "nobody
+knows yet" are different sentences and only one of them is true.
 
-A run of consecutive hours that all clear the bar, long enough to be worth the
-coat — an hour for a walk, two for a ride.
+## The mouth
 
-Two things about that are deliberate:
+Lines are chosen by situation, not at random. Thunder beats temperature. A
+downpour beats a grey sky. "Quite nice, actually" only wins when nothing louder
+is happening. Morning, evening and night have their own voices on top of that.
 
-**An hour of rain in the middle is not a window with a hole in it.** It is two
-windows, and only one of them may be long enough to count.
+Within an hour the headline is stable — it will not reshuffle itself while you
+are reading it — and it rotates as the day and the conditions move, so the same
+weather does not produce the same sentence forever.
 
-**A window is never longer than six hours.** Nobody needs telling that the
-next twenty-three hours are fine, and a stretch that long would otherwise
-swallow the day — an overnight window touching everything after it wins the
-headline just by overlapping the good afternoon. A longer stretch is trimmed
-to its best six hours and the card says it stays good after that.
+**Let it swear at me** lives in Settings and is on by default. Turned off,
+every line has a twin written to be funny in its own right rather than the
+sweary one with the word cut out:
 
-## The nudge
+> **On:** THE SUN HAS LOST THE FUCKING PLOT.
+> **Off:** THE SUN HAS COMPLETELY LOST THE PLOT.
 
-The whole point, and the part that has to be got right, because an app that
-nudges too often gets its notifications turned off and then never nudges
-again:
+The app renames itself too — *Bloody Weather* becomes *Blooming Weather* — so a
+phone handed across the breakfast table does not announce itself. A test walks
+every line in the app and fails the build if a clean twin swears, if a line is
+missing its pair, or if swearing creeps into more than half of the lines. It is
+seasoning, not the meal.
 
-- It goes out when a window is **about to start** — as it starts, or up to an
-  hour before, your choice.
-- **Never twice for the same window**, however many times the check runs.
-- **Never in your quiet hours**, judged where the weather is rather than where
-  the phone is. Nine at night to seven in the morning by default.
-- **Never more times in a day than you allow.**
-- **Not for the fag end of a window** — less than three quarters of an hour
-  left in it is not an invitation.
-- Not at all after **Not today**, until tomorrow.
+## What it will not do
 
-### The mouth on it
-
-The big line is somebody shouting you out of the door, and it is the same line
-that arrives as the notification title, because a title and about four words
-of body is all a lock screen gives you.
-
-It shouts about something that is *true of that window* — there is a bank of
-lines per situation and the app never reaches outside the one it is in. A
-morning window gets a morning line. A window that runs into dusk gets the
-light. A window with a streak about to break gets the streak, because that
-beats the weather. Nothing shouts about sunshine on a grey afternoon.
-
-**Let it swear at me** is on by default and lives in Settings. Off, every line
-has a clean twin that says the same thing — the phone reads these out in front
-of whoever is stood next to you, so it is a real setting rather than a joke.
-
-The line underneath is the plain one, and it still has to earn its place. "It
-is 18 degrees" does not; "best it gets today", "the rain is off for two
-hours", "last of the light" do, and each is only used when it is true of that
-window. If there is a streak to lose, it says so.
-
-### When it can reach you
-
-A web page with no server behind it cannot be pushed to. So:
-
-- **Android, installed to the home screen**: the browser wakes the app in the
-  background every so often (Periodic Background Sync) and the nudge arrives
-  on its own. Settings says so when this is switched on and working.
-- **Everywhere else, iPhone included**: the check runs whenever the app is
-  open or comes back to the front, so the nudge arrives the next time you look
-  at it. Settings says that plainly rather than pretending otherwise.
-
-Either way the decision is made by the same code — the service worker loads
-the same file the page does, so a nudge sent while the app is closed cannot
-disagree with what the app says when you open it.
+There are no notifications, no reminders, no goals, no streaks and nothing to
+maintain. It will never tell you how to spend your afternoon. It tells you what
+the weather is doing, and then it has a laugh about it.
 
 ## Where the weather comes from
 
-[Open-Meteo](https://open-meteo.com/), which answers a browser directly, needs
-no key and no account, and asks nothing about who is asking. The place search
-is theirs too.
+[Open-Meteo](https://open-meteo.com/), which answers a browser directly and
+wants no key, no account and no email address. The place search is theirs too.
 
 The only thing that ever leaves the phone is a pair of coordinates, rounded to
-four decimal places, sent to them. There is no server of mine in this app at
-all.
+four decimal places. There is no server of mine anywhere in this app.
+
+**When it fails**, it says so in its own voice, shows what actually went wrong,
+and offers a retry. If there is a saved forecast it draws that instead, with
+the age of it in the footer — never a stale forecast passed off as current.
 
 ## Setting it up
 
-Open it, and either let it use where you are or search for a town. Then pick
-what you would go out for. That is the setup.
+Open it, and either let it use where you are or search for a town. That is the
+setup. The place and the settings live on that phone and nowhere else.
 
-Everything — the place, the settings, the days you have logged — lives on that
-phone and nowhere else. Nothing is backed up for you, so use **Export** before
-changing phones.
+## Renaming it
+
+The working name swears, which will not survive a shop front. To rename:
+
+1. `brand.js` — `name` and `clean`, which drive the header, About and the title
+2. `manifest.json` — `name` and `short_name`
+3. `index.html` — `<title>` and the `apple-mobile-web-app-title` meta
+4. `README.md` — this file
+
+Nothing else hardcodes the name.
 
 ## Hosting it
 
-Static files, no build. Serve the folder from any static host, alongside the
-rest of this repo:
+Static files, no build:
 
 ```
 outside/
   index.html      the screen
-  forecast.js     the arithmetic, shared with the worker
+  brand.js        the name, in one place
+  weather.js      asking for the forecast and reading it
+  voice.js        the personality engine
   app.js          the drawing, the settings, the buttons
   styles.css
-  sw.js           the shell cache and the background nudge
+  sw.js           the shell cache, and nothing else
   manifest.json
   icon-192.png  icon-512.png
 ```
 
-Notifications and background sync need HTTPS (or localhost). GitHub Pages and
-Firebase Hosting both qualify.
-
-On a release, bump the build stamp in `app.js`, the `?v=` on the stylesheet
-and both scripts in `index.html` and `sw.js`, and the cache name in `sw.js` —
-they go together.
+Any static host works; GitHub Pages serves this repo. On a release, bump the
+build stamp in `app.js`, the `?v=` on the stylesheet and all four scripts in
+`index.html` and `sw.js`, and the cache name in `sw.js` — they go together.

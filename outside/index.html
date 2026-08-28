@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b1f38">
-<meta name="description" content="Step Out — it watches the forecast for the gaps worth going outside for, and tells you when one is starting.">
-<title>Step Out</title>
+<meta name="theme-color" content="#0d1b3e">
+<meta name="description" content="Bloody Weather — an accurate forecast with a running commentary. Now, hour by hour, and fifteen days ahead.">
+<title>Bloody Weather</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Step Out">
-<link rel="stylesheet" href="styles.css?v=2">
+<meta name="apple-mobile-web-app-title" content="Bloody Weather">
+<link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
 
@@ -22,7 +22,8 @@
   <header class="top">
     <button class="place" id="placeBtn" type="button">
       <span class="pin" aria-hidden="true">◉</span>
-      <span id="placeName">Set a place</span>
+      <span id="placeName">Pick a place</span>
+      <span class="caret" aria-hidden="true">▾</span>
     </button>
     <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings" title="Settings">
       <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"
@@ -33,89 +34,70 @@
     </button>
   </header>
 
-  <!-- ------------------------------------------------------------- verdict -->
-  <!-- The whole app in one card: is there a window, when, and why now. -->
-  <section class="card verdict" id="verdict" hidden>
-    <div class="verdict-head">
-      <span class="when" id="verdictWhen">Right now</span>
-      <span class="score" id="verdictScore" hidden></span>
-    </div>
-    <h1 class="verdict-line" id="verdictLine">Go for a walk</h1>
-    <p class="verdict-why" id="verdictWhy"></p>
-    <div class="facts" id="verdictFacts"></div>
-    <div class="verdict-actions">
-      <button class="primary" type="button" id="wentBtn">I went</button>
-      <button class="ghost" type="button" id="notTodayBtn">Not today</button>
-    </div>
-  </section>
-
-  <!-- ------------------------------------------------------------ no window -->
-  <section class="card verdict verdict--none" id="noWindow" hidden>
-    <h1 class="verdict-line" id="noWindowLine">Nothing doing</h1>
-    <p class="verdict-why" id="noWindowWhy"></p>
-  </section>
-
-  <!-- ----------------------------------------------------------- first run -->
+  <!-- ---------------------------------------------------------- first run -->
   <section class="card setup" id="setup" hidden>
-    <h1>Where are you?</h1>
-    <p>The forecast has to be for somewhere. Pick once and it is remembered on this phone.</p>
+    <h1 id="setupTitle">Where are you, then?</h1>
+    <p>Give it a place and it will tell you exactly what the sky is up to — now, hour by hour, and a
+      fortnight out.</p>
     <div class="row">
       <button class="primary" type="button" id="useHereBtn">Use where I am</button>
-      <button class="secondary" type="button" id="searchPlaceBtn">Search for a place</button>
+      <button class="secondary" type="button" id="searchPlaceBtn">Search for a town</button>
     </div>
     <p class="hint" id="setupOut"></p>
   </section>
 
-  <!-- ----------------------------------------------------------------- now -->
-  <section class="card now" id="nowCard" hidden>
-    <div class="now-icon" id="nowIcon">☀️</div>
-    <div class="now-read">
-      <div class="now-temp" id="nowTemp">—</div>
-      <div class="now-sub" id="nowSub"></div>
-    </div>
-    <button class="refresh" type="button" id="refreshBtn" aria-label="Check again" title="Check again">↻</button>
-  </section>
-
-  <!-- ------------------------------------------------------------ the strip -->
-  <section class="card strip" id="stripCard" hidden>
-    <div class="card-head">
-      <h2>Hour by hour</h2>
-      <span class="hint" id="stripFor"></span>
-    </div>
-    <div class="hours" id="hours"></div>
-    <p class="hint hour-detail" id="hourDetail"></p>
-  </section>
-
-  <!-- --------------------------------------------------------- the windows -->
-  <section class="card later" id="laterCard" hidden>
-    <div class="card-head"><h2>Windows ahead</h2></div>
-    <ul class="windows" id="windowList"></ul>
-  </section>
-
-  <!-- ---------------------------------------------------------- the streak -->
-  <section class="card streak" id="streakCard" hidden>
-    <div class="streak-read">
-      <div class="streak-n" id="streakN">0</div>
-      <div>
-        <div class="streak-line" id="streakLine">days on the trot</div>
-        <div class="hint" id="streakSub"></div>
+  <!-- ------------------------------------------------------------ the hero -->
+  <!-- The headline changes with the actual weather. The numbers under it are
+       the facts, and they never move to make room for a joke. -->
+  <section class="card hero" id="hero" hidden>
+    <p class="shout" id="shout"></p>
+    <div class="hero-read">
+      <div class="hero-temp">
+        <span id="nowTemp">—</span><span class="unit" id="nowUnit">°C</span>
+      </div>
+      <div class="hero-side">
+        <div class="hero-icon" id="nowIcon" aria-hidden="true">☀️</div>
+        <div class="hero-sub" id="nowSub"></div>
       </div>
     </div>
-    <div class="dots" id="streakDots" aria-hidden="true"></div>
+    <div class="facts" id="facts"></div>
   </section>
 
-  <!-- ------------------------------------------------------ nudges banner -->
-  <section class="card ask" id="askCard" hidden>
-    <p id="askLine">Let it tell you when a window opens, and you can stop checking.</p>
+  <!-- ------------------------------------------------------- little moments -->
+  <section class="moments" id="moments" hidden></section>
+
+  <!-- ------------------------------------------------------------- the hours -->
+  <section class="card strip" id="stripCard" hidden>
+    <div class="card-head">
+      <h2>Next 24 hours</h2>
+      <span class="hint" id="stripHint"></span>
+    </div>
+    <div class="hours" id="hours"></div>
+  </section>
+
+  <!-- ------------------------------------------------------- fifteen days -->
+  <section class="card days" id="daysCard" hidden>
+    <div class="card-head">
+      <h2>The next 15 days</h2>
+      <span class="hint">Tap a day</span>
+    </div>
+    <ul class="daylist" id="dayList"></ul>
+    <p class="hint tier-note">The further out it goes, the more it is guessing. Anything past a week is
+      the shape of the weather rather than a promise.</p>
+  </section>
+
+  <!-- -------------------------------------------------------------- trouble -->
+  <section class="card trouble" id="trouble" hidden>
+    <p class="shout shout--small" id="troubleLine"></p>
+    <p class="hint" id="troubleWhy"></p>
     <div class="row">
-      <button class="primary" type="button" id="askBtn">Nudge me</button>
-      <button class="ghost" type="button" id="askNoBtn">No thanks</button>
+      <button class="primary" type="button" id="retryBtn">Try again</button>
     </div>
   </section>
 
   <footer class="foot">
     <span id="footStatus"></span>
-    <button class="link" type="button" id="aboutBtn">How it decides</button>
+    <button class="link" type="button" id="aboutBtn">About</button>
   </footer>
 
 </div>
@@ -149,73 +131,19 @@
     </div>
 
     <fieldset class="fs">
-      <legend>What you would go out for</legend>
-      <div class="picks" id="activityPicks"></div>
-      <p class="hint">Each one wants different weather. A run is happy in the cold and the dark; sitting
-        outside with a coffee is not.</p>
-    </fieldset>
-
-    <fieldset class="fs">
-      <legend>How fussy</legend>
-      <div class="seg" id="fussSeg">
-        <label><input type="radio" name="fuss" value="relaxed"><span>I'll go in anything</span></label>
-        <label><input type="radio" name="fuss" value="normal"><span>Normal</span></label>
-        <label><input type="radio" name="fuss" value="fussy"><span>Only if it's lovely</span></label>
-      </div>
-    </fieldset>
-
-    <fieldset class="fs">
-      <legend>Nudges</legend>
-      <label class="check"><input type="checkbox" id="notifyOn"> Tell me when a window opens</label>
-      <p class="hint" id="notifyState"></p>
-      <div class="grid2">
-        <label class="lbl">Warn me
-          <select id="leadSel">
-            <option value="0">as it starts</option>
-            <option value="15">15 minutes before</option>
-            <option value="30">30 minutes before</option>
-            <option value="60">an hour before</option>
-          </select>
-        </label>
-        <label class="lbl">At most
-          <select id="maxSel">
-            <option value="1">once a day</option>
-            <option value="2">twice a day</option>
-            <option value="3">3 a day</option>
-            <option value="5">5 a day</option>
-          </select>
-        </label>
-      </div>
-      <div class="grid2">
-        <label class="lbl">Quiet from
-          <select id="quietFrom"></select>
-        </label>
-        <label class="lbl">until
-          <select id="quietTo"></select>
-        </label>
-      </div>
-      <p class="hint">Quiet hours are read where the weather is, not where the phone is.</p>
-      <div class="row">
-        <button type="button" class="secondary" id="testNudge">Send me a test one</button>
-        <span class="hint" id="testOut"></span>
-      </div>
-    </fieldset>
-
-    <fieldset class="fs">
       <legend>The mouth on it</legend>
       <label class="check"><input type="checkbox" id="swearyOn"> Let it swear at me</label>
-      <p class="hint">The big line is somebody shouting you out of the door. Turn this off and it shouts
-        the same thing with its mouth washed out — the phone still says it in front of whoever is stood
-        next to you.</p>
+      <p class="hint">Turn it off and every line has a clean one written to be just as funny — not the
+        same sentence with the word cut out. The app changes its own name too.</p>
     </fieldset>
 
     <fieldset class="fs">
-      <legend>Reading</legend>
+      <legend>Units</legend>
       <div class="grid2">
-        <label class="lbl">Units
+        <label class="lbl">Temperature
           <select id="unitsSel">
-            <option value="metric">°C and km/h</option>
-            <option value="imperial">°F and mph</option>
+            <option value="metric">Celsius</option>
+            <option value="imperial">Fahrenheit</option>
           </select>
         </label>
         <label class="lbl">Clock
@@ -225,23 +153,22 @@
           </select>
         </label>
       </div>
+      <p class="hint">Wind follows the temperature: km/h with Celsius, mph with Fahrenheit.</p>
     </fieldset>
 
     <fieldset class="fs">
       <legend>This phone</legend>
       <div class="row">
-        <button type="button" class="secondary" id="exportBtn">Export</button>
-        <button type="button" class="secondary" id="importBtn">Import</button>
+        <button type="button" class="secondary" id="refreshBtn">Refresh the forecast</button>
         <button type="button" class="danger" id="resetBtn">Erase everything</button>
       </div>
-      <input type="file" id="importFile" accept="application/json,.json" hidden>
       <p class="hint" id="buildHint"></p>
       <div class="row">
         <button type="button" class="secondary" id="updateBtn">Fetch the latest version</button>
         <span class="hint" id="updateOut"></span>
       </div>
-      <p class="hint">Everything — the place, the settings, the days you have been out — lives on this phone
-        and nowhere else. Nothing is backed up for you.</p>
+      <p class="hint">The place and these settings live on this phone and nowhere else. Nothing is sent
+        anywhere except a pair of coordinates, to the people who have the weather.</p>
     </fieldset>
   </form>
 </dialog>
@@ -250,27 +177,43 @@
 <dialog class="sheet" id="aboutSheet">
   <form method="dialog" class="sheet-in">
     <div class="sheet-head">
-      <h2>How it decides</h2>
+      <h2 id="aboutTitle">About</h2>
       <button class="icon-btn" value="close" aria-label="Close">✕</button>
     </div>
-    <p>Every hour of the forecast is scored out of a hundred against the things you said you would go out
-      for. Temperature — what it <i>feels</i> like, so the wind is already in it — how likely rain is and how
-      much, the gusts rather than the average wind, and whether the sun is up.</p>
-    <p><b>A run of good hours is a window.</b> Not an hour here and there: a window has to be long enough to
-      be worth the coat, and an hour of rain in the middle of one makes it two windows rather than one with a
-      hole in it.</p>
-    <p><b>The nudge is the whole point.</b> It goes out when a window is about to start — not at nine every
-      morning, and not when it is already raining. It will not go twice for the same window, it will not go
-      in your quiet hours, and it will not go more times in a day than you allow.</p>
-    <p><b>What it will not do</b> is send you out in a thunderstorm or on freezing rain, however relaxed the
-      setting.</p>
-    <p><b>Where the weather comes from.</b> Open-Meteo, which answers this page directly and asks for no key
-      and no account. The only thing that ever leaves the phone is a pair of coordinates, and only to them.</p>
+    <p id="aboutTagline"></p>
+    <p><b>The weather is real.</b> Every number on this screen comes straight from the forecast —
+      temperature, what it feels like, humidity, wind, gusts, chance of rain, visibility, sunrise and
+      sunset. The jokes sit on top of those numbers and are chosen by them. If it is grey, nothing here
+      will tell you the sun is out.</p>
+    <p><b>Fifteen days, honestly labelled.</b> The first three days are the detailed ones. Days four to
+      seven are a fair bet. Anything past that is the shape of the weather rather than a promise, and the
+      app says so rather than dressing a guess up as a fact.</p>
+    <p><b>Where it comes from.</b> <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>,
+      which answers this page directly and wants no key, no account and no email address. The only thing
+      that ever leaves your phone is a pair of coordinates.</p>
+    <p><b>No signal?</b> It shows you the last forecast it managed to get, with the time it got it, rather
+      than pretending that is the weather now.</p>
     <p class="hint" id="aboutBuild"></p>
   </form>
 </dialog>
 
-<script src="forecast.js?v=2"></script>
-<script src="app.js?v=2"></script>
+<!-- ------------------------------------------------------------- day detail -->
+<dialog class="sheet" id="daySheet">
+  <form method="dialog" class="sheet-in">
+    <div class="sheet-head">
+      <h2 id="dayTitle">Day</h2>
+      <button class="icon-btn" value="close" aria-label="Close">✕</button>
+    </div>
+    <p class="shout shout--small" id="dayShout"></p>
+    <div class="facts" id="dayFacts"></div>
+    <div id="dayHours"></div>
+    <p class="hint" id="dayConfidence"></p>
+  </form>
+</dialog>
+
+<script src="brand.js?v=3"></script>
+<script src="weather.js?v=3"></script>
+<script src="voice.js?v=3"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
