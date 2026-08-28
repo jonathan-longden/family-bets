@@ -233,20 +233,59 @@ var ASPECT_MAX = 4.5;    // a band far longer than it is wide is a shadow, not a
 var TYPES = ['Pothole', 'Edge deterioration', 'Spalled crack / material loss',
              'Ironwork', 'Street furniture', 'Other'];
 
+/* items holds observations; defects holds the things they are observations of.
+   The two are separate lists on purpose — the log shows the first and the
+   second is what any later grouping, trend or repair check would hang off. */
 var S = { imp: 0, prob: 0, foot: false, by: null,
-          prevUrl: null, gps: null, det: null, tag: '', items: [] };
+          prevUrl: null, gps: null, det: null, tag: '',
+          items: [], defects: [] };
 var stream = null, watchId = null, ageTimer = null, urls = [], lbUrl = null;
 
 /* ---------- store ---------- */
 /* IndexedDB, with the whole thing degrading to memory if the browser won't
    give us one (private windows, storage switched off). The difference from the
    prototype is that the degradation is announced. */
-var DB_NAME = 'deflog', STORE = 'defects', WRONG = 'wrong', db = null, dbBroken = false;
+/* ---------- an observation is not a defect ----------
+
+   Every row in this app used to be a sighting, and a sighting was treated as a
+   thing. Drive the same road twice and you have two defects; drive it fifty
+   times and you have fifty. Nothing downstream of that works — you cannot say a
+   defect is getting worse, or that a repair happened, or how sure you are that
+   it exists at all, because there is nothing for those to be properties of.
+
+   Two stores now. An observation is one detection event: a frame, a box, a
+   position, a photograph, and it never changes after it is written. A defect is
+   the thing in the road that observations are of, and it does change — it gains
+   observations, its position estimate improves, its status moves on.
+
+   The store names are historical and are deliberately left alone: `defects`
+   holds observations, because renaming an object store means copying every
+   photograph in it and there is no version of that worth the risk. The code
+   says observation everywhere it means one. */
+var DB_NAME = 'deflog', STORE = 'defects', WRONG = 'wrong', PHYS = 'physical';
+var db = null, dbBroken = false;
+
+/* Timestamp ids were fine for one device and are not for two. Two phones
+   surveying the same round produce colliding ids within a millisecond of each
+   other, and the day anything is combined the collision is silent. */
+function uuid() {
+  if (self.crypto && crypto.randomUUID) return crypto.randomUUID();
+  var b = new Uint8Array(16), i;
+  if (self.crypto && crypto.getRandomValues) crypto.getRandomValues(b);
+  else for (i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40;      // version 4
+  b[8] = (b[8] & 0x3f) | 0x80;      // variant 1
+  var h = [];
+  for (i = 0; i < 16; i++) h.push((b[i] + 0x100).toString(16).slice(1));
+  return h.slice(0, 4).join('') + '-' + h.slice(4, 6).join('') + '-' +
+         h.slice(6, 8).join('') + '-' + h.slice(8, 10).join('') + '-' +
+         h.slice(10, 16).join('');
+}
 
 function openDb() {
   return new Promise(function (resolve, reject) {
     if (!self.indexedDB) return reject(new Error('no IndexedDB'));
-    var req = indexedDB.open(DB_NAME, 2);
+    var req = indexedDB.open(DB_NAME, 3);
     req.onupgradeneeded = function () {
       var d = req.result;
       if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE, { keyPath: 'id' });
@@ -254,6 +293,12 @@ function openDb() {
          is not a defect must never read as a defect, and deleting it outright
          throws away the only examples a retrain could learn this from. */
       if (!d.objectStoreNames.contains(WRONG)) d.createObjectStore(WRONG, { keyPath: 'id' });
+      /* Version 3. The observations already in the store are not touched here —
+         adding the store is all the schema change there is, and giving the
+         existing rows their defects is done afterwards in ordinary code, where
+         a failure can be reported rather than aborting an upgrade transaction
+         and leaving the database on the old version with no explanation. */
+      if (!d.objectStoreNames.contains(PHYS)) d.createObjectStore(PHYS, { keyPath: 'defect_id' });
     };
     req.onsuccess = function () { resolve(req.result); };
     req.onerror = function () { reject(req.error); };
@@ -276,6 +321,13 @@ function clearEntries() { return tx('readwrite', function (s) { return s.clear()
 function putWrong(e) { return tx('readwrite', function (s) { return s.put(e); }, WRONG); }
 function allWrong() {
   return tx('readonly', function (s) { return s.getAll(); }, WRONG)
+    .then(function (r) { return r || []; }, function () { return []; });
+}
+
+function putPhys(d) { return tx('readwrite', function (s) { return s.put(d); }, PHYS); }
+function delPhys(id) { return tx('readwrite', function (s) { return s.delete(id); }, PHYS); }
+function allPhys() {
+  return tx('readonly', function (s) { return s.getAll(); }, PHYS)
     .then(function (r) { return r || []; }, function () { return []; });
 }
 
@@ -903,7 +955,25 @@ $('bSave').addEventListener('click', function () {
   it.scoredBy = S.by === 'app' ? 'app proposal, accepted' : 'inspector';
   it.confirmedAt = it.catAt;
 
-  (dbBroken ? Promise.resolve() : putEntry(it)).then(function () {
+  /* Confirming an observation is also a person standing over the defect it is
+     an observation of, so the category and the signature travel up to it. That
+     is the only route by which a defect ever gets a statutory category. */
+  var d = it.defect_id ? defectById(it.defect_id) : null;
+  var upward = Promise.resolve();
+  if (d) {
+    d.statCat = it.statCat; d.statResp = it.statResp;
+    d.catBy = it.catBy; d.catAt = it.catAt;
+    d.verifiedBy = it.catBy; d.verifiedAt = it.catAt;
+    d.type = it.type;
+    if (it.score != null) { d.score = it.score; d.priority = it.priority || d.priority; }
+    d.updated_at = it.catAt;
+    d.status = defectStatus(d);
+    upward = dbBroken ? Promise.resolve() : putPhys(d).catch(function () {});
+  }
+
+  upward.then(function () {
+    return dbBroken ? Promise.resolve() : putEntry(it);
+  }).then(function () {
     confirming = null;
     render(); show('log');
   }, function (err) {
@@ -1569,6 +1639,209 @@ function rememberFind(cand) {
   survey.last = { at: cand.at, gps: cand.vlat == null ? null : { lat: cand.vlat, lon: cand.vlon } };
 }
 
+/* ---------- the defect layer ----------
+
+   Deliberately small. It does one thing: decide whether an observation is of a
+   defect already known about, and keep a short record of the thing itself. It
+   does not cluster retrospectively, it does not merge defects, and it does not
+   run in the background. Anything cleverer than this belongs on a server with
+   every device's observations in front of it, and building it here would mean
+   building it twice.
+
+   How far apart two observations can be and still be of the same defect. More
+   generous than the within-a-run duplicate radius, because this is mostly
+   asking about a later pass on a different day with a different fix, where the
+   two error bars are independent rather than nearly identical. */
+var SAME_DEFECT_MIN_M = 20;
+var SAME_DEFECT_MAX_M = 80;
+
+function defectRadius(a, b) {
+  var r = Math.max(SAME_DEFECT_MIN_M, (a == null ? 0 : a) + (b == null ? 0 : b));
+  return Math.min(r, SAME_DEFECT_MAX_M);
+}
+
+/* The nearest known defect this observation could be of, or null.
+
+   Same type, close enough given both error bars, and pointing the same way
+   where both headings are known. A defect with no position cannot be matched
+   against — there is nothing to compare — so an observation with no fix always
+   becomes its own defect rather than being attached to whichever one happened
+   to be nearest in the list. */
+function defectFor(obs) {
+  var pos = bestPos(obs);
+  if (!pos) return null;
+  var best = null, bestD = Infinity;
+  for (var i = 0; i < S.defects.length; i++) {
+    var d = S.defects[i];
+    if (d.type !== obs.type) continue;
+    if (d.best_lat == null) continue;
+    if (obs.headingDeg != null && d.heading != null &&
+        headingGap(obs.headingDeg, d.heading) > DUP_HEADING_DEG) continue;
+    var gap = metresBetween(pos, { lat: d.best_lat, lon: d.best_lon });
+    if (gap < defectRadius(pos.confM, d.position_confidence_m) && gap < bestD) {
+      best = d; bestD = gap;
+    }
+  }
+  return best;
+}
+
+/* An observation's position, folded into the defect's.
+
+   Weighted by 1/r², so a ±6 m observation moves the estimate a great deal more
+   than a ±40 m one, and the combined radius shrinks as observations accumulate
+   — but never below the best single one, because averaging vague positions
+   cannot manufacture a precise one. */
+function foldPosition(d, obs) {
+  var pos = bestPos(obs);
+  if (!pos) return;
+  if (d.best_lat == null) {
+    d.best_lat = pos.lat; d.best_lon = pos.lon;
+    d.position_confidence_m = pos.confM;
+    d.position_source = pos.source;
+    return;
+  }
+  var ra = d.position_confidence_m, rb = pos.confM;
+  if (ra == null || rb == null || ra <= 0 || rb <= 0) return;
+  var wa = 1 / (ra * ra), wb = 1 / (rb * rb), w = wa + wb;
+  d.best_lat = (d.best_lat * wa + pos.lat * wb) / w;
+  d.best_lon = (d.best_lon * wa + pos.lon * wb) / w;
+  d.position_confidence_m = Math.max(Math.ceil(Math.sqrt(1 / w)), Math.min(ra, rb));
+  if (pos.source === 'estimated') d.position_source = 'estimated';
+}
+
+/* Provisional until a second pass agrees with the first, confirmed after that,
+   verified once a person has been shown it and signed it off.
+
+   Passes are counted as distinct survey runs, which is the only version of
+   "independent" this app can honestly measure: fifty frames of one hole on one
+   drive is one opinion, and three drives on three days is evidence. Defects
+   migrated from before runs were recorded have no run ids at all, so their pass
+   count is null rather than one — not knowing has to mean not knowing. */
+function defectStatus(d) {
+  if (d.verifiedAt) return 'verified';
+  return (d.runs && d.runs.length >= 2) ? 'confirmed' : 'provisional';
+}
+
+function newDefect(obs, runId) {
+  var pos = bestPos(obs);
+  return {
+    defect_id: uuid(),
+    created_at: obs.capturedAt || obs.t,
+    updated_at: obs.capturedAt || obs.t,
+    type: obs.type,
+    best_lat: pos ? pos.lat : null,
+    best_lon: pos ? pos.lon : null,
+    position_confidence_m: pos ? pos.confM : null,
+    position_source: pos ? pos.source : null,
+    heading: obs.headingDeg == null ? null : obs.headingDeg,
+    /* The worst its observations have made it look, so a defect does not get
+       quieter because the last pass caught it in shadow. */
+    score: obs.score == null ? null : obs.score,
+    priority: obs.priority || null,
+    first_seen: obs.capturedAt || obs.t,
+    last_seen: obs.capturedAt || obs.t,
+    observation_count: 1,
+    runs: runId ? [runId] : [],
+    statCat: null, statResp: null, catBy: null, catAt: null,
+    verifiedBy: null, verifiedAt: null,
+    status: 'provisional'
+  };
+}
+
+function foldObservation(d, obs, runId) {
+  d.observation_count = (d.observation_count || 0) + 1;
+  d.last_seen = obs.capturedAt || obs.t;
+  d.updated_at = new Date().toISOString();
+  if (runId && d.runs.indexOf(runId) === -1) d.runs.push(runId);
+  if (obs.score != null && (d.score == null || obs.score > d.score)) {
+    d.score = obs.score; d.priority = obs.priority || d.priority;
+  }
+  if (d.heading == null && obs.headingDeg != null) d.heading = obs.headingDeg;
+  foldPosition(d, obs);
+  d.status = defectStatus(d);
+}
+
+/* Attach an observation to a defect — an existing one where there is a
+   plausible match, a new one otherwise — and write both. */
+function fileObservation(obs, runId) {
+  obs.observation_id = obs.observation_id || uuid();
+  obs.runId = runId || obs.runId || null;
+  var d = defectFor(obs);
+  if (d) {
+    foldObservation(d, obs, obs.runId);
+  } else {
+    d = newDefect(obs, obs.runId);
+    S.defects.push(d);
+  }
+  obs.defect_id = d.defect_id;
+  if (dbBroken) return Promise.resolve(d);
+  return putPhys(d).then(function () { return d; }, function () { return d; });
+}
+
+function defectById(id) {
+  for (var i = 0; i < S.defects.length; i++) if (S.defects[i].defect_id === id) return S.defects[i];
+  return null;
+}
+
+/* An observation leaving the log takes its share of the defect with it, and a
+   defect with no observations left is not a defect. Nothing is orphaned and
+   nothing is silently kept alive by a row that has gone. */
+function unfileObservation(obs) {
+  var d = obs && obs.defect_id ? defectById(obs.defect_id) : null;
+  if (!d) return Promise.resolve();
+  d.observation_count = Math.max(0, (d.observation_count || 1) - 1);
+  if (d.observation_count === 0) {
+    S.defects = S.defects.filter(function (x) { return x.defect_id !== d.defect_id; });
+    return dbBroken ? Promise.resolve() : delPhys(d.defect_id).catch(function () {});
+  }
+  /* The runs are rebuilt from the observations that are actually left, so a
+     defect cannot stay "confirmed on two passes" once the evidence for one of
+     them has been deleted. Losing that status is the point: it is a claim about
+     how much is known, and less is known now. */
+  var runs = [];
+  S.items.forEach(function (o) {
+    if (o.defect_id === d.defect_id && o.runId && runs.indexOf(o.runId) === -1) runs.push(o.runId);
+  });
+  d.runs = runs;
+  d.updated_at = new Date().toISOString();
+  d.status = defectStatus(d);
+  return dbBroken ? Promise.resolve() : putPhys(d).catch(function () {});
+}
+
+/* ---------- giving the rows that came before this a defect each ----------
+
+   Every existing entry becomes one observation of one provisional defect. It
+   would be possible to cluster them retrospectively — they have positions — and
+   it would be wrong: those positions are the vehicle's, recorded with no
+   heading, from fixes that were allowed to be five seconds old. Merging two of
+   them would be a guess presented as a finding, and unmerging it afterwards is
+   not something the app can offer. One each, provisional, and any real grouping
+   comes from passes made after this build.
+
+   Runs are unknown for these, so the pass count is null and not one. */
+function migrateToDefects(rows, existing) {
+  var known = {};
+  (existing || []).forEach(function (d) { known[d.defect_id] = true; });
+  var todo = rows.filter(function (r) {
+    return !r.observation_id || !r.defect_id || !known[r.defect_id];
+  });
+  if (!todo.length) return Promise.resolve([]);
+  var made = [];
+  return todo.reduce(function (chain, obs) {
+    return chain.then(function () {
+      obs.observation_id = obs.observation_id || uuid();
+      if (obs.runId === undefined) obs.runId = null;
+      var d = newDefect(obs, null);
+      d.migrated = true;
+      d.status = 'provisional';
+      obs.defect_id = d.defect_id;
+      made.push(d);
+      return putPhys(d).then(function () { return putEntry(obs); });
+    });
+  }, Promise.resolve()).then(function () { return made; },
+    function () { return made; });      // a partial migration is retried next load
+}
+
 /* ---------- keeping the screen awake ----------
 
    A survey ends when the screen sleeps, because the browser suspends the page
@@ -1656,6 +1929,10 @@ function startSurvey() {
   if (survey.on || !stream) return;
   survey.on = true; survey.logged = 0; survey.last = null;
   survey.recent = [];
+  /* One id per press of the record button. It is what "independent pass" is
+     counted in: fifty frames of one hole on one drive is one opinion, three
+     drives on three days is evidence. */
+  survey.runId = uuid();
   survey.startedAt = Date.now();
   /* Asked for, never waited on. A browser that will not give one runs the
      survey exactly as before — with the screen able to sleep, which is a worse
@@ -1876,7 +2153,12 @@ function logFind(hits, out, c, cand) {
         posConfM: est.confM, estBy: est.by, estWhy: est.why,
         cameraLeadM: est.leadM == null ? null : est.leadM
       };
-      (dbBroken ? Promise.resolve() : putEntry(e)).then(function () {
+      /* The observation is attached to a defect before it is written, so the
+         row that lands in the store already knows what it is an observation
+         of — rather than being written first and patched afterwards, which
+         leaves a window where a crash orphans it. */
+      fileObservation(e, survey.runId).then(function () {
+      return (dbBroken ? Promise.resolve() : putEntry(e)).then(function () {
         S.items.unshift(e);
         addWords(e);
         survey.logged++;
@@ -1899,6 +2181,7 @@ function logFind(hits, out, c, cand) {
         hud('Could not write it down', 'bad');
         toast('This device refused the write. Export what is in the log.');
         resolve();
+      });
       });
     }, 'image/jpeg', 0.82);
   });
@@ -2304,6 +2587,21 @@ function render() {
       how += ' · heading ' + Math.round(it.headingDeg) + '°';
       if (it.speedMps != null) how += ' at ' + (it.speedMps * 2.23694).toFixed(0) + ' mph';
     }
+    /* What this row is an observation of. A defect seen once is provisional and
+       says so: one pass is one opinion, and the app has no business claiming a
+       hole exists on the strength of a single drive past it. */
+    var od = it.defect_id ? defectById(it.defect_id) : null;
+    var obsLine = '';
+    if (od) {
+      var passes = od.runs && od.runs.length ? od.runs.length : null;
+      obsLine = '<div class="obs">Defect <code>' + esc(od.defect_id.slice(0, 8)) + '</code> · ' +
+        od.observation_count + ' observation' + (od.observation_count === 1 ? '' : 's') +
+        (passes ? ' over ' + passes + ' pass' + (passes === 1 ? '' : 'es') : '') +
+        ' · <b class="st-' + esc(od.status) + '">' + esc(od.status) + '</b>' +
+        (od.status === 'provisional'
+          ? ' <span class="obsnote">seen on one pass — not yet claimed to exist</span>' : '') +
+        '</div>';
+    }
     /* Gauged depth is real measured data. The fields that collected it are gone,
        but an entry that already carries one still shows it. */
     var dep = (it.depth != null) ? it.depth + 'mm at deepest point (gauged)' : null;
@@ -2335,7 +2633,7 @@ function render() {
       '<div class="det">' + sub + ' · ' + esc(it.type) + ' · ' + esc(it.surface) + '<br>' +
       (dep ? esc(dep) + '<br>' : '') + how + '<br>' + esc(loc) + flag + '<br>' +
       new Date(it.t).toLocaleString() +
-      (it.note ? '<br>' + esc(it.note) : '') + '</div>' +
+      (it.note ? '<br>' + esc(it.note) : '') + '</div>' + obsLine +
       '<div class="acts">' +
       (unconfirmed ? '<button class="del go" data-id="' + it.id + '">Confirm</button>' : '') +
       '<button class="del amend-open" data-id="' + it.id + '">Amend</button>' +
@@ -2411,8 +2709,10 @@ $('list').addEventListener('click', function (e) {
                  'correction, so it can be used to teach the model.')) return;
     S.items = S.items.filter(function (x) { return x.id !== wid; });
     wit.markedWrongAt = new Date().toISOString();
-    var done = dbBroken ? Promise.resolve()
-      : putWrong(wit).then(function () { return delEntry(wid); });
+    var done = unfileObservation(wit).then(function () {
+      return dbBroken ? Promise.resolve()
+        : putWrong(wit).then(function () { return delEntry(wid); });
+    });
     return done.then(render, render);
   }
 
@@ -2424,13 +2724,25 @@ $('list').addEventListener('click', function (e) {
   if (!confirm('Remove this ' + what + ' and its photograph? ' +
                'This cannot be undone.')) return;
   S.items = S.items.filter(function (x) { return x.id !== id; });
-  (dbBroken ? Promise.resolve() : delEntry(id)).then(render, render);
+  unfileObservation(it).then(function () {
+    return dbBroken ? Promise.resolve() : delEntry(id);
+  }).then(render, render);
 });
 
 $('bClear').addEventListener('click', function () {
   if (!confirm('Remove all ' + S.items.length + ' entries? This cannot be undone.')) return;
   S.items = [];
-  (dbBroken ? Promise.resolve() : clearEntries()).then(render, render);
+  var gone = S.defects.slice();
+  S.defects = [];
+  (dbBroken ? Promise.resolve()
+            : clearEntries().then(function () {
+                /* The defects go with their observations. A defect store left
+                   full after the log was emptied would put every one of them
+                   back on the next pass as a thing with no evidence. */
+                return Promise.all(gone.map(function (d) {
+                  return delPhys(d.defect_id).catch(function () {});
+                }));
+              })).then(render, render);
 });
 
 /* ---------- full-size photo ---------- */
@@ -2497,7 +2809,9 @@ $('bCsv').addEventListener('click', function () {
      a spreadsheet or an import template keyed on them should not break on this
      release. They hold the same thing statutory_category holds — which is
      nothing at all unless a person put it there. */
-  var head = ['timestamp', 'captured_at', 'stored_at',
+  var head = ['observation_id', 'defect_id', 'defect_status',
+    'defect_observation_count', 'independent_pass_count', 'run_id',
+    'timestamp', 'captured_at', 'stored_at',
     'latitude', 'longitude', 'gps_accuracy_m', 'gps_fix_age_s',
     'heading_deg', 'speed_mps',
     'estimated_defect_lat', 'estimated_defect_lon', 'position_confidence_m',
@@ -2511,7 +2825,13 @@ $('bCsv').addEventListener('click', function () {
   var rows = S.items.map(function (i) {
     var st = statutoryOf(i), pr = priorityOf(i);
     var pos = bestPos(i);
-    return [i.t, i.capturedAt || i.t, i.storedAt || '',
+    var d = i.defect_id ? defectById(i.defect_id) : null;
+    /* Null rather than 1 where the runs are unknown — the rows migrated from
+       before runs were recorded cannot honestly claim a pass count. */
+    var passes = d && d.runs && d.runs.length ? d.runs.length : '';
+    return [i.observation_id || '', i.defect_id || '', d ? d.status : '',
+      d ? d.observation_count : '', passes, i.runId || '',
+      i.t, i.capturedAt || i.t, i.storedAt || '',
       i.lat, i.lon, i.acc, i.fixAge,
       i.headingDeg, i.speedMps,
       i.estLat, i.estLon, pos ? pos.confM : '',
@@ -2553,6 +2873,7 @@ $('bGeo').addEventListener('click', function () {
     type: 'FeatureCollection',
     features: rows.map(function (i) {
       var st = statutoryOf(i), pr = priorityOf(i), pos = bestPos(i);
+      var dfc = i.defect_id ? defectById(i.defect_id) : null;
       return {
         type: 'Feature',
         id: i.id,
@@ -2564,6 +2885,11 @@ $('bGeo').addEventListener('click', function () {
            would be the same false precision in a different file format. */
         geometry: { type: 'Point', coordinates: [pos.lon, pos.lat] },
         properties: {
+          observation_id: i.observation_id || null,
+          defect_id: i.defect_id || null,
+          defect_status: dfc ? dfc.status : null,
+          defect_observation_count: dfc ? dfc.observation_count : null,
+          independent_pass_count: (dfc && dfc.runs && dfc.runs.length) ? dfc.runs.length : null,
           logged: i.t,
           captured_at: i.capturedAt || i.t,
           stored_at: i.storedAt || null,
@@ -2734,6 +3060,10 @@ $('bJson').addEventListener('click', function () {
         roboflow: meta,               // what the service says it is, and what decodes it
         selfTest: selfTest
       }, null, 2) + ',\n');
+      /* The defects the observations above are observations of. `defects` is
+         the observation list and keeps that name for compatibility; this is the
+         new thing beside it. */
+      out.add('"physicalDefects": ' + JSON.stringify(S.defects, null, 2) + ',\n');
       out.add('"photographs": ' + JSON.stringify(withImages ? 'included' : 'omitted at export') + ',\n');
       // what the model returned when it made no sense
       out.add('"lastUnusableOutput": ' + JSON.stringify(lastRaw == null ? null : lastRaw) + '\n}\n');
@@ -2943,7 +3273,18 @@ lockLandscape();          // granted when installed off the manifest; refused in
 
 openDb().then(function (d) {
   db = d;
-  return migrateLegacy().then(allEntries);
+  return migrateLegacy().then(function () {
+    return Promise.all([allEntries(), allPhys()]);
+  }).then(function (both) {
+    var rows = both[0] || [], phys = both[1] || [];
+    /* Anything written before the split gets an observation id and a defect of
+       its own, once. Rows that already have both are left alone, so this is a
+       no-op on every load after the first. */
+    return migrateToDefects(rows, phys).then(function (made) {
+      S.defects = phys.concat(made);
+      return rows;
+    });
+  });
 }).catch(function () {
   dbBroken = true;
   return [];

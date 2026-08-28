@@ -720,6 +720,99 @@ The GeoJSON geometry is the estimated position, because that is what anything
 with a map in it will drive somebody to; the vehicle position rides alongside in
 `vehicle_lat` / `vehicle_lon` with `position_source` saying which is which.
 
+## An observation is not a defect
+
+Every row in this app used to be a sighting, and a sighting was treated as a
+thing. Drive the same road twice and you had two defects; drive it fifty times
+and you had fifty. Nothing downstream of that works — you cannot say a defect is
+getting worse, or that a repair happened, or how sure you are that it exists,
+because there is nothing for those to be properties of.
+
+There are two stores now.
+
+An **observation** is one detection event: a frame, a box, a position, a
+photograph, a timestamp. It never changes after it is written. A **defect** is
+the thing in the road that observations are of, and it does change — it gains
+observations, its position estimate improves, its status moves on.
+
+The object store names are historical and deliberately left alone: `defects`
+holds observations, because renaming an object store means copying every
+photograph in it and there is no version of that worth the risk. The code says
+*observation* everywhere it means one.
+
+Ids are UUIDs rather than timestamps. Two phones surveying the same round
+produce colliding millisecond ids, and the day anything is combined the
+collision is silent.
+
+### What decides that two observations are of one defect
+
+Same type; within `max(20 m, the two error bars added)` capped at 80 m; and
+pointing the same way where both headings are known. More generous than the
+within-a-run duplicate radius, because this is mostly asking about a later pass
+on a different day where the two fixes are independent rather than nearly
+identical. An observation with no position becomes its own defect rather than
+being attached to whichever one happened to be nearest in the list.
+
+A defect's position is the accuracy-weighted mean of its observations —
+`1/r²`, so a ±6 m observation moves it far more than a ±40 m one — and the
+combined radius shrinks as evidence accumulates but **never below the best
+single observation**, because averaging vague positions cannot manufacture a
+precise one.
+
+### Provisional, confirmed, verified
+
+| Status | What it means |
+| --- | --- |
+| `provisional` | Seen on one pass. Not yet claimed to exist. |
+| `confirmed` | Seen on two or more independent passes. |
+| `verified` | A person has looked at it and signed it off. |
+
+A **pass** is one press of the record button — one survey run, with its own id.
+That is the only version of "independent" this app can honestly measure: fifty
+frames of one hole on one drive is one opinion; three drives on three days is
+evidence.
+
+Remove one of a defect's two observations and it goes back to `provisional`. The
+runs are rebuilt from the observations that are actually left, so a defect cannot
+keep claiming two passes once the evidence for one of them has been deleted.
+Losing the status is the point — it is a claim about how much is known, and less
+is known now. Remove the last observation and the defect goes with it: nothing is
+left in the store with no evidence behind it.
+
+### Migrating what was already there
+
+Every existing entry becomes **one observation of one provisional defect**.
+
+It would be possible to cluster them retrospectively — they have positions — and
+it would be wrong. Those positions are the *vehicle's*, recorded with no heading,
+from fixes that were allowed to be five seconds old. Merging two of them would be
+a guess presented as a finding, and unmerging it afterwards is not something the
+app can offer. One each, provisional, and any real grouping comes from passes
+made after this build.
+
+The runs behind them were never recorded, so their pass count is **null, not
+one**. Not knowing has to mean not knowing.
+
+The upgrade transaction only creates the store; giving the existing rows their
+defects happens afterwards in ordinary code, where a failure can be reported
+rather than aborting the upgrade and leaving the database on the old version with
+no explanation. A partial migration is simply retried on the next load, and rows
+that already have both ids are left alone — so it is a no-op on every load after
+the first.
+
+### In the exports
+
+CSV and GeoJSON gain `observation_id`, `defect_id`, `defect_status`,
+`defect_observation_count`, `independent_pass_count` and `run_id`. The JSON
+export keeps `defects` as the observation list, for compatibility, and carries
+the defects themselves beside it as `physicalDefects`.
+
+### What this deliberately is not
+
+It does not cluster retrospectively, it does not merge defects, and it does not
+run in the background. Anything cleverer belongs on a server with every device's
+observations in front of it, and building it here would mean building it twice.
+
 ## Telling one defect from the one before it
 
 The old check compared the current vehicle position against the vehicle position

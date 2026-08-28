@@ -432,6 +432,18 @@ footer{padding:22px 16px 30px;color:var(--refl);font-size:12px;line-height:1.6;t
 
 /* An entry nobody has stood over reads as provisional at a glance, and carries
    the one button that changes that. */
+/* What a row is an observation of. A line of its own rather than another
+   clause in the provenance run-on, because "provisional" is a statement about
+   the defect and everything above it is about this one sighting. */
+.item .obs{font-size:12px;color:var(--refl);margin:7px 0 6px;padding-top:6px;
+  border-top:1px dashed var(--line);line-height:1.5}
+.item .obs code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;
+  background:var(--tar3);padding:1px 4px;border-radius:3px;color:#C9D0DA}
+.item .obs .st-provisional{color:var(--hiviz)}
+.item .obs .st-confirmed{color:var(--mark-y)}
+.item .obs .st-verified{color:var(--ok)}
+.item .obs .obsnote{opacity:.8}
+
 .item.unconf{border-style:dashed;border-left-style:solid}
 /* A priority is shown in the app's own colour with the words "app priority"
    beside it, because the slot it sits in used to hold "Category 2" and a
