@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-24 · 32';
+var BUILD = '2026-08-28 · 33';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -260,12 +260,92 @@ function selectCell(i, p) {
   S.imp = i; S.prob = p;
 }
 
+/* ---------- statutory category, and who is allowed to assign one ----------
+
+   These words — Emergency, Category 1, two hours, 28 calendar days — are the
+   response categories a highway authority works to, and in practice they are
+   keyed on the depth and plan dimensions of the defect. This app measures
+   neither. It measures how much of a 640-pixel square the thing filled, which
+   is a function of how far away the camera was at least as much as of how big
+   the hole is.
+
+   So this function still exists, and it is still what the risk matrix reads —
+   but it is reachable only from the confirm screen, where a person is looking
+   at the photograph and choosing the cell. Nothing the survey writes on its own
+   goes anywhere near it. What the survey writes is a priority, below. */
 function category(n) {
   if (n >= 25) return { k: 'Emergency', r: '2 hours', c: 'c-em', key: 'kem' };
   if (n >= 16) return { k: 'Category 1', r: '1 working day', c: 'c-1', key: 'k1' };
   if (n >= 9)  return { k: 'Category 2', r: '28 calendar days', c: 'c-2', key: 'k2' };
   if (n >= 6)  return { k: 'Category 3', r: '90 calendar days', c: 'c-3', key: 'k3' };
   return { k: 'Below threshold', r: 'No response category', c: '', key: 'k0' };
+}
+
+/* ---------- what the app is allowed to say on its own ----------
+
+   An internal ordering, and nothing more. P1 is "of the things this survey
+   found, look at this one first"; P4 is "look at it last". There is no time
+   attached to any of them, because attaching one would be inventing a legal
+   obligation out of a box on a screen.
+
+   The thresholds are the app's own — they are the same numbers the risk matrix
+   is coloured by, reused so that a survey find and a scored find sort the same
+   way. They are not taken from any standard and they carry no legal meaning.
+   If they are wrong they are wrong about the order of a work list, which is a
+   thing you can look at and disagree with, rather than about a duty. */
+var PRIORITY = [
+  { min: 16, p: 'P1', word: 'Look at first', key: 'p1' },
+  { min: 9,  p: 'P2', word: 'Look at soon',  key: 'p2' },
+  { min: 6,  p: 'P3', word: 'Look at later', key: 'p3' },
+  { min: 0,  p: 'P4', word: 'Lowest',        key: 'p4' }
+];
+
+function priorityFor(n) {
+  if (typeof n !== 'number' || !isFinite(n) || n <= 0) return null;
+  for (var i = 0; i < PRIORITY.length; i++) if (n >= PRIORITY[i].min) return PRIORITY[i];
+  return PRIORITY[PRIORITY.length - 1];
+}
+
+/* Entries written before priorities existed carry a score and a statutory
+   category the survey chose for itself. The score is still a score, so the
+   priority is worked out from it here rather than by rewriting the row — and
+   the category it came with is dealt with by statutoryOf() below. */
+function priorityOf(it) {
+  if (!it) return null;
+  if (it.priority) {
+    for (var i = 0; i < PRIORITY.length; i++) if (PRIORITY[i].p === it.priority) return PRIORITY[i];
+  }
+  return priorityFor(it.score);
+}
+
+/* Returns the statutory category on an entry only if a person put it there.
+
+   This is the guard that makes old data safe. Rows logged by earlier builds
+   carry cat and resp filled in by the survey itself, unread by anybody — the
+   fields are kept, because deleting them would lose what the app said at the
+   time, but they are not a classification and they must not be shown or
+   exported as one. A category counts when catBy names who assigned it, or —
+   for rows from before that field existed — when the entry was confirmed by
+   someone on the confirm screen. */
+function statutoryOf(it) {
+  if (!it) return null;
+  if (it.catBy) {
+    return { cat: it.statCat, resp: it.statResp, by: it.catBy, at: it.catAt || null };
+  }
+  var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
+  if (!unconfirmed && it.confirmedAt && it.cat) {
+    return { cat: it.cat, resp: it.resp, by: it.scoredBy || 'inspector', at: it.confirmedAt };
+  }
+  return null;
+}
+
+/* The colour down the side of a log entry and on a map pin: the statutory
+   category when there is a real one, the internal priority otherwise. */
+function markKey(it) {
+  var s = statutoryOf(it);
+  if (s && it.key && /^k/.test(it.key)) return it.key;
+  var p = priorityOf(it);
+  return p ? p.key : 'p4';
 }
 
 function verdict() {
@@ -283,8 +363,13 @@ function verdict() {
   var by = $('vBy');
   by.hidden = !n || !S.by;
   if (n && S.by) {
-    by.textContent = S.by === 'app' ? 'Proposed by the app — tap any cell to overrule'
-                                    : 'Your score';
+    /* The verdict panel is the one place in the app that shows a statutory
+       category, and it is showing what will be written down if the Confirm
+       button is pressed. Until it is, this is a proposal on a screen and not a
+       classification, and it says so rather than leaving it to be assumed. */
+    by.textContent = S.by === 'app'
+      ? 'Proposed by the app — tap any cell to overrule. Nothing is classified until you confirm.'
+      : 'Your score — written down as a category when you confirm.';
   }
 }
 
@@ -491,16 +576,18 @@ function openConfirm(id) {
     ? { conf: it.detConf, share: it.detShare, count: it.detCount || 1, cls: it.type }
     : null;
   if (S.det) {
-    var c = category(it.score || 0);
+    var pr = priorityOf(it);
     scanSay('<b>' + (it.detConf == null || it.detConf < 0 || it.detConf > 1
         ? 'The survey logged this without saying how sure it was.'
         : Math.round(it.detConf * 100) + '% sure when the survey logged it.') + '</b> ' +
       (it.detShare != null ? 'It filled ' + Math.round(it.detShare * 100) + '% of the frame, ' +
-        'which is what the proposed ' + it.imp + ' × ' + it.prob + ' = ' + it.score + ', ' +
-        c.k + ' was worked out from. ' : '') +
+        'which is what the ' + it.imp + ' × ' + it.prob + ' = ' + it.score + ' and the ' +
+        (pr ? pr.p : 'priority') + ' the survey gave it were worked out from. ' : '') +
       '<span class="caveat">A photograph has no scale in it. The share of the frame assumes the ' +
       'camera was pointed down at the road, and the box drawn round the hole is generous. It says ' +
-      'nothing about depth, traffic or footfall — that part is yours.</span>', 'hit');
+      'nothing about depth, traffic or footfall — that part is yours. The survey has given this a ' +
+      'priority and nothing else; the category and the response time below become part of the ' +
+      'record when you confirm, and not before.</span>', 'hit');
   } else {
     scanSay('<b>No model reading was kept for this entry.</b> Score it on the matrix yourself.', 'none');
   }
@@ -537,9 +624,19 @@ $('bSave').addEventListener('click', function () {
   var it = confirming;
   if (!it) return show('log');
   if (!S.imp || !S.prob) { alert('Score it on the matrix first.'); return; }
-  var n = S.imp * S.prob, c = category(n);
+  var n = S.imp * S.prob, c = category(n), pri = priorityFor(n);
   it.imp = S.imp; it.prob = S.prob; it.score = n;
+  /* This is the one place a statutory category is created, and it is created
+     because a person sat with the photograph and chose a cell. It is written
+     with their name on it — catBy is what statutoryOf() looks for, and an entry
+     without it has no classification however full its other fields are. cat and
+     resp are set alongside it so that anything reading the old field names sees
+     the same thing rather than a stale one. */
+  it.statCat = c.k; it.statResp = c.r;
+  it.catBy = S.by === 'app' ? 'app proposal, accepted by a person' : 'inspector';
+  it.catAt = new Date().toISOString();
   it.cat = c.k; it.resp = c.r; it.key = c.key;
+  if (pri) { it.priority = pri.p; it.priorityWord = pri.word; }
   it.surface = S.foot ? 'Footway/cycleway' : 'Carriageway';
   it.type = $('fType').value;
   it.note = $('fNote').value.trim();
@@ -547,7 +644,7 @@ $('bSave').addEventListener('click', function () {
      recorded as one — but as an accepted proposal, not as an independent
      judgement, because those are different things. */
   it.scoredBy = S.by === 'app' ? 'app proposal, accepted' : 'inspector';
-  it.confirmedAt = new Date().toISOString();
+  it.confirmedAt = it.catAt;
 
   (dbBroken ? Promise.resolve() : putEntry(it)).then(function () {
     confirming = null;
@@ -1304,7 +1401,7 @@ function logFind(hits, out, c) {
   var p = proposal(det);
   S.det = was;
   if (!p) { hud('Found something, could not measure it', 'bad'); return Promise.resolve(); }
-  var n = p.imp * p.prb, cat = category(n);
+  var n = p.imp * p.prb, pri = priorityFor(n) || PRIORITY[PRIORITY.length - 1];
 
   return new Promise(function (resolve) {
     c.toBlob(function (blob) {
@@ -1312,7 +1409,15 @@ function logFind(hits, out, c) {
       var f = S.gps ? { lat: S.gps.lat, lon: S.gps.lon, acc: S.gps.acc, age: fixAge() } : null;
       var e = {
         id: nextId(), t: new Date().toISOString(), img: blob,
-        imp: p.imp, prob: p.prb, score: n, cat: cat.k, resp: cat.r, key: cat.key,
+        imp: p.imp, prob: p.prb, score: n,
+        /* No category and no response time. The survey has not measured a
+           depth, nobody has looked at the photograph, and a field called
+           `resp` holding the words "2 hours" is read by whatever imports this
+           as an obligation. What it may say is which of its own finds it
+           thinks is worth looking at first. */
+        priority: pri.p, priorityWord: pri.word, key: pri.key,
+        cat: null, resp: null,
+        statCat: null, statResp: null, catBy: null, catAt: null,
         surface: S.foot ? 'Footway/cycleway' : 'Carriageway',
         tag: S.tag || '',
         scoredBy: 'survey, unconfirmed',
@@ -1332,10 +1437,11 @@ function logFind(hits, out, c) {
         /* A missing confidence used to just not appear, which reads exactly
            like a confident find. It is the one number that says whether the
            model is being decoded at all, so its absence is now said out loud. */
-        toast('Logged ' + typeFor(best.cls).toLowerCase() + ' — ' + cat.k +
+        toast('Logged ' + typeFor(best.cls).toLowerCase() + ' — ' + pri.p + ', ' +
+            pri.word.toLowerCase() +
             (det.conf == null ? ' (sureness out of range — the model is not being read properly)'
                               : ' (' + Math.round(det.conf * 100) + '% sure)') +
-            '. Unconfirmed.');
+            '. Not classified — nobody has looked at it.');
         resolve();
       }, function () {
         hud('Could not write it down', 'bad');
@@ -1442,7 +1548,7 @@ function pinFor(it) {
   var unconfirmed = /unconfirmed/i.test(it.scoredBy || '');
   return L.divIcon({
     className: '',
-    html: '<i class="mappin ' + it.key + (unconfirmed ? ' unconf' : '') + '"></i>',
+    html: '<i class="mappin ' + markKey(it) + (unconfirmed ? ' unconf' : '') + '"></i>',
     iconSize: [18, 18], iconAnchor: [9, 9]
   });
 }
@@ -1461,8 +1567,12 @@ function drawMap() {
       var where = (it.w3w ? '///' + esc(it.w3w)
                           : it.lat.toFixed(5) + ', ' + it.lon.toFixed(5)) +
                   (it.acc != null ? ' (±' + it.acc + 'm)' : '');
+      var st = statutoryOf(it), pr = priorityOf(it);
+      var title = st ? esc(st.cat) + ' — ' + esc(st.resp)
+                     : (pr ? pr.p + ' — ' + esc(pr.word) : 'Not scored') +
+                       ' <em>(app priority, not classified)</em>';
       L.marker([it.lat, it.lon], { icon: pinFor(it) })
-        .bindPopup('<b>' + esc(it.cat) + '</b><br>' + esc(it.type) + ' · ' + esc(it.surface) +
+        .bindPopup('<b>' + title + '</b><br>' + esc(it.type) + ' · ' + esc(it.surface) +
                    '<br>' + where + '<br>' + new Date(it.t).toLocaleString() +
                    (unconfirmed ? '<br><em>Unconfirmed survey find</em>' : ''))
         .addTo(pins);
@@ -1587,7 +1697,9 @@ function render() {
       'to go on a map' + (loose ? ', and ' + loose + ' ' + (loose === 1 ? 'has' : 'have') +
       ' none' : '') + '.' +
       (unconf ? ' <b>' + unconf + ' unconfirmed</b>, marked <code>confirmed: false</code> — ' +
-                'filter on it before anything here starts a response clock.' : '');
+                'filter on it before anything here starts a response clock.' : '') +
+      ' Every export carries <code>app_priority</code>, which is this app\'s own ordering. ' +
+      '<code>statutory_category</code> is empty except where a person assigned one.';
   }
   $('saveNote').hidden = !has;
 
@@ -1622,12 +1734,30 @@ function render() {
     var dep = (it.depth != null) ? it.depth + 'mm at deepest point (gauged)' : null;
     var src = '';
     if (it.img) { src = URL.createObjectURL(it.img); urls.push(src); }
-    return '<div class="item ' + it.key + (unconfirmed ? ' unconf' : '') + '">' +
+
+    /* The headline is either a statutory category a person assigned or the
+       app's own priority, and the two are never allowed to look alike. A
+       category comes with a response time; a priority comes with a line saying
+       in as many words that nothing has been classified. Entries logged by
+       older builds, which carry a category the survey wrote for itself, fall on
+       the priority side — statutoryOf() is what decides, not the field. */
+    var st = statutoryOf(it), pr = priorityOf(it);
+    var head, sub;
+    if (st) {
+      head = '<span class="cat">' + esc(st.cat) + '</span>';
+      sub = esc(st.resp) + ' · assigned by ' + esc(st.by);
+    } else {
+      head = '<span class="cat prio">' + esc(pr ? pr.p : '—') + '</span>' +
+             '<span class="prionote">app priority</span>';
+      sub = (pr ? esc(pr.word) : 'Not scored') + ' · <b>not classified</b> — no response time';
+    }
+
+    return '<div class="item ' + markKey(it) + (unconfirmed ? ' unconf' : '') + '">' +
       (src ? '<button type="button" class="thumb" data-full="' + it.id + '">' +
              '<img src="' + src + '" alt="Defect photograph, tap for full size"></button>' : '') +
-      '<div class="body"><div class="top"><span class="cat">' + esc(it.cat) + '</span>' +
+      '<div class="body"><div class="top">' + head +
       '<span class="sc">' + it.imp + ' × ' + it.prob + ' = ' + it.score + '</span></div>' +
-      '<div class="det">' + esc(it.resp) + ' · ' + esc(it.type) + ' · ' + esc(it.surface) + '<br>' +
+      '<div class="det">' + sub + ' · ' + esc(it.type) + ' · ' + esc(it.surface) + '<br>' +
       (dep ? esc(dep) + '<br>' : '') + how + '<br>' + esc(loc) + flag + '<br>' +
       new Date(it.t).toLocaleString() +
       (it.note ? '<br>' + esc(it.note) : '') + '</div>' +
@@ -1679,13 +1809,20 @@ $('list').addEventListener('click', function (e) {
        score is recomputed rather than left describing the other surface. A
        score a person chose is theirs and is left alone. */
     var nowFoot = sit.surface === 'Footway/cycleway';
-    if (nowFoot !== wasFoot && sit.detShare != null && sit.scoredBy !== 'inspector') {
+    /* Only the app's own priority is recomputed, and only on an entry the app
+       is still the sole author of. Once a person has assigned a category,
+       changing the surface is a note about the entry — it is not permission for
+       the app to reclassify what somebody signed. */
+    if (nowFoot !== wasFoot && sit.detShare != null &&
+        sit.scoredBy !== 'inspector' && !statutoryOf(sit)) {
       var keep = S.foot; S.foot = nowFoot;
       var p = proposal({ share: sit.detShare, count: sit.detCount || 1, conf: sit.detConf });
       S.foot = keep;
-      var c2 = category(p.imp * p.prb);
-      sit.imp = p.imp; sit.prob = p.prb; sit.score = p.imp * p.prb;
-      sit.cat = c2.k; sit.resp = c2.r; sit.key = c2.key;
+      if (p) {
+        var n2 = p.imp * p.prb, pr2 = priorityFor(n2);
+        sit.imp = p.imp; sit.prob = p.prb; sit.score = n2;
+        if (pr2) { sit.priority = pr2.p; sit.priorityWord = pr2.word; sit.key = pr2.key; }
+      }
     }
     return (dbBroken ? Promise.resolve() : putEntry(sit)).then(render, render);
   }
@@ -1707,7 +1844,9 @@ $('list').addEventListener('click', function (e) {
   var b = e.target.closest('.del.remove'); if (!b) return;
   var id = +b.dataset.id;
   var it = S.items.filter(function (x) { return x.id === id; })[0];
-  if (!confirm('Remove this ' + (it ? it.cat.toLowerCase() : 'entry') + ' and its photograph? ' +
+  var itSt = it ? statutoryOf(it) : null, itPr = it ? priorityOf(it) : null;
+  var what = itSt ? itSt.cat.toLowerCase() : (itPr ? itPr.p + ' find' : 'entry');
+  if (!confirm('Remove this ' + what + ' and its photograph? ' +
                'This cannot be undone.')) return;
   S.items = S.items.filter(function (x) { return x.id !== id; });
   (dbBroken ? Promise.resolve() : delEntry(id)).then(render, render);
@@ -1773,13 +1912,30 @@ $('bCsv').addEventListener('click', function () {
      dropped them would lose measurements taken before they went. The columns
      appear only while some entry still has one. */
   var old = S.items.some(function (i) { return i.depth != null || i.wide != null; });
+  /* app_priority is the app's own ordering and is always filled in.
+     statutory_category and statutory_response_time are filled in only where a
+     person assigned one, and are empty everywhere else — an empty cell is the
+     honest answer to "what category is this", and a spreadsheet that sorts on
+     it puts the unclassified finds together where they belong.
+
+     category and response_time are kept under their old names as well, because
+     a spreadsheet or an import template keyed on them should not break on this
+     release. They hold the same thing statutory_category holds — which is
+     nothing at all unless a person put it there. */
   var head = ['timestamp', 'latitude', 'longitude', 'gps_accuracy_m', 'gps_fix_age_s',
-    'defect_type', 'surface', 'impact', 'probability', 'risk_factor', 'category', 'response_time',
+    'defect_type', 'surface', 'impact', 'probability', 'risk_factor',
+    'app_priority', 'app_priority_note',
+    'category', 'response_time',
+    'statutory_category', 'statutory_response_time', 'categorised_by', 'categorised_at',
     'tag', 'scored_by', 'model_confidence', 'model_share_of_frame', 'model_detections']
     .concat(old ? ['depth_mm_deepest', 'wider_than_tyre'] : []).concat(['what3words', 'notes']);
   var rows = S.items.map(function (i) {
+    var st = statutoryOf(i), pr = priorityOf(i);
     return [i.t, i.lat, i.lon, i.acc, i.fixAge, i.type, i.surface,
-      i.imp, i.prob, i.score, i.cat, i.resp,
+      i.imp, i.prob, i.score,
+      pr ? pr.p : '', pr ? pr.word : '',
+      st ? st.cat : '', st ? st.resp : '',
+      st ? st.cat : '', st ? st.resp : '', st ? st.by : '', st ? st.at : '',
       i.tag || '', i.scoredBy || 'inspector', i.detConf, i.detShare, i.detCount]
       .concat(old ? [i.depth, i.wide === null || i.wide === undefined ? '' : (i.wide ? 'yes' : 'no')] : [])
       .concat([i.w3w ? '///' + i.w3w : '', i.note]).map(q).join(',');
@@ -1811,6 +1967,7 @@ $('bGeo').addEventListener('click', function () {
   var fc = {
     type: 'FeatureCollection',
     features: rows.map(function (i) {
+      var st = statutoryOf(i), pr = priorityOf(i);
       return {
         type: 'Feature',
         id: i.id,
@@ -1820,8 +1977,19 @@ $('bGeo').addEventListener('click', function () {
           defect_type: i.type,
           tag: i.tag || null,
           surface: i.surface,
-          category: i.cat,
-          response_time: i.resp,
+          /* Null, not a category, wherever nobody assigned one. A GIS that
+             styles on statutory_category will show these as unclassified,
+             which is what they are. The old key names stay, holding the same
+             value, so an existing import does not lose a column — but they are
+             null on everything the app classified for itself, which is the
+             whole point of the change. */
+          category: st ? st.cat : null,
+          response_time: st ? st.resp : null,
+          statutory_category: st ? st.cat : null,
+          statutory_response_time: st ? st.resp : null,
+          categorised_by: st ? st.by : null,
+          app_priority: pr ? pr.p : null,
+          app_priority_note: pr ? pr.word + ' — the app\'s own ordering, not a statutory category' : null,
           impact: i.imp,
           probability: i.prob,
           risk_factor: i.score,

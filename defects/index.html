@@ -142,6 +142,8 @@
   <div class="mi-foot">
     Screening aid, not an inspection. Everything the survey logs on its own is marked
     unconfirmed until someone opens it and scores it.<br>
+    The survey gives a find a priority — P1 to P4 — which is this app's own ordering and
+    carries no response time. A statutory category exists only where a person assigned one.<br>
     Depth is never estimated from an image.<br>
     <span class="build">Build <span id="build">—</span></span>
   </div>
@@ -184,10 +186,18 @@
   <div class="sh-body">
     <div id="map"></div>
     <div class="mapbar">
+      <!-- Two palettes, and the difference between them is the point. The grey
+           and yellow pins are statutory categories a person assigned. The
+           orange ones are the app's own priority on a find nobody has looked
+           at, which is an order to work in and not a classification. -->
       <div class="key">
+        <span><i class="pin p1"></i>P1</span><span><i class="pin p2"></i>P2</span>
+        <span><i class="pin p3"></i>P3</span><span><i class="pin p4"></i>P4</span>
+        <span class="keysep">app priority — not classified</span>
         <span><i class="pin kem"></i>Emergency</span><span><i class="pin k1"></i>Cat 1</span>
         <span><i class="pin k2"></i>Cat 2</span><span><i class="pin k3"></i>Cat 3</span>
         <span><i class="pin k0"></i>Below</span>
+        <span class="keysep">assigned by a person</span>
         <span><i class="pin unconf"></i>Unconfirmed</span>
       </div>
       <button type="button" class="btn ghost" id="bFit">Fit to defects</button>
