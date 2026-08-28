@@ -137,9 +137,19 @@ body {
   color: var(--gold);
   font-weight: 700;
 }
-.verdict-line { margin: 6px 0 0; font-size: 1.9rem; line-height: 1.12; letter-spacing: -.4px; }
+/* The shout. Caps and heavy, but tracked out a touch and given a hard cap on
+   size, because a line like GOOD MORNING YOU RAY OF SUNSHINE is four times
+   the length of "Go for a walk" and has to survive a narrow phone. */
+.verdict-line {
+  margin: 8px 0 0;
+  font-size: clamp(1.35rem, 6.4vw, 1.75rem);
+  line-height: 1.08;
+  letter-spacing: .2px;
+  font-weight: 800;
+  text-wrap: balance;
+}
 .verdict--none .verdict-line { font-size: 1.4rem; color: var(--dim); }
-.verdict-why { margin: 8px 0 0; color: var(--ink); opacity: .9; font-size: 1rem; line-height: 1.45; }
+.verdict-why { margin: 9px 0 0; color: var(--ink); opacity: .88; font-size: .95rem; line-height: 1.45; }
 
 .facts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .fact {
@@ -202,7 +212,10 @@ body {
 
 .hr {
   flex: none;
-  width: 16px;
+  width: 22px;
+  /* Fixed height so the faces line up as their own row across the top rather
+     than riding the bars and reading as a ragged mess. */
+  height: 96px;
   background: none;
   border: 0;
   padding: 0;
@@ -229,6 +242,12 @@ body {
 /* The seam between one day and the next, so a bar three columns along is
    obviously tomorrow morning rather than this afternoon. */
 .hr.daybreak { border-left: 1px solid rgba(255,255,255,.22); padding-left: 3px; margin-left: 3px; }
+/* The face is the headline of the column: brolly, shades, woolly hat. It is
+   drawn at a size a thumb-width column can carry, and dimmed on the hours the
+   score has already written off so the good ones still stand out. */
+.hface { font-size: .82rem; line-height: 1; height: 14px; margin-bottom: auto; }
+.hr.b1 .hface, .hr.b0 .hface { opacity: .45; }
+.hr.night .hface { opacity: .6; }
 .hrlab { font-size: .62rem; color: var(--dimmer); height: 10px; }
 .hour-detail { min-height: 2.4em; }
 

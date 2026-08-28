@@ -15,15 +15,18 @@ the last forecast that reached it.
 One screen, and the top card is the whole app: what to do, when, and the
 reason it is worth doing now rather than later.
 
-- **The verdict.** *Go for a walk. At 07:00. This is the good bit of today.*
-  The span, what it feels like, the gusts, the chance of rain. **I went** logs
-  it; **Not today** shuts the nudges up until tomorrow.
+- **The verdict.** *PEAK OF THE DAY, YOU ABSOLUTE LEGEND.* Underneath it, in
+  a normal voice: what to do, when, and why now — the span, what it feels
+  like, the gusts, the chance of rain. **I went** logs it; **Not today** shuts
+  the nudges up until tomorrow.
 - **Now.** What it is doing outside this minute, which is usually why you
   opened it.
-- **Hour by hour.** The next day and a half as bars, scored. Tap one and it
-  says what that hour is doing, and if it is no good, why not. This is the
-  app's working shown: you can see the window it picked and the hours it threw
-  away.
+- **Hour by hour.** The next day and a half, each hour wearing what you would
+  need for it — sunglasses for one you would squint in, an umbrella for one
+  you would get soaked in, a woolly hat for one that will take the skin off
+  your face — over a bar for how good it is. Tap one and it says what that
+  hour is doing, and if it is no good, why not. This is the app's working
+  shown: you can see the window it picked and the hours it threw away.
 - **Windows ahead.** The rest of them, today and tomorrow.
 - **The streak.** Days in a row you have been out. Seven dots, and the one
   that matters is today's.
@@ -82,10 +85,26 @@ again:
   left in it is not an invitation.
 - Not at all after **Not today**, until tomorrow.
 
-The words are chosen to earn the interruption. "It is 18 degrees" does not;
-"best it gets today", "the rain is off for two hours", "last of the light" do,
-and each of those lines is only used when it is true of that window. If there
-is a streak to lose, it says so.
+### The mouth on it
+
+The big line is somebody shouting you out of the door, and it is the same line
+that arrives as the notification title, because a title and about four words
+of body is all a lock screen gives you.
+
+It shouts about something that is *true of that window* — there is a bank of
+lines per situation and the app never reaches outside the one it is in. A
+morning window gets a morning line. A window that runs into dusk gets the
+light. A window with a streak about to break gets the streak, because that
+beats the weather. Nothing shouts about sunshine on a grey afternoon.
+
+**Let it swear at me** is on by default and lives in Settings. Off, every line
+has a clean twin that says the same thing — the phone reads these out in front
+of whoever is stood next to you, so it is a real setting rather than a joke.
+
+The line underneath is the plain one, and it still has to earn its place. "It
+is 18 degrees" does not; "best it gets today", "the rain is off for two
+hours", "last of the light" do, and each is only used when it is true of that
+window. If there is a streak to lose, it says so.
 
 ### When it can reach you
 
