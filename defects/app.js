@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-29 · 39';
+var BUILD = '2026-08-29 · 40';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -3240,15 +3240,27 @@ function diagLines() {
     L.push('REAL FRAME');
     L.push('           not run — press "Test the camera" at the top of this screen');
     L.push('last said  ' + ((st && st.textContent) || '(nothing)'));
+    /* "live, 1920×1080" used to be asserted from videoWidth alone, and a video
+       element that has stopped keeps reporting the size of its last frame — so
+       that line called a stalled camera live. readyState is the part that knows. */
     L.push('camera     ' + (!stream ? 'NOT RUNNING — that is why the button refuses'
-      : (v && v.videoWidth) ? 'live, ' + v.videoWidth + '×' + v.videoHeight
-                            : 'open, but no frames have arrived yet'));
+      : !(v && v.videoWidth) ? 'open, but no frames have arrived yet'
+      : (v.readyState >= 2 ? 'live, ' : 'STALLED at ') +
+        v.videoWidth + '×' + v.videoHeight +
+        ' (readyState ' + v.readyState + (v.readyState >= 2 ? '' : ' — no frame to give') +
+        (v.paused ? ', paused' : '') + ')'));
     L.push('model      ' + (worker ? 'worker ready'
       : engine ? 'engine loaded but no worker — the model would not start'
                : 'not loaded'));
     /* When a run failed, this is the line that says what the library handed
        back — the thing the old type error was hiding. */
     if (lastInferType) L.push('raw type   ' + lastInferType + ' from the last engine.infer');
+    /* And this one says the model was never reached at all, which is a
+       different fault from the model failing and used to read as the same. */
+    if (lastSourceFail) {
+      L.push('source     THE PICTURE NEVER REACHED THE MODEL —');
+      L.push('           ' + lastSourceFail);
+    }
     var bench0 = benchLines();
     if (bench0) { L.push(''); L.push(bench0); }
   }
@@ -3281,6 +3293,10 @@ function diagLines() {
    The picture is drawn, inferred and shown. It is not written to the database
    and it does not leave the device. */
 var frameTest = null, testUrl = null;
+/* The last time a picture failed to reach the model at all, kept so the
+   not-run report can say so rather than leaving a blank where the reason
+   should be. */
+var lastSourceFail = null;
 
 /* What the survey's own filters would do with these detections, and where each
    one was lost. "The model found it and the shadow test threw it away" and "the
@@ -3362,14 +3378,119 @@ function orientationFacts(srcW, srcH, from) {
 
    Timed in four separate pieces, because "21 seconds" is not a finding until
    you know which piece it was in. */
+/* An error raised before the model was ever asked anything.
+
+   Marked, because the message that started this said "The model failed while
+   running" about a picture the browser could not even decode — the model was
+   never handed anything and never ran. Blaming it sent the search to the wrong
+   end of the pipeline. */
+function SourceError(msg) { this.message = msg; this.source = true; }
+SourceError.prototype = Object.create(Error.prototype);
+SourceError.prototype.name = 'SourceError';
+
+/* What the thing being handed to the model actually is — asked of the object,
+   not assumed from which button was pressed. */
+function sourceKind(v) {
+  if (v === null || v === undefined) return String(v);
+  var tag = Object.prototype.toString.call(v).slice(8, -1);
+  /* Chrome reports several of these as [object Object] in some contexts, so the
+     constructor name is preferred when there is one. */
+  if (v.constructor && v.constructor.name) return v.constructor.name;
+  return tag;
+}
+
+/* Everything worth knowing about the frame before the model is asked about it.
+
+   A video element that has stopped producing frames still reports the size of
+   the last one it managed, so videoWidth alone is not evidence that there is a
+   picture — readyState is the part that says whether a frame is actually
+   there. */
+function sourceFacts(source, w, h) {
+  var f = {
+    kind: sourceKind(source), askedW: w, askedH: h,
+    readyState: null, readyWord: null, videoW: null, videoH: null,
+    paused: null, ended: null, srcW: null, srcH: null
+  };
+  if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement) {
+    f.readyState = source.readyState;
+    f.readyWord = ['nothing yet', 'metadata only', 'this frame', 'this frame and the next',
+                   'enough to play through'][source.readyState] || '?';
+    f.videoW = source.videoWidth; f.videoH = source.videoHeight;
+    f.paused = source.paused; f.ended = source.ended;
+    f.srcW = source.videoWidth; f.srcH = source.videoHeight;
+  } else {
+    if (typeof source.width === 'number') f.srcW = source.width;
+    if (typeof source.height === 'number') f.srcH = source.height;
+  }
+  return f;
+}
+
+/* The check that turns a generic failure into a sentence worth reading. Run
+   before the canvas is drawn, so nothing downstream has to guess. */
+function sourceProblem(f) {
+  if (f.kind === 'HTMLVideoElement') {
+    if (f.readyState < 2) {
+      return 'the camera element has no frame to give (readyState ' + f.readyState +
+             ', ' + f.readyWord + '). The stream may be open without decoding yet.';
+    }
+    if (!f.videoW || !f.videoH) {
+      return 'the camera reports a frame of ' + f.videoW + '×' + f.videoH +
+             ' — there is nothing to draw.';
+    }
+  }
+  if (!f.askedW || !f.askedH) {
+    return 'the frame was asked for at ' + f.askedW + '×' + f.askedH +
+           ', which cannot be drawn from.';
+  }
+  if (f.srcW === 0 || f.srcH === 0) {
+    return 'the source measures ' + f.srcW + '×' + f.srcH + '.';
+  }
+  return null;
+}
+
+/* Whether anything actually landed on the canvas.
+
+   A frame that draws as one flat colour is not proof of a fault — a lens cap,
+   a dark road and a video element that quietly stopped all look the same from
+   here — so this is reported as an observation and never used to refuse a run.
+   Sampled on a grid rather than read whole: this is a diagnostic, not a
+   reason to walk 1.6 MB of pixels. */
+function canvasContent(ctx, size) {
+  try {
+    var d = ctx.getImageData(0, 0, size, size).data;
+    var lo = 255, hi = 0, step = size * 4 * 8;          // every eighth row
+    for (var i = 0; i < d.length; i += step) {
+      var v = (d[i] + d[i + 1] + d[i + 2]) / 3;
+      if (v < lo) lo = v; if (v > hi) hi = v;
+    }
+    return { min: Math.round(lo), max: Math.round(hi), flat: hi - lo < 2 };
+  } catch (e) {
+    /* A tainted canvas cannot be read. Worth saying, never worth failing on. */
+    return { min: null, max: null, flat: null, error: String((e && e.message) || e) };
+  }
+}
+
 function testFrame(source, w, h, label, from, rotate) {
   if (!engine || !worker) {
     return Promise.reject(new Error('the model is not loaded'));
   }
   var facts = orientationFacts(w, h, from);
+  /* Checked before anything is drawn, so a source that cannot produce a picture
+     says so itself instead of arriving as a decode failure further along. */
+  var src = sourceFacts(source, w, h);
+  var bad = sourceProblem(src);
+  if (bad) return Promise.reject(new SourceError(bad));
   var t0 = performance.now();
   var sq = rotate ? rotatedFrame(source, w, h, rotate) : squareFrame(source, w, h);
-  return createImageBitmap(sq.canvas).then(function (input) {
+  src.canvasW = sq.canvas.width; src.canvasH = sq.canvas.height;
+  src.content = canvasContent(sq.ctx, RF_SIZE);
+  return createImageBitmap(sq.canvas).catch(function (e) {
+    /* The canvas is built here and is always RF_SIZE square, so this failing is
+       a fact about the device rather than about the picture. */
+    throw new SourceError('the ' + sq.canvas.width + '×' + sq.canvas.height +
+      ' canvas could not be turned into an image — ' + String((e && e.message) || e));
+  }).then(function (input) {
+    src.bmpW = input.width; src.bmpH = input.height;
     var tPre = performance.now();
     return import('./vendor/inference.es.js').then(function (m) {
       return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
@@ -3393,7 +3514,7 @@ function testFrame(source, w, h, label, from, rotate) {
           label: label, at: new Date().toISOString(),
           raw: raw, rawType: rawType, from: from,
           trace: f.trace, kept: f.kept, diag: d, shot: blob,
-          rotate: rotate || 0, facts: facts,
+          rotate: rotate || 0, facts: facts, src: src,
           t: {
             pre: Math.round(out.tPre - t0),
             infer: Math.round(out.tInf - out.tPre),
@@ -3519,6 +3640,32 @@ function frameLines(f) {
       '° apart. The preview is not evidence of what the model was shown.');
   } else {
     L.push('  >> the preview and the model agree on which way up this is');
+  }
+  L.push('');
+
+  /* What was handed over, checked rather than assumed. The camera and a
+     photograph reach the model as different objects and the difference matters
+     enough to print: a video element that has stopped still reports the size of
+     its last frame, so a dimension on its own proves nothing. */
+  var sc = f.src || {};
+  L.push('SOURCE  (checked before the model was asked anything)');
+  L.push('  given as   ' + (sc.kind || '?'));
+  if (sc.kind === 'HTMLVideoElement') {
+    L.push('  readyState ' + sc.readyState + ' — ' + sc.readyWord);
+    L.push('  video      ' + sc.videoW + '×' + sc.videoH +
+      (sc.paused ? ', paused' : ', playing') + (sc.ended ? ', ended' : ''));
+  } else {
+    L.push('  measured   ' + sc.srcW + '×' + sc.srcH);
+  }
+  L.push('  drawn onto ' + sc.canvasW + '×' + sc.canvasH + ' canvas');
+  L.push('  handed to model as ImageBitmap ' + sc.bmpW + '×' + sc.bmpH);
+  if (sc.content) {
+    L.push('  frame      ' + (sc.content.error
+      ? 'could not be read — ' + sc.content.error
+      : 'brightness ' + sc.content.min + ' to ' + sc.content.max +
+        (sc.content.flat ? '  >> ALL ONE SHADE. A lens cap, a dark road and a video ' +
+                           'that stopped all look like this.'
+                         : ' — there is a picture here')));
   }
   L.push('');
 
@@ -4006,8 +4153,15 @@ function runTest(label, get, from) {
       : 'Done — nothing the survey would log. Read the result below before concluding anything.';
     busy(false);
   }, function (e) {
-    frameTest = null; paintFrameTest();
-    s.textContent = 'Could not run it: ' + whyLocal(e);
+    frameTest = null;
+    /* A picture that never reached the model is not the model failing. Saying
+       "The model failed while running" about an undecodable file is what sent
+       a whole afternoon after the camera path, which was working. */
+    lastSourceFail = (e && e.source) ? String(e.message) : null;
+    paintFrameTest();
+    s.textContent = 'Could not run it: ' +
+      (lastSourceFail ? 'the picture never reached the model — ' + lastSourceFail
+                      : whyLocal(e));
     busy(false);
   });
 }
@@ -4116,6 +4270,24 @@ $('tFile').addEventListener('change', function () {
        the option ignore it. */
     return createImageBitmap(file, { imageOrientation: 'from-image' })
       .catch(function () { return createImageBitmap(file); })
+      .catch(function (e) {
+        /* "The source image could not be decoded" is the browser's own words
+           for a file whose bytes it cannot read, and it is the ONLY thing in
+           this app that produces that sentence. Reported here, with the file
+           named, because the same message arriving unattributed reads like a
+           camera fault and sends the search to the wrong end of the pipeline.
+           HEIC is the usual culprit: it is what an iPhone saves by default and
+           what no browser will decode. */
+        var heic = /\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type || '');
+        throw new SourceError('this browser could not decode "' + file.name + '" (' +
+          (file.type || 'no type given') + ', ' + Math.round(file.size / 1024) + ' kB)' +
+          (heic ? '. That is an HEIC/HEIF file — the format an iPhone saves by ' +
+                  'default, and one no browser decodes. Share or export it as JPEG ' +
+                  'and try that.'
+                : '. The file is not in a format this browser can read as an image.') +
+          ' The model was never given anything, so this says nothing about the model. ' +
+          '[' + String((e && e.message) || e) + ']');
+      })
       .then(function (bmp) { return [bmp, bmp.width, bmp.height]; });
   }, 'photo, EXIF rotation applied');
 });

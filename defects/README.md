@@ -312,6 +312,74 @@ module-scoped and minified — inside that worker `self.tf` is undefined — so
 survey means replacing the SDK's inference path, which is a larger change than
 this one and should be decided on the numbers this button produces rather than before them.
 
+## "The source image could not be decoded" — which end it came from
+
+The diagnostics screen said this, under a heading that read REAL FRAME and above
+a line that read `Camera: live, 1920x1080`:
+
+```
+Could not run it: The model failed while running.
+(The source image could not be decoded.)
+```
+
+Every part of that pointed at the camera, and the camera was fine.
+
+Those words are Chromium's, not this app's, and they are thrown by exactly one
+thing: `createImageBitmap` handed a **Blob** whose bytes it cannot read. Probed
+in the browser rather than reasoned about — every other way of failing gives
+different words:
+
+| what was tried | what Chromium says |
+|---|---|
+| `createImageBitmap(blob)`, bytes not an image | **The source image could not be decoded.** |
+| `createImageBitmap(canvas)`, width 0 | The image source's width is 0. |
+| `createImageBitmap(video)`, no frame yet | The image source is not usable. |
+| `drawImage` from a closed ImageBitmap | The image source is detached |
+| video → 640² canvas → `createImageBitmap` | *(no error)* |
+
+This app calls `createImageBitmap` on a Blob in exactly one place: the **Test a
+photo** handler. The camera path never does — it draws the video onto a 640²
+canvas and converts *the canvas*, which is a different overload with different
+failure modes. So the message came from a photograph the browser could not read,
+almost certainly an **HEIC** — the format an iPhone saves by default and one no
+browser decodes.
+
+Two separate faults made that unreadable:
+
+**It blamed the model for something the model never saw.** Any failure in the
+test was funnelled through `whyLocal`, which prefixes "The model failed while
+running". The model had not been asked anything. A failure before inference now
+says so in those words — *the picture never reached the model* — names the file,
+its type and its size, and for an HEIC says to export it as JPEG.
+
+**Nothing said what had actually been handed over.** The report now checks the
+source before the model is asked anything, and prints it:
+
+```
+SOURCE  (checked before the model was asked anything)
+  given as   HTMLVideoElement
+  readyState 4 — enough to play through
+  video      1920×1080, playing
+  drawn onto 640×640 canvas
+  handed to model as ImageBitmap 640×640
+  frame      brightness 45 to 93 — there is a picture here
+```
+
+`readyState` is the line that earns its place. **A video element that has stopped
+producing frames still reports the size of the last one it managed**, so
+`videoWidth` on its own is not evidence that there is a picture to draw — which
+is why the old check, `if (!stream || !v.videoWidth)`, would wave a stalled
+camera straight through. A source that cannot produce a frame is now refused
+before anything is drawn, and says which `readyState` it was in.
+
+The brightness line is reported and never acted on. A flat frame might be a lens
+cap, a dark road, or a video element that quietly stopped, and this cannot tell
+those apart — so it says what it sees and leaves the conclusion alone.
+
+**Nothing about the camera path changed**, because nothing about it was wrong.
+It still goes video → 640² canvas → `ImageBitmap` → `CVImage` → the same worker,
+the same model and the same decoder as the survey.
+
 ## When the library hands back something that is not a list
 
 The real-frame test failed with this, and the message is worth reading twice:
