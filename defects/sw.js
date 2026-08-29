@@ -32,7 +32,11 @@ const FILES_TO_CACHE = [
 const TILE_HOST = 'https://tile.openstreetmap.org';
 /* The detection library is six megabytes. Precaching it would make the first
    visit pay for it before the camera even opens, so it is left to be cached the
-   first time a capture actually needs it — after which it is there offline. */
+   first time a capture actually needs it — after which it is there offline.
+   The benchmark's own copy of TensorFlow.js under vendor/tfjs/ is another 2.4 MB
+   and is treated the same way, except that most people will never press the
+   button that fetches it. Both are same-origin, so the ordinary rule below
+   covers them: fetched once, then served from the cache. */
 const NET_TIMEOUT = 4000;
 const FONT_HOSTS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 

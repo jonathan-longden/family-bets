@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-28 · 37';
+var BUILD = '2026-08-28 · 38';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -3174,6 +3174,8 @@ function diagLines() {
     L.push('model      ' + (worker ? 'worker ready'
       : engine ? 'engine loaded but no worker — the model would not start'
                : 'not loaded'));
+    var bench0 = benchLines();
+    if (bench0) { L.push(''); L.push(bench0); }
   }
   L.push('');
   L.push('LAST UNUSABLE OUTPUT');
@@ -3483,13 +3485,376 @@ function frameLines(f) {
   L.push('WOULD LOG    ' + f.kept.length + ' pothole' + (f.kept.length === 1 ? '' : 's'));
   var spin = spinLines();
   if (spin) { L.push(''); L.push(spin); }
+  var bench = benchLines();
+  if (bench) { L.push(''); L.push(bench); }
+  return L.join('\n');
+}
+
+/* ---------- benchmarking the backends ----------
+
+   The survey runs at about seventeen seconds a frame, and the diagnostics say
+   that is genuinely the graph running on TensorFlow.js's plain-JavaScript CPU
+   backend: one initialise for two inferences, and eleven milliseconds of that
+   in the decoder. So the question is whether another backend runs this same
+   graph faster on this same phone, and the only way to answer it is to measure
+   rather than to reason about it.
+
+   The vendored SDK cannot host the WASM backend. Its worker keeps TensorFlow.js
+   module-scoped and minified — there is no `self.tf` for a plugin backend to
+   register against — so the standalone tfjs-backend-wasm has nothing to attach
+   to, and reconstructing the export surface it needs out of minified names is
+   not a thing anyone should do. That is a real limit and it is reported rather
+   than worked around: this benchmark therefore runs its own copy of
+   TensorFlow.js 4.22.0, the same version the SDK bundles.
+
+   What makes the comparison fair is that everything else is held identical, and
+   held identical by construction rather than by intention:
+
+     one frame, captured once and reused for every backend;
+     the same preprocessing, transcribed from the SDK's own preprocess() —
+       fromPixels, resizeNearestNeighbor to 640, float32, divide by 255,
+       transpose to NCHW;
+     the same weights, taken from the model.json the SDK already fetched, shard
+       URLs and all, rather than a second copy from somewhere else;
+     the same decoder arithmetic, transcribed from the bundle and already under
+       test in decode.mjs;
+     the same NMS parameters the library uses — 0.5 score, 0.5 IoU, 20 boxes.
+
+   It is a measurement harness. It does not touch the survey, it is loaded only
+   when the button is pressed, and nothing it decides changes what the app does
+   with a road. */
+var BENCH_DIR = 'vendor/tfjs/';
+var BENCH_SCRIPTS = ['tf-core.min.js', 'tf-converter.min.js',
+                     'tf-backend-cpu.min.js', 'tf-backend-webgl.min.js',
+                     'tf-backend-wasm.min.js'];
+/* The order the chain would take if this were the survey: the fastest thing
+   that answers sensibly, and the CPU last because it always answers. */
+var BENCH_ORDER = ['webgl', 'wasm', 'cpu'];
+var benchTf = null, benchLoading = null, benchResult = null;
+
+/* Classic script tags, in order, each waiting for the last: the UMD builds
+   attach to one shared `tf` global and the backends must find the core there
+   before they register. ~2.4 MB, fetched the first time the button is pressed
+   and never on the survey's path. */
+function loadBenchTf() {
+  if (benchTf) return Promise.resolve(benchTf);
+  if (benchLoading) return benchLoading;
+  benchLoading = BENCH_SCRIPTS.reduce(function (chain, file) {
+    return chain.then(function () {
+      return new Promise(function (resolve, reject) {
+        var el = document.createElement('script');
+        el.src = BENCH_DIR + file;
+        el.onload = resolve;
+        el.onerror = function () { reject(new Error('could not load ' + file)); };
+        document.head.appendChild(el);
+      });
+    });
+  }, Promise.resolve()).then(function () {
+    if (!window.tf) throw new Error('TensorFlow.js did not attach itself');
+    /* Same-origin, so the binaries work with no signal once cached. */
+    if (window.tf.wasm && window.tf.wasm.setWasmPaths) {
+      window.tf.wasm.setWasmPaths(BENCH_DIR);
+    }
+    benchTf = window.tf;
+    return benchTf;
+  }, function (e) { benchLoading = null; throw e; });
+  return benchLoading;
+}
+
+/* What the runtime itself says about SIMD and threads, asked rather than
+   assumed. Threads additionally need the page to be cross-origin isolated,
+   which needs COOP and COEP headers that GitHub Pages does not send — so the
+   answer is reported alongside the reason. */
+function benchWasmCapabilities(tf) {
+  var env = tf.env();
+  var ask = function (flag) {
+    try { return Promise.resolve(env.getAsync(flag)); }
+    catch (e) { return Promise.resolve(null); }
+  };
+  return ask('WASM_HAS_SIMD_SUPPORT').then(function (simd) {
+    return ask('WASM_HAS_MULTITHREAD_SUPPORT').then(function (threads) {
+      return {
+        simd: simd,
+        threads: threads,
+        isolated: (typeof crossOriginIsolated === 'boolean') ? crossOriginIsolated : null,
+        cores: navigator.hardwareConcurrency || null,
+        sharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined'
+      };
+    });
+  }).catch(function () {
+    return { simd: null, threads: null, isolated: null, cores: null,
+             sharedArrayBuffer: false };
+  });
+}
+
+/* The weights the SDK already has, handed to this copy of TensorFlow.js
+   unchanged. Roboflow returns model.json inline with absolute shard URLs, so
+   there is nothing to re-resolve and no second version of the model anywhere. */
+function benchLoader(tf, weights) {
+  return {
+    load: function () {
+      var specs = [], paths = [];
+      (weights.weightsManifest || []).forEach(function (g) {
+        (g.weights || []).forEach(function (w) { specs.push(w); });
+        (g.paths || []).forEach(function (p) { paths.push(p); });
+      });
+      return Promise.all(paths.map(function (u) {
+        return fetch(u).then(function (r) {
+          if (!r.ok) throw new Error('shard HTTP ' + r.status);
+          return r.arrayBuffer();
+        });
+      })).then(function (buffers) {
+        var total = buffers.reduce(function (n, b) { return n + b.byteLength; }, 0);
+        var all = new Uint8Array(total), at = 0;
+        buffers.forEach(function (b) { all.set(new Uint8Array(b), at); at += b.byteLength; });
+        return { modelTopology: weights.modelTopology,
+                 weightSpecs: specs, weightData: all.buffer };
+      });
+    }
+  };
+}
+
+/* The SDK's own preprocess(), transcribed:
+     tensor4D -> resizeNearestNeighbor([640,640]) -> float32 -> /255 -> NCHW  */
+function benchPreprocess(tf, canvas) {
+  return tf.tidy(function () {
+    var px = tf.browser.fromPixels(canvas).expandDims(0);
+    var r = tf.image.resizeNearestNeighbor(px, [RF_SIZE, RF_SIZE]).asType('float32');
+    return tf.transpose(tf.div(r, 255), [0, 3, 1, 2]);
+  });
+}
+
+/* The library's decoder arithmetic, transcribed from its bundle. The index
+   expression below reads oddly and is correct: w*nc + (w+1)*4 expands to
+   w*(nc+4) + 4, which is the first class channel of anchor w. */
+function benchMaxScores(data, numBoxes, numClasses) {
+  var scores = [], classes = [];
+  for (var w = 0; w < numBoxes; w++) {
+    var best = Number.MIN_VALUE, bi = -1;
+    for (var a = 0; a < numClasses; a++) {
+      var v = data[w * numClasses + (w + 1) * 4 + a];
+      if (v > best) { best = v; bi = a; }
+    }
+    scores[w] = best; classes[w] = bi;
+  }
+  return { scores: scores, classes: classes };
+}
+
+function benchBoxes(data, numBoxes, numClasses, size) {
+  var out = new Float32Array(numBoxes * 4);
+  for (var w = 0; w < numBoxes; w++) {
+    var o = w * (numClasses + 4);
+    var x = data[o], y = data[o + 1], bw = data[o + 2], bh = data[o + 3];
+    out[w * 4]     = (y - bh / 2) / size;      // y1, x1, y2, x2 — the order NMS wants
+    out[w * 4 + 1] = (x - bw / 2) / size;
+    out[w * 4 + 2] = (y + bh / 2) / size;
+    out[w * 4 + 3] = (x + bw / 2) / size;
+  }
+  return out;
+}
+
+/* One backend, one frame. Load and warm-up are timed separately and excluded
+   from the inference figure — the first execute on any backend pays for kernel
+   and shader compilation, and reporting that as the cost of a frame would
+   flatter whichever backend happened to go last. */
+function benchOne(tf, name, weights, canvas) {
+  var row = { backend: name, supported: false, initialised: false, sane: null,
+              load: null, warm: null, infer: null, decode: null, total: null,
+              detections: null, best: null, min: null, max: null, error: null };
+  var model = null, input = null;
+
+  return tf.setBackend(name).then(function (okBackend) {
+    if (!okBackend) throw new Error('this browser has no ' + name + ' backend');
+    return tf.ready();
+  }).then(function () {
+    row.supported = true;
+    var t = performance.now();
+    return tf.loadGraphModel(benchLoader(tf, weights)).then(function (m) {
+      model = m; row.load = Math.round(performance.now() - t);
+      row.initialised = true;
+    });
+  }).then(function () {
+    input = benchPreprocess(tf, canvas);
+    var t = performance.now();
+    var warm = model.execute(input);
+    (Array.isArray(warm) ? warm : [warm]).forEach(function (x) { x.dataSync(); });
+    tf.dispose(warm);
+    row.warm = Math.round(performance.now() - t);
+  }).then(function () {
+    /* The measured run. dataSync is inside it deliberately: on a lazy backend
+       execute only queues the work, and a figure that stopped before the
+       readback would time the queueing rather than the graph. */
+    var t0 = performance.now();
+    var out = model.execute(input);
+    var one = Array.isArray(out) ? out[0] : out;
+    var moved = tf.transpose(one, [0, 2, 1]);
+    var data = moved.dataSync();
+    var numBoxes = moved.shape[1], numClasses = moved.shape[2] - 4;
+    var t1 = performance.now();
+
+    var lo = Infinity, hi = -Infinity;
+    for (var i = 0; i < data.length; i++) {
+      var v = data[i]; if (v < lo) lo = v; if (v > hi) hi = v;
+    }
+    row.min = lo; row.max = hi;
+    row.sane = isFinite(lo) && isFinite(hi) && Math.abs(hi) < 1e4 && Math.abs(lo) < 1e4;
+
+    var ms = benchMaxScores(data, numBoxes, numClasses);
+    var boxes = benchBoxes(data, numBoxes, numClasses, RF_SIZE);
+    var classNames = (rfMeta && rfMeta.classes) || ['manhole', 'pothole'];
+
+    /* The library forces NMS onto the CPU backend whatever it inferred with, so
+       this does too — otherwise the decode figure would carry a different
+       backend's cost on every row. */
+    var was = tf.getBackend();
+    return tf.setBackend('cpu').then(function () {
+      var keep = tf.tidy(function () {
+        return tf.image.nonMaxSuppression(
+          tf.tensor2d(boxes, [numBoxes, 4]), ms.scores, 20, 0.5, 0.5).dataSync();
+      });
+      var best = null;
+      for (var k = 0; k < numBoxes; k++) {
+        if (ms.classes[k] >= 0 && (!best || ms.scores[k] > best.score)) {
+          best = { score: ms.scores[k], cls: classNames[ms.classes[k]] };
+        }
+      }
+      row.detections = keep.length;
+      row.best = best;
+      row.decode = Math.round(performance.now() - t1);
+      row.infer = Math.round(t1 - t0);
+      row.total = row.infer + row.decode;
+      tf.dispose(out); tf.dispose(moved);
+      return tf.setBackend(was);
+    });
+  }).then(function () { return row; }, function (e) {
+    row.error = String((e && e.message) || e).slice(0, 200);
+    return row;
+  }).then(function (r) {
+    if (input) tf.dispose(input);
+    if (model && model.dispose) { try { model.dispose(); } catch (e) {} }
+    return r;
+  });
+}
+
+function runBench() {
+  var s = $('tState'), v = $('vid');
+  if (!stream || !v.videoWidth) {
+    s.textContent = 'The camera is not running — start it, then come back.';
+    return;
+  }
+  busy(true);
+  s.textContent = 'Fetching TensorFlow.js (about 2.4 MB, once)…';
+
+  /* Captured once, before any backend is touched, and handed to all of them.
+     Capturing per backend would be measuring three different pictures. */
+  var sq = squareFrame(v, v.videoWidth, v.videoHeight);
+  var started = new Date().toISOString();
+
+  loadBenchTf().then(function (tf) {
+    s.textContent = 'Asking the runtime what it supports…';
+    return benchWasmCapabilities(tf).then(function (caps) {
+      return modelMeta().then(function (meta) {
+        if (!meta || !meta.weights || !meta.weights.modelTopology) {
+          throw new Error('the model metadata has no weights in it — no signal?');
+        }
+        var rows = [];
+        return BENCH_ORDER.reduce(function (chain, name) {
+          return chain.then(function () {
+            s.textContent = 'Running the same frame on ' + name + '… (' +
+              (rows.length + 1) + ' of ' + BENCH_ORDER.length + ')';
+            return benchOne(tf, name, meta.weights, sq.canvas).then(function (r) {
+              rows.push(r);
+            });
+          });
+        }, Promise.resolve()).then(function () {
+          return { at: started, caps: caps, rows: rows,
+                   source: v.videoWidth + '×' + v.videoHeight };
+        });
+      });
+    });
+  }).then(function (out) {
+    benchResult = out;
+    paintFrameTest(); paintDiag();
+    var fastest = out.rows.filter(function (r) { return r.sane && r.infer != null; })
+      .sort(function (a, b) { return a.infer - b.infer; })[0];
+    s.textContent = fastest
+      ? 'Done. Fastest usable: ' + fastest.backend + ' at ' + fastest.infer + ' ms.'
+      : 'Done — no backend produced usable output. Read the table below.';
+    busy(false);
+  }, function (e) {
+    benchResult = null;
+    s.textContent = 'Benchmark could not run: ' + String((e && e.message) || e);
+    busy(false);
+  });
+}
+
+function benchLines() {
+  if (!benchResult) return '';
+  var b = benchResult, c = b.caps || {}, L = [];
+  L.push('BACKEND BENCHMARK  (one frame, captured once, reused for every backend)');
+  L.push('when         ' + b.at);
+  L.push('frame        ' + b.source + ' → ' + RF_SIZE + '×' + RF_SIZE +
+    ', preprocessed exactly as the survey does it');
+  L.push('runtime      TensorFlow.js ' + ((benchTf && benchTf.version_core) || '?') +
+    ' loaded by this benchmark — the SDK keeps its own copy module-scoped');
+  L.push('');
+  L.push('WASM SUPPORT (what the runtime reports, not what it is assumed to have)');
+  L.push('  SIMD       ' + (c.simd === null ? 'could not be determined' : c.simd ? 'yes' : 'no'));
+  L.push('  threads    ' + (c.threads === null ? 'could not be determined' : c.threads ? 'yes' : 'no'));
+  L.push('  cores      ' + (c.cores == null ? 'not reported' : c.cores));
+  L.push('  SharedArrayBuffer ' + (c.sharedArrayBuffer ? 'present' : 'absent'));
+  L.push('  crossOriginIsolated ' + (c.isolated === null ? 'unknown' : c.isolated));
+  if (!c.threads) {
+    L.push('  >> threads need the page to be cross-origin isolated, which needs COOP');
+    L.push('     and COEP headers. GitHub Pages does not send them, so this is a');
+    L.push('     property of where the app is hosted rather than of the phone.');
+  }
+  L.push('');
+  b.rows.forEach(function (r) {
+    L.push(r.backend.toUpperCase());
+    L.push('  supported    ' + (r.supported ? 'yes' : 'no'));
+    L.push('  initialised  ' + (r.initialised ? 'yes' : 'no'));
+    if (r.error) {
+      L.push('  FAILED       ' + r.error);
+      L.push('');
+      return;
+    }
+    L.push('  output sane  ' + (r.sane ? 'yes' : 'NO — this backend cannot be trusted'));
+    L.push('  inference    ' + r.infer + ' ms');
+    L.push('  decode+NMS   ' + r.decode + ' ms');
+    L.push('  total        ' + r.total + ' ms');
+    L.push('  detections   ' + r.detections);
+    L.push('  best         ' + (r.best ? r.best.cls + ' ' + round4(r.best.score) : 'none'));
+    L.push('  raw min/max  ' + round4(r.min) + ' / ' + round4(r.max));
+    L.push('  model load   ' + r.load + ' ms, warm-up ' + r.warm +
+      ' ms  (both excluded from the figures above)');
+    L.push('');
+  });
+  var usable = b.rows.filter(function (r) { return r.sane && r.infer != null; });
+  if (usable.length > 1) {
+    var sorted = usable.slice().sort(function (a, b2) { return a.infer - b2.infer; });
+    var f = sorted[0], sl = sorted[sorted.length - 1];
+    L.push('FASTEST USABLE  ' + f.backend + ' at ' + f.infer + ' ms — ' +
+      (Math.round((sl.infer / f.infer) * 10) / 10) + '× the ' + sl.backend + ' figure');
+  } else if (usable.length === 1) {
+    L.push('ONLY USABLE     ' + usable[0].backend + ' at ' + usable[0].infer + ' ms');
+  } else {
+    L.push('NOTHING USABLE  no backend produced output in a plausible range');
+  }
   return L.join('\n');
 }
 
 function paintFrameTest() {
   var pre = $('frameText'), wrap = $('tShotWrap');
-  pre.hidden = !frameTest;
-  if (!frameTest) { wrap.hidden = true; return; }
+  /* The benchmark never runs the SDK, so it produces no frame test. Its table
+     still belongs on the screen rather than only in the copied diagnostics. */
+  var benchOnly = benchLines();
+  pre.hidden = !frameTest && !benchOnly;
+  if (!frameTest) {
+    wrap.hidden = true;
+    pre.textContent = benchOnly;
+    return;
+  }
   pre.textContent = frameLines(frameTest);
   if (testUrl) { URL.revokeObjectURL(testUrl); testUrl = null; }
   if (frameTest.shot) {
@@ -3502,6 +3867,7 @@ function paintFrameTest() {
 function busy(on) {
   $('bTestCam').disabled = on;
   $('bTestSpin').disabled = on;
+  $('bTestBench').disabled = on;
   $('tFileLabel').classList.toggle('off', on);
 }
 
@@ -3621,6 +3987,7 @@ $('bTestCam').addEventListener('click', function () {
 });
 
 $('bTestSpin').addEventListener('click', runSpin);
+$('bTestBench').addEventListener('click', runBench);
 
 $('tFile').addEventListener('change', function () {
   var file = this.files && this.files[0];
