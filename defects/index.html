@@ -274,6 +274,14 @@
       <span class="hint">Runs the same frame four times, turned 0°, 90°, 180° and 270°. It answers
         one question: is the model failing on this road, or on this road sideways? Four inferences,
         so it is slow — on the CPU backend allow a minute or more.</span>
+      <!-- A measurement, not a change. The survey still runs on whatever the
+           SDK's own fallback picked; this only asks what else this phone could
+           have run the same graph on. -->
+      <button class="btn ghost wide" id="bTestBench">Benchmark the backends</button>
+      <span class="hint">Runs one captured frame through WebGL, WASM and CPU in turn — same
+        picture, same preprocessing, same weights, same decoder — and reports what each one
+        managed. Fetches about 2.4 MB of TensorFlow.js the first time, and does not change what
+        the survey uses.</span>
       <div class="hint" id="tState">Not run yet.</div>
       <div class="tshot" id="tShotWrap" hidden>
         <img id="tShot" alt="The 640 by 640 frame that was actually analysed">

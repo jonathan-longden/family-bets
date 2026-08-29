@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-28 · 37';
+var BUILD = '2026-08-29 · 40';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -1345,8 +1345,80 @@ function runSelfTest() {
   });
 }
 
+/* What a value actually is at runtime, named rather than assumed.
+
+   Written because "raw.forEach is not a function" is the least useful thing a
+   diagnostic can say: it names the method that was missing and nothing about
+   the object that was missing it. Anything reaching here may be a list of
+   detections, a tfjs Tensor, a typed array, a string the worker sent back, or
+   an Error — and which one it is is the whole answer. */
+function runtimeType(v) {
+  if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
+  if (Array.isArray(v)) return 'Array(' + v.length + ')';
+  var t = typeof v;
+  if (t === 'string') return 'string(' + v.length + ' chars)';
+  if (t !== 'object' && t !== 'function') return t;
+  var tag = Object.prototype.toString.call(v).slice(8, -1);
+  /* Float32Array and the rest. DataView is a view too and has no length. */
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(v) &&
+      typeof v.length === 'number') {
+    return tag + '(' + v.length + ')';
+  }
+  if (v instanceof Error) return 'Error';
+  /* A tfjs Tensor, recognised by what it can do rather than by importing tfjs
+     to ask it — the library keeps its own copy and this file has none. */
+  if (v.shape && typeof v.dataSync === 'function') {
+    return 'Tensor(' + [].concat(v.shape).join('×') + ')';
+  }
+  if (tag === 'Object') {
+    var k = Object.keys(v);
+    return 'Object{' + (k.length ? k.slice(0, 6).join(', ') + (k.length > 6 ? ', …' : '')
+                                 : 'no keys') + '}';
+  }
+  return tag;
+}
+
+/* engine.infer resolves with a list of detections — except when it does not.
+
+   The library turns a failed request into a RESOLVED promise carrying the
+   worker's error payload, not a rejected one:
+
+       .then((c) => c).catch((c) => {
+         if (c === "Model initialization failed") throw new Error(...);
+         return c;                    // <- the rejection becomes a value
+       })
+
+   So a worker that failed mid-inference arrives here looking like a successful
+   answer, and the first thing done to it is a list operation. That is where
+   "raw.forEach is not a function" came from: the real fault was thrown away by
+   the library and replaced by a type error three frames later. This says what
+   actually came back instead. */
+function inferFault(v) {
+  var msg = '';
+  if (typeof v === 'string') msg = v;
+  else if (v && typeof v.message === 'string') msg = v.message;
+  else if (v && typeof v.error === 'string') msg = v.error;
+  else {
+    try { msg = JSON.stringify(v); } catch (e) { msg = String(v); }
+  }
+  return 'the model returned ' + runtimeType(v) + ' where a list of detections was ' +
+         'expected' + (msg ? ' — ' + String(msg).slice(0, 300) : '');
+}
+
+/* What engine.infer last handed back, kept so the screen can print it whether
+   the run succeeded or failed. */
+var lastInferType = null;
+
 function takeDiag(preds) {
-  if (!preds || !preds.length) return preds || [];
+  lastInferType = runtimeType(preds);
+  /* Nothing at all is a legitimate answer: no detections. */
+  if (preds === null || preds === undefined) return [];
+  /* Anything else that is not a list is a failure wearing a success's clothes.
+     Throwing here puts the real reason in front of whoever pressed the button,
+     which is the whole point; returning an empty list would turn a broken
+     worker into a quiet "nothing found". */
+  if (!Array.isArray(preds)) throw new Error(inferFault(preds));
   var last = preds[preds.length - 1];
   if (last && last.__diag) { lastDiag = last; preds = preds.slice(0, -1); }
   return preds;
@@ -3168,12 +3240,29 @@ function diagLines() {
     L.push('REAL FRAME');
     L.push('           not run — press "Test the camera" at the top of this screen');
     L.push('last said  ' + ((st && st.textContent) || '(nothing)'));
+    /* "live, 1920×1080" used to be asserted from videoWidth alone, and a video
+       element that has stopped keeps reporting the size of its last frame — so
+       that line called a stalled camera live. readyState is the part that knows. */
     L.push('camera     ' + (!stream ? 'NOT RUNNING — that is why the button refuses'
-      : (v && v.videoWidth) ? 'live, ' + v.videoWidth + '×' + v.videoHeight
-                            : 'open, but no frames have arrived yet'));
+      : !(v && v.videoWidth) ? 'open, but no frames have arrived yet'
+      : (v.readyState >= 2 ? 'live, ' : 'STALLED at ') +
+        v.videoWidth + '×' + v.videoHeight +
+        ' (readyState ' + v.readyState + (v.readyState >= 2 ? '' : ' — no frame to give') +
+        (v.paused ? ', paused' : '') + ')'));
     L.push('model      ' + (worker ? 'worker ready'
       : engine ? 'engine loaded but no worker — the model would not start'
                : 'not loaded'));
+    /* When a run failed, this is the line that says what the library handed
+       back — the thing the old type error was hiding. */
+    if (lastInferType) L.push('raw type   ' + lastInferType + ' from the last engine.infer');
+    /* And this one says the model was never reached at all, which is a
+       different fault from the model failing and used to read as the same. */
+    if (lastSourceFail) {
+      L.push('source     THE PICTURE NEVER REACHED THE MODEL —');
+      L.push('           ' + lastSourceFail);
+    }
+    var bench0 = benchLines();
+    if (bench0) { L.push(''); L.push(bench0); }
   }
   L.push('');
   L.push('LAST UNUSABLE OUTPUT');
@@ -3204,6 +3293,10 @@ function diagLines() {
    The picture is drawn, inferred and shown. It is not written to the database
    and it does not leave the device. */
 var frameTest = null, testUrl = null;
+/* The last time a picture failed to reach the model at all, kept so the
+   not-run report can say so rather than leaving a blank where the reason
+   should be. */
+var lastSourceFail = null;
 
 /* What the survey's own filters would do with these detections, and where each
    one was lost. "The model found it and the shadow test threw it away" and "the
@@ -3285,14 +3378,119 @@ function orientationFacts(srcW, srcH, from) {
 
    Timed in four separate pieces, because "21 seconds" is not a finding until
    you know which piece it was in. */
+/* An error raised before the model was ever asked anything.
+
+   Marked, because the message that started this said "The model failed while
+   running" about a picture the browser could not even decode — the model was
+   never handed anything and never ran. Blaming it sent the search to the wrong
+   end of the pipeline. */
+function SourceError(msg) { this.message = msg; this.source = true; }
+SourceError.prototype = Object.create(Error.prototype);
+SourceError.prototype.name = 'SourceError';
+
+/* What the thing being handed to the model actually is — asked of the object,
+   not assumed from which button was pressed. */
+function sourceKind(v) {
+  if (v === null || v === undefined) return String(v);
+  var tag = Object.prototype.toString.call(v).slice(8, -1);
+  /* Chrome reports several of these as [object Object] in some contexts, so the
+     constructor name is preferred when there is one. */
+  if (v.constructor && v.constructor.name) return v.constructor.name;
+  return tag;
+}
+
+/* Everything worth knowing about the frame before the model is asked about it.
+
+   A video element that has stopped producing frames still reports the size of
+   the last one it managed, so videoWidth alone is not evidence that there is a
+   picture — readyState is the part that says whether a frame is actually
+   there. */
+function sourceFacts(source, w, h) {
+  var f = {
+    kind: sourceKind(source), askedW: w, askedH: h,
+    readyState: null, readyWord: null, videoW: null, videoH: null,
+    paused: null, ended: null, srcW: null, srcH: null
+  };
+  if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement) {
+    f.readyState = source.readyState;
+    f.readyWord = ['nothing yet', 'metadata only', 'this frame', 'this frame and the next',
+                   'enough to play through'][source.readyState] || '?';
+    f.videoW = source.videoWidth; f.videoH = source.videoHeight;
+    f.paused = source.paused; f.ended = source.ended;
+    f.srcW = source.videoWidth; f.srcH = source.videoHeight;
+  } else {
+    if (typeof source.width === 'number') f.srcW = source.width;
+    if (typeof source.height === 'number') f.srcH = source.height;
+  }
+  return f;
+}
+
+/* The check that turns a generic failure into a sentence worth reading. Run
+   before the canvas is drawn, so nothing downstream has to guess. */
+function sourceProblem(f) {
+  if (f.kind === 'HTMLVideoElement') {
+    if (f.readyState < 2) {
+      return 'the camera element has no frame to give (readyState ' + f.readyState +
+             ', ' + f.readyWord + '). The stream may be open without decoding yet.';
+    }
+    if (!f.videoW || !f.videoH) {
+      return 'the camera reports a frame of ' + f.videoW + '×' + f.videoH +
+             ' — there is nothing to draw.';
+    }
+  }
+  if (!f.askedW || !f.askedH) {
+    return 'the frame was asked for at ' + f.askedW + '×' + f.askedH +
+           ', which cannot be drawn from.';
+  }
+  if (f.srcW === 0 || f.srcH === 0) {
+    return 'the source measures ' + f.srcW + '×' + f.srcH + '.';
+  }
+  return null;
+}
+
+/* Whether anything actually landed on the canvas.
+
+   A frame that draws as one flat colour is not proof of a fault — a lens cap,
+   a dark road and a video element that quietly stopped all look the same from
+   here — so this is reported as an observation and never used to refuse a run.
+   Sampled on a grid rather than read whole: this is a diagnostic, not a
+   reason to walk 1.6 MB of pixels. */
+function canvasContent(ctx, size) {
+  try {
+    var d = ctx.getImageData(0, 0, size, size).data;
+    var lo = 255, hi = 0, step = size * 4 * 8;          // every eighth row
+    for (var i = 0; i < d.length; i += step) {
+      var v = (d[i] + d[i + 1] + d[i + 2]) / 3;
+      if (v < lo) lo = v; if (v > hi) hi = v;
+    }
+    return { min: Math.round(lo), max: Math.round(hi), flat: hi - lo < 2 };
+  } catch (e) {
+    /* A tainted canvas cannot be read. Worth saying, never worth failing on. */
+    return { min: null, max: null, flat: null, error: String((e && e.message) || e) };
+  }
+}
+
 function testFrame(source, w, h, label, from, rotate) {
   if (!engine || !worker) {
     return Promise.reject(new Error('the model is not loaded'));
   }
   var facts = orientationFacts(w, h, from);
+  /* Checked before anything is drawn, so a source that cannot produce a picture
+     says so itself instead of arriving as a decode failure further along. */
+  var src = sourceFacts(source, w, h);
+  var bad = sourceProblem(src);
+  if (bad) return Promise.reject(new SourceError(bad));
   var t0 = performance.now();
   var sq = rotate ? rotatedFrame(source, w, h, rotate) : squareFrame(source, w, h);
-  return createImageBitmap(sq.canvas).then(function (input) {
+  src.canvasW = sq.canvas.width; src.canvasH = sq.canvas.height;
+  src.content = canvasContent(sq.ctx, RF_SIZE);
+  return createImageBitmap(sq.canvas).catch(function (e) {
+    /* The canvas is built here and is always RF_SIZE square, so this failing is
+       a fact about the device rather than about the picture. */
+    throw new SourceError('the ' + sq.canvas.width + '×' + sq.canvas.height +
+      ' canvas could not be turned into an image — ' + String((e && e.message) || e));
+  }).then(function (input) {
+    src.bmpW = input.width; src.bmpH = input.height;
     var tPre = performance.now();
     return import('./vendor/inference.es.js').then(function (m) {
       return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
@@ -3300,19 +3498,27 @@ function testFrame(source, w, h, label, from, rotate) {
       });
     });
   }).then(function (out) {
-    var raw = takeDiag(out.preds) || [];       // also refreshes lastDiag for the screen below
+    /* takeDiag names what came back before anything is done to it, and refuses
+       anything that is not a list — so a failed worker reports its own reason
+       rather than surfacing later as a missing array method. */
+    var raw = takeDiag(out.preds);             // also refreshes lastDiag for the screen below
+    var rawType = lastInferType;
     var d = lastDiag || {};
+    var tDec = performance.now();
     var f = filterTrace(raw, sq.ctx);
+    var msFilter = performance.now() - tDec;
     return new Promise(function (resolve) {
       var tEnc = performance.now();
       sq.canvas.toBlob(function (blob) {
         resolve({
           label: label, at: new Date().toISOString(),
-          raw: raw, trace: f.trace, kept: f.kept, diag: d, shot: blob,
-          rotate: rotate || 0, facts: facts,
+          raw: raw, rawType: rawType, from: from,
+          trace: f.trace, kept: f.kept, diag: d, shot: blob,
+          rotate: rotate || 0, facts: facts, src: src,
           t: {
             pre: Math.round(out.tPre - t0),
             infer: Math.round(out.tInf - out.tPre),
+            filter: Math.round(msFilter),
             encode: Math.round(performance.now() - tEnc),
             wall: Math.round(performance.now() - t0)
           }
@@ -3350,8 +3556,14 @@ function frameLines(f) {
 
   var t = f.t || {}, fa = f.facts || {};
 
-  L.push('REAL FRAME  (' + f.label + (f.rotate ? ', turned ' + f.rotate + '°' : '') + ')');
+  /* A photograph and a camera frame go through identical code from squareFrame
+     onwards, but they are different tests to whoever is reading the result, so
+     they are headed differently. */
+  var photo = /^photo/.test(f.from || '');
+  L.push((photo ? 'PHOTO TEST' : 'REAL FRAME') + '  (' + f.label +
+    (f.rotate ? ', turned ' + f.rotate + '°' : '') + ')');
   L.push('when         ' + f.at);
+  L.push('image        ' + (fa.srcW || '?') + '×' + (fa.srcH || '?') + ' as supplied');
   L.push('backend      ' + (pr.using || 'not reported') +
     (d.backendNow && d.backendNow !== pr.using ? ' (now ' + d.backendNow + ')' : '') +
     (precisionForced(d) ? '  (forced — WebGL would not answer sensibly)' : ''));
@@ -3361,10 +3573,14 @@ function frameLines(f) {
   L.push('');
   L.push('TIME         preprocess    ' + t.pre + ' ms   (draw to ' + RF_SIZE +
     '² and make a bitmap)');
+  L.push('             inference     ' + t.infer +
+    ' ms   (the whole round trip to the worker and back)');
   L.push('             execute       ' + (d.msExecute == null ? '?' : Math.round(d.msExecute)) +
-    ' ms   (the graph itself)');
+    ' ms   (the graph itself, inside that)');
   L.push('             read+decode   ' + (d.msDecode == null ? '?' : Math.round(d.msDecode)) +
     ' ms   (readback, boxes, scores, NMS)');
+  L.push('             filters       ' + (t.filter == null ? '?' : t.filter) +
+    ' ms   (the survey\'s own thresholds, run over the result)');
   L.push('             encode        ' + t.encode + ' ms   (the JPEG for the screen)');
   L.push('             whole test    ' + t.wall + ' ms');
   /* The first question a twenty-second inference raises: is it the graph, or is
@@ -3427,9 +3643,43 @@ function frameLines(f) {
   }
   L.push('');
 
-  L.push('raw output   ' + (Array.isArray(d.rawShape) ? [].concat(d.rawShape).join('×') : '?') +
-    (d.frameRange ? ', min ' + round4(d.frameRange.min) + ', max ' + round4(d.frameRange.max)
-                  : ''));
+  /* What was handed over, checked rather than assumed. The camera and a
+     photograph reach the model as different objects and the difference matters
+     enough to print: a video element that has stopped still reports the size of
+     its last frame, so a dimension on its own proves nothing. */
+  var sc = f.src || {};
+  L.push('SOURCE  (checked before the model was asked anything)');
+  L.push('  given as   ' + (sc.kind || '?'));
+  if (sc.kind === 'HTMLVideoElement') {
+    L.push('  readyState ' + sc.readyState + ' — ' + sc.readyWord);
+    L.push('  video      ' + sc.videoW + '×' + sc.videoH +
+      (sc.paused ? ', paused' : ', playing') + (sc.ended ? ', ended' : ''));
+  } else {
+    L.push('  measured   ' + sc.srcW + '×' + sc.srcH);
+  }
+  L.push('  drawn onto ' + sc.canvasW + '×' + sc.canvasH + ' canvas');
+  L.push('  handed to model as ImageBitmap ' + sc.bmpW + '×' + sc.bmpH);
+  if (sc.content) {
+    L.push('  frame      ' + (sc.content.error
+      ? 'could not be read — ' + sc.content.error
+      : 'brightness ' + sc.content.min + ' to ' + sc.content.max +
+        (sc.content.flat ? '  >> ALL ONE SHADE. A lens cap, a dark road and a video ' +
+                           'that stopped all look like this.'
+                         : ' — there is a picture here')));
+  }
+  L.push('');
+
+  L.push('raw shape    ' + (Array.isArray(d.rawShape) ? [].concat(d.rawShape).join('×') : '?'));
+  L.push('raw min      ' + (d.frameRange ? round4(d.frameRange.min) : 'not reported'));
+  L.push('raw max      ' + (d.frameRange ? round4(d.frameRange.max) : 'not reported'));
+  /* What engine.infer actually handed back, asked of the object rather than
+     assumed of it. A list here is the normal answer; anything else is the
+     library passing a failure off as a result, and the run stops before this
+     line is ever reached. */
+  L.push('raw type     ' + (f.rawType || 'not recorded') +
+    ' — what engine.infer returned' +
+    (d.__diag ? ' (' + f.raw.length + ' detection' + (f.raw.length === 1 ? '' : 's') +
+                ' plus the diagnostic block the patched worker appends)' : ''));
   L.push('sane?        ' + (d.frameRange && isFinite(d.frameRange.max) &&
       Math.abs(d.frameRange.max) < 1e4
     ? 'yes — box values in pixels for a ' + RF_SIZE + ' model, scores in 0..1'
@@ -3463,10 +3713,26 @@ function frameLines(f) {
   }
   L.push('');
 
-  L.push('DETECTIONS   ' + f.raw.length + ' came back from the library');
+  L.push('DETECTIONS   ' + (f.raw.length || 'zero') + ' came back from the library');
   if (!f.raw.length) {
     L.push('             (the library returns at most ' + (th.maxBoxes == null ? '?' : th.maxBoxes) +
       ' and drops anything under ' + (th.score == null ? '?' : th.score) + ')');
+  }
+  /* Named on their own lines as well as listed below, because "the best one"
+     is the question being asked and reading it out of a table is not the same
+     as being told it. */
+  var top = f.raw.reduce(function (a, p) {
+    return (!a || (+p.confidence || 0) > (+a.confidence || 0)) ? p : a;
+  }, null);
+  L.push('  best class      ' + (top ? top.class : 'none — nothing was returned'));
+  L.push('  best confidence ' + (top ? round4(top.confidence) : 'none'));
+  if (top) {
+    var tb = top.bbox || {};
+    L.push('  best box        x ' + Math.round(tb.x) + ' y ' + Math.round(tb.y) +
+      ' w ' + Math.round(tb.width) + ' h ' + Math.round(tb.height) +
+      '  (in the ' + RF_SIZE + '² the model was shown)');
+  } else {
+    L.push('  best box        none');
   }
   f.raw.forEach(function (p, i) {
     var bx = p.bbox || {};
@@ -3483,13 +3749,376 @@ function frameLines(f) {
   L.push('WOULD LOG    ' + f.kept.length + ' pothole' + (f.kept.length === 1 ? '' : 's'));
   var spin = spinLines();
   if (spin) { L.push(''); L.push(spin); }
+  var bench = benchLines();
+  if (bench) { L.push(''); L.push(bench); }
+  return L.join('\n');
+}
+
+/* ---------- benchmarking the backends ----------
+
+   The survey runs at about seventeen seconds a frame, and the diagnostics say
+   that is genuinely the graph running on TensorFlow.js's plain-JavaScript CPU
+   backend: one initialise for two inferences, and eleven milliseconds of that
+   in the decoder. So the question is whether another backend runs this same
+   graph faster on this same phone, and the only way to answer it is to measure
+   rather than to reason about it.
+
+   The vendored SDK cannot host the WASM backend. Its worker keeps TensorFlow.js
+   module-scoped and minified — there is no `self.tf` for a plugin backend to
+   register against — so the standalone tfjs-backend-wasm has nothing to attach
+   to, and reconstructing the export surface it needs out of minified names is
+   not a thing anyone should do. That is a real limit and it is reported rather
+   than worked around: this benchmark therefore runs its own copy of
+   TensorFlow.js 4.22.0, the same version the SDK bundles.
+
+   What makes the comparison fair is that everything else is held identical, and
+   held identical by construction rather than by intention:
+
+     one frame, captured once and reused for every backend;
+     the same preprocessing, transcribed from the SDK's own preprocess() —
+       fromPixels, resizeNearestNeighbor to 640, float32, divide by 255,
+       transpose to NCHW;
+     the same weights, taken from the model.json the SDK already fetched, shard
+       URLs and all, rather than a second copy from somewhere else;
+     the same decoder arithmetic, transcribed from the bundle and already under
+       test in decode.mjs;
+     the same NMS parameters the library uses — 0.5 score, 0.5 IoU, 20 boxes.
+
+   It is a measurement harness. It does not touch the survey, it is loaded only
+   when the button is pressed, and nothing it decides changes what the app does
+   with a road. */
+var BENCH_DIR = 'vendor/tfjs/';
+var BENCH_SCRIPTS = ['tf-core.min.js', 'tf-converter.min.js',
+                     'tf-backend-cpu.min.js', 'tf-backend-webgl.min.js',
+                     'tf-backend-wasm.min.js'];
+/* The order the chain would take if this were the survey: the fastest thing
+   that answers sensibly, and the CPU last because it always answers. */
+var BENCH_ORDER = ['webgl', 'wasm', 'cpu'];
+var benchTf = null, benchLoading = null, benchResult = null;
+
+/* Classic script tags, in order, each waiting for the last: the UMD builds
+   attach to one shared `tf` global and the backends must find the core there
+   before they register. ~2.4 MB, fetched the first time the button is pressed
+   and never on the survey's path. */
+function loadBenchTf() {
+  if (benchTf) return Promise.resolve(benchTf);
+  if (benchLoading) return benchLoading;
+  benchLoading = BENCH_SCRIPTS.reduce(function (chain, file) {
+    return chain.then(function () {
+      return new Promise(function (resolve, reject) {
+        var el = document.createElement('script');
+        el.src = BENCH_DIR + file;
+        el.onload = resolve;
+        el.onerror = function () { reject(new Error('could not load ' + file)); };
+        document.head.appendChild(el);
+      });
+    });
+  }, Promise.resolve()).then(function () {
+    if (!window.tf) throw new Error('TensorFlow.js did not attach itself');
+    /* Same-origin, so the binaries work with no signal once cached. */
+    if (window.tf.wasm && window.tf.wasm.setWasmPaths) {
+      window.tf.wasm.setWasmPaths(BENCH_DIR);
+    }
+    benchTf = window.tf;
+    return benchTf;
+  }, function (e) { benchLoading = null; throw e; });
+  return benchLoading;
+}
+
+/* What the runtime itself says about SIMD and threads, asked rather than
+   assumed. Threads additionally need the page to be cross-origin isolated,
+   which needs COOP and COEP headers that GitHub Pages does not send — so the
+   answer is reported alongside the reason. */
+function benchWasmCapabilities(tf) {
+  var env = tf.env();
+  var ask = function (flag) {
+    try { return Promise.resolve(env.getAsync(flag)); }
+    catch (e) { return Promise.resolve(null); }
+  };
+  return ask('WASM_HAS_SIMD_SUPPORT').then(function (simd) {
+    return ask('WASM_HAS_MULTITHREAD_SUPPORT').then(function (threads) {
+      return {
+        simd: simd,
+        threads: threads,
+        isolated: (typeof crossOriginIsolated === 'boolean') ? crossOriginIsolated : null,
+        cores: navigator.hardwareConcurrency || null,
+        sharedArrayBuffer: typeof SharedArrayBuffer !== 'undefined'
+      };
+    });
+  }).catch(function () {
+    return { simd: null, threads: null, isolated: null, cores: null,
+             sharedArrayBuffer: false };
+  });
+}
+
+/* The weights the SDK already has, handed to this copy of TensorFlow.js
+   unchanged. Roboflow returns model.json inline with absolute shard URLs, so
+   there is nothing to re-resolve and no second version of the model anywhere. */
+function benchLoader(tf, weights) {
+  return {
+    load: function () {
+      var specs = [], paths = [];
+      (weights.weightsManifest || []).forEach(function (g) {
+        (g.weights || []).forEach(function (w) { specs.push(w); });
+        (g.paths || []).forEach(function (p) { paths.push(p); });
+      });
+      return Promise.all(paths.map(function (u) {
+        return fetch(u).then(function (r) {
+          if (!r.ok) throw new Error('shard HTTP ' + r.status);
+          return r.arrayBuffer();
+        });
+      })).then(function (buffers) {
+        var total = buffers.reduce(function (n, b) { return n + b.byteLength; }, 0);
+        var all = new Uint8Array(total), at = 0;
+        buffers.forEach(function (b) { all.set(new Uint8Array(b), at); at += b.byteLength; });
+        return { modelTopology: weights.modelTopology,
+                 weightSpecs: specs, weightData: all.buffer };
+      });
+    }
+  };
+}
+
+/* The SDK's own preprocess(), transcribed:
+     tensor4D -> resizeNearestNeighbor([640,640]) -> float32 -> /255 -> NCHW  */
+function benchPreprocess(tf, canvas) {
+  return tf.tidy(function () {
+    var px = tf.browser.fromPixels(canvas).expandDims(0);
+    var r = tf.image.resizeNearestNeighbor(px, [RF_SIZE, RF_SIZE]).asType('float32');
+    return tf.transpose(tf.div(r, 255), [0, 3, 1, 2]);
+  });
+}
+
+/* The library's decoder arithmetic, transcribed from its bundle. The index
+   expression below reads oddly and is correct: w*nc + (w+1)*4 expands to
+   w*(nc+4) + 4, which is the first class channel of anchor w. */
+function benchMaxScores(data, numBoxes, numClasses) {
+  var scores = [], classes = [];
+  for (var w = 0; w < numBoxes; w++) {
+    var best = Number.MIN_VALUE, bi = -1;
+    for (var a = 0; a < numClasses; a++) {
+      var v = data[w * numClasses + (w + 1) * 4 + a];
+      if (v > best) { best = v; bi = a; }
+    }
+    scores[w] = best; classes[w] = bi;
+  }
+  return { scores: scores, classes: classes };
+}
+
+function benchBoxes(data, numBoxes, numClasses, size) {
+  var out = new Float32Array(numBoxes * 4);
+  for (var w = 0; w < numBoxes; w++) {
+    var o = w * (numClasses + 4);
+    var x = data[o], y = data[o + 1], bw = data[o + 2], bh = data[o + 3];
+    out[w * 4]     = (y - bh / 2) / size;      // y1, x1, y2, x2 — the order NMS wants
+    out[w * 4 + 1] = (x - bw / 2) / size;
+    out[w * 4 + 2] = (y + bh / 2) / size;
+    out[w * 4 + 3] = (x + bw / 2) / size;
+  }
+  return out;
+}
+
+/* One backend, one frame. Load and warm-up are timed separately and excluded
+   from the inference figure — the first execute on any backend pays for kernel
+   and shader compilation, and reporting that as the cost of a frame would
+   flatter whichever backend happened to go last. */
+function benchOne(tf, name, weights, canvas) {
+  var row = { backend: name, supported: false, initialised: false, sane: null,
+              load: null, warm: null, infer: null, decode: null, total: null,
+              detections: null, best: null, min: null, max: null, error: null };
+  var model = null, input = null;
+
+  return tf.setBackend(name).then(function (okBackend) {
+    if (!okBackend) throw new Error('this browser has no ' + name + ' backend');
+    return tf.ready();
+  }).then(function () {
+    row.supported = true;
+    var t = performance.now();
+    return tf.loadGraphModel(benchLoader(tf, weights)).then(function (m) {
+      model = m; row.load = Math.round(performance.now() - t);
+      row.initialised = true;
+    });
+  }).then(function () {
+    input = benchPreprocess(tf, canvas);
+    var t = performance.now();
+    var warm = model.execute(input);
+    (Array.isArray(warm) ? warm : [warm]).forEach(function (x) { x.dataSync(); });
+    tf.dispose(warm);
+    row.warm = Math.round(performance.now() - t);
+  }).then(function () {
+    /* The measured run. dataSync is inside it deliberately: on a lazy backend
+       execute only queues the work, and a figure that stopped before the
+       readback would time the queueing rather than the graph. */
+    var t0 = performance.now();
+    var out = model.execute(input);
+    var one = Array.isArray(out) ? out[0] : out;
+    var moved = tf.transpose(one, [0, 2, 1]);
+    var data = moved.dataSync();
+    var numBoxes = moved.shape[1], numClasses = moved.shape[2] - 4;
+    var t1 = performance.now();
+
+    var lo = Infinity, hi = -Infinity;
+    for (var i = 0; i < data.length; i++) {
+      var v = data[i]; if (v < lo) lo = v; if (v > hi) hi = v;
+    }
+    row.min = lo; row.max = hi;
+    row.sane = isFinite(lo) && isFinite(hi) && Math.abs(hi) < 1e4 && Math.abs(lo) < 1e4;
+
+    var ms = benchMaxScores(data, numBoxes, numClasses);
+    var boxes = benchBoxes(data, numBoxes, numClasses, RF_SIZE);
+    var classNames = (rfMeta && rfMeta.classes) || ['manhole', 'pothole'];
+
+    /* The library forces NMS onto the CPU backend whatever it inferred with, so
+       this does too — otherwise the decode figure would carry a different
+       backend's cost on every row. */
+    var was = tf.getBackend();
+    return tf.setBackend('cpu').then(function () {
+      var keep = tf.tidy(function () {
+        return tf.image.nonMaxSuppression(
+          tf.tensor2d(boxes, [numBoxes, 4]), ms.scores, 20, 0.5, 0.5).dataSync();
+      });
+      var best = null;
+      for (var k = 0; k < numBoxes; k++) {
+        if (ms.classes[k] >= 0 && (!best || ms.scores[k] > best.score)) {
+          best = { score: ms.scores[k], cls: classNames[ms.classes[k]] };
+        }
+      }
+      row.detections = keep.length;
+      row.best = best;
+      row.decode = Math.round(performance.now() - t1);
+      row.infer = Math.round(t1 - t0);
+      row.total = row.infer + row.decode;
+      tf.dispose(out); tf.dispose(moved);
+      return tf.setBackend(was);
+    });
+  }).then(function () { return row; }, function (e) {
+    row.error = String((e && e.message) || e).slice(0, 200);
+    return row;
+  }).then(function (r) {
+    if (input) tf.dispose(input);
+    if (model && model.dispose) { try { model.dispose(); } catch (e) {} }
+    return r;
+  });
+}
+
+function runBench() {
+  var s = $('tState'), v = $('vid');
+  if (!stream || !v.videoWidth) {
+    s.textContent = 'The camera is not running — start it, then come back.';
+    return;
+  }
+  busy(true);
+  s.textContent = 'Fetching TensorFlow.js (about 2.4 MB, once)…';
+
+  /* Captured once, before any backend is touched, and handed to all of them.
+     Capturing per backend would be measuring three different pictures. */
+  var sq = squareFrame(v, v.videoWidth, v.videoHeight);
+  var started = new Date().toISOString();
+
+  loadBenchTf().then(function (tf) {
+    s.textContent = 'Asking the runtime what it supports…';
+    return benchWasmCapabilities(tf).then(function (caps) {
+      return modelMeta().then(function (meta) {
+        if (!meta || !meta.weights || !meta.weights.modelTopology) {
+          throw new Error('the model metadata has no weights in it — no signal?');
+        }
+        var rows = [];
+        return BENCH_ORDER.reduce(function (chain, name) {
+          return chain.then(function () {
+            s.textContent = 'Running the same frame on ' + name + '… (' +
+              (rows.length + 1) + ' of ' + BENCH_ORDER.length + ')';
+            return benchOne(tf, name, meta.weights, sq.canvas).then(function (r) {
+              rows.push(r);
+            });
+          });
+        }, Promise.resolve()).then(function () {
+          return { at: started, caps: caps, rows: rows,
+                   source: v.videoWidth + '×' + v.videoHeight };
+        });
+      });
+    });
+  }).then(function (out) {
+    benchResult = out;
+    paintFrameTest(); paintDiag();
+    var fastest = out.rows.filter(function (r) { return r.sane && r.infer != null; })
+      .sort(function (a, b) { return a.infer - b.infer; })[0];
+    s.textContent = fastest
+      ? 'Done. Fastest usable: ' + fastest.backend + ' at ' + fastest.infer + ' ms.'
+      : 'Done — no backend produced usable output. Read the table below.';
+    busy(false);
+  }, function (e) {
+    benchResult = null;
+    s.textContent = 'Benchmark could not run: ' + String((e && e.message) || e);
+    busy(false);
+  });
+}
+
+function benchLines() {
+  if (!benchResult) return '';
+  var b = benchResult, c = b.caps || {}, L = [];
+  L.push('BACKEND BENCHMARK  (one frame, captured once, reused for every backend)');
+  L.push('when         ' + b.at);
+  L.push('frame        ' + b.source + ' → ' + RF_SIZE + '×' + RF_SIZE +
+    ', preprocessed exactly as the survey does it');
+  L.push('runtime      TensorFlow.js ' + ((benchTf && benchTf.version_core) || '?') +
+    ' loaded by this benchmark — the SDK keeps its own copy module-scoped');
+  L.push('');
+  L.push('WASM SUPPORT (what the runtime reports, not what it is assumed to have)');
+  L.push('  SIMD       ' + (c.simd === null ? 'could not be determined' : c.simd ? 'yes' : 'no'));
+  L.push('  threads    ' + (c.threads === null ? 'could not be determined' : c.threads ? 'yes' : 'no'));
+  L.push('  cores      ' + (c.cores == null ? 'not reported' : c.cores));
+  L.push('  SharedArrayBuffer ' + (c.sharedArrayBuffer ? 'present' : 'absent'));
+  L.push('  crossOriginIsolated ' + (c.isolated === null ? 'unknown' : c.isolated));
+  if (!c.threads) {
+    L.push('  >> threads need the page to be cross-origin isolated, which needs COOP');
+    L.push('     and COEP headers. GitHub Pages does not send them, so this is a');
+    L.push('     property of where the app is hosted rather than of the phone.');
+  }
+  L.push('');
+  b.rows.forEach(function (r) {
+    L.push(r.backend.toUpperCase());
+    L.push('  supported    ' + (r.supported ? 'yes' : 'no'));
+    L.push('  initialised  ' + (r.initialised ? 'yes' : 'no'));
+    if (r.error) {
+      L.push('  FAILED       ' + r.error);
+      L.push('');
+      return;
+    }
+    L.push('  output sane  ' + (r.sane ? 'yes' : 'NO — this backend cannot be trusted'));
+    L.push('  inference    ' + r.infer + ' ms');
+    L.push('  decode+NMS   ' + r.decode + ' ms');
+    L.push('  total        ' + r.total + ' ms');
+    L.push('  detections   ' + r.detections);
+    L.push('  best         ' + (r.best ? r.best.cls + ' ' + round4(r.best.score) : 'none'));
+    L.push('  raw min/max  ' + round4(r.min) + ' / ' + round4(r.max));
+    L.push('  model load   ' + r.load + ' ms, warm-up ' + r.warm +
+      ' ms  (both excluded from the figures above)');
+    L.push('');
+  });
+  var usable = b.rows.filter(function (r) { return r.sane && r.infer != null; });
+  if (usable.length > 1) {
+    var sorted = usable.slice().sort(function (a, b2) { return a.infer - b2.infer; });
+    var f = sorted[0], sl = sorted[sorted.length - 1];
+    L.push('FASTEST USABLE  ' + f.backend + ' at ' + f.infer + ' ms — ' +
+      (Math.round((sl.infer / f.infer) * 10) / 10) + '× the ' + sl.backend + ' figure');
+  } else if (usable.length === 1) {
+    L.push('ONLY USABLE     ' + usable[0].backend + ' at ' + usable[0].infer + ' ms');
+  } else {
+    L.push('NOTHING USABLE  no backend produced output in a plausible range');
+  }
   return L.join('\n');
 }
 
 function paintFrameTest() {
   var pre = $('frameText'), wrap = $('tShotWrap');
-  pre.hidden = !frameTest;
-  if (!frameTest) { wrap.hidden = true; return; }
+  /* The benchmark never runs the SDK, so it produces no frame test. Its table
+     still belongs on the screen rather than only in the copied diagnostics. */
+  var benchOnly = benchLines();
+  pre.hidden = !frameTest && !benchOnly;
+  if (!frameTest) {
+    wrap.hidden = true;
+    pre.textContent = benchOnly;
+    return;
+  }
   pre.textContent = frameLines(frameTest);
   if (testUrl) { URL.revokeObjectURL(testUrl); testUrl = null; }
   if (frameTest.shot) {
@@ -3502,6 +4131,7 @@ function paintFrameTest() {
 function busy(on) {
   $('bTestCam').disabled = on;
   $('bTestSpin').disabled = on;
+  $('bTestBench').disabled = on;
   $('tFileLabel').classList.toggle('off', on);
 }
 
@@ -3523,8 +4153,15 @@ function runTest(label, get, from) {
       : 'Done — nothing the survey would log. Read the result below before concluding anything.';
     busy(false);
   }, function (e) {
-    frameTest = null; paintFrameTest();
-    s.textContent = 'Could not run it: ' + whyLocal(e);
+    frameTest = null;
+    /* A picture that never reached the model is not the model failing. Saying
+       "The model failed while running" about an undecodable file is what sent
+       a whole afternoon after the camera path, which was working. */
+    lastSourceFail = (e && e.source) ? String(e.message) : null;
+    paintFrameTest();
+    s.textContent = 'Could not run it: ' +
+      (lastSourceFail ? 'the picture never reached the model — ' + lastSourceFail
+                      : whyLocal(e));
     busy(false);
   });
 }
@@ -3621,6 +4258,7 @@ $('bTestCam').addEventListener('click', function () {
 });
 
 $('bTestSpin').addEventListener('click', runSpin);
+$('bTestBench').addEventListener('click', runBench);
 
 $('tFile').addEventListener('change', function () {
   var file = this.files && this.files[0];
@@ -3632,6 +4270,24 @@ $('tFile').addEventListener('change', function () {
        the option ignore it. */
     return createImageBitmap(file, { imageOrientation: 'from-image' })
       .catch(function () { return createImageBitmap(file); })
+      .catch(function (e) {
+        /* "The source image could not be decoded" is the browser's own words
+           for a file whose bytes it cannot read, and it is the ONLY thing in
+           this app that produces that sentence. Reported here, with the file
+           named, because the same message arriving unattributed reads like a
+           camera fault and sends the search to the wrong end of the pipeline.
+           HEIC is the usual culprit: it is what an iPhone saves by default and
+           what no browser will decode. */
+        var heic = /\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type || '');
+        throw new SourceError('this browser could not decode "' + file.name + '" (' +
+          (file.type || 'no type given') + ', ' + Math.round(file.size / 1024) + ' kB)' +
+          (heic ? '. That is an HEIC/HEIF file — the format an iPhone saves by ' +
+                  'default, and one no browser decodes. Share or export it as JPEG ' +
+                  'and try that.'
+                : '. The file is not in a format this browser can read as an image.') +
+          ' The model was never given anything, so this says nothing about the model. ' +
+          '[' + String((e && e.message) || e) + ']');
+      })
       .then(function (bmp) { return [bmp, bmp.width, bmp.height]; });
   }, 'photo, EXIF rotation applied');
 });

@@ -228,6 +228,217 @@ One combined number would hide which of those was happening.
 stays at 1 while `inferences` climbs, the model is loaded once and reused, and
 the time above is genuinely the graph running.
 
+## Which backend could run this, and how fast
+
+The survey takes about seventeen seconds a frame, and the timing split above
+says that is genuinely the graph running rather than the model being reloaded.
+So the next question is not "why is it slow" but "is anything else on this phone
+faster at the same work" — and that is a measurement, not an argument.
+
+*Benchmark the backends* captures **one frame, once**, and runs it through
+WebGL, WASM and CPU in turn. Same picture, same preprocessing, same weights,
+same decoder, same NMS parameters. Capturing a frame per backend would be
+comparing three different pictures and calling the difference a backend.
+
+The shape of the report — **the timings below are dashes on purpose. Nobody
+has pressed this button on a phone yet, and this document is not the place to
+invent what it will say:**
+
+```
+BACKEND BENCHMARK  (one frame, captured once, reused for every backend)
+frame        1920x1080 -> 640x640, preprocessed exactly as the survey does it
+
+WASM SUPPORT (what the runtime reports, not what it is assumed to have)
+  SIMD       -
+  threads    -
+  cores      -
+  crossOriginIsolated -
+  >> threads need the page to be cross-origin isolated, which needs COOP
+     and COEP headers. GitHub Pages does not send them, so this is a
+     property of where the app is hosted rather than of the phone.
+
+WEBGL
+  supported    -
+  output sane  -
+  inference    - ms
+  decode+NMS   - ms
+  detections   -
+  best         -
+  raw min/max  - / -
+  model load   - ms, warm-up - ms  (both excluded from the figures above)
+
+WASM
+  ...
+CPU
+  ...
+
+FASTEST USABLE  -
+```
+
+The one figure that is not a guess is WebGL's: on the phone this was built for
+it has already returned `min -1834411, max 2634395904` on a real frame, twice,
+including with full precision forced. That is what "output sane: NO" is there
+to catch.
+
+Three things that report is careful about:
+
+**SIMD and threads are asked, not assumed.** The figures come from the
+runtime's own `WASM_HAS_SIMD_SUPPORT` and `WASM_HAS_MULTITHREAD_SUPPORT`.
+Threads additionally need the page to be cross-origin isolated, which needs
+COOP and COEP headers GitHub Pages does not send — so a “no” there is a fact
+about the hosting, not about the phone, and the report says which.
+
+**Fast and wrong does not win.** The ranking is *fastest usable*: a backend
+whose output fails the same numerical sanity check the app already applies is
+listed with its time and excluded from the ranking. A backend that returns garbage
+fast has not won anything.
+
+**Load and warm-up are excluded from the inference figure and printed
+separately.** The first `execute` on any backend pays for kernel and shader
+compilation; folding that in would flatter whichever backend ran last.
+
+### What this does not do
+
+**It does not change what the survey runs on.** The survey still infers through
+the Roboflow SDK, on whatever backend the SDK's own fallback picked, exactly as
+before. The benchmark loads its own copy of TensorFlow.js and puts it away
+again.
+
+That is not a design preference, it is a constraint worth writing down: **the
+WebGL → WASM → CPU fallback chain cannot be delivered inside the SDK as it
+stands.** The SDK bundles TensorFlow.js inside its worker and keeps it
+module-scoped and minified — inside that worker `self.tf` is undefined — so
+`tfjs-backend-wasm` has nothing to register itself against. Adding WASM to the
+survey means replacing the SDK's inference path, which is a larger change than
+this one and should be decided on the numbers this button produces rather than before them.
+
+## "The source image could not be decoded" — which end it came from
+
+The diagnostics screen said this, under a heading that read REAL FRAME and above
+a line that read `Camera: live, 1920x1080`:
+
+```
+Could not run it: The model failed while running.
+(The source image could not be decoded.)
+```
+
+Every part of that pointed at the camera, and the camera was fine.
+
+Those words are Chromium's, not this app's, and they are thrown by exactly one
+thing: `createImageBitmap` handed a **Blob** whose bytes it cannot read. Probed
+in the browser rather than reasoned about — every other way of failing gives
+different words:
+
+| what was tried | what Chromium says |
+|---|---|
+| `createImageBitmap(blob)`, bytes not an image | **The source image could not be decoded.** |
+| `createImageBitmap(canvas)`, width 0 | The image source's width is 0. |
+| `createImageBitmap(video)`, no frame yet | The image source is not usable. |
+| `drawImage` from a closed ImageBitmap | The image source is detached |
+| video → 640² canvas → `createImageBitmap` | *(no error)* |
+
+This app calls `createImageBitmap` on a Blob in exactly one place: the **Test a
+photo** handler. The camera path never does — it draws the video onto a 640²
+canvas and converts *the canvas*, which is a different overload with different
+failure modes. So the message came from a photograph the browser could not read,
+almost certainly an **HEIC** — the format an iPhone saves by default and one no
+browser decodes.
+
+Two separate faults made that unreadable:
+
+**It blamed the model for something the model never saw.** Any failure in the
+test was funnelled through `whyLocal`, which prefixes "The model failed while
+running". The model had not been asked anything. A failure before inference now
+says so in those words — *the picture never reached the model* — names the file,
+its type and its size, and for an HEIC says to export it as JPEG.
+
+**Nothing said what had actually been handed over.** The report now checks the
+source before the model is asked anything, and prints it:
+
+```
+SOURCE  (checked before the model was asked anything)
+  given as   HTMLVideoElement
+  readyState 4 — enough to play through
+  video      1920×1080, playing
+  drawn onto 640×640 canvas
+  handed to model as ImageBitmap 640×640
+  frame      brightness 45 to 93 — there is a picture here
+```
+
+`readyState` is the line that earns its place. **A video element that has stopped
+producing frames still reports the size of the last one it managed**, so
+`videoWidth` on its own is not evidence that there is a picture to draw — which
+is why the old check, `if (!stream || !v.videoWidth)`, would wave a stalled
+camera straight through. A source that cannot produce a frame is now refused
+before anything is drawn, and says which `readyState` it was in.
+
+The brightness line is reported and never acted on. A flat frame might be a lens
+cap, a dark road, or a video element that quietly stopped, and this cannot tell
+those apart — so it says what it sees and leaves the conclusion alone.
+
+**Nothing about the camera path changed**, because nothing about it was wrong.
+It still goes video → 640² canvas → `ImageBitmap` → `CVImage` → the same worker,
+the same model and the same decoder as the survey.
+
+## When the library hands back something that is not a list
+
+The real-frame test failed with this, and the message is worth reading twice:
+
+```
+Could not run it: The model failed while running. (raw.forEach is not a function)
+```
+
+That names the method that was missing and nothing at all about the object that
+was missing it — and the object was the whole answer.
+
+`engine.infer` is documented as resolving with a list of detections. It does not
+always. Inside the library, a failed worker request is caught and **returned**
+rather than rethrown:
+
+```js
+return new Promise((accept, reject) => { ... })
+  .then((c) => c)
+  .catch((c) => {
+    if (c === "Model initialization failed") throw new Error("Model initialization failed");
+    return c;                     // <- the rejection becomes a fulfilled value
+  })
+```
+
+So a worker that died mid-inference arrives looking exactly like a success. The
+app's `takeDiag` then had a guard that let it straight through:
+
+```js
+if (!preds || !preds.length) return preds || [];    // a non-list falls out here
+```
+
+A truthy object with no `length` was returned unchanged; a string error message
+has a `length`, so it did not even take that branch. Either way the next thing
+done to it was `raw.forEach`, and **the worker's actual complaint was discarded
+and replaced by a type error three frames downstream.**
+
+The fix is not a `try`/`catch`. `takeDiag` now asks what it has been handed, and
+says so:
+
+```
+raw type     string(35 chars) — what engine.infer returned
+```
+```
+Could not run it: The model failed while running. (the model returned
+string(35 chars) where a list of detections was expected — Error: inference
+failed in worker 0)
+```
+
+`runtimeType` names the thing rather than guessing at it: `Array(n)`,
+`Float32Array(50400)`, `Tensor(1×6×8400)` (recognised by having a `shape` and a
+`dataSync`, since this file has no copy of tfjs to ask), `Error`,
+`Object{status, res}` with its keys, `null`. Anything that is not a list stops
+the run and reports itself. `null` is treated as a nil answer, because that is
+what it is.
+
+**A quiet empty list would have been the wrong fix.** It would turn a broken
+worker into "nothing found", which is the failure this whole application is
+built to avoid.
+
 ## The real-frame test
 
 The diagnostics screen used to describe the model in the abstract: what Roboflow
