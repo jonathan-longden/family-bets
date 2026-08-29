@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "Fucking Weather",
-  "short_name": "Fucking Weather",
+  "name": "Blooming Weather",
+  "short_name": "Blooming Weather",
   "description": "A proper weather app that tells you exactly what the sky is doing, then takes the mickey out of it.",
   "start_url": ".",
   "scope": ".",

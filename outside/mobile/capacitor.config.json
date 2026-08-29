@@ -1,6 +1,6 @@
 {
   "appId": "io.github.jonathanlongden.weather",
-  "appName": "Fucking Weather",
+  "appName": "Blooming Weather",
   "webDir": "www",
   "ios": {
     "contentInset": "never",

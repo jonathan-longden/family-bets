@@ -59,10 +59,11 @@ moves on and an anchor stops fitting, `npm run config` stops and says which one
 rather than writing a half-configured app — a build that fails loudly beats a
 submission with last month's version number on it.
 
-**Two names, on purpose.** With swearing on — the default — the app calls
-itself *Fucking Weather* everywhere inside. `store.name` is what goes on the
-App Store and Google Play, and it is set to the clean twin. See
-[STORE.md](STORE.md) for why, and how to change it.
+**Clean name, rude mouth.** The app is called *Blooming Weather* everywhere —
+home screen, About, share card, both listings — and it swears at you by
+default anyway. The name and the mouth are separate decisions and only the
+mouth has a switch. It is also the reason the age rating is what it is: see
+[STORE.md](STORE.md), which is about the content, not the title.
 
 ## Everyday commands
 

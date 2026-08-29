@@ -1,4 +1,4 @@
-# Fucking Weather
+# Blooming Weather
 
 *A proper weather app that tells you exactly what the sky is doing, then takes
 the mickey out of it.*
@@ -69,7 +69,7 @@ weather never produces the same sentence forever.
 
 **Let it swear at me** is on by default. Turned off, every line has a twin
 written to be funny in its own right rather than the sweary one with the word
-cut out, and the app renames itself to *Blooming Weather*:
+cut out:
 
 > **On:** THE SUN HAS LOST THE FUCKING PLOT.
 > **Off:** THE SUN HAS COMPLETELY LOST THE PLOT.
@@ -131,9 +131,9 @@ tell the same joke. Tapping it opens the app.
 
 1. Install Scriptable from the App Store.
 2. Open it, tap **+**, paste in the whole of `widget/scriptable-widget.js`, and
-   name it **Fucking Weather**.
+   name it **Blooming Weather**.
 3. Long-press the home screen → **+** → **Scriptable** → pick a size → **Add**.
-4. Long-press the new widget → **Edit Widget** → set **Script** to *Fucking
+4. Long-press the new widget → **Edit Widget** → set **Script** to *Blooming
    Weather*. Leave **Parameter** empty to use where the phone is, or type a
    place as `Name,lat,lon` — e.g. `Ilkley,53.925,-1.822`.
 5. Done. The script asks iOS to refresh hourly; iOS treats that as a hint.
@@ -223,13 +223,15 @@ there, run `npm run config` in `mobile/`, and the name is written into
 Info.plist and Xcode project, and the Android strings and Gradle build.
 
 ```json
-"name":  { "sweary": "Fucking Weather", "clean": "Blooming Weather" },
+"name":  "Blooming Weather",
 "store": { "name": "Blooming Weather" }
 ```
 
-`name.sweary` is what the app calls itself with swearing on, `name.clean` with
-it off, and `store.name` is what the two shops are told — separate, because the
-shops will not take the real one.
+One name, whatever the swearing setting says. The app used to rename itself
+when swearing was switched off, back when its own name was the rudest thing
+about it — it does not any more. `store.name` exists only because the two
+listings have their own rules about length and search terms, and is normally
+the same thing.
 
 Nothing else hardcodes any of it. The saved-settings key is deliberately
 neutral, so a rename never loses anybody's location.

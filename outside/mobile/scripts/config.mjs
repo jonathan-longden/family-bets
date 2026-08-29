@@ -26,8 +26,7 @@ const web = join(mobile, '..');
 
 const cfg = JSON.parse(readFileSync(join(web, 'app.config.json'), 'utf8'));
 
-const NAME = cfg.name.sweary;
-const CLEAN = cfg.name.clean;
+const NAME = cfg.name;
 const STORE = cfg.store.name;
 const skipped = [];
 const written = [];
@@ -89,24 +88,20 @@ put(join(web, 'brand.js'), `/* The name, in one place.
    GENERATED FROM app.config.json — edit that and run \`npm run config\` in
    mobile/. Changing this file by hand works until the next build wipes it.
 
-   The working name swears. That is deliberate, and it is also the single most
-   likely thing to change — a shop front will not carry it — so nothing else in
-   the app hardcodes it.
-
-   The two names are not a censor and its victim: \`clean\` is a name in its own
-   right rather than the sweary one with the teeth pulled. Which one shows
-   follows the swearing setting, so a phone handed across the breakfast table
-   does not announce itself. */
+   One name, whatever the swearing setting says. The app used to rename itself
+   when swearing was switched off, back when its own name was the rudest thing
+   about it. It is not any more: the name is respectable and the mouth is not,
+   which is the joke. The setting changes what the app says, never what it is
+   called. */
 
 (function (root) {
   'use strict';
 
   root.Brand = {
     name: ${JSON.stringify(NAME)},
-    clean: ${JSON.stringify(CLEAN)},
 
-    /* What the shops call it. Only ever shown in the privacy policy and the
-       About sheet's small print, where it has to match the listing. */
+    /* What the two shops are told, which is normally the same thing — their
+       listing rules occasionally want it not to be. */
     store: ${JSON.stringify(STORE)},
 
     tagline: ${JSON.stringify(cfg.tagline)},
@@ -114,11 +109,9 @@ put(join(web, 'brand.js'), `/* The name, in one place.
     version: ${JSON.stringify(cfg.version)},
     build: ${JSON.stringify(String(cfg.build))},
 
-    pick: function (sweary) { return sweary === false ? this.clean : this.name; },
-
     /* For the share card, where the joke belongs to the weather rather than
        the app: a quiet signature rather than a shout. */
-    signature: function (sweary) { return this.pick(sweary).toUpperCase(); }
+    signature: function () { return this.name.toUpperCase(); }
   };
 
 })(typeof self !== 'undefined' ? self : this);
