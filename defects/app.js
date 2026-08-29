@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-28 · 38';
+var BUILD = '2026-08-29 · 39';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -1345,8 +1345,80 @@ function runSelfTest() {
   });
 }
 
+/* What a value actually is at runtime, named rather than assumed.
+
+   Written because "raw.forEach is not a function" is the least useful thing a
+   diagnostic can say: it names the method that was missing and nothing about
+   the object that was missing it. Anything reaching here may be a list of
+   detections, a tfjs Tensor, a typed array, a string the worker sent back, or
+   an Error — and which one it is is the whole answer. */
+function runtimeType(v) {
+  if (v === null) return 'null';
+  if (v === undefined) return 'undefined';
+  if (Array.isArray(v)) return 'Array(' + v.length + ')';
+  var t = typeof v;
+  if (t === 'string') return 'string(' + v.length + ' chars)';
+  if (t !== 'object' && t !== 'function') return t;
+  var tag = Object.prototype.toString.call(v).slice(8, -1);
+  /* Float32Array and the rest. DataView is a view too and has no length. */
+  if (typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(v) &&
+      typeof v.length === 'number') {
+    return tag + '(' + v.length + ')';
+  }
+  if (v instanceof Error) return 'Error';
+  /* A tfjs Tensor, recognised by what it can do rather than by importing tfjs
+     to ask it — the library keeps its own copy and this file has none. */
+  if (v.shape && typeof v.dataSync === 'function') {
+    return 'Tensor(' + [].concat(v.shape).join('×') + ')';
+  }
+  if (tag === 'Object') {
+    var k = Object.keys(v);
+    return 'Object{' + (k.length ? k.slice(0, 6).join(', ') + (k.length > 6 ? ', …' : '')
+                                 : 'no keys') + '}';
+  }
+  return tag;
+}
+
+/* engine.infer resolves with a list of detections — except when it does not.
+
+   The library turns a failed request into a RESOLVED promise carrying the
+   worker's error payload, not a rejected one:
+
+       .then((c) => c).catch((c) => {
+         if (c === "Model initialization failed") throw new Error(...);
+         return c;                    // <- the rejection becomes a value
+       })
+
+   So a worker that failed mid-inference arrives here looking like a successful
+   answer, and the first thing done to it is a list operation. That is where
+   "raw.forEach is not a function" came from: the real fault was thrown away by
+   the library and replaced by a type error three frames later. This says what
+   actually came back instead. */
+function inferFault(v) {
+  var msg = '';
+  if (typeof v === 'string') msg = v;
+  else if (v && typeof v.message === 'string') msg = v.message;
+  else if (v && typeof v.error === 'string') msg = v.error;
+  else {
+    try { msg = JSON.stringify(v); } catch (e) { msg = String(v); }
+  }
+  return 'the model returned ' + runtimeType(v) + ' where a list of detections was ' +
+         'expected' + (msg ? ' — ' + String(msg).slice(0, 300) : '');
+}
+
+/* What engine.infer last handed back, kept so the screen can print it whether
+   the run succeeded or failed. */
+var lastInferType = null;
+
 function takeDiag(preds) {
-  if (!preds || !preds.length) return preds || [];
+  lastInferType = runtimeType(preds);
+  /* Nothing at all is a legitimate answer: no detections. */
+  if (preds === null || preds === undefined) return [];
+  /* Anything else that is not a list is a failure wearing a success's clothes.
+     Throwing here puts the real reason in front of whoever pressed the button,
+     which is the whole point; returning an empty list would turn a broken
+     worker into a quiet "nothing found". */
+  if (!Array.isArray(preds)) throw new Error(inferFault(preds));
   var last = preds[preds.length - 1];
   if (last && last.__diag) { lastDiag = last; preds = preds.slice(0, -1); }
   return preds;
@@ -3174,6 +3246,9 @@ function diagLines() {
     L.push('model      ' + (worker ? 'worker ready'
       : engine ? 'engine loaded but no worker — the model would not start'
                : 'not loaded'));
+    /* When a run failed, this is the line that says what the library handed
+       back — the thing the old type error was hiding. */
+    if (lastInferType) L.push('raw type   ' + lastInferType + ' from the last engine.infer');
     var bench0 = benchLines();
     if (bench0) { L.push(''); L.push(bench0); }
   }
@@ -3302,19 +3377,27 @@ function testFrame(source, w, h, label, from, rotate) {
       });
     });
   }).then(function (out) {
-    var raw = takeDiag(out.preds) || [];       // also refreshes lastDiag for the screen below
+    /* takeDiag names what came back before anything is done to it, and refuses
+       anything that is not a list — so a failed worker reports its own reason
+       rather than surfacing later as a missing array method. */
+    var raw = takeDiag(out.preds);             // also refreshes lastDiag for the screen below
+    var rawType = lastInferType;
     var d = lastDiag || {};
+    var tDec = performance.now();
     var f = filterTrace(raw, sq.ctx);
+    var msFilter = performance.now() - tDec;
     return new Promise(function (resolve) {
       var tEnc = performance.now();
       sq.canvas.toBlob(function (blob) {
         resolve({
           label: label, at: new Date().toISOString(),
-          raw: raw, trace: f.trace, kept: f.kept, diag: d, shot: blob,
+          raw: raw, rawType: rawType, from: from,
+          trace: f.trace, kept: f.kept, diag: d, shot: blob,
           rotate: rotate || 0, facts: facts,
           t: {
             pre: Math.round(out.tPre - t0),
             infer: Math.round(out.tInf - out.tPre),
+            filter: Math.round(msFilter),
             encode: Math.round(performance.now() - tEnc),
             wall: Math.round(performance.now() - t0)
           }
@@ -3352,8 +3435,14 @@ function frameLines(f) {
 
   var t = f.t || {}, fa = f.facts || {};
 
-  L.push('REAL FRAME  (' + f.label + (f.rotate ? ', turned ' + f.rotate + '°' : '') + ')');
+  /* A photograph and a camera frame go through identical code from squareFrame
+     onwards, but they are different tests to whoever is reading the result, so
+     they are headed differently. */
+  var photo = /^photo/.test(f.from || '');
+  L.push((photo ? 'PHOTO TEST' : 'REAL FRAME') + '  (' + f.label +
+    (f.rotate ? ', turned ' + f.rotate + '°' : '') + ')');
   L.push('when         ' + f.at);
+  L.push('image        ' + (fa.srcW || '?') + '×' + (fa.srcH || '?') + ' as supplied');
   L.push('backend      ' + (pr.using || 'not reported') +
     (d.backendNow && d.backendNow !== pr.using ? ' (now ' + d.backendNow + ')' : '') +
     (precisionForced(d) ? '  (forced — WebGL would not answer sensibly)' : ''));
@@ -3363,10 +3452,14 @@ function frameLines(f) {
   L.push('');
   L.push('TIME         preprocess    ' + t.pre + ' ms   (draw to ' + RF_SIZE +
     '² and make a bitmap)');
+  L.push('             inference     ' + t.infer +
+    ' ms   (the whole round trip to the worker and back)');
   L.push('             execute       ' + (d.msExecute == null ? '?' : Math.round(d.msExecute)) +
-    ' ms   (the graph itself)');
+    ' ms   (the graph itself, inside that)');
   L.push('             read+decode   ' + (d.msDecode == null ? '?' : Math.round(d.msDecode)) +
     ' ms   (readback, boxes, scores, NMS)');
+  L.push('             filters       ' + (t.filter == null ? '?' : t.filter) +
+    ' ms   (the survey\'s own thresholds, run over the result)');
   L.push('             encode        ' + t.encode + ' ms   (the JPEG for the screen)');
   L.push('             whole test    ' + t.wall + ' ms');
   /* The first question a twenty-second inference raises: is it the graph, or is
@@ -3429,9 +3522,17 @@ function frameLines(f) {
   }
   L.push('');
 
-  L.push('raw output   ' + (Array.isArray(d.rawShape) ? [].concat(d.rawShape).join('×') : '?') +
-    (d.frameRange ? ', min ' + round4(d.frameRange.min) + ', max ' + round4(d.frameRange.max)
-                  : ''));
+  L.push('raw shape    ' + (Array.isArray(d.rawShape) ? [].concat(d.rawShape).join('×') : '?'));
+  L.push('raw min      ' + (d.frameRange ? round4(d.frameRange.min) : 'not reported'));
+  L.push('raw max      ' + (d.frameRange ? round4(d.frameRange.max) : 'not reported'));
+  /* What engine.infer actually handed back, asked of the object rather than
+     assumed of it. A list here is the normal answer; anything else is the
+     library passing a failure off as a result, and the run stops before this
+     line is ever reached. */
+  L.push('raw type     ' + (f.rawType || 'not recorded') +
+    ' — what engine.infer returned' +
+    (d.__diag ? ' (' + f.raw.length + ' detection' + (f.raw.length === 1 ? '' : 's') +
+                ' plus the diagnostic block the patched worker appends)' : ''));
   L.push('sane?        ' + (d.frameRange && isFinite(d.frameRange.max) &&
       Math.abs(d.frameRange.max) < 1e4
     ? 'yes — box values in pixels for a ' + RF_SIZE + ' model, scores in 0..1'
@@ -3465,10 +3566,26 @@ function frameLines(f) {
   }
   L.push('');
 
-  L.push('DETECTIONS   ' + f.raw.length + ' came back from the library');
+  L.push('DETECTIONS   ' + (f.raw.length || 'zero') + ' came back from the library');
   if (!f.raw.length) {
     L.push('             (the library returns at most ' + (th.maxBoxes == null ? '?' : th.maxBoxes) +
       ' and drops anything under ' + (th.score == null ? '?' : th.score) + ')');
+  }
+  /* Named on their own lines as well as listed below, because "the best one"
+     is the question being asked and reading it out of a table is not the same
+     as being told it. */
+  var top = f.raw.reduce(function (a, p) {
+    return (!a || (+p.confidence || 0) > (+a.confidence || 0)) ? p : a;
+  }, null);
+  L.push('  best class      ' + (top ? top.class : 'none — nothing was returned'));
+  L.push('  best confidence ' + (top ? round4(top.confidence) : 'none'));
+  if (top) {
+    var tb = top.bbox || {};
+    L.push('  best box        x ' + Math.round(tb.x) + ' y ' + Math.round(tb.y) +
+      ' w ' + Math.round(tb.width) + ' h ' + Math.round(tb.height) +
+      '  (in the ' + RF_SIZE + '² the model was shown)');
+  } else {
+    L.push('  best box        none');
   }
   f.raw.forEach(function (p, i) {
     var bx = p.bbox || {};

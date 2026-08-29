@@ -312,6 +312,65 @@ module-scoped and minified — inside that worker `self.tf` is undefined — so
 survey means replacing the SDK's inference path, which is a larger change than
 this one and should be decided on the numbers this button produces rather than before them.
 
+## When the library hands back something that is not a list
+
+The real-frame test failed with this, and the message is worth reading twice:
+
+```
+Could not run it: The model failed while running. (raw.forEach is not a function)
+```
+
+That names the method that was missing and nothing at all about the object that
+was missing it — and the object was the whole answer.
+
+`engine.infer` is documented as resolving with a list of detections. It does not
+always. Inside the library, a failed worker request is caught and **returned**
+rather than rethrown:
+
+```js
+return new Promise((accept, reject) => { ... })
+  .then((c) => c)
+  .catch((c) => {
+    if (c === "Model initialization failed") throw new Error("Model initialization failed");
+    return c;                     // <- the rejection becomes a fulfilled value
+  })
+```
+
+So a worker that died mid-inference arrives looking exactly like a success. The
+app's `takeDiag` then had a guard that let it straight through:
+
+```js
+if (!preds || !preds.length) return preds || [];    // a non-list falls out here
+```
+
+A truthy object with no `length` was returned unchanged; a string error message
+has a `length`, so it did not even take that branch. Either way the next thing
+done to it was `raw.forEach`, and **the worker's actual complaint was discarded
+and replaced by a type error three frames downstream.**
+
+The fix is not a `try`/`catch`. `takeDiag` now asks what it has been handed, and
+says so:
+
+```
+raw type     string(35 chars) — what engine.infer returned
+```
+```
+Could not run it: The model failed while running. (the model returned
+string(35 chars) where a list of detections was expected — Error: inference
+failed in worker 0)
+```
+
+`runtimeType` names the thing rather than guessing at it: `Array(n)`,
+`Float32Array(50400)`, `Tensor(1×6×8400)` (recognised by having a `shape` and a
+`dataSync`, since this file has no copy of tfjs to ask), `Error`,
+`Object{status, res}` with its keys, `null`. Anything that is not a list stops
+the run and reports itself. `null` is treated as a nil answer, because that is
+what it is.
+
+**A quiet empty list would have been the wrong fix.** It would turn a broken
+worker into "nothing found", which is the failure this whole application is
+built to avoid.
+
 ## The real-frame test
 
 The diagnostics screen used to describe the model in the abstract: what Roboflow
