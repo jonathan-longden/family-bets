@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-29 · 41';
+var BUILD = '2026-08-29 · 42';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -1117,17 +1117,32 @@ function prefetchModel() {
 }
 window.addEventListener('online', prefetchModel);
 
+/* Bringing the model up.
+
+   This used to start the Roboflow SDK's worker, and the survey inferred through
+   it. It cannot any more, and the reason is structural rather than a
+   preference: the SDK bundles TensorFlow.js inside its worker and keeps it
+   module-scoped — inside that worker self.tf is undefined — so the WASM backend
+   has nothing to register itself against. WASM is 33x faster than the CPU
+   backend the SDK fell back to, and 33x is the difference between surveying a
+   road at 30 mph and at 1.25 mph, so the inference path moves here.
+
+   What did NOT move: the preprocessing, the decoder, the NMS parameters and the
+   640 square. Those are the same functions, called from a different place. The
+   six-megabyte SDK is no longer fetched to look at a road. */
 function loadModel() {
   if (loading) return loading;
-  loading = import('./vendor/inference.es.js').then(function (m) {
-    engine = new m.InferenceEngine();
-    var start = (RF_MODEL_ID && engine.startWorkerByModelId)
-      ? engine.startWorkerByModelId(RF_MODEL_ID, RF_KEY)
-      : engine.startWorker(RF_MODEL, RF_VERSION, RF_KEY);
-    return start.then(function (id) {
-      worker = id;
-      return m;
-    });
+  loading = loadBenchTf().then(function (tf) {
+    return infCapabilities(tf).then(function () { return infPick(tf); });
+  }).then(function (s) {
+    infSession = s;
+    infFacts.backend = s.backend;
+    infFacts.startedAt = new Date().toISOString();
+    engine = surveyEngine();
+    /* A sentinel rather than a worker id. Everything that asks "is there a
+       worker" is asking "can this thing be shown a picture", and now it can. */
+    worker = 1;
+    return engine;
   }).catch(function (e) {
     loading = null;   // a failure must not poison every later capture
     throw e;
@@ -1137,16 +1152,31 @@ function loadModel() {
 
 /* Three things can fail and they are not the same problem: the library did not
    load from this site, the model would not start, or the run itself broke. */
+/* Four things can fail and they are not the same problem, and saying the wrong
+   one costs a drive.
+
+   This used to have three branches, written when the Roboflow SDK did the
+   inferring: the library would not load, the model would not start, or the run
+   broke. The SDK is gone, and with it the first branch's meaning — TensorFlow.js
+   is served from this origin and does not need a network. So a phone with no
+   signal now fails at the WEIGHTS, which are fetched from Roboflow, and the old
+   code called that "the detection library would not load from this site". It is
+   the same class of misattribution this file has been correcting all along:
+   blaming the part that worked. */
 function whyLocal(e) {
   var msg = e && e.message ? String(e.message).slice(0, 200) : '';
-  if (!worker && !engine) {
-    return 'The detection library would not load from this site.' + (msg ? ' (' + msg + ')' : '');
+  var tail = msg ? ' (' + msg + ')' : '';
+  if (!benchTf) {
+    return 'The detection runtime would not load from this site.' + tail;
   }
-  if (!worker) {
-    return 'The model would not start — that is the model or the key, not the signal.' +
-           (msg ? ' (' + msg + ')' : '');
+  if (rfMeta && rfMeta.error) {
+    return 'The model itself could not be fetched — that is the signal or the key, ' +
+           'not the detector, which loaded.' + tail;
   }
-  return 'The model failed while running.' + (msg ? ' (' + msg + ')' : '');
+  if (!engine || !worker) {
+    return 'No backend on this phone could run the model.' + tail;
+  }
+  return 'The model failed while running.' + tail;
 }
 
 
@@ -1319,9 +1349,7 @@ function runSelfTest() {
   x.fillStyle = '#808080';
   x.fillRect(0, 0, RF_SIZE, RF_SIZE);
   return createImageBitmap(c).then(function (bmp) {
-    return import('./vendor/inference.es.js').then(function (m) {
-      return engine.infer(worker, new m.CVImage(bmp));
-    });
+    return engine.infer(worker, { bitmapImage: bmp });
   }).then(function (preds) {
     var all = preds || [], diag = null;
     if (all.length && all[all.length - 1] && all[all.length - 1].__diag) {
@@ -1628,7 +1656,7 @@ function rejectReason(ctx, cw, ch, box) {
 /* ---------- survey ---------- */
 var survey = { on: false, busy: false, timer: null, logged: 0, last: null,
                recent: [], startedAt: null, clock: null,
-               lastLookAt: null, lastLookFix: null };
+               lastLookAt: null, lastLookFix: null, lastLookPos: null };
 
 function metresBetween(a, b) {
   var R = 6371000, rad = Math.PI / 180;
@@ -2038,6 +2066,7 @@ function endSurvey() {
   clearInterval(survey.clock); survey.clock = null;
   releaseWake();
   paintRec();
+  paintTele();          // hides it: there is nothing to report when nothing runs
   exitFull();
   toast(survey.logged
     ? survey.logged + ' logged this run — all unconfirmed until you open them.'
@@ -2054,8 +2083,51 @@ function lookDelay() {
   return Math.max(LOOK_MIN_MS, Math.min(LOOK_MAX_MS, ms));
 }
 
+/* How far the vehicle has come since the last look, and how far is left before
+   the next one. Reported rather than used: the cadence is still the distance
+   converted to a time by the reported speed, exactly as before. */
+function sinceLastLook() {
+  if (!survey.lastLookPos || !S.gps || S.gps.lat == null) return null;
+  return metresBetween(survey.lastLookPos, { lat: S.gps.lat, lon: S.gps.lon });
+}
+
+/* What the survey is doing, in six lines, for whoever is not driving. */
+function teleLines() {
+  var g = S.gps || null;
+  var gone = sinceLastLook();
+  var left = gone == null ? null : Math.max(0, SURVEY_M - gone);
+  var sp = g ? g.speed : null;
+  var age = g && g.at ? Math.round((Date.now() - g.at) / 1000) : null;
+  var pad2 = function (k, v) { return k + '  ' + v; };
+  return [
+    pad2('Backend  ', (infFacts.backend || 'not started').toUpperCase() +
+      (infFacts.demoted ? ' (fell back from ' + infFacts.demoted.backend + ')' : '')),
+    pad2('Inference', infFacts.lastMs == null ? 'none yet' : infFacts.lastMs + ' ms'),
+    pad2('Last GPS ', !g || g.lat == null ? 'no fix'
+      : g.lat.toFixed(5) + ', ' + g.lon.toFixed(5) +
+        (g.acc == null ? '' : ' ±' + Math.round(g.acc) + ' m') +
+        (age == null ? '' : ', ' + age + ' s ago')),
+    pad2('Speed    ', sp == null ? 'not reported'
+      : (Math.round(sp * 2.23694 * 10) / 10) + ' mph'),
+    pad2('Distance ', gone == null ? 'unknown' : Math.round(gone) + ' m since last look'),
+    pad2('Next look', left == null ? 'on the timer, no fix to measure with'
+      : Math.round(left) + ' m')
+  ].join('\n');
+}
+
+function paintTele() {
+  var n = $('hudTele');
+  if (!n) return;
+  if (!survey.on) { n.hidden = true; return; }
+  var warn = coverageWarning();
+  n.textContent = teleLines() + (warn ? '\n' + warn : '');
+  n.className = 'tele' + (warn ? ' warn' : '');
+  n.hidden = false;
+}
+
 function tick() {
   if (!survey.on) return;
+  paintTele();
   survey.timer = setTimeout(look, lookDelay());
 }
 
@@ -2073,6 +2145,21 @@ function look() {
     return tick();
   }
   survey.busy = true;
+  /* No engine to ask. Either the model has not started yet, or a backend was
+     dropped mid-survey for talking nonsense and the fallback has not been
+     brought up. Either way the answer is to start one, not to keep calling
+     infer on nothing — which is what an earlier version did, once per look,
+     for the rest of the run. */
+  if (!engine || !worker) {
+    return loadModel().then(function () {
+      hud('Switched to ' + String(infFacts.backend || '?').toUpperCase(), 'bad');
+      survey.busy = false; tick();
+    }, function (e) {
+      hud('No usable backend', 'bad');
+      toast(whyLocal(e));
+      survey.busy = false; tick();
+    });
+  }
   var vw = v.videoWidth, vh = v.videoHeight;
   var sq = squareFrame(v, vw, vh);
   /* When the picture was taken, and what the fix said at that moment.
@@ -2094,12 +2181,13 @@ function look() {
   } : null;
   survey.lastLookAt = capturedAt;
   survey.lastLookFix = fixAtCapture;
+  survey.lastLookPos = fixAtCapture && fixAtCapture.lat != null
+    ? { lat: fixAtCapture.lat, lon: fixAtCapture.lon } : null;
   createImageBitmap(sq.canvas).then(function (input) {
-    return import('./vendor/inference.es.js').then(function (m) {
-      return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
-        return { preds: takeDiag(preds), w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
-                 vw: vw, vh: vh, capturedAt: capturedAt, fix: fixAtCapture };
-      });
+    /* The same shape the library's CVImage had, without the library. */
+    return engine.infer(worker, { bitmapImage: input }).then(function (preds) {
+      return { preds: takeDiag(preds), w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
+               vw: vw, vh: vh, capturedAt: capturedAt, fix: fixAtCapture };
     });
   }).then(function (out) {
     var raw = out.preds || [];
@@ -2124,7 +2212,13 @@ function look() {
       });
       return tick();
     }
-    if (!hits.length) return hud('Watching');
+    if (!hits.length) {
+      /* Nothing found is the normal case and says so — unless one look is no
+         longer covering one stretch of road, in which case saying "Watching"
+         would be claiming a coverage the survey is not achieving. */
+      var slow = coverageWarning();
+      return hud(slow || 'Watching', slow ? 'bad' : '');
+    }
     /* Boxes and pixels are both in the 640 square, so no rescaling is needed
        between them — the mismatch that used to live here is gone. */
     hits = hits.filter(function (f) {
@@ -3265,6 +3359,42 @@ function diagLines() {
     if (bench0) { L.push(''); L.push(bench0); }
   }
   L.push('');
+  L.push('SURVEY BACKEND  (what the survey itself is running on, right now)');
+  L.push('using        ' + (infFacts.backend
+    ? infFacts.backend.toUpperCase() + ' — chosen ' + (infFacts.startedAt || '?')
+    : 'nothing yet — the model has not been started'));
+  L.push('order        ' + SURVEY_BACKENDS.join(', then ') +
+    '.  WebGL is NOT in this list and cannot be selected.');
+  L.push('             (on this phone WebGL returned 20 detections at a');
+  L.push('              "confidence" of 407894400 — fast, and entirely wrong)');
+  L.push('SIMD         ' + (infFacts.simd === null ? 'not determined'
+    : infFacts.simd ? 'yes' : 'no'));
+  L.push('threads      ' + (infFacts.threads === null ? 'not determined'
+    : infFacts.threads ? 'yes' : 'no') +
+    (infFacts.threadCount != null ? ', thread count ' + infFacts.threadCount : '') +
+    (infFacts.threads ? '' : ' — needs COOP/COEP headers this host does not send'));
+  L.push('model loads  ' + infFacts.loads + ' for ' + infFacts.infers + ' inference' +
+    (infFacts.infers === 1 ? '' : 's') +
+    (infFacts.loads <= 1 ? '  — loaded once and reused'
+                         : '  — MORE THAN ONE LOAD, which should not happen'));
+  L.push('last look    ' + (infFacts.lastMs == null ? 'none yet'
+    : infFacts.lastMs + ' ms' +
+      (infFacts.recent.length > 1 ? '  (recent: ' + infFacts.recent.join(', ') + ')' : '')));
+  var cw = coverageWarning();
+  if (cw) L.push('             >> ' + cw);
+  (infFacts.tried || []).forEach(function (t) {
+    L.push('  tried ' + pad(t.backend, 6) +
+      (t.error ? 'REFUSED — ' + t.error
+               : 'ok — sane, min ' + round4(t.min) + ', max ' + round4(t.max) +
+                 ', init ' + t.initMs + ' ms, weights ' + t.loadMs + ' ms'));
+  });
+  if (infFacts.demoted) {
+    L.push('  >> ' + infFacts.demoted.backend.toUpperCase() + ' WAS DROPPED MID-SURVEY: ' +
+      infFacts.demoted.why);
+    L.push('     at ' + infFacts.demoted.at + '. It will not be tried again this session.');
+  }
+
+  L.push('');
   L.push('LAST UNUSABLE OUTPUT');
   if (!lastRaw) {
     L.push('           nothing yet');
@@ -3492,10 +3622,10 @@ function testFrame(source, w, h, label, from, rotate) {
   }).then(function (input) {
     src.bmpW = input.width; src.bmpH = input.height;
     var tPre = performance.now();
-    return import('./vendor/inference.es.js').then(function (m) {
-      return engine.infer(worker, new m.CVImage(input)).then(function (preds) {
-        return { preds: preds, tPre: tPre, tInf: performance.now() };
-      });
+    /* The same engine the survey uses. A diagnostic that exercises different
+       code from the thing being diagnosed is worse than none. */
+    return engine.infer(worker, { bitmapImage: input }).then(function (preds) {
+      return { preds: preds, tPre: tPre, tInf: performance.now() };
     });
   }).then(function (out) {
     /* takeDiag names what came back before anything is done to it, and refuses
@@ -4233,8 +4363,9 @@ function benchLines() {
     L.push('NOTHING USABLE  no backend produced output in a plausible range');
   }
   L.push('');
-  L.push('The survey is unchanged by all of this. It still infers through the SDK,');
-  L.push('on whatever backend the SDK\'s own fallback picked.');
+  L.push('This is a measurement and it changes nothing by itself. What the survey');
+  L.push('actually runs on is chosen separately and reported under SURVEY BACKEND');
+  L.push('above: WASM if it is sane, CPU if not, and WebGL never.');
   return L.join('\n');
 }
 
@@ -4242,6 +4373,317 @@ function pad(s, n) {
   s = String(s);
   while (s.length < n) s += ' ';
   return s;
+}
+
+/* ---------- the backend the survey actually runs on ----------
+
+   Measured on this phone, on the photograph that already had an answer:
+
+     wasm   533 ms warmed, pothole 0.7236, raw 0 to 637.0227   <- sane
+     cpu  17692 ms warmed, pothole 0.7236, raw 0 to 637.0227   <- sane, and 33x slower
+     webgl  174 ms warmed, "manhole 407894400", raw -27024638 to 407894400
+
+   WebGL is not slow, it is wrong, and it is wrong in the most dangerous way
+   available: it returned TWENTY detections — the library's own cap — on a frame
+   containing one pothole. A survey trusting that would have written down twenty
+   phantom defects from a single look. It is therefore not in the list below,
+   and there is no flag that puts it there.
+
+   CPU's 17.7 s is not a slow backend, it is an unusable one: at one look per
+   ten metres that is a survey speed of 1.25 mph. WASM is what makes this
+   application do the thing it claims to do.
+
+   None of the machinery here is new. The preprocessing, the decoder, the NMS
+   parameters and the weight loader are the same functions the benchmark used,
+   called from a different place — deliberately, because a production path that
+   is not the measured path has not been measured. */
+
+/* CPU is last because it always works, and it is in the list at all because a
+   phone that cannot do WASM must still be able to survey a road slowly rather
+   than not at all. */
+var SURVEY_BACKENDS = ['wasm', 'cpu'];
+
+/* The library's own numbers, named rather than repeated. Unchanged. */
+var RF_IOU = 0.5, RF_MAXBOX = 20, RF_SCORE = 0.5;
+
+/* Beyond this, one look is no longer one look at a stretch of road. */
+var SLOW_INFER_MS = 3000;
+
+var infSession = null;                 // { tf, model, backend }
+var infExcluded = [];                  // backends that failed, and stay failed
+var infFacts = {
+  backend: null, tried: [], simd: null, threads: null, threadCount: null,
+  cores: null, isolated: null, loads: 0, infers: 0,
+  lastMs: null, recent: [], demoted: null, startedAt: null
+};
+
+/* The picture the sanity check is run on.
+
+   NOT flat grey. A flat frame makes every score and every box zero, and zeros
+   cannot tell a working backend from one that returns zeros — which is exactly
+   the failure being screened for. A gradient with an edge in it makes the graph
+   produce a range, and a range is the thing being judged. */
+function infProbeCanvas() {
+  var c = document.createElement('canvas');
+  c.width = c.height = RF_SIZE;
+  var x = c.getContext('2d', { willReadFrequently: true });
+  var g = x.createLinearGradient(0, 0, RF_SIZE, RF_SIZE);
+  g.addColorStop(0, '#1e1e1e'); g.addColorStop(1, '#d8d8d8');
+  x.fillStyle = g; x.fillRect(0, 0, RF_SIZE, RF_SIZE);
+  x.fillStyle = '#0d0d0d';
+  x.beginPath();
+  x.ellipse(RF_SIZE / 2, RF_SIZE * 0.6, 90, 55, 0, 0, Math.PI * 2);
+  x.fill();
+  return c;
+}
+
+/* One frame through the graph, decoded exactly as the library decodes it.
+
+   Shared by the sanity probe and by every look the survey takes, so the thing
+   screened at startup is the thing that runs on the road. */
+function infOnce(tf, model, source) {
+  var input = null, out = null, moved = null;
+  return Promise.resolve().then(function () {
+    input = benchPreprocess(tf, source);
+    var t0 = performance.now();
+    out = model.execute(input);
+    var one = Array.isArray(out) ? out[0] : out;
+    var rawShape = one && one.shape ? [].concat(one.shape) : null;
+    moved = tf.transpose(one, [0, 2, 1]);
+    var data = moved.dataSync();
+    var msExecute = performance.now() - t0;
+    var t1 = performance.now();
+    var numBoxes = moved.shape[1], numClasses = moved.shape[2] - 4;
+
+    var lo = Infinity, hi = -Infinity;
+    for (var i = 0; i < data.length; i++) {
+      var v = data[i]; if (v < lo) lo = v; if (v > hi) hi = v;
+    }
+    /* The same check that caught WebGL, applied to whatever is running now —
+       not once at startup and then trusted forever. */
+    var sane = isFinite(lo) && isFinite(hi) && Math.abs(hi) < 1e4 && Math.abs(lo) < 1e4;
+
+    var sc = benchMaxScores(data, numBoxes, numClasses);
+    var boxes = benchBoxes(data, numBoxes, numClasses, RF_SIZE);
+    var classNames = (rfMeta && rfMeta.classes) || ['manhole', 'pothole'];
+
+    /* NMS on the CPU backend whatever inferred, because that is what the
+       library does and what the benchmark measured. The switch is inside the
+       13 ms the benchmark reported, so it is already paid for. */
+    var was = tf.getBackend();
+    return tf.setBackend('cpu').then(function () {
+      var keep = tf.tidy(function () {
+        return tf.image.nonMaxSuppression(
+          tf.tensor2d(boxes, [numBoxes, 4]), sc.scores,
+          RF_MAXBOX, RF_IOU, RF_SCORE).dataSync();
+      });
+      var preds = [], best = null, perClass = [];
+      var byClass = {};
+      for (var k = 0; k < numBoxes; k++) {
+        var ci = sc.classes[k];
+        if (ci < 0) continue;
+        var nm = classNames[ci];
+        if (byClass[nm] == null || sc.scores[k] > byClass[nm].score) {
+          byClass[nm] = { cls: nm, score: sc.scores[k], anchor: k };
+        }
+        if (!best || sc.scores[k] > best.score) {
+          best = { score: sc.scores[k], cls: nm, anchor: k,
+                   box: { x: data[k * (numClasses + 4)],
+                          y: data[k * (numClasses + 4) + 1],
+                          width: data[k * (numClasses + 4) + 2],
+                          height: data[k * (numClasses + 4) + 3] } };
+        }
+      }
+      Object.keys(byClass).forEach(function (n) { perClass.push(byClass[n]); });
+      /* The shape the rest of this file already understands: class, confidence,
+         bbox. Nothing downstream needs to know which backend produced it. */
+      for (var j = 0; j < keep.length; j++) {
+        var a = keep[j], o = a * (numClasses + 4);
+        preds.push({ class: classNames[sc.classes[a]], confidence: sc.scores[a],
+                     bbox: { x: data[o], y: data[o + 1],
+                             width: data[o + 2], height: data[o + 3] } });
+      }
+      var msDecode = performance.now() - t1;
+      return tf.setBackend(was).then(function () {
+        return { preds: preds, sane: sane, min: lo, max: hi, rawShape: rawShape,
+                 best: best, perClass: perClass,
+                 msExecute: msExecute, msDecode: msDecode };
+      });
+    });
+  }).then(function (r) { infDispose(tf, [input, out, moved]); return r; },
+          function (e) { infDispose(tf, [input, out, moved]); throw e; });
+}
+
+/* Every frame allocates and every frame gives it back. A survey is thousands of
+   looks; one tensor leaked per look is the phone running out of memory halfway
+   down a road. */
+function infDispose(tf, list) {
+  list.forEach(function (t) {
+    if (!t) return;
+    try { tf.dispose(t); } catch (e) { /* already gone */ }
+  });
+}
+
+/* Bring one backend up, load the weights onto it, and refuse to trust it until
+   it has answered a picture sensibly. */
+function infStart(tf, name) {
+  var row = { backend: name, supported: false, initialised: false, sane: null,
+              min: null, max: null, initMs: null, loadMs: null, error: null };
+  var model = null, t0 = performance.now();
+  return tf.setBackend(name).then(function (okBackend) {
+    if (!okBackend) throw new Error('this browser has no ' + name + ' backend');
+    return tf.ready();
+  }).then(function () {
+    row.supported = true;
+    row.initMs = Math.round(performance.now() - t0);
+    if (name === 'wasm' && tf.wasm && tf.wasm.getThreadsCount) {
+      /* Answerable only once the backend is up; it throws before that rather
+         than guessing, which is the right behaviour. */
+      try { infFacts.threadCount = tf.wasm.getThreadsCount(); } catch (e) {}
+    }
+    return modelMeta();
+  }).then(function (meta) {
+    if (!meta || !meta.weights || !meta.weights.modelTopology) {
+      throw new Error('the model metadata carries no weights' +
+        (meta && meta.error ? ' — ' + meta.error : ''));
+    }
+    var t = performance.now();
+    return tf.loadGraphModel(benchLoader(tf, meta.weights)).then(function (m) {
+      model = m;
+      row.loadMs = Math.round(performance.now() - t);
+      row.initialised = true;
+      infFacts.loads++;
+    });
+  }).then(function () {
+    return infOnce(tf, model, infProbeCanvas());
+  }).then(function (probe) {
+    row.min = probe.min; row.max = probe.max; row.sane = probe.sane;
+    if (!probe.sane) {
+      throw new Error('output failed the sanity check — min ' + round4(probe.min) +
+        ', max ' + round4(probe.max) + '. This is what WebGL does on this phone.');
+    }
+    infFacts.tried.push(row);
+    return { tf: tf, model: model, backend: name };
+  }).catch(function (e) {
+    row.error = String((e && e.message) || e).slice(0, 200);
+    infFacts.tried.push(row);
+    if (model && model.dispose) { try { model.dispose(); } catch (x) {} }
+    throw e;
+  });
+}
+
+/* WASM, then CPU. Anything that has already failed stays failed for the rest of
+   the session rather than being retried on every frame. */
+function infPick(tf) {
+  var names = SURVEY_BACKENDS.filter(function (n) {
+    return infExcluded.indexOf(n) === -1;
+  });
+  if (!names.length) {
+    return Promise.reject(new Error('no usable backend left — tried ' +
+      SURVEY_BACKENDS.join(' and ')));
+  }
+  return names.reduce(function (chain, name) {
+    return chain.catch(function () { return infStart(tf, name); });
+  }, Promise.reject(new Error('start')));
+}
+
+/* A backend that was sane at startup and is not any more. Rather than logging
+   whatever it produced, it is put down and the next one is brought up. */
+function infDemote(why) {
+  var was = infSession && infSession.backend;
+  if (!was) return;
+  infExcluded.push(was);
+  infFacts.demoted = { backend: was, why: why, at: new Date().toISOString() };
+  try {
+    if (infSession.model && infSession.model.dispose) infSession.model.dispose();
+  } catch (e) { /* nothing to be done about it */ }
+  infSession = null;
+  engine = null; worker = null; loading = null;
+  infFacts.backend = null;
+}
+
+/* The object the rest of the app talks to.
+
+   It is deliberately the same shape as the library's InferenceEngine — one
+   infer(workerId, image) returning a list of detections with the diagnostic
+   block on the end — so look(), testFrame(), the self-test and the diagnostics
+   screen did not have to learn anything new. */
+function surveyEngine() {
+  return {
+    tfjs: true,
+    infer: function (workerId, img) {
+      if (!infSession) return Promise.reject(new Error('no inference session'));
+      var s = infSession;
+      var source = (img && img.bitmapImage) ? img.bitmapImage : img;
+      var t0 = performance.now();
+      return infOnce(s.tf, s.model, source).then(function (r) {
+        var whole = performance.now() - t0;
+        infFacts.infers++;
+        infFacts.lastMs = Math.round(r.msExecute);
+        infFacts.recent.push(infFacts.lastMs);
+        if (infFacts.recent.length > 10) infFacts.recent.shift();
+        if (!r.sane) {
+          /* Down it goes. The caller gets the failure rather than the numbers. */
+          infDemote('returned min ' + round4(r.min) + ', max ' + round4(r.max) +
+            ' on a real frame');
+          throw new Error('the ' + s.backend + ' backend stopped making sense ' +
+            '(min ' + round4(r.min) + ', max ' + round4(r.max) + ') and has been ' +
+            'dropped; the next look will use the fallback');
+        }
+        return r.preds.concat([{
+          __diag: true, outputs: 1, rawShape: r.rawShape,
+          afterTranspose: r.rawShape ? [r.rawShape[0], r.rawShape[2], r.rawShape[1]] : null,
+          readAs: { boxes: r.rawShape ? r.rawShape[2] : null,
+                    classes: r.rawShape ? r.rawShape[1] - 4 : null },
+          imageDims: [RF_SIZE, RF_SIZE],
+          layoutUsed: 'native', layoutNative: 'NCHW', layoutProbe: null,
+          precision: { tried: [{ how: 'as loaded', backend: s.backend,
+                                 min: r.min, max: r.max, ok: true }],
+                       using: s.backend, ok: true },
+          frameRange: { min: r.min, max: r.max },
+          best: r.best, perClass: r.perClass,
+          ms: Math.round(whole), msExecute: Math.round(r.msExecute),
+          msDecode: Math.round(r.msDecode),
+          inits: infFacts.loads, infers: infFacts.infers,
+          backendNow: s.backend,
+          thresholds: { score: RF_SCORE, iou: RF_IOU, maxBoxes: RF_MAXBOX },
+          classNames: (rfMeta && rfMeta.classes) || ['manhole', 'pothole']
+        }]);
+      });
+    }
+  };
+}
+
+/* What the runtime says about WASM, asked once and kept. */
+function infCapabilities(tf) {
+  return benchWasmCapabilities(tf).then(function (c) {
+    infFacts.simd = c.simd; infFacts.threads = c.threads;
+    infFacts.cores = c.cores; infFacts.isolated = c.isolated;
+    return c;
+  });
+}
+
+/* Whether one look is still one look at a stretch of road.
+
+   Not a fixed threshold pretending to be a judgement: at 30 mph a 600 ms
+   inference covers five metres and the survey is fine; the same 600 ms at
+   70 mph covers nineteen and it is not. So the warning is computed from the
+   speed actually being reported, and falls back to a flat limit when there is
+   no speed to reason with. */
+function coverageWarning() {
+  var ms = infFacts.lastMs;
+  if (ms == null) return null;
+  var sp = S.gps ? S.gps.speed : null;
+  if (sp != null && sp >= STATIONARY_MPS) {
+    var m = sp * (ms / 1000);
+    if (m > SURVEY_M) {
+      return 'Slow inference — survey coverage reduced (' + Math.round(m) +
+             ' m passes per look, not ' + SURVEY_M + ')';
+    }
+    return null;
+  }
+  if (ms >= SLOW_INFER_MS) return 'Slow inference — survey coverage reduced';
+  return null;
 }
 
 function paintFrameTest() {

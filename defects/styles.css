@@ -172,6 +172,17 @@ canvas.shot{display:none}
   border-left:3px solid var(--hiviz);border-radius:0 5px 5px 0;padding:10px 13px;
   font-size:13.5px;line-height:1.5;text-align:left}
 
+/* What the survey is doing, for someone who wants to know and is not driving.
+   Dim, small, and monospaced so the numbers do not jump about as they change —
+   a line that reflows on every GPS update is a line that catches the eye, which
+   is the opposite of what this is for. */
+.tele{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
+  line-height:1.45;color:rgba(255,255,255,.5);background:rgba(0,0,0,.45);
+  border-radius:4px;padding:5px 8px;text-align:left;white-space:pre;
+  letter-spacing:.02em;pointer-events:none}
+.tele b{color:rgba(255,255,255,.78);font-weight:600}
+.tele .warn{color:var(--r1)}
+
 /* ---- the record button ----
    A ring that fills when it is running. Nothing else on the screen is round, so
    it reads as the control even at a glance in a moving vehicle. */
