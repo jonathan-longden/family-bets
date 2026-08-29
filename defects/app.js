@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-29 · 40';
+var BUILD = '2026-08-29 · 41';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -3921,97 +3921,158 @@ function benchBoxes(data, numBoxes, numClasses, size) {
    from the inference figure — the first execute on any backend pays for kernel
    and shader compilation, and reporting that as the cost of a frame would
    flatter whichever backend happened to go last. */
+/* How many times each backend runs the graph. The first is the cold one — it
+   pays for kernel and shader compilation and for whatever the backend defers
+   until something actually asks — and the rest are what a survey would
+   actually experience, because the survey loads the model once and reuses it.
+   Reporting only the first would libel a backend; reporting only the warmed
+   ones would hide a cost that is real the first time a phone looks at a road. */
+var BENCH_PASSES = 3;
+
+/* One backend, one picture, several passes.
+
+   Everything that happens once — choosing the backend, initialising it, loading
+   the weights, preprocessing the frame — is timed separately and kept out of
+   the inference figures. What is left is the graph, measured the way the survey
+   would experience it. */
 function benchOne(tf, name, weights, canvas) {
   var row = { backend: name, supported: false, initialised: false, sane: null,
-              load: null, warm: null, infer: null, decode: null, total: null,
-              detections: null, best: null, min: null, max: null, error: null };
+              init: null, load: null, pre: null,
+              first: null, warmed: null, passes: [],
+              decode: null, total: null, detections: null, best: null,
+              min: null, max: null, threads: null, error: null };
   var model = null, input = null;
 
+  var t0 = performance.now();
   return tf.setBackend(name).then(function (okBackend) {
     if (!okBackend) throw new Error('this browser has no ' + name + ' backend');
     return tf.ready();
   }).then(function () {
     row.supported = true;
+    row.init = Math.round(performance.now() - t0);
+    /* Only answerable once the backend is actually up — asked before that, the
+       library throws rather than guessing, which is the right behaviour and the
+       reason this is here and not in the capability probe. */
+    if (name === 'wasm' && tf.wasm && tf.wasm.getThreadsCount) {
+      try { row.threads = tf.wasm.getThreadsCount(); } catch (e) { row.threads = null; }
+    }
     var t = performance.now();
     return tf.loadGraphModel(benchLoader(tf, weights)).then(function (m) {
       model = m; row.load = Math.round(performance.now() - t);
       row.initialised = true;
     });
   }).then(function () {
-    input = benchPreprocess(tf, canvas);
+    /* Preprocessing is per backend because it builds tensors on that backend,
+       so it is genuinely part of what that backend costs — but it is not
+       inference, and it is reported on its own line. */
     var t = performance.now();
-    var warm = model.execute(input);
-    (Array.isArray(warm) ? warm : [warm]).forEach(function (x) { x.dataSync(); });
-    tf.dispose(warm);
-    row.warm = Math.round(performance.now() - t);
+    input = benchPreprocess(tf, canvas);
+    /* Force the work rather than timing the queueing of it. */
+    input.dataSync();
+    row.pre = Math.round(performance.now() - t);
   }).then(function () {
-    /* The measured run. dataSync is inside it deliberately: on a lazy backend
-       execute only queues the work, and a figure that stopped before the
-       readback would time the queueing rather than the graph. */
-    var t0 = performance.now();
-    var out = model.execute(input);
-    var one = Array.isArray(out) ? out[0] : out;
-    var moved = tf.transpose(one, [0, 2, 1]);
-    var data = moved.dataSync();
-    var numBoxes = moved.shape[1], numClasses = moved.shape[2] - 4;
-    var t1 = performance.now();
-
-    var lo = Infinity, hi = -Infinity;
-    for (var i = 0; i < data.length; i++) {
-      var v = data[i]; if (v < lo) lo = v; if (v > hi) hi = v;
-    }
-    row.min = lo; row.max = hi;
-    row.sane = isFinite(lo) && isFinite(hi) && Math.abs(hi) < 1e4 && Math.abs(lo) < 1e4;
-
-    var ms = benchMaxScores(data, numBoxes, numClasses);
-    var boxes = benchBoxes(data, numBoxes, numClasses, RF_SIZE);
-    var classNames = (rfMeta && rfMeta.classes) || ['manhole', 'pothole'];
-
-    /* The library forces NMS onto the CPU backend whatever it inferred with, so
-       this does too — otherwise the decode figure would carry a different
-       backend's cost on every row. */
-    var was = tf.getBackend();
-    return tf.setBackend('cpu').then(function () {
-      var keep = tf.tidy(function () {
-        return tf.image.nonMaxSuppression(
-          tf.tensor2d(boxes, [numBoxes, 4]), ms.scores, 20, 0.5, 0.5).dataSync();
+    /* The passes. dataSync stays inside the timed region deliberately: on a
+       lazy backend execute only queues the work, and a figure that stopped
+       before the readback would be timing the queueing rather than the graph. */
+    var last = null;
+    var runPass = function (i) {
+      if (i >= BENCH_PASSES) return Promise.resolve();
+      var a = performance.now();
+      var out = model.execute(input);
+      var one = Array.isArray(out) ? out[0] : out;
+      var moved = tf.transpose(one, [0, 2, 1]);
+      var data = moved.dataSync();
+      var ms = Math.round(performance.now() - a);
+      row.passes.push(ms);
+      if (last) { tf.dispose(last.out); tf.dispose(last.moved); }
+      last = { out: out, moved: moved, data: data, shape: moved.shape };
+      /* Yield to the event loop between passes so a twenty-second synchronous
+         graph does not make the page look hung, and so the status line moves. */
+      return new Promise(function (r) { setTimeout(r, 0); }).then(function () {
+        return runPass(i + 1);
       });
-      var best = null;
-      for (var k = 0; k < numBoxes; k++) {
-        if (ms.classes[k] >= 0 && (!best || ms.scores[k] > best.score)) {
-          best = { score: ms.scores[k], cls: classNames[ms.classes[k]] };
-        }
+    };
+    return runPass(0).then(function () {
+      row.first = row.passes[0];
+      var rest = row.passes.slice(1);
+      row.warmed = rest.length
+        ? Math.round(rest.reduce(function (a, b) { return a + b; }, 0) / rest.length)
+        : row.passes[0];
+
+      var t1 = performance.now();
+      var data = last.data;
+      var numBoxes = last.shape[1], numClasses = last.shape[2] - 4;
+      var lo = Infinity, hi = -Infinity;
+      for (var i = 0; i < data.length; i++) {
+        var v = data[i]; if (v < lo) lo = v; if (v > hi) hi = v;
       }
-      row.detections = keep.length;
-      row.best = best;
-      row.decode = Math.round(performance.now() - t1);
-      row.infer = Math.round(t1 - t0);
-      row.total = row.infer + row.decode;
-      tf.dispose(out); tf.dispose(moved);
-      return tf.setBackend(was);
+      row.min = lo; row.max = hi;
+      row.sane = isFinite(lo) && isFinite(hi) && Math.abs(hi) < 1e4 && Math.abs(lo) < 1e4;
+
+      var sc = benchMaxScores(data, numBoxes, numClasses);
+      var boxes = benchBoxes(data, numBoxes, numClasses, RF_SIZE);
+      var classNames = (rfMeta && rfMeta.classes) || ['manhole', 'pothole'];
+
+      /* The library forces NMS onto the CPU backend whatever it inferred with,
+         so this does too — otherwise the decode figure would carry a different
+         backend's cost on every row. */
+      var was = tf.getBackend();
+      return tf.setBackend('cpu').then(function () {
+        var keep = tf.tidy(function () {
+          return tf.image.nonMaxSuppression(
+            tf.tensor2d(boxes, [numBoxes, 4]), sc.scores, 20, 0.5, 0.5).dataSync();
+        });
+        var best = null, perClass = {};
+        for (var k = 0; k < numBoxes; k++) {
+          var ci = sc.classes[k];
+          if (ci < 0) continue;
+          var nm = classNames[ci];
+          if (perClass[nm] == null || sc.scores[k] > perClass[nm]) perClass[nm] = sc.scores[k];
+          if (!best || sc.scores[k] > best.score) best = { score: sc.scores[k], cls: nm };
+        }
+        row.detections = keep.length;
+        row.best = best;
+        row.perClass = perClass;
+        row.decode = Math.round(performance.now() - t1);
+        row.total = row.pre + row.warmed + row.decode;
+        tf.dispose(last.out); tf.dispose(last.moved);
+        last = null;
+        return tf.setBackend(was);
+      });
     });
   }).then(function () { return row; }, function (e) {
     row.error = String((e && e.message) || e).slice(0, 200);
     return row;
   }).then(function (r) {
-    if (input) tf.dispose(input);
+    /* Everything this backend allocated goes back, whether it succeeded or
+       not: three backends each holding a copy of a 229-tensor model is how a
+       phone runs out of memory halfway down a road. */
+    if (input) { try { tf.dispose(input); } catch (e) {} }
     if (model && model.dispose) { try { model.dispose(); } catch (e) {} }
+    input = null; model = null;
+    r.leftOver = (function () {
+      try { return tf.memory().numTensors; } catch (e) { return null; }
+    })();
     return r;
   });
 }
 
-function runBench() {
-  var s = $('tState'), v = $('vid');
-  if (!stream || !v.videoWidth) {
-    s.textContent = 'The camera is not running — start it, then come back.';
-    return;
-  }
+/* The benchmark, over one picture.
+
+   The picture is drawn to the 640² square ONCE, before any backend is touched,
+   and that one canvas is handed to all three. Drawing per backend would be
+   measuring three different pictures and calling the difference a backend.
+
+   A photograph is the better subject than a camera frame, and not only because
+   it holds still: the known result — pothole 0.7236, manhole 0.0047 — was
+   measured on one, so running the same file again is the only way to tell a
+   faster backend from a differently-wrong one. */
+function runBench(source, w, h, label) {
+  var s = $('tState');
   busy(true);
   s.textContent = 'Fetching TensorFlow.js (about 2.4 MB, once)…';
 
-  /* Captured once, before any backend is touched, and handed to all of them.
-     Capturing per backend would be measuring three different pictures. */
-  var sq = squareFrame(v, v.videoWidth, v.videoHeight);
+  var sq = squareFrame(source, w, h);
   var started = new Date().toISOString();
 
   loadBenchTf().then(function (tf) {
@@ -4024,25 +4085,27 @@ function runBench() {
         var rows = [];
         return BENCH_ORDER.reduce(function (chain, name) {
           return chain.then(function () {
-            s.textContent = 'Running the same frame on ' + name + '… (' +
-              (rows.length + 1) + ' of ' + BENCH_ORDER.length + ')';
+            s.textContent = 'Running the same picture on ' + name + ', ' +
+              BENCH_PASSES + ' passes… (' + (rows.length + 1) + ' of ' +
+              BENCH_ORDER.length + ', the CPU pass is slow)';
             return benchOne(tf, name, meta.weights, sq.canvas).then(function (r) {
               rows.push(r);
             });
           });
         }, Promise.resolve()).then(function () {
-          return { at: started, caps: caps, rows: rows,
-                   source: v.videoWidth + '×' + v.videoHeight };
+          return { at: started, caps: caps, rows: rows, label: label,
+                   source: w + '×' + h };
         });
       });
     });
   }).then(function (out) {
     benchResult = out;
     paintFrameTest(); paintDiag();
-    var fastest = out.rows.filter(function (r) { return r.sane && r.infer != null; })
-      .sort(function (a, b) { return a.infer - b.infer; })[0];
+    var fastest = out.rows.filter(function (r) { return r.sane && r.warmed != null; })
+      .sort(function (a, b) { return a.warmed - b.warmed; })[0];
     s.textContent = fastest
-      ? 'Done. Fastest usable: ' + fastest.backend + ' at ' + fastest.infer + ' ms.'
+      ? 'Done. Fastest usable: ' + fastest.backend + ' at ' + fastest.warmed +
+        ' ms warmed. Read the table before concluding anything.'
       : 'Done — no backend produced usable output. Read the table below.';
     busy(false);
   }, function (e) {
@@ -4052,20 +4115,39 @@ function runBench() {
   });
 }
 
+/* The camera, for a quick look. */
+function runBenchCamera() {
+  var v = $('vid');
+  if (!stream || !v.videoWidth) {
+    $('tState').textContent = 'The camera is not running — start it, then come back, ' +
+      'or benchmark a photograph instead.';
+    return;
+  }
+  runBench(v, v.videoWidth, v.videoHeight, 'camera');
+}
+
 function benchLines() {
   if (!benchResult) return '';
   var b = benchResult, c = b.caps || {}, L = [];
-  L.push('BACKEND BENCHMARK  (one frame, captured once, reused for every backend)');
+  L.push('BACKEND BENCHMARK  (one picture, drawn once, reused for every backend)');
   L.push('when         ' + b.at);
-  L.push('frame        ' + b.source + ' → ' + RF_SIZE + '×' + RF_SIZE +
-    ', preprocessed exactly as the survey does it');
+  L.push('picture      ' + (b.label || 'camera') + ', ' + b.source + ' → ' +
+    RF_SIZE + '×' + RF_SIZE + ', preprocessed exactly as the survey does it');
+  L.push('passes       ' + BENCH_PASSES + ' per backend — the first cold, the rest warmed');
   L.push('runtime      TensorFlow.js ' + ((benchTf && benchTf.version_core) || '?') +
     ' loaded by this benchmark — the SDK keeps its own copy module-scoped');
   L.push('');
   L.push('WASM SUPPORT (what the runtime reports, not what it is assumed to have)');
   L.push('  SIMD       ' + (c.simd === null ? 'could not be determined' : c.simd ? 'yes' : 'no'));
   L.push('  threads    ' + (c.threads === null ? 'could not be determined' : c.threads ? 'yes' : 'no'));
-  L.push('  cores      ' + (c.cores == null ? 'not reported' : c.cores));
+  var wasmRow = null;
+  b.rows.forEach(function (r) { if (r.backend === 'wasm') wasmRow = r; });
+  L.push('  thread count ' + (wasmRow && wasmRow.threads != null
+    ? wasmRow.threads + ' (asked of the wasm backend after it initialised)'
+    : 'not reported — the wasm backend never initialised, and it throws rather ' +
+      'than guess before it has'));
+  L.push('  cores      ' + (c.cores == null ? 'not reported' : c.cores) +
+    ' (what the browser says the phone has, which is not what wasm uses)');
   L.push('  SharedArrayBuffer ' + (c.sharedArrayBuffer ? 'present' : 'absent'));
   L.push('  crossOriginIsolated ' + (c.isolated === null ? 'unknown' : c.isolated));
   if (!c.threads) {
@@ -4076,36 +4158,90 @@ function benchLines() {
   L.push('');
   b.rows.forEach(function (r) {
     L.push(r.backend.toUpperCase());
-    L.push('  supported    ' + (r.supported ? 'yes' : 'no'));
-    L.push('  initialised  ' + (r.initialised ? 'yes' : 'no'));
+    L.push('  backend          ' + r.backend);
+    L.push('  supported        ' + (r.supported ? 'yes' : 'no'));
+    L.push('  initialised      ' + (r.initialised ? 'yes' : 'no'));
     if (r.error) {
-      L.push('  FAILED       ' + r.error);
+      L.push('  FAILED           ' + r.error);
       L.push('');
       return;
     }
-    L.push('  output sane  ' + (r.sane ? 'yes' : 'NO — this backend cannot be trusted'));
-    L.push('  inference    ' + r.infer + ' ms');
-    L.push('  decode+NMS   ' + r.decode + ' ms');
-    L.push('  total        ' + r.total + ' ms');
-    L.push('  detections   ' + r.detections);
-    L.push('  best         ' + (r.best ? r.best.cls + ' ' + round4(r.best.score) : 'none'));
-    L.push('  raw min/max  ' + round4(r.min) + ' / ' + round4(r.max));
-    L.push('  model load   ' + r.load + ' ms, warm-up ' + r.warm +
-      ' ms  (both excluded from the figures above)');
+    L.push('  sanity check     ' + (r.sane ? 'PASS' : 'FAIL — this backend cannot be trusted'));
+    L.push('  preprocess_ms    ' + r.pre);
+    L.push('  execute_ms       ' + r.warmed + '   (warmed; first pass ' + r.first + ')');
+    L.push('  all passes       ' + r.passes.join(', ') + ' ms');
+    L.push('  read_decode_ms   ' + r.decode);
+    L.push('  total_ms         ' + r.total + '   (preprocess + warmed execute + decode)');
+    L.push('  detections       ' + r.detections);
+    L.push('  best_class       ' + (r.best ? r.best.cls : 'none'));
+    L.push('  best_confidence  ' + (r.best ? round4(r.best.score) : 'none'));
+    if (r.perClass) {
+      L.push('  by class         ' + Object.keys(r.perClass).map(function (k) {
+        return k + ' ' + round4(r.perClass[k]);
+      }).join('    '));
+    }
+    L.push('  raw_min          ' + round4(r.min));
+    L.push('  raw_max          ' + round4(r.max));
+    L.push('  one-time cost    backend init ' + r.init + ' ms, model load ' + r.load +
+      ' ms  (excluded from the figures above)');
+    L.push('  tensors left     ' + (r.leftOver == null ? '?' : r.leftOver) +
+      ' after disposal');
     L.push('');
   });
-  var usable = b.rows.filter(function (r) { return r.sane && r.infer != null; });
+
+  /* A faster backend that answers differently is not a faster backend, it is a
+     different model. CPU is the reference because CPU is what produced the
+     result this whole exercise is measured against. */
+  var cpu = null;
+  b.rows.forEach(function (r) { if (r.backend === 'cpu') cpu = r; });
+  L.push('DO THEY AGREE?  (CPU is the reference — it is what produced 0.7236)');
+  if (!cpu || !cpu.sane) {
+    L.push('             CPU did not produce a usable answer, so there is nothing to');
+    L.push('             compare the others against.');
+  } else {
+    L.push('  cpu        ' + (cpu.best ? cpu.best.cls + ' ' + round4(cpu.best.score) : 'nothing') +
+      ', ' + cpu.detections + ' detection' + (cpu.detections === 1 ? '' : 's'));
+    b.rows.forEach(function (r) {
+      if (r.backend === 'cpu' || r.error) return;
+      if (!r.sane) {
+        L.push('  ' + pad(r.backend, 9) + 'output failed the sanity check — not comparable');
+        return;
+      }
+      var same = !!(r.best && cpu.best) && r.best.cls === cpu.best.cls;
+      var gap = (r.best && cpu.best) ? Math.abs(r.best.score - cpu.best.score) : null;
+      var det = r.detections === cpu.detections;
+      L.push('  ' + pad(r.backend, 9) +
+        (r.best ? r.best.cls + ' ' + round4(r.best.score) : 'nothing') +
+        ', ' + r.detections + ' detection' + (r.detections === 1 ? '' : 's') +
+        ' — ' + (same && det && gap != null && gap < 0.01
+          ? 'AGREES with CPU (within ' + round4(gap) + ')'
+          : 'DIFFERS from CPU' + (gap == null ? '' : ' by ' + round4(gap)) +
+            '. A faster backend that answers differently is not usable.'));
+    });
+  }
+  L.push('');
+
+  var usable = b.rows.filter(function (r) { return r.sane && r.warmed != null; });
   if (usable.length > 1) {
-    var sorted = usable.slice().sort(function (a, b2) { return a.infer - b2.infer; });
+    var sorted = usable.slice().sort(function (a, b2) { return a.warmed - b2.warmed; });
     var f = sorted[0], sl = sorted[sorted.length - 1];
-    L.push('FASTEST USABLE  ' + f.backend + ' at ' + f.infer + ' ms — ' +
-      (Math.round((sl.infer / f.infer) * 10) / 10) + '× the ' + sl.backend + ' figure');
+    L.push('FASTEST USABLE  ' + f.backend + ' at ' + f.warmed + ' ms warmed — ' +
+      (Math.round((sl.warmed / f.warmed) * 10) / 10) + '× the ' + sl.backend + ' figure');
   } else if (usable.length === 1) {
-    L.push('ONLY USABLE     ' + usable[0].backend + ' at ' + usable[0].infer + ' ms');
+    L.push('ONLY USABLE     ' + usable[0].backend + ' at ' + usable[0].warmed + ' ms warmed');
   } else {
     L.push('NOTHING USABLE  no backend produced output in a plausible range');
   }
+  L.push('');
+  L.push('The survey is unchanged by all of this. It still infers through the SDK,');
+  L.push('on whatever backend the SDK\'s own fallback picked.');
   return L.join('\n');
+}
+
+function pad(s, n) {
+  s = String(s);
+  while (s.length < n) s += ' ';
+  return s;
 }
 
 function paintFrameTest() {
@@ -4132,6 +4268,7 @@ function busy(on) {
   $('bTestCam').disabled = on;
   $('bTestSpin').disabled = on;
   $('bTestBench').disabled = on;
+  $('benchFileLabel').classList.toggle('off', on);
   $('tFileLabel').classList.toggle('off', on);
 }
 
@@ -4258,7 +4395,28 @@ $('bTestCam').addEventListener('click', function () {
 });
 
 $('bTestSpin').addEventListener('click', runSpin);
-$('bTestBench').addEventListener('click', runBench);
+$('bTestBench').addEventListener('click', runBenchCamera);
+
+/* The same benchmark over a photograph. The known result — pothole 0.7236 —
+   came off a file, so putting that same file through all three backends is the
+   only way to separate "faster" from "differently wrong". */
+$('benchFile').addEventListener('change', function () {
+  var file = this.files && this.files[0];
+  this.value = '';
+  if (!file) return;
+  busy(true);
+  $('tState').textContent = 'Decoding the photograph…';
+  createImageBitmap(file, { imageOrientation: 'from-image' })
+    .catch(function () { return createImageBitmap(file); })
+    .then(function (bmp) {
+      runBench(bmp, bmp.width, bmp.height, 'photo · ' + file.name);
+    }, function (e) {
+      busy(false);
+      $('tState').textContent = 'Could not run it: the picture never reached the model — ' +
+        'this browser could not decode "' + file.name + '" (' +
+        (file.type || 'no type given') + '). [' + String((e && e.message) || e) + ']';
+    });
+});
 
 $('tFile').addEventListener('change', function () {
   var file = this.files && this.files[0];
