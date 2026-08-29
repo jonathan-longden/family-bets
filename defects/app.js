@@ -1152,16 +1152,31 @@ function loadModel() {
 
 /* Three things can fail and they are not the same problem: the library did not
    load from this site, the model would not start, or the run itself broke. */
+/* Four things can fail and they are not the same problem, and saying the wrong
+   one costs a drive.
+
+   This used to have three branches, written when the Roboflow SDK did the
+   inferring: the library would not load, the model would not start, or the run
+   broke. The SDK is gone, and with it the first branch's meaning — TensorFlow.js
+   is served from this origin and does not need a network. So a phone with no
+   signal now fails at the WEIGHTS, which are fetched from Roboflow, and the old
+   code called that "the detection library would not load from this site". It is
+   the same class of misattribution this file has been correcting all along:
+   blaming the part that worked. */
 function whyLocal(e) {
   var msg = e && e.message ? String(e.message).slice(0, 200) : '';
-  if (!worker && !engine) {
-    return 'The detection library would not load from this site.' + (msg ? ' (' + msg + ')' : '');
+  var tail = msg ? ' (' + msg + ')' : '';
+  if (!benchTf) {
+    return 'The detection runtime would not load from this site.' + tail;
   }
-  if (!worker) {
-    return 'The model would not start — that is the model or the key, not the signal.' +
-           (msg ? ' (' + msg + ')' : '');
+  if (rfMeta && rfMeta.error) {
+    return 'The model itself could not be fetched — that is the signal or the key, ' +
+           'not the detector, which loaded.' + tail;
   }
-  return 'The model failed while running.' + (msg ? ' (' + msg + ')' : '');
+  if (!engine || !worker) {
+    return 'No backend on this phone could run the model.' + tail;
+  }
+  return 'The model failed while running.' + tail;
 }
 
 
