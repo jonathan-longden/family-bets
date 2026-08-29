@@ -6,40 +6,34 @@ itself.
 
 ---
 
-## ⚠ Read this first: the name
+## The name: settled
 
-The app is called **Fucking Weather**. That is the name in the app, on the
-share card, in About, and it is not up for debate inside the product.
+The app is **Blooming Weather**, everywhere — home screen, About, share card,
+splash, both listings. It swears at you by default anyway.
 
-It is almost certainly not a name either shop will publish.
+That pairing is the point rather than a compromise. A respectable name is what
+gets the listing approved:
 
-- **Apple**, guideline 1.1.1, refuses "defamatory, discriminatory, or
-  mean-spirited content… including references or commentary about religion,
-  race, sexual orientation, gender" and, in practice, profanity in the app
-  name and metadata. App names appear in search results shown to every account
-  including children's, regardless of the app's own age rating.
-- **Google Play**'s Inappropriate Content policy treats profanity in the store
-  title the same way, and the title is surfaced across the whole store.
+- **Apple**, guideline 1.1.1, refuses profanity in an app name and its
+  metadata in practice, because names appear in search results shown to every
+  account including children's, regardless of the app's own age rating.
+- **Google Play**'s Inappropriate Content policy treats a profane store title
+  the same way, and the title is surfaced across the whole store.
 
-So `store.name` in `../app.config.json` is set to **Blooming Weather**, and
-that is the only place it is set. This was not a decision to rename the app —
-it is a decision about the shop front, made so the listing has a chance of
-being approved. **Nobody has changed the app.** With swearing on, which is how
-it ships, it calls itself Fucking Weather everywhere inside.
+Neither shop applies that reasoning to what is *inside* an app. Content is what
+the age rating is for, and the rating is where the swearing shows up — see the
+age rating sections below, which are the part of this document to read
+carefully.
 
-Your call, and it is one line:
+The app used to rename itself when swearing was switched off; it does not any
+more, because there is no longer a ruder name to switch to. Only the mouth
+changes.
 
-```json
-"store": { "name": "Fucking Weather" }
-```
-
-then `npm run config`. Expect a rejection and a review cycle lost; some apps do
-get through with a rude name, most do not. Other names already considered:
-Weather You Legend, What The Weather, Proper Weather.
-
-Whatever you pick, **pick it before the first submission**. A store name can be
-changed later; an iOS bundle identifier and an Android application id cannot,
-ever, once published.
+To change the name, set `name` in `../app.config.json` and run
+`npm run config`. Names already considered and parked: Weather You Legend, What
+The Weather, Proper Weather. **Do it before the first submission** — a store
+name can be changed later, but an iOS bundle identifier and an Android
+application id cannot, ever, once published.
 
 ---
 

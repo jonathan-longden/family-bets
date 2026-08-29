@@ -1,4 +1,4 @@
-// Fucking Weather — iPhone home screen widget
+// Blooming Weather — iPhone home screen widget
 // ---------------------------------------------------------------------------
 // A real iOS home-screen widget, without an App Store account or a native
 // build: it runs inside Scriptable (free, App Store), which is the only way a
@@ -12,10 +12,10 @@
 // SETUP — five minutes, once
 //   1. Install Scriptable from the App Store.
 //   2. Open it, tap + for a new script, paste this whole file in, and name it
-//      "Fucking Weather".
+//      "Blooming Weather".
 //   3. Long-press the home screen → + → Scriptable → pick a size → Add.
 //   4. Long-press the new widget → Edit Widget:
-//        Script      : Fucking Weather
+//        Script      : Blooming Weather
 //        When Interacting : Run Script  (or Open URL, if you would rather it
 //                           opened the web app — the script sets that anyway)
 //        Parameter   : leave empty to use where the phone is, or type a place

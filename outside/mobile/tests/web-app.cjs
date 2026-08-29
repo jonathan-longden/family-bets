@@ -462,7 +462,21 @@ async function main() {
   /* ---------------------------------------------------------- suite: screen */
 
   console.log('\nthe screen');
+
+  /* Pin the stub's timezone so that "now, where the weather is" is always
+     early morning, whatever time of day the suite happens to be run at.
+
+     Everything this suite asserts about the rest of today — the best bit, the
+     worst bit, the timeline, the brief — needs some of today left to be about.
+     Run at nine in the evening the stub had three hours in it, all identical,
+     and the app quite correctly declined to name a best and a worst among
+     three of the same hour. That is the app being right and the test being
+     written at eleven in the morning. */
+  const localNow = 8 * 3600;
+  const offset = localNow - (Math.floor(Date.now() / 1000) % 86400);
+
   stub = makeForecast(start, {
+    offset,
     hourAt: i => (i < 3 ? { t: 19, f: 19, c: 0, p: 0, hum: 52 } : (i < 8 ? { t: 16, f: 15, c: 61, p: 80, mm: 1.2 } : { t: 13, f: 12, c: 3, p: 20, n: i % 24 > 20 ? 1 : 0 })),
     dayAt: i => ({ max: 21 - i, min: 11 - i / 2, c: i % 3 === 0 ? 0 : (i % 3 === 1 ? 61 : 3), p: i > 7 ? null : 10 + i * 5 }),
     current: { t: 19, f: 19, c: 0, hum: 52, w: 12, g: 20 }
@@ -510,7 +524,7 @@ async function main() {
     troubleHidden: document.getElementById('trouble').hidden
   }));
 
-  eq('the app is named', screen.title, 'Fucking Weather');
+  eq('the app is named', screen.title, 'Blooming Weather');
   eq('the place is on screen', screen.place, 'Ilkley');
   ok('the headline shouts', screen.shout.length > 10 && screen.shout === screen.shout.toUpperCase(), screen.shout);
   eq('the temperature is the hero', screen.temp, '19');
@@ -829,7 +843,10 @@ async function main() {
   eq('and mph with it', after.wind, '7 mph');
   ok('am/pm shows up', /am|pm/.test(after.sunrise), after.sunrise);
   ok('the clean mouth is clean', !/fuck|arse|bastard|bloody/i.test(after.shout), after.shout);
-  eq('and the app renames itself', after.title, 'Blooming Weather');
+  /* The name is clean and the mouth is not, and the setting only ever moves
+     the mouth. The app used to rename itself; a test that let it start again
+     would be a rename nobody asked for. */
+  eq('but the app keeps its name', after.title, 'Blooming Weather');
   ok('the clean line is still a line', after.shout.length > 10, after.shout);
 
   /* --------------------------------------------------- suite: when it breaks */

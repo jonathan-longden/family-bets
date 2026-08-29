@@ -1,4 +1,4 @@
-/* Fucking Weather — the screen.
+/* Blooming Weather — the screen.
 
    One job: say what the weather is doing, accurately, and be funny about it.
    The numbers come from weather.js and the mouth from voice.js; this file is
@@ -240,7 +240,7 @@ function refresh(force) {
 function render() {
   var now = Math.floor(Date.now() / 1000);
 
-  document.title = BRAND.pick(state.sweary);
+  document.title = BRAND.name;
   $('placeName').textContent = state.place ? state.place.name : 'Pick a place';
   $('setup').hidden = !!state.place;
   if (!state.place) $('setupTitle').textContent = V.noPlace(state);
@@ -779,7 +779,7 @@ function drawShareCard() {
 
   ctx.fillStyle = 'rgba(174,187,220,0.75)';
   ctx.font = '600 34px ui-rounded, system-ui, sans-serif';
-  ctx.fillText(BRAND.signature(state.sweary), 90, h - 90);
+  ctx.fillText(BRAND.signature(), 90, h - 90);
 
   return canvas;
 }
@@ -792,7 +792,7 @@ function shareText() {
     '. ' + V.headline(forecast, state, now).text +
     ' (High ' + W.temp(today.max, state.units) + ' · Low ' + W.temp(today.min, state.units) +
     ' · ' + (today.prob === null ? 'rain unknown' : today.prob + '% rain) ') +
-    '— ' + BRAND.pick(state.sweary);
+    '— ' + BRAND.name;
 }
 
 function canvasBlob(canvas) {
@@ -890,7 +890,7 @@ function syncSettings() {
   $('clockSel').value = state.ampm ? '12' : '24';
   $('buildHint').textContent = 'Build ' + BUILD;
   $('aboutBuild').textContent = 'Build ' + BUILD;
-  $('aboutTitle').textContent = BRAND.pick(state.sweary);
+  $('aboutTitle').textContent = BRAND.name;
   $('aboutTagline').textContent = BRAND.tagline;
   $('dataStatus').textContent = forecast
     ? ageText() + (lastError ? ' · saved copy, could not reach the weather' : '')
