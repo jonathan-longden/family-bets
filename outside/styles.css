@@ -373,6 +373,20 @@ dialog.sheet::backdrop { background: rgba(3, 8, 20, .66); backdrop-filter: blur(
   gap: 13px;
   color: var(--ink);
 }
+/* The location explainer. Bigger type than the other sheets and no jokes in
+   it: this is the one screen where the app is asking for something rather than
+   giving something, and it should read like a straight answer. */
+.ask .sheet-head h2 {
+  font-size: 1.5rem;
+  color: var(--sun);
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}
+.ask-lead { font-size: 1rem !important; color: var(--ink); }
+.ask-points { margin: 0; padding-left: 1.05rem; display: grid; gap: 8px; }
+.ask-points li { color: var(--dim); font-size: .9rem; line-height: 1.55; }
+
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .sheet-head h2 { margin: 0; font-size: 1.25rem; color: var(--ink); text-transform: none; letter-spacing: 0; }
 .sheet-foot { display: flex; justify-content: space-between; gap: 8px; padding-top: 4px; }

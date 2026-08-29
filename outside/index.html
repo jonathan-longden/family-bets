@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0d1b3e">
-<meta name="description" content="Fucking Weather — a proper forecast that tells you exactly what the sky is doing, then takes the mickey out of it. Now, hour by hour, and fifteen days ahead.">
+<meta name="description" content="Fucking Weather — A proper weather app that tells you exactly what the sky is doing, then takes the mickey out of it.">
 <title>Fucking Weather</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon-192.png">
@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Fucking Weather">
-<link rel="stylesheet" href="styles.css?v=5">
+<link rel="stylesheet" href="styles.css?v=6">
 </head>
 <body>
 
@@ -172,6 +172,34 @@
   </form>
 </dialog>
 
+<!-- ------------------------------------------------------- location explainer -->
+<!-- Shown before the operating system's own prompt, never after it. A phone
+     asking "allow location?" out of nowhere is a request with no reason
+     attached, and the honest answer to it is no. -->
+<dialog class="sheet" id="askSheet" aria-labelledby="askTitle">
+  <form method="dialog" class="sheet-in ask">
+    <div class="sheet-head">
+      <h2 id="askTitle">Let's find your weather</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+    </div>
+    <p class="ask-lead">We use your location to show the forecast where you are. That is the whole
+      of it.</p>
+    <ul class="ask-points">
+      <li>Your coordinates are rounded before they are used — near enough for the sky, not near
+        enough to be your address.</li>
+      <li>They go to the weather service and nowhere else. There is no account and no server of
+        ours.</li>
+      <li>Say no and the app works exactly the same — search for a town instead.</li>
+    </ul>
+    <div class="row">
+      <button class="primary" type="button" id="askYesBtn">Use my location</button>
+      <button class="ghost" type="button" data-close>Not now</button>
+    </div>
+    <p class="hint"><a href="privacy.html" target="_blank" rel="noopener">The whole privacy
+      policy</a>, which is shorter than most.</p>
+  </form>
+</dialog>
+
 <!-- --------------------------------------------------------- settings sheet -->
 <dialog class="sheet" id="settingsSheet" aria-label="Settings">
   <form class="sheet-in" id="settingsForm" method="dialog">
@@ -253,6 +281,9 @@
       that ever leaves your phone is a pair of coordinates.</p>
     <p><b>No signal?</b> It shows the last forecast it managed to get, with the time it got it, rather than
       pretending that is the weather now.</p>
+    <p><b>What it knows about you.</b> Nothing. No account, no analytics, no advertising, no server
+      of ours for anything to sit on. <a href="privacy.html" target="_blank" rel="noopener">The
+      privacy policy</a> says so at greater length, and is still short.</p>
     <p class="hint" id="aboutBuild"></p>
   </form>
 </dialog>
@@ -288,9 +319,10 @@
   </form>
 </dialog>
 
-<script src="brand.js?v=5"></script>
-<script src="weather.js?v=5"></script>
-<script src="voice.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="brand.js?v=6"></script>
+<script src="weather.js?v=6"></script>
+<script src="voice.js?v=6"></script>
+<script src="native.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

@@ -14,12 +14,15 @@
 var W = self.Weather;
 var V = self.Voice;
 var BRAND = self.Brand;
+var N = self.Native;
 var $ = function (id) { return document.getElementById(id); };
 
-/* Printed in Settings so a phone can say which copy it is running. Bump it,
-   the ?v= on every script and the stylesheet, and the cache name in sw.js
-   together on a release. */
-var BUILD = '2026-08-28 · 5';
+/* Printed in Settings so a phone can say which copy it is running — and the
+   same numbers the two app stores see, because they all come from
+   app.config.json. On a release bump the version there, then the ?v= on every
+   script and the stylesheet and the cache name in sw.js, which the release
+   notes in mobile/README.md walk through. */
+var BUILD = BRAND.version + ' (' + BRAND.build + ')' + (N.is ? ' · ' + N.platform : '');
 
 /* Deliberately not named after the brand: the name is the thing most likely to
    change, and nobody's saved location should change with it. */
@@ -49,6 +52,9 @@ function defaults() {
     /* The temperature on the app icon itself. Not a widget, but it is a number
        on the home screen without opening anything. */
     badge: true,
+    /* Whether the location explainer has been through once. It is an
+       explanation, not a reminder — showing it twice would make it nagging. */
+    asked: false,
     cache: null,
     /* A small summary of the forecast before this one, so the app can say what
        has actually changed rather than guess. */
@@ -98,27 +104,45 @@ function save() {
 
 /* --------------------------------------------------------------- the place */
 
+/* Where the answer goes when the location request finishes. Set by askHere()
+   so the explainer's own button knows which screen asked. */
+var askOut = null;
+
+/* Tapping "use where I am" never raises the operating system's prompt on the
+   spot. It explains first, in the app's own words, and only asks the phone
+   once somebody has said yes to the explanation. A prompt that arrives with a
+   reason attached is one a person can actually answer.
+
+   The explanation is shown once per install, not every time: after the phone
+   has granted or refused, asking again would be nagging. */
+function askHere(outEl) {
+  askOut = outEl || null;
+  if (outEl) outEl.textContent = '';
+  if (state.asked) return useHere(outEl);
+  openSheet($('askSheet'));
+}
+
 function useHere(outEl) {
-  if (!navigator.geolocation) {
-    if (outEl) outEl.textContent = 'This browser will not say where it is. Search for a town instead.';
-    return;
-  }
+  state.asked = true;
+  save();
   if (outEl) outEl.textContent = 'Asking the phone where it is…';
-  navigator.geolocation.getCurrentPosition(function (pos) {
-    setPlace({
-      name: 'Where you are',
-      lat: Math.round(pos.coords.latitude * 10000) / 10000,
-      lon: Math.round(pos.coords.longitude * 10000) / 10000
-    });
+
+  N.locate().then(function (where) {
+    setPlace({ name: 'Where you are', lat: where.lat, lon: where.lon });
     if (outEl) outEl.textContent = '';
     closeSheet($('placeSheet'));
   }, function (err) {
-    if (outEl) {
-      outEl.textContent = err && err.code === 1
-        ? 'Location is switched off for this app. Search for a town instead.'
-        : 'Could not work out where you are. Search for a town instead.';
+    if (!outEl) return;
+    /* Three different failures, three different things to do about them, so
+       they get three different sentences rather than one shrug. */
+    if (err && err.code === 0) {
+      outEl.textContent = 'This device will not say where it is. Search for a town instead.';
+    } else if (err && err.code === 1) {
+      outEl.textContent = 'No location, then — that is fine. Search for a town instead.';
+    } else {
+      outEl.textContent = 'Could not work out where you are. Search for a town instead.';
     }
-  }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 10 * 60 * 1000 });
+  });
 }
 
 function setPlace(place) {
@@ -586,6 +610,14 @@ function updateBadge() {
 }
 
 function badgeState() {
+  /* The installed app from the two stores has no badge yet: iOS and Android
+     both put the app icon's number behind a native call, and adding one means
+     shipping a small piece of native code alongside the widget work rather
+     than a web setting. Saying so beats a toggle that quietly does nothing. */
+  if (N.is) {
+    return 'Not in the ' + (N.platform === 'ios' ? 'iPhone' : 'Android') + ' app yet — it arrives ' +
+      'with the home screen widget. Add the app to your home screen from the web and it works there.';
+  }
   if (!navigator.setAppBadge) return 'This browser cannot put anything on the app icon.';
   return 'Works on the installed app. Below zero it clears itself — the icon can only carry a count, ' +
     'so it cannot show a minus sign, and half a temperature is worse than none.';
@@ -778,13 +810,21 @@ function wireShare() {
     openSheet($('shareSheet'));
   });
 
-  /* Native sharing where the phone has it, a download where it does not, and
-     plain text as the last resort — every route ends with something the user
-     can actually send. */
+  /* The operating system's own share sheet on a phone, the browser's where
+     there is one, a download where there is not, and plain text as the last
+     resort — every route ends with something the user can actually send.
+
+     Neither WebView implements Web Share for files, so on iOS and Android the
+     bridge writes the card to the app's cache and hands the sheet a real file.
+     In a browser navigator.share does that job directly. */
   $('shareGoBtn').addEventListener('click', function () {
     var out = $('shareOut');
+    var name = (state.place.name || 'weather').replace(/\s+/g, '-').toLowerCase() + '-weather.png';
+
     canvasBlob(drawShareCard()).then(function (blob) {
-      var file = blob && self.File ? new File([blob], 'weather.png', { type: 'image/png' }) : null;
+      if (N.is) return N.share(shareText(), blob, name);
+
+      var file = blob && self.File ? new File([blob], name, { type: 'image/png' }) : null;
       if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
         return navigator.share({ files: [file], text: shareText() });
       }
@@ -871,8 +911,12 @@ function wire() {
     e.preventDefault();
     searchPlaces($('placeQuery').value.trim());
   });
-  $('hereBtn').addEventListener('click', function () { useHere($('placeOut')); });
-  $('useHereBtn').addEventListener('click', function () { useHere($('setupOut')); });
+  $('hereBtn').addEventListener('click', function () { askHere($('placeOut')); });
+  $('useHereBtn').addEventListener('click', function () { askHere($('setupOut')); });
+  $('askYesBtn').addEventListener('click', function () {
+    closeSheet($('askSheet'));
+    useHere(askOut);
+  });
   $('searchPlaceBtn').addEventListener('click', function () { $('placeBtn').click(); });
 
   $('settingsBtn').addEventListener('click', function () { syncSettings(); openSheet($('settingsSheet')); });
@@ -954,6 +998,21 @@ function wire() {
     if (document.visibilityState === 'visible') { render(); refresh(false); }
   });
   window.addEventListener('online', function () { refresh(true); });
+
+  /* Coming back from the lock screen is the moment the number on screen is
+     most likely to be wrong. A WebView does fire visibilitychange, but the
+     native resume event is the one that can be relied on. */
+  N.onResume(function () { render(); refresh(false); });
+
+  /* Android's back button. Without this it does nothing at all, which reads as
+     a broken app rather than a considered one: it should close whatever is
+     open, and leave the app only from the weather itself. */
+  N.onBack(function () {
+    var open = document.querySelector('dialog.sheet[open]');
+    if (open) { closeSheet(open); return; }
+    var app = self.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App;
+    if (app && app.exitApp) app.exitApp();
+  });
   if (self.matchMedia) {
     var mq = matchMedia('(prefers-reduced-motion: reduce)');
     var onChange = function () { skyPainted = ''; render(); };
@@ -973,9 +1032,18 @@ syncSettings();
 render();
 refresh(false);
 
+/* The splash screen comes down here rather than on a timer, so the first thing
+   behind it is the weather — or the "where are you, then?" card — and never a
+   blank screen with a spinner on it. */
+N.ready();
+
 /* -------------------------------------------------------- the service worker */
 
-if ('serviceWorker' in navigator) {
+/* Web only, deliberately. A service worker exists to keep a website on a phone;
+   inside the iOS or Android app every file is already on the phone, and a
+   worker caching them would only be a way to ship a version that can never
+   update itself. */
+if (!N.is && 'serviceWorker' in navigator) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('sw.js').catch(function (e) { console.warn('sw', e); });
 

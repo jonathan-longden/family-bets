@@ -195,18 +195,44 @@ orphaned numbers, visible focus rings for keyboard users, no meaning carried by
 colour alone, and nothing pinned to a fixed height so large text grows rather
 than clips.
 
+## The same app, on a phone
+
+There are iOS and Android builds of this, made with Capacitor, and they run
+*these* files — not a rewrite of them. No bundler, no framework, no second
+version of the forecast logic to drift out of step. One file, `native.js`,
+knows a phone might be involved; everything else is written as though only the
+browser existed.
+
+What changes on a phone: the location prompt is the OS one and asks for
+approximate location only, the share sheet is the OS one and carries the image,
+there is a splash screen, and there is no service worker (the files are already
+on the phone). Everything else is identical, which is why one test suite covers
+all three.
+
+See **[mobile/README.md](mobile/README.md)** for building and releasing, and
+**[mobile/STORE.md](mobile/STORE.md)** for the store listings — including why
+the shop front cannot use the app's actual name.
+
+The website is unaffected by any of it and always deploys first.
+
 ## Renaming it
 
-The working name swears, which will not survive a shop front. To rename:
+Everything that names the app comes from **`app.config.json`**. Change it
+there, run `npm run config` in `mobile/`, and the name is written into
+`brand.js`, `manifest.json`, `index.html`, the Capacitor config, the iOS
+Info.plist and Xcode project, and the Android strings and Gradle build.
 
-1. `brand.js` — `name` and `clean`, which drive the header, About, the page
-   title and the share card
-2. `manifest.json` — `name` and `short_name`
-3. `index.html` — `<title>` and the `apple-mobile-web-app-title` meta
-4. `README.md` — this file
+```json
+"name":  { "sweary": "Fucking Weather", "clean": "Blooming Weather" },
+"store": { "name": "Blooming Weather" }
+```
 
-Nothing else hardcodes it. The saved-settings key is deliberately neutral, so a
-rename never loses anybody's location.
+`name.sweary` is what the app calls itself with swearing on, `name.clean` with
+it off, and `store.name` is what the two shops are told — separate, because the
+shops will not take the real one.
+
+Nothing else hardcodes any of it. The saved-settings key is deliberately
+neutral, so a rename never loses anybody's location.
 
 ## Hosting it
 
@@ -221,12 +247,17 @@ outside/
   app.js          the drawing, the share card, the settings
   styles.css
   sw.js           the shell cache, and nothing else
+  native.js       the one file that knows a phone might be involved
+  privacy.html    the privacy policy, linked from the app and both stores
   manifest.json
-  icon-192.png  icon-512.png
+  icon-192.png  icon-512.png  icon-maskable-512.png
+  app.config.json every name, id and version number, in one place
   widget/
     scriptable-widget.js   the iPhone home-screen widget (not served, pasted)
+  mobile/         the iOS and Android projects, the tooling and the tests
 ```
 
-On a release, bump the build stamp in `app.js`, the `?v=` on the stylesheet and
-all four scripts in `index.html` and `sw.js`, and the cache name in `sw.js` —
-they go together.
+On a release, bump `version` and `build` in `app.config.json`, then the `?v=` on
+the stylesheet and all five scripts in `index.html` and `sw.js`, and the cache
+name in `sw.js` — they go together. The full sequence, including the two app
+stores, is in [mobile/README.md](mobile/README.md).
