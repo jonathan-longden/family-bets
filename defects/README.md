@@ -228,6 +228,105 @@ One combined number would hide which of those was happening.
 stays at 1 while `inferences` climbs, the model is loaded once and reused, and
 the time above is genuinely the graph running.
 
+## What the survey runs on
+
+Measured on this phone, on a photograph that already had a known answer:
+
+| | warmed inference | detections | best | raw range |
+|---|---|---|---|---|
+| **WASM** | **533 ms** | 1 | pothole 0.7236 | 0 – 637.0227 |
+| CPU | 17,692 ms | 1 | pothole 0.7236 | 0 – 637.0227 |
+| WebGL | 174 ms | **20** | "manhole **407894400**" | −27024638 – 407894400 |
+
+Three things follow from that table, and the survey is built on all three.
+
+**WebGL is not slow, it is wrong**, and wrong in the most dangerous way
+available: it answered a frame containing one pothole with *twenty* detections —
+the library's own cap — at a confidence of four hundred million. A survey that
+trusted it would have written down twenty phantom defects from one look. It is
+therefore **not in the production list at all**, and there is no setting that
+puts it there.
+
+**CPU is not a slow backend, it is an unusable one.** At one look per ten metres,
+17.7 s a frame is a survey speed of 1.25 mph — slower than walking. It stays as
+the fallback because a phone that cannot do WASM should still be able to survey
+a road badly rather than not at all, and because it is provably correct.
+
+**WASM and CPU agree exactly** — not just the winning detection but the whole
+output range, `0` to `637.0227` on both. That is what made the switch safe.
+
+So the order is **WASM, then CPU**:
+
+```
+SURVEY_BACKENDS = ['wasm', 'cpu']
+```
+
+### Nothing here is a second implementation
+
+The preprocessing, the decoder, the NMS parameters and the weight loader are the
+same functions the benchmark used, called from a different place. That is
+deliberate: **a production path that is not the measured path has not been
+measured.**
+
+### Initialising is not the test
+
+A backend is not trusted because it started. Each one is brought up, given the
+weights, and shown a picture before it is allowed near a road — and the picture
+is a gradient with an edge in it, **not flat grey**, because a flat frame makes
+every score and box zero and zeros cannot tell a working backend from one that
+returns zeros. If the range that comes back is not plausible, that backend is
+disposed of and the next is tried.
+
+The same check runs on **every frame of the survey**, not once at startup and
+then trusted forever. A backend that was sane at eight o'clock and is not at
+half past is dropped mid-run, the fallback is brought up on the next look, and
+the diagnostics record what it produced when it went bad.
+
+### It cannot pretend to be keeping up
+
+At 30 mph a 533 ms inference covers five metres and the survey is fine. The same
+533 ms at 70 mph covers nineteen, and one look is no longer one look at a stretch
+of road. So the warning is computed from the speed actually being reported
+rather than from a fixed threshold:
+
+```
+Slow inference — survey coverage reduced (53 m passes per look, not 10)
+```
+
+That replaces "Watching" rather than sitting beside it. A survey that quietly
+claims coverage it is not achieving is the failure this whole application exists
+to avoid.
+
+### What it shows while running
+
+Small and dim, on the glass, for whoever is not driving — and in full in
+diagnostics:
+
+```
+Backend   WASM
+Inference 533 ms
+Last GPS  53.12345, -1.10001 ±8 m, 2 s ago
+Speed     30 mph
+Distance  7 m since last look
+Next look 3 m
+```
+
+### The SDK is gone from the inference path
+
+This is the part worth writing down. The survey used to infer through the
+Roboflow SDK, and it cannot use WASM through it: **the SDK bundles TensorFlow.js
+inside its worker and keeps it module-scoped — inside that worker `self.tf` is
+undefined — so `tfjs-backend-wasm` has nothing to register itself against.**
+
+So `loadModel()` now brings up the app's own TensorFlow.js and picks a backend,
+and `engine` is an object with the same one-method shape the SDK's
+`InferenceEngine` had: `infer(worker, image)` returning a list of detections.
+Nothing downstream — `look()`, the real-frame test, the self-test, the
+diagnostics — had to learn anything new.
+
+A side effect worth having: **the six-megabyte SDK is no longer fetched to look
+at a road.** Startup pulls 2.4 MB of TensorFlow.js instead.
+
 ## Which backend could run this, and how fast
 
 The survey takes about twenty-one seconds a frame, and the timing split says
