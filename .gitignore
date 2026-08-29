@@ -1,0 +1,45 @@
+# Dependencies and build output
+node_modules/
+outside/mobile/www/
+
+# Capacitor / Xcode / Gradle build products
+outside/mobile/ios/App/App/public/
+outside/mobile/ios/App/build/
+outside/mobile/ios/App/Pods/
+outside/mobile/ios/App/App.xcworkspace/xcuserdata/
+outside/mobile/ios/App/App.xcodeproj/xcuserdata/
+outside/mobile/ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+outside/mobile/ios/App/.build/
+DerivedData/
+*.xcuserstate
+
+outside/mobile/android/build/
+outside/mobile/android/app/build/
+outside/mobile/android/app/src/main/assets/public/
+outside/mobile/android/.gradle/
+outside/mobile/android/local.properties
+outside/mobile/android/.idea/
+*.iml
+
+# Signing material. None of this ever belongs in a repository: a leaked
+# keystore means somebody else can ship an update to your users, and an Android
+# upload key cannot be replaced without asking Google to reset it.
+*.keystore
+*.jks
+*.p12
+*.p8
+*.mobileprovision
+*.cer
+*.certSigningRequest
+keystore.properties
+outside/mobile/android/keystore.properties
+outside/mobile/.env
+outside/mobile/.env.*
+
+# Built app packages — rebuilt from source, never reviewed as a diff
+*.apk
+*.aab
+*.ipa
+*.app.zip
+
+.DS_Store

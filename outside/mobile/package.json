@@ -1,0 +1,33 @@
+{
+  "name": "weather-mobile",
+  "private": true,
+  "version": "1.0.0",
+  "description": "The iOS and Android wrapper around the weather app. The app itself lives one directory up and is not built by anything.",
+  "type": "module",
+  "scripts": {
+    "config": "node scripts/config.mjs",
+    "www": "node scripts/build-www.mjs",
+    "icons": "node scripts/icons.mjs",
+    "build": "npm run config && npm run www && npx cap sync",
+    "ios": "npm run build && npx cap open ios",
+    "android": "npm run build && npx cap open android",
+    "release": "node scripts/release.mjs",
+    "test": "node tests/web-app.cjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/filesystem": "^8.1.3",
+    "@capacitor/geolocation": "^8.2.2",
+    "@capacitor/ios": "^8.5.0",
+    "@capacitor/keyboard": "^8.0.5",
+    "@capacitor/share": "^8.0.1",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
+    "playwright": "^1.49.0"
+  }
+}

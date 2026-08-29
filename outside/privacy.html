@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1b3e">
+<title>Privacy — Blooming Weather</title>
+<link rel="icon" href="icon-192.png">
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0;
+    padding: max(28px, env(safe-area-inset-top)) 20px max(40px, env(safe-area-inset-bottom));
+    background: #0d1b3e;
+    color: #f2f6ff;
+    font: 16px/1.65 ui-rounded, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 40rem; margin: 0 auto; }
+  h1 { font-size: 1.9rem; line-height: 1.15; margin: 0 0 6px; letter-spacing: -0.02em; }
+  h2 { font-size: 1.12rem; margin: 34px 0 8px; color: #ffe6a8; }
+  .sub { color: #aebbdc; margin: 0 0 6px; }
+  .when { color: #7d8cb4; font-size: 0.9rem; margin: 0 0 28px; }
+  p, li { color: #dfe6f7; }
+  ul { padding-left: 1.15rem; }
+  li { margin-bottom: 7px; }
+  a { color: #6fd0ff; }
+  strong { color: #fff; }
+  .box {
+    border: 1px solid rgba(255,255,255,0.14);
+    background: rgba(11,24,54,0.62);
+    border-radius: 18px;
+    padding: 16px 18px;
+    margin: 26px 0;
+  }
+  .box p:first-child { margin-top: 0; }
+  .box p:last-child { margin-bottom: 0; }
+  footer { margin-top: 44px; color: #7d8cb4; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main>
+
+  <h1>Privacy</h1>
+  <p class="sub">Blooming Weather — the app that calls itself something ruder when you let it.</p>
+  <p class="when">Last updated 29 August 2026</p>
+
+  <div class="box">
+    <p><strong>The short version.</strong> There is no account, no analytics, no advertising and no
+      server of ours. Your location and your settings stay on your phone. The only thing that ever
+      leaves it is a pair of coordinates, sent to the weather service to ask what the weather is
+      there.</p>
+  </div>
+
+  <h2>What the app collects about you</h2>
+  <p>Nothing. We operate no servers, hold no database and have no way to identify you. Everything
+    the app knows is on your own device and goes away when you delete the app.</p>
+
+  <h2>Location</h2>
+  <ul>
+    <li>The app asks for location permission only when you tap <strong>Use where I am</strong>, and
+      it explains why before the phone's own prompt appears.</li>
+    <li>Coordinates are <strong>rounded to four decimal places</strong> — roughly eleven metres —
+      before they are stored or sent anywhere. The forecast is the same either way, so the extra
+      precision would be nothing but a more exact record of where you live.</li>
+    <li>The rounded coordinates are saved on your device so the app knows where to look next time,
+      and are sent to the weather service with each forecast request.</li>
+    <li><strong>Refusing is fine.</strong> The app works fully without location permission — search
+      for a town instead. Nothing is nagged, hidden or withheld.</li>
+    <li>No location history is kept. The app stores one place, the current one, and overwrites it
+      when you change it.</li>
+  </ul>
+
+  <h2>The weather service</h2>
+  <p>Forecasts come from <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>,
+    an independent weather API. The app talks to it directly from your device — nothing passes
+    through us.</p>
+  <ul>
+    <li><strong>Forecasts:</strong> the request contains the rounded coordinates and the range of
+      days and hours being asked for.</li>
+    <li><strong>Town search:</strong> when you search for a place, the text you typed is sent to
+      Open-Meteo's geocoding service to be matched.</li>
+    <li>As with any internet request, Open-Meteo's servers receive your device's IP address. What
+      they do with it is governed by
+      <a href="https://open-meteo.com/en/terms" target="_blank" rel="noopener">their own terms and
+      privacy statement</a>, not by this policy. Open-Meteo requires no key, no account and no email
+      address, and the app sends none.</li>
+  </ul>
+
+  <h2>What is stored on your device</h2>
+  <ul>
+    <li>The place you chose — its name and rounded coordinates.</li>
+    <li>Your settings: units, clock format, swearing, animation, icon badge.</li>
+    <li>The most recent forecast, so the app opens with no signal, plus a short summary of the
+      previous one so it can tell you what has changed.</li>
+  </ul>
+  <p>On the web this lives in the browser's local storage. In the iOS and Android apps it lives in
+    the app's own private storage, which no other app can read.</p>
+
+  <h2>Analytics, tracking and advertising</h2>
+  <p>There are none. No analytics SDK, no crash reporting service, no advertising identifier, no
+    tracking pixels, no third-party cookies, no social media buttons that phone home. Nothing about
+    how you use the app is measured or transmitted.</p>
+
+  <h2>Notifications</h2>
+  <p>The app sends none and asks for no notification permission.</p>
+
+  <h2>Sharing</h2>
+  <p>The share button draws a picture of the weather and hands it to your phone's own share sheet.
+    Where it goes from there is your choice and your messaging app's business — the card contains
+    the place name, the weather and the app's name, and nothing about you or your device.</p>
+
+  <h2>Children</h2>
+  <p>The app collects no personal data from anyone, of any age. It does contain strong language when
+    the swearing setting is on; it can be turned off in Settings, and the app then uses its clean
+    lines throughout.</p>
+
+  <h2>Deleting your data</h2>
+  <ul>
+    <li><strong>In the app:</strong> Settings → <strong>Erase everything</strong> removes the saved
+      place, the settings and the cached forecast immediately.</li>
+    <li><strong>Everything:</strong> delete the app, or clear the site data in your browser. Because
+      nothing is held anywhere else, that is the end of it — there is no account to close and no
+      request to make of us.</li>
+  </ul>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, the date at the top changes with it and the new version appears here
+    and in the app.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy can be raised at
+    <a href="https://github.com/jonathan-longden/family-bets" target="_blank" rel="noopener">the
+    project's repository</a>, or by email at the support address given on the app's store listing.</p>
+
+  <footer>
+    <a href="./">Back to the weather</a>
+  </footer>
+
+</main>
+</body>
+</html>

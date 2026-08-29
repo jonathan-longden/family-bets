@@ -1,0 +1,75 @@
+{
+  "_": [
+    "The single source of truth for everything that identifies this app.",
+    "",
+    "Nothing else in the project should hardcode a name, a version or an",
+    "identifier. Change a value here, run `npm run config` in mobile/, and it is",
+    "written into brand.js, manifest.json, index.html, capacitor.config.json,",
+    "the iOS Info.plist, the Android strings.xml and both store listings.",
+    "",
+    "The two names are deliberate. `sweary` is what the app calls itself with",
+    "the swearing setting on, which is how it ships and how it is meant to be",
+    "read. `clean` is a name in its own right for when the setting is off — and,",
+    "as things stand, the name the shops will accept. See store.name below."
+  ],
+  "id": "io.github.jonathanlongden.weather",
+  "version": "1.0.0",
+  "build": 6,
+  "name": {
+    "sweary": "Fucking Weather",
+    "clean": "Blooming Weather"
+  },
+  "tagline": "A proper weather app that tells you exactly what the sky is doing, then takes the mickey out of it.",
+  "store": {
+    "_": [
+      "PROFANITY WARNING — READ BEFORE SUBMITTING.",
+      "",
+      "`name` here is the name that goes on the App Store and Google Play. It is",
+      "set to the clean twin, not because anybody decided to rename the app, but",
+      "because Apple review guideline 1.1.1 and the Google Play inappropriate-",
+      "content policy both refuse profanity in a public listing name, and both",
+      "shops surface app names to under-18 accounts regardless of age rating.",
+      "Submitting as `Fucking Weather` is very likely a rejection, and a rejected",
+      "name costs a review cycle each time.",
+      "",
+      "The app is unaffected: with swearing on, which is the default, it calls",
+      "itself Fucking Weather everywhere inside — header, About, share card.",
+      "Only the shop front is clean.",
+      "",
+      "To ship under the sweary name anyway, set this to name.sweary and rerun",
+      "`npm run config`. Nothing else needs touching."
+    ],
+    "name": "Blooming Weather",
+    "subtitle": "The forecast, with an attitude",
+    "category": {
+      "apple": "Weather",
+      "play": "Weather"
+    },
+    "keywords": [
+      "weather",
+      "forecast",
+      "rain",
+      "15 day",
+      "hourly",
+      "funny",
+      "temperature",
+      "sky",
+      "wind",
+      "British weather"
+    ]
+  },
+  "web": {
+    "url": "https://jonathan-longden.github.io/family-bets/outside/",
+    "privacyUrl": "https://jonathan-longden.github.io/family-bets/outside/privacy.html"
+  },
+  "support": {
+    "_": "Both shops require a working support contact and will reject a listing without one. Nobody can fill these in but you — put in an address you actually read.",
+    "email": "",
+    "url": "https://github.com/jonathan-longden/family-bets"
+  },
+  "colors": {
+    "background": "#0d1b3e",
+    "theme": "#0d1b3e",
+    "splashText": "#ffe6a8"
+  }
+}

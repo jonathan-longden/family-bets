@@ -9,19 +9,22 @@
    because cache-first with nothing behind it is how a phone ends up running
    last month's app forever. */
 
-const CACHE_NAME = 'weather-v5';
+const CACHE_NAME = 'weather-v6';
 const NETWORK_WAIT_MS = 2500;
 const FILES_TO_CACHE = [
   './',
   './index.html',
-  './styles.css?v=5',
-  './brand.js?v=5',
-  './weather.js?v=5',
-  './voice.js?v=5',
-  './app.js?v=5',
+  './styles.css?v=6',
+  './brand.js?v=6',
+  './weather.js?v=6',
+  './voice.js?v=6',
+  './app.js?v=6',
+  './native.js?v=6',
+  './privacy.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
+  './icon-maskable-512.png',
 ];
 
 self.addEventListener('install', event => {

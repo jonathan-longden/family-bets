@@ -31,7 +31,8 @@ pot live, connect it to a free Firebase Realtime Database.
 >   that tells you exactly what the sky is doing, then takes the mickey
 >   out of it: now, hour by hour, today's best and worst bits, tomorrow,
 >   and fifteen days out. Puts the temperature on its own icon, and comes
->   with an iPhone home-screen widget. Swearing optional.
+>   with an iPhone home-screen widget. Swearing optional. Also builds as a
+>   real iOS and Android app — see [`outside/mobile/`](outside/mobile/).
 >
 > All seven are separate PWAs with the same no-build setup.
 
