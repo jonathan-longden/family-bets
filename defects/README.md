@@ -230,87 +230,104 @@ the time above is genuinely the graph running.
 
 ## Which backend could run this, and how fast
 
-The survey takes about seventeen seconds a frame, and the timing split above
-says that is genuinely the graph running rather than the model being reloaded.
-So the next question is not "why is it slow" but "is anything else on this phone
-faster at the same work" — and that is a measurement, not an argument.
+The survey takes about twenty-one seconds a frame, and the timing split says
+that is genuinely the graph running rather than the model being reloaded. So the
+next question is not "why is it slow" but "is anything else on this phone faster
+at the same work" — and that is a measurement, not an argument.
 
-*Benchmark the backends* captures **one frame, once**, and runs it through
-WebGL, WASM and CPU in turn. Same picture, same preprocessing, same weights,
-same decoder, same NMS parameters. Capturing a frame per backend would be
-comparing three different pictures and calling the difference a backend.
+*Benchmark a photo* draws **one picture, once**, and runs it through WebGL, WASM
+and CPU in turn. Same picture, same preprocessing, same weights, same decoder,
+same NMS parameters. Drawing per backend would be comparing three different
+pictures and calling the difference a backend.
 
-The shape of the report — **the timings below are dashes on purpose. Nobody
-has pressed this button on a phone yet, and this document is not the place to
-invent what it will say:**
+**Use the photograph you already have an answer for.** The known result —
+`pothole 0.7236, manhole 0.0047` — was measured on a file, and running that same
+file through every backend is the only way to tell a faster backend from a
+differently-wrong one. There is a camera button too, for a quick look.
+
+### What it separates, and why each split earns its place
+
+A single number per backend cannot answer the question, so five things are timed
+apart from each other:
+
+| reported as | what it is |
+|---|---|
+| `backend init` | choosing the backend and bringing it up. Once per session. |
+| `model load` | fetching and building the 229 tensors. Once per session. |
+| `preprocess_ms` | drawing to 640², normalising, NCHW. Every frame. |
+| `execute_ms` | the graph. Every frame, and the number that matters. |
+| `read_decode_ms` | readback, boxes, scores, NMS. Every frame. |
+
+`backend init` and `model load` are excluded from the inference figures, because
+**the survey loads the model once and reuses it** — charging every frame for a
+cost paid once would misrepresent what a survey actually experiences.
+
+Each backend runs **three passes**. The first is cold: it pays for kernel and
+shader compilation and for whatever the backend defers until something asks. The
+rest are warmed. Both are reported, and every individual pass is shown rather
+than an average alone:
 
 ```
-BACKEND BENCHMARK  (one frame, captured once, reused for every backend)
-frame        1920x1080 -> 640x640, preprocessed exactly as the survey does it
-
-WASM SUPPORT (what the runtime reports, not what it is assumed to have)
-  SIMD       -
-  threads    -
-  cores      -
-  crossOriginIsolated -
-  >> threads need the page to be cross-origin isolated, which needs COOP
-     and COEP headers. GitHub Pages does not send them, so this is a
-     property of where the app is hosted rather than of the phone.
-
-WEBGL
-  supported    -
-  output sane  -
-  inference    - ms
-  decode+NMS   - ms
-  detections   -
-  best         -
-  raw min/max  - / -
-  model load   - ms, warm-up - ms  (both excluded from the figures above)
-
-WASM
-  ...
-CPU
-  ...
-
-FASTEST USABLE  -
+  execute_ms       118   (warmed; first pass 402)
+  all passes       402, 121, 115 ms
 ```
 
-The one figure that is not a guess is WebGL's: on the phone this was built for
-it has already returned `min -1834411, max 2634395904` on a real frame, twice,
-including with full precision forced. That is what "output sane: NO" is there
-to catch.
+Reporting only the first would libel a backend. Reporting only the warmed ones
+would hide a cost that is real the first time a phone looks at a road.
 
-Three things that report is careful about:
+### Three things the report is careful about
 
-**SIMD and threads are asked, not assumed.** The figures come from the
-runtime's own `WASM_HAS_SIMD_SUPPORT` and `WASM_HAS_MULTITHREAD_SUPPORT`.
-Threads additionally need the page to be cross-origin isolated, which needs
-COOP and COEP headers GitHub Pages does not send — so a “no” there is a fact
-about the hosting, not about the phone, and the report says which.
+**SIMD, threads and the thread count are asked, not assumed.** SIMD and threading
+come from the runtime's own `WASM_HAS_SIMD_SUPPORT` and
+`WASM_HAS_MULTITHREAD_SUPPORT`. The thread count comes from
+`tf.wasm.getThreadsCount()`, which **throws** before the WASM backend is up
+rather than guessing — so it is asked after initialisation, and when WASM never
+initialised the report says that instead of printing a zero. The core count is
+shown separately and labelled as what the browser claims the phone has, which is
+not what WASM uses.
 
-**Fast and wrong does not win.** The ranking is *fastest usable*: a backend
-whose output fails the same numerical sanity check the app already applies is
-listed with its time and excluded from the ranking. A backend that returns garbage
-fast has not won anything.
+Threads additionally need the page cross-origin isolated, which needs COOP and
+COEP headers GitHub Pages does not send — so a "no" there is a fact about the
+hosting, not about the phone, and the report says which.
 
-**Load and warm-up are excluded from the inference figure and printed
-separately.** The first `execute` on any backend pays for kernel and shader
-compilation; folding that in would flatter whichever backend ran last.
+**Fast and wrong does not win.** The ranking is *fastest usable*, and usable
+means the same numerical sanity check the app already applies. WebGL has returned
+`min -1834411, max 2634395904` on this phone twice, including with full precision
+forced. A backend that returns garbage fast has not won anything.
+
+**A faster backend that answers differently is a different model.** The report
+ends with a comparison against CPU, because CPU is what produced the result this
+whole exercise is measured against:
+
+```
+DO THEY AGREE?  (CPU is the reference — it is what produced 0.7236)
+  cpu        pothole 0.7236, 1 detection
+  wasm       pothole 0.7236, 1 detection — AGREES with CPU (within 0)
+  webgl      output failed the sanity check — not comparable
+```
+
+A backend that is numerically sane but returns a different class, a different
+count, or a confidence more than 0.01 away is marked **DIFFERS** and the reader
+is told why that disqualifies it.
+
+Everything each backend allocated is given back before the next one starts —
+three backends each holding a copy of a 229-tensor model is how a phone runs out
+of memory halfway down a road — and the outstanding tensor count is printed so
+that is checkable rather than merely claimed.
 
 ### What this does not do
 
 **It does not change what the survey runs on.** The survey still infers through
-the Roboflow SDK, on whatever backend the SDK's own fallback picked, exactly as
-before. The benchmark loads its own copy of TensorFlow.js and puts it away
-again.
+the Roboflow SDK, on whatever backend the SDK's own fallback picked. The
+benchmark loads its own copy of TensorFlow.js and puts it away again.
 
-That is not a design preference, it is a constraint worth writing down: **the
-WebGL → WASM → CPU fallback chain cannot be delivered inside the SDK as it
-stands.** The SDK bundles TensorFlow.js inside its worker and keeps it
-module-scoped and minified — inside that worker `self.tf` is undefined — so
-`tfjs-backend-wasm` has nothing to register itself against. Adding WASM to the
-survey means replacing the SDK's inference path, which is a larger change than
-this one and should be decided on the numbers this button produces rather than before them.
+That is a constraint rather than a preference: **the WebGL → WASM → CPU chain
+cannot be delivered inside the SDK as it stands.** The SDK bundles TensorFlow.js
+inside its worker and keeps it module-scoped and minified — inside that worker
+`self.tf` is undefined — so `tfjs-backend-wasm` has nothing to register itself
+against. Adding WASM to the survey means replacing the SDK's inference path,
+which is a larger change and should be decided on the numbers this button
+produces rather than before them.
 
 ## "The source image could not be decoded" — which end it came from
 
