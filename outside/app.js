@@ -139,6 +139,9 @@ function useHere(outEl) {
       outEl.textContent = 'This device will not say where it is. Search for a town instead.';
     } else if (err && err.code === 1) {
       outEl.textContent = 'No location, then — that is fine. Search for a town instead.';
+    } else if (err && err.code === 3) {
+      outEl.textContent = 'Location is switched off on this phone, in its own settings. ' +
+        'Turn it on there, or search for a town.';
     } else {
       outEl.textContent = 'Could not work out where you are. Search for a town instead.';
     }

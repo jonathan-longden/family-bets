@@ -855,33 +855,141 @@
 
   /* ------------------------------------------------------------- tomorrow */
 
+  /* Tomorrow, told as the difference from today rather than as a fact on its
+     own. "Eighteen degrees and cloudy" is already on the card in numbers; what
+     a person actually wants to know is whether that is better or worse than
+     what they have just had.
+
+     Eleven situations rather than three, because "warmer" and "a lot warmer"
+     are different news, and because a cooler day that is dry and bright is not
+     a worse day — calling it one would contradict the forecast sitting
+     directly above it. */
   var TOMORROW = {
-    better: [
+    /* Thunder, snow or ice arriving. Beats everything else on the card. */
+    rough: [
+      ['TOMORROW GETS FUCKING SERIOUS.', 'TOMORROW GETS SERIOUS.'],
+      ['BATTEN THINGS DOWN FOR TOMORROW.', 'BATTEN THINGS DOWN FOR TOMORROW.']
+    ],
+    wetter: [
+      ["TOMORROW'S THE WET ONE.", "TOMORROW'S THE WET ONE."],
+      ['ENJOY TODAY. TOMORROW GETS WET.', 'ENJOY TODAY. TOMORROW GETS WET.']
+    ],
+    dryer: [
+      ['TOMORROW DRIES THE HELL UP.', 'TOMORROW DRIES RIGHT UP.'],
+      ['TOMORROW: NO RAIN. IMAGINE THAT.', 'TOMORROW: NO RAIN. IMAGINE THAT.']
+    ],
+    muchWarmer: [
+      ['TOMORROW IS A LOT BLOODY WARMER.', 'TOMORROW IS A LOT WARMER.'],
+      ['BIG JUMP UP TOMORROW.', 'BIG JUMP UP TOMORROW.']
+    ],
+    warmer: [
       ['TOMORROW LOOKS FUCKING PROMISING.', 'TOMORROW LOOKS SERIOUSLY PROMISING.'],
       ['TOMORROW JUST GOT BETTER.', 'TOMORROW JUST GOT BETTER.']
     ],
-    worse: [
+    muchColder: [
+      ['TOMORROW FALLS OFF A BLOODY CLIFF.', 'TOMORROW FALLS OFF A CLIFF.'],
+      ['BIG DROP TOMORROW. LAYER UP.', 'BIG DROP TOMORROW. LAYER UP.']
+    ],
+    /* Cooler, but dry and bright with it. Deliberately not filed under
+       "worse". */
+    coolerButFine: [
+      ["TOMORROW'S COOLER — STILL DECENT.", "TOMORROW'S COOLER — STILL DECENT."],
+      ['COOLER TOMORROW, AND STILL DRY.', 'COOLER TOMORROW, AND STILL DRY.']
+    ],
+    cooler: [
       ["TOMORROW'S A BIT OF A BASTARD.", "TOMORROW'S A BIT OF A STINKER."],
       ['ENJOY TODAY. TOMORROW TURNS.', 'ENJOY TODAY. TOMORROW TURNS.']
     ],
+    cloudier: [
+      ['TOMORROW IS TODAY WITH MORE CLOUD.', 'TOMORROW IS TODAY WITH MORE CLOUD.'],
+      ['SAME AGAIN TOMORROW, BUT GREYER.', 'SAME AGAIN TOMORROW, BUT GREYER.']
+    ],
+    brighter: [
+      ['TOMORROW CLEARS UP A BIT.', 'TOMORROW CLEARS UP A BIT.'],
+      ['SAME AGAIN TOMORROW, BUT BRIGHTER.', 'SAME AGAIN TOMORROW, BUT BRIGHTER.']
+    ],
+    windier: [
+      ['TOMORROW GETS BLOODY BREEZY.', 'TOMORROW GETS SERIOUSLY BREEZY.'],
+      ['HANG ON TO YOUR HAT TOMORROW.', 'HANG ON TO YOUR HAT TOMORROW.']
+    ],
     same: [
       ['MUCH THE SAME AGAIN TOMORROW.', 'MUCH THE SAME AGAIN TOMORROW.'],
-      ['TOMORROW: SEE ABOVE.', 'TOMORROW: SEE ABOVE.']
+      ['TOMORROW: MORE OF THIS.', 'TOMORROW: MORE OF THIS.'],
+      ['ANOTHER ONE LIKE TODAY.', 'ANOTHER ONE LIKE TODAY.']
     ]
   };
+
+  /* Added here rather than in the V.banks line above, which runs before this
+     bank exists: `var` hoists the name but not the value, so listing it there
+     would quietly export undefined and the test that walks every line in the
+     app would walk straight past all of these. */
+  V.banks.TOMORROW = TOMORROW;
+
+  /* Where a day's sky sits on the bright-to-murky scale, so "more cloud" can
+     be told from "brighter" and both from "wet". Only the dry families are
+     ranked; anything falling out of the sky is handled before this. */
+  var SKY_RANK = { clear: 0, cloud: 1, grey: 2, fog: 3 };
+  var ROUGH_DAY = { thunder: 1, ice: 1, snow: 1 };
+
+  function fallsOutOfTheSky(fam) {
+    return fam === 'drizzle' || fam === 'showers' || fam === 'rain' ||
+      fam === 'downpour' || fam === 'snow' || fam === 'thunder' || fam === 'ice';
+  }
+
+  /* The comparison, in priority order: the loudest true difference wins. Every
+     branch is a fact about the two forecasts, so the line can never say
+     something the numbers on the card disagree with. */
+  function tomorrowKind(today, day) {
+    if (!today) return 'same';
+
+    var famToday = W.family(today.code);
+    var famDay = W.family(day.code);
+
+    /* Thunder, snow or ice arriving is the news, whatever else moved. */
+    if (ROUGH_DAY[famDay] && !ROUGH_DAY[famToday]) return 'rough';
+
+    var wetToday = fallsOutOfTheSky(famToday);
+    var wetDay = fallsOutOfTheSky(famDay);
+
+    /* A missing probability means the model has stopped offering one, not that
+       it is zero — so an unknown can never be read as drying up. */
+    var bothKnown = today.prob !== null && today.prob !== undefined &&
+      day.prob !== null && day.prob !== undefined;
+    var dryer = bothKnown ? today.prob - day.prob : 0;
+
+    if ((wetDay && !wetToday) || dryer <= -35) return 'wetter';
+    if ((wetToday && !wetDay) || dryer >= 35) return 'dryer';
+
+    var warmer = (today.max === null || day.max === null) ? 0 : day.max - today.max;
+    if (warmer >= 6) return 'muchWarmer';
+    if (warmer <= -6) return 'muchColder';
+    if (warmer >= 3) return 'warmer';
+    if (warmer <= -3) {
+      /* Cooler is not automatically worse. A cooler day that is dry and bright
+         is a perfectly good day, and the card above says so. */
+      return (!wetDay && SKY_RANK[famDay] <= 1) ? 'coolerButFine' : 'cooler';
+    }
+
+    /* Same sort of temperature, so the sky and the wind decide. */
+    var gustJump = (day.gust || 0) - (today.gust || 0);
+    if (gustJump >= 20 && (day.gust || 0) >= 45) return 'windier';
+
+    var skyToday = SKY_RANK[famToday];
+    var skyDay = SKY_RANK[famDay];
+    if (skyToday !== undefined && skyDay !== undefined) {
+      if (skyDay > skyToday) return 'cloudier';
+      if (skyDay < skyToday) return 'brighter';
+    }
+
+    return 'same';
+  }
 
   V.tomorrow = function (forecast, settings, now) {
     var i = W.todayIndex(forecast, now);
     var today = forecast.days[i];
     var day = forecast.days[i + 1];
     if (!day) return null;
-    var kind = 'same';
-    if (today && today.max !== null && day.max !== null) {
-      var warmer = day.max - today.max;
-      var dryer = (today.prob || 0) - (day.prob || 0);
-      if (warmer >= 3 || dryer >= 35) kind = 'better';
-      else if (warmer <= -3 || dryer <= -35) kind = 'worse';
-    }
+    var kind = tomorrowKind(today, day);
     return {
       day: day,
       kind: kind,

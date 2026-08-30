@@ -35,10 +35,27 @@
   .box p:first-child { margin-top: 0; }
   .box p:last-child { margin-bottom: 0; }
   footer { margin-top: 44px; color: #7d8cb4; font-size: 0.9rem; }
+  /* The policy opens in place rather than in a new tab — a WebView has no
+     tabs to open, and a link that silently does nothing is worse than no link
+     at all. So there has to be an obvious way back from the top of the page,
+     not only from the end of it. */
+  .back {
+    display: inline-block;
+    margin-bottom: 20px;
+    padding: 9px 15px;
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 12px;
+    color: #f2f6ff;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.92rem;
+  }
 </style>
 </head>
 <body>
 <main>
+
+  <a class="back" href="./">← Back to the weather</a>
 
   <h1>Privacy</h1>
   <p class="sub">Blooming Weather — the polite name on a weather app with a mouth on it.</p>

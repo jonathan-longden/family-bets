@@ -330,7 +330,7 @@ async function main() {
     /* every line in the app, walked */
     const banks = V.banks;
     const flat = [];
-    [banks.LINES, banks.DAY_LINES, banks.MOMENTS].forEach(group => {
+    [banks.LINES, banks.DAY_LINES, banks.MOMENTS, banks.TOMORROW].forEach(group => {
       Object.keys(group).forEach(key => group[key].forEach(pair => flat.push([key, pair])));
     });
     banks.ERRORS.forEach(p => flat.push(['error', p]));
@@ -430,6 +430,88 @@ async function main() {
   ok('a hot spell coming', /heatwave/.test(moments.heat.join(' ')), moments.heat.join(' '));
   ok('a cold snap coming', /coldSnap/.test(moments.cold.join(' ')), moments.cold.join(' '));
   ok('never more than two at once', moments.rainEnding.length <= 2 && moments.better.length <= 2);
+
+  /* ------------------------------------------------------- suite: tomorrow */
+
+  /* Tomorrow's line has to follow from the difference between the two days and
+     nothing else. Each case below is a specific pair of forecasts with an
+     obvious right answer, so a line that drifts away from the data fails. */
+
+  console.log('\ntomorrow');
+  const tom = await page.evaluate(({ start }) => {
+    const V = window.Voice;
+    const S = { units: 'metric', ampm: false, sweary: true };
+    const CLEAN = { units: 'metric', ampm: false, sweary: false };
+    const midnight = Math.floor(start / 86400) * 86400;
+
+    /* Two days, today and tomorrow, and nothing else to distract it. */
+    function pair(today, day, settings) {
+      const base = i => ({
+        t: midnight + i * 86400, code: 3, max: 15, min: 8, feelsMax: 14,
+        sunrise: midnight + i * 86400 + 6 * 3600, sunset: midnight + i * 86400 + 20 * 3600,
+        prob: 20, mm: 0, wind: 15, gust: 25, uv: 3
+      });
+      const days = [Object.assign(base(0), today), Object.assign(base(1), day)];
+      const hours = [{ t: midnight + 9 * 3600, temp: 15, feels: 14, code: 3, prob: 20, mm: 0,
+        wind: 15, gust: 25, humidity: 70, vis: 20000, day: 1 }];
+      const f = { offset: 0, fetchedAt: start, place: {}, hours: hours, days: days };
+      f.current = Object.assign({}, hours[0]);
+      return V.tomorrow(f, settings || S, midnight + 9 * 3600);
+    }
+
+    return {
+      rough: pair({ code: 3 }, { code: 95 }),
+      wetter: pair({ code: 0, prob: 5 }, { code: 63, prob: 90 }),
+      dryer: pair({ code: 63, prob: 90 }, { code: 0, prob: 5 }),
+      muchWarmer: pair({ max: 12 }, { max: 21 }),
+      warmer: pair({ max: 15 }, { max: 19 }),
+      muchColder: pair({ max: 22 }, { max: 13 }),
+      coolerFine: pair({ max: 22, code: 0 }, { max: 17, code: 0, prob: 5 }),
+      coolerGrim: pair({ max: 22, code: 3 }, { max: 17, code: 45, prob: 20 }),
+      cloudier: pair({ code: 0 }, { code: 3 }),
+      brighter: pair({ code: 3 }, { code: 0 }),
+      windier: pair({ gust: 20 }, { gust: 60 }),
+      same: pair({}, {}),
+      /* Beyond a week the model stops offering a probability. An unknown must
+         never be read as "no rain tomorrow". */
+      unknownProb: pair({ code: 3, prob: 80 }, { code: 3, prob: null }),
+      cleanTwin: pair({ max: 22, code: 3 }, { max: 17, code: 45, prob: 20 }, CLEAN),
+      noTomorrow: (function () {
+        const f = { offset: 0, fetchedAt: start, place: {}, hours: [], days: [
+          { t: midnight, code: 3, max: 15, min: 8, prob: 20, gust: 25,
+            sunrise: midnight, sunset: midnight + 72000 }
+        ] };
+        f.hours = [{ t: midnight + 9 * 3600, temp: 15, feels: 14, code: 3, prob: 20, mm: 0,
+          wind: 15, gust: 25, humidity: 70, vis: 20000, day: 1 }];
+        f.current = Object.assign({}, f.hours[0]);
+        return V.tomorrow(f, S, midnight + 9 * 3600);
+      })()
+    };
+  }, { start });
+
+  eq('thunder tomorrow beats everything else', tom.rough.kind, 'rough');
+  eq('a dry day turning wet is the news', tom.wetter.kind, 'wetter');
+  eq('and a wet one drying up', tom.dryer.kind, 'dryer');
+  eq('nine degrees up is a big jump', tom.muchWarmer.kind, 'muchWarmer');
+  eq('four degrees up is just warmer', tom.warmer.kind, 'warmer');
+  eq('nine degrees down is a big drop', tom.muchColder.kind, 'muchColder');
+  eq('cooler but clear is not called bad', tom.coolerFine.kind, 'coolerButFine');
+  eq('cooler and murky is', tom.coolerGrim.kind, 'cooler');
+  eq('same warmth, more cloud', tom.cloudier.kind, 'cloudier');
+  eq('same warmth, less cloud', tom.brighter.kind, 'brighter');
+  eq('a big gust jump gets noticed', tom.windier.kind, 'windier');
+  eq('and two days the same say so', tom.same.kind, 'same');
+  eq('an unknown rain chance is never read as drying up', tom.unknownProb.kind, 'same');
+  eq('the last day of the forecast has no tomorrow', tom.noTomorrow, null);
+
+  ok('every kind produces a real line',
+    Object.keys(tom).filter(k => tom[k] && (!tom[k].line || tom[k].line.length < 10)).length === 0,
+    JSON.stringify(Object.keys(tom).map(k => tom[k] && tom[k].line)));
+  ok('and the weak filler line is gone for good',
+    !Object.keys(tom).some(k => tom[k] && /SEE ABOVE/.test(tom[k].line)));
+  ok('the clean twin stays clean',
+    !/\b(fuck|shit|bastard|arse|bloody)\w*/i.test(tom.cleanTwin.line), tom.cleanTwin.line);
+  ok('while the sweary one has its mouth', /BASTARD/.test(tom.coolerGrim.line), tom.coolerGrim.line);
 
   /* ---------------------------------------------------- suite: units, clocks */
 
