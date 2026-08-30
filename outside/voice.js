@@ -798,8 +798,14 @@
     var when = borrowed ? 'through the night and into tomorrow' : ('for the rest of ' + partName(startHour).replace('this ', 'the '));
     if (!borrowed && startHour < 10) when = 'today';
 
+    /* Thunder in the hours ahead changes what the whole paragraph is about.
+       "Rain is likely" is true of a thunderstorm and still the wrong sentence
+       to read before walking out into one. */
+    var stormy = hours.some(function (h) { return W.family(h.code) === 'thunder'; });
+
     var sentence = warmth(hi) + ', mostly ' + (SKY_WORDS[sky] || 'cloudy');
-    if (wettest < 25) sentence += ' and dry ' + when + '.';
+    if (stormy) sentence += ' ' + when + ', with thunderstorms in it.';
+    else if (wettest < 25) sentence += ' and dry ' + when + '.';
     else if (wettest < 55) sentence += ' ' + when + ', with the odd shower about.';
     else sentence += ' ' + when + ', and rain is likely.';
 
@@ -807,19 +813,28 @@
 
     /* The one change that matters most, named with its time. */
     var moves = W.transitions(forecast, now, borrowed ? 14 : 12).filter(function (m) {
-      return m.kind === 'rainStarts' || m.kind === 'rainStops' || m.kind === 'brightens' || m.kind === 'clouds';
+      return m.kind === 'stormStarts' || m.kind === 'rainStarts' || m.kind === 'rainStops' ||
+        m.kind === 'brightens' || m.kind === 'clouds';
     });
+
+    /* Earliest, unless a storm turns up later — a storm at four is more worth
+       knowing than cloud at eleven, whatever order they happen in. */
+    var storm = moves.filter(function (m) { return m.kind === 'stormStarts'; })[0];
     if (moves.length) {
-      var m = moves[0];
+      var m = storm || moves[0];
       var at = W.clock(m.t, offset, settings.ampm);
-      if (m.kind === 'rainStarts') out.push('Rain arrives around ' + at + '.');
+      if (m.kind === 'stormStarts') out.push('Storms from around ' + at + '.');
+      else if (m.kind === 'rainStarts') out.push('Rain arrives around ' + at + '.');
       else if (m.kind === 'rainStops') out.push('It dries up around ' + at + '.');
       else if (m.kind === 'brightens') out.push('The sun gets through around ' + at + '.');
       else out.push('Cloud builds in around ' + at + '.');
     }
 
-    /* And the thing you would want warning about, if there is one. */
-    if (gusty >= 55) out.push('Windy with it — gusts to ' + W.speed(gusty, settings.units) + '.');
+    /* And the thing you would want warning about, if there is one. A day that
+       is already stormy when you open the app has no arrival time to give, so
+       it gets said here instead of going unmentioned. */
+    if (stormy && !storm) out.push('Thunder about — that is the bit to plan around.');
+    else if (gusty >= 55) out.push('Windy with it — gusts to ' + W.speed(gusty, settings.units) + '.');
     else if (hi - lo >= 9) out.push('A big swing in temperature, ' + W.temp(lo, settings.units) + ' to ' + W.temp(hi, settings.units) + '.');
     else if (wettest < 20 && (sky === 'clear' || sky === 'cloud')) out.push('Nothing dramatic.');
 

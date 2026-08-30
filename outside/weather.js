@@ -481,7 +481,15 @@
       var bright = W.isBright(h);
       var windy = h.gust >= 45;
 
-      if (wet && !wasWet) out.push({ t: h.t, kind: 'rainStarts', text: 'Rain arrives' });
+      /* A thunderstorm is wet, but calling it "rain arrives" is the one place
+         the timeline would undersell what is actually coming. */
+      if (wet && !wasWet) {
+        if (W.family(h.code) === 'thunder') {
+          out.push({ t: h.t, kind: 'stormStarts', text: 'Storm arrives' });
+        } else {
+          out.push({ t: h.t, kind: 'rainStarts', text: 'Rain arrives' });
+        }
+      }
       if (!wet && wasWet) out.push({ t: h.t, kind: 'rainStops', text: 'Rain clears' });
       if (bright && !wasBright && h.day) out.push({ t: h.t, kind: 'brightens', text: 'Sun breaks through' });
       if (!bright && wasBright && h.day) out.push({ t: h.t, kind: 'clouds', text: 'Cloud moves in' });
@@ -503,7 +511,8 @@
     /* Two things happening in the same hour is one line, not two — "rain
        arrives" and "cloud moves in" at seven o'clock is the same event
        described twice, and only the wetter half is worth the row. */
-    var rank = { rainStarts: 5, rainStops: 5, brightens: 4, sunset: 3, sunrise: 3, clouds: 2, windUp: 2 };
+    var rank = { stormStarts: 6, rainStarts: 5, rainStops: 5, brightens: 4, sunset: 3, sunrise: 3,
+      clouds: 2, windUp: 2 };
     var kept = [];
     out.forEach(function (m) {
       var clash = null;
@@ -527,34 +536,54 @@
     var todayIndex = W.todayIndex(forecast, now);
     var days = forecast.days.slice(todayIndex, todayIndex + 2);
 
-    function add(kind, title, detail) { out.push({ kind: kind, title: title, detail: detail }); }
+    /* Every warning carries how serious it is, and only the two most serious
+       are shown. Without the ranking they came out in whatever order the
+       checks below happen to sit in, which meant a day with strong winds and
+       some heat could push a thunderstorm off the screen entirely — the most
+       dangerous thing losing to the two least dangerous because of where it
+       was written in this function. Two slots is the right number; which two
+       is not a decision to leave to the source order. */
+    function add(rank, kind, title, detail) {
+      out.push({ rank: rank, kind: kind, title: title, detail: detail });
+    }
 
     var maxGust = soon.reduce(function (a, h) { return Math.max(a, h.gust); }, 0);
-    if (maxGust >= 90) add('wind', 'Severe gusts', 'Gusts near ' + Math.round(maxGust) + ' km/h. Bins, fences and trampolines beware.');
-    else if (maxGust >= 70) add('wind', 'Strong winds', 'Gusts up to ' + Math.round(maxGust) + ' km/h in the next day or so.');
+    if (maxGust >= 90) add(90, 'wind', 'Severe gusts', 'Gusts near ' + Math.round(maxGust) + ' km/h. Bins, fences and trampolines beware.');
+    else if (maxGust >= 70) add(50, 'wind', 'Strong winds', 'Gusts up to ' + Math.round(maxGust) + ' km/h in the next day or so.');
 
     var hottest = days.reduce(function (a, d) { return d.max !== null ? Math.max(a, d.max) : a; }, -99);
-    if (hottest >= 35) add('heat', 'Extreme heat', 'Up to ' + Math.round(hottest) + '°. Shade, water, and check on people who need it.');
-    else if (hottest >= 30) add('heat', 'Serious heat', 'Up to ' + Math.round(hottest) + '° over the next couple of days.');
+    if (hottest >= 35) add(86, 'heat', 'Extreme heat', 'Up to ' + Math.round(hottest) + '°. Shade, water, and check on people who need it.');
+    else if (hottest >= 30) add(45, 'heat', 'Serious heat', 'Up to ' + Math.round(hottest) + '° over the next couple of days.');
 
     var coldest = days.reduce(function (a, d) { return d.min !== null ? Math.min(a, d.min) : a; }, 99);
-    if (coldest <= -8) add('cold', 'Severe cold', 'Down to ' + Math.round(coldest) + '°. Pipes, cars and fingers at risk.');
-    else if (coldest <= -3) add('cold', 'Hard frost', 'Down to ' + Math.round(coldest) + '° overnight.');
+    if (coldest <= -8) add(84, 'cold', 'Severe cold', 'Down to ' + Math.round(coldest) + '°. Pipes, cars and fingers at risk.');
+    else if (coldest <= -3) add(40, 'cold', 'Hard frost', 'Down to ' + Math.round(coldest) + '° overnight.');
 
+    /* Thunder outranks everything except ice, because it arrives fast, it is
+       genuinely dangerous, and unlike heat or cold it is not something you can
+       feel coming through the window. */
     var thunder = soon.filter(function (h) { return W.family(h.code) === 'thunder'; });
-    if (thunder.length) add('thunder', 'Thunderstorms', 'Storms expected around ' + W.clock(thunder[0].t, forecast.offset, false) + '.');
+    if (thunder.length) {
+      add(92, 'thunder', 'Thunderstorms',
+        'Storms expected around ' + W.clock(thunder[0].t, forecast.offset, false) + '.');
+    }
 
+    /* Top of the list: a pavement of black ice hurts people who had no way of
+       knowing it was there. */
     var ice = soon.filter(function (h) { return W.family(h.code) === 'ice'; });
-    if (ice.length) add('ice', 'Ice', 'Freezing rain around ' + W.clock(ice[0].t, forecast.offset, false) + '. Roads and paths will be lethal.');
+    if (ice.length) add(95, 'ice', 'Ice', 'Freezing rain around ' + W.clock(ice[0].t, forecast.offset, false) + '. Roads and paths will be lethal.');
 
     var snowfall = days.reduce(function (a, d) {
       return (W.family(d.code) === 'snow' && d.mm !== null) ? Math.max(a, d.mm) : a;
     }, 0);
-    if (snowfall >= 10) add('snow', 'Heavy snow', 'Significant snow expected. Travel will be affected.');
+    if (snowfall >= 10) add(82, 'snow', 'Heavy snow', 'Significant snow expected. Travel will be affected.');
 
     var rainfall = days.reduce(function (a, d) { return d.mm !== null ? Math.max(a, d.mm) : a; }, 0);
-    if (rainfall >= 30) add('rain', 'Very heavy rain', Math.round(rainfall) + ' mm expected in a day. Surface water likely.');
+    if (rainfall >= 30) add(60, 'rain', 'Very heavy rain', Math.round(rainfall) + ' mm expected in a day. Surface water likely.');
 
+    /* Sorted by danger, and stable within a rank so equally serious warnings
+       keep the order they were found in. */
+    out.sort(function (a, b) { return b.rank - a.rank; });
     return out.slice(0, 2);
   };
 

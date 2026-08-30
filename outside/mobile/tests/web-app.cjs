@@ -693,7 +693,22 @@ async function main() {
       freeze: build(() => ({}), i => (i === 0 ? { max: 1, min: -9 } : {})),
       storm: build(i => (i === 3 ? { code: 95, mm: 5, prob: 90 } : {}), () => ({})),
       deluge: build(() => ({}), i => (i === 0 ? { mm: 42, code: 65, prob: 100 } : {})),
-      head: V.alertHead({ kind: 'wind' }, S)
+      head: V.alertHead({ kind: 'wind' }, S),
+
+      /* Only two warnings are ever shown, so which two has to be decided by
+         how dangerous they are and not by the order the checks are written
+         in. Thunder used to be checked after wind, heat and cold, which meant
+         a day like this one dropped the storm and kept the heat. */
+      crowded: build(
+        i => (i === 3 ? { code: 95, mm: 5, prob: 90, gust: 95 } : { gust: 95 }),
+        i => (i === 0 ? { max: 31, min: 20 } : {})
+      ),
+      /* Ice outranks even thunder: black ice hurts people who had no way of
+         knowing it was there. */
+      iceAndStorm: build(
+        i => (i === 2 ? { code: 66, mm: 2, prob: 90 } : (i === 4 ? { code: 95, mm: 5, prob: 90 } : {})),
+        () => ({})
+      )
     };
   }, { start });
 
@@ -707,6 +722,68 @@ async function main() {
     !/\b(fuck|shit|bastard|arse|bloody)\w*/i.test(JSON.stringify([alerts.gale, alerts.heat, alerts.storm])),
     JSON.stringify(alerts.gale));
   ok('but the lead-in has a bit of personality', alerts.head.length > 4, alerts.head);
+
+  eq('never more than two warnings at once', alerts.crowded.length, 2);
+  eq('and the storm takes the top slot, not the heat',
+    alerts.crowded.map(a => a.kind), ['thunder', 'wind']);
+  ok('the heat is what gets dropped, being the least dangerous of the three',
+    !/heat/i.test(JSON.stringify(alerts.crowded)), JSON.stringify(alerts.crowded));
+  eq('ice outranks even thunder', alerts.iceAndStorm[0].kind, 'ice');
+
+  /* The other two places a thunderstorm used to be described as ordinary
+     rain: the timeline, and the plain-English brief. */
+  const storms = await page.evaluate(({ start }) => {
+    const W = window.Weather, V = window.Voice;
+    const S = { units: 'metric', ampm: false, sweary: true };
+    const midnight = Math.floor(start / 86400) * 86400;
+    const from = midnight + 9 * 3600;
+
+    function build(hourSpec) {
+      const hours = [], days = [];
+      for (let i = 0; i < 40; i++) {
+        hours.push(Object.assign({ t: from + i * 3600, temp: 20, feels: 20, humidity: 65,
+          prob: 10, mm: 0, code: 0, wind: 10, gust: 15, visibility: 20000, day: 1 }, hourSpec(i)));
+      }
+      for (let i = 0; i < 15; i++) {
+        days.push({ t: midnight + i * 86400, code: 3, max: 21, min: 12, feelsMax: 20,
+          sunrise: midnight + i * 86400 + 6 * 3600, sunset: midnight + i * 86400 + 20 * 3600,
+          prob: 20, mm: 0, wind: 15, gust: 25, uv: 3 });
+      }
+      const f = { offset: 0, fetchedAt: start, place: {}, hours: hours, days: days };
+      f.current = Object.assign({}, hours[0]);
+      return f;
+    }
+
+    /* Dry now, thunder from the fourth hour. */
+    const later = build(i => (i >= 4 && i <= 7 ? { code: 95, mm: 6, prob: 95 } : {}));
+    /* Already storming when the app opens: no arrival time to give. */
+    const nowish = build(i => (i <= 3 ? { code: 95, mm: 6, prob: 95 } : {}));
+    /* Ordinary rain must not start calling itself a storm. */
+    const justRain = build(i => (i >= 4 && i <= 7 ? { code: 63, mm: 2, prob: 85 } : {}));
+
+    return {
+      laterLine: W.transitions(later, from, 12).map(m => m.kind + '|' + m.text),
+      laterBrief: V.brief(later, S, from),
+      nowBrief: V.brief(nowish, S, from),
+      rainLine: W.transitions(justRain, from, 12).map(m => m.kind + '|' + m.text),
+      rainBrief: V.brief(justRain, S, from)
+    };
+  }, { start });
+
+  ok('the timeline says a storm is a storm, not rain',
+    /stormStarts\|Storm arrives/.test(storms.laterLine.join(' ')), storms.laterLine.join(' | '));
+  ok('and ordinary rain is still just rain',
+    /rainStarts\|Rain arrives/.test(storms.rainLine.join(' ')) &&
+    !/storm/i.test(storms.rainLine.join(' ')), storms.rainLine.join(' | '));
+
+  ok('the brief mentions the thunderstorms', /thunderstorm/i.test(storms.laterBrief), storms.laterBrief);
+  ok('and gives the time they start', /Storms from around \d\d:\d\d/.test(storms.laterBrief), storms.laterBrief);
+  ok('a day already storming still says so, with no arrival time to give',
+    /thunder/i.test(storms.nowBrief), storms.nowBrief);
+  ok('a wet day with no thunder in it never mentions storms',
+    !/storm|thunder/i.test(storms.rainBrief), storms.rainBrief);
+  ok('and the brief still never swears',
+    !/\b(fuck|shit|bastard|arse|bloody)\w*/i.test(storms.laterBrief + storms.nowBrief), storms.laterBrief);
 
   /* ------------------------------------------------ suite: special moments */
 
