@@ -46,11 +46,17 @@
          rounds every coordinate to four decimal places before it uses it, so
          a precise fix would be thrown away the moment it arrived.
 
-         The Geolocation plugin declares ACCESS_FINE_LOCATION in its own
-         manifest and the merger would pull it into the finished app. Removing
-         it here means the app never asks for precise location, the Play data
-         safety form stays honest, and the permission dialog offers the user
-         the "Approximate" choice as the only one. -->
+         This is supported rather than merely tolerated. The Geolocation
+         plugin ships an empty manifest and declares no permissions of its
+         own; its getAlias() reads which of them this manifest declares and
+         picks the coarse-only alias when the precise one is absent. Its own
+         "permissions missing" error says as much: at least ACCESS_COARSE_
+         LOCATION, and ACCESS_FINE_LOCATION only if you want precise access.
+
+         The explicit removal below is belt and braces against a future plugin
+         version, or another plugin, quietly merging the precise permission in.
+         The app must never ask for it: the Play data safety form says
+         approximate, and that has to stay true. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
         tools:node="remove" />
