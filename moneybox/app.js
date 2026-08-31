@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-31 · 20';
+var BUILD = '2026-08-31 · 21';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -197,7 +197,7 @@ function currentSeason(now) {
    been banked, and the app says it is up to date because from where it is
    standing it is. Asking both and merging costs one more request and removes
    the whole class of problem. */
-function fetchResults() {
+function fetchResults(force) {
   var key = apiKey(), team = state.team.id;
   var last = API + key + '/eventslast.php?id=' + encodeURIComponent(team);
   var season = API + key + '/eventsseason.php?id=' + encodeURIComponent(team) + '&s=' + currentSeason();
@@ -206,7 +206,7 @@ function fetchResults() {
   return Promise.all([
     fetchJson(last).catch(nothing),
     fetchJson(season).catch(nothing),
-    leagueSeasonEvents(currentSeason()).then(function (rows) {
+    leagueSeasonEvents(currentSeason(), force).then(function (rows) {
       return { events: rows.filter(involvesUs) };
     }).catch(nothing)
   ]).then(function (answers) {
@@ -392,7 +392,8 @@ function pickDivision(season, known) {
 function settled(ev) {
   var hs = num(ev.intHomeScore), as = num(ev.intAwayScore);
   if (hs === null || as === null) return null;
-  var status = String(ev.strStatus || ev.strProgress || '').trim().toLowerCase();
+  var statusRaw = String(ev.strStatus || ev.strProgress || '').trim();
+  var status = statusRaw.toLowerCase();
   if (status === 'ns' || status === 'not started' || status === 'postponed' ||
       status === 'canceled' || status === 'cancelled') return null;
   var kickoff = kickoffOf(ev);
@@ -484,8 +485,12 @@ function previousSeason(season) {
    memo stops one check fetching it three times. */
 var leagueMemo = { at: 0, season: '', rows: null };
 
-function leagueSeasonEvents(season) {
-  if (leagueMemo.rows && leagueMemo.season === season && (Date.now() - leagueMemo.at) < 60000) {
+/* The memo is there so one check does not fetch the same feed three times. It
+   is not there to answer a person who has just pressed the button — they are
+   pressing it precisely because they think it has changed, so a manual check
+   goes past it. */
+function leagueSeasonEvents(season, force) {
+  if (!force && leagueMemo.rows && leagueMemo.season === season && (Date.now() - leagueMemo.at) < 60000) {
     return Promise.resolve(leagueMemo.rows);
   }
   return fetchJson(leagueEventsUrl(season)).then(function (d) {
@@ -752,7 +757,8 @@ function normalise(ev) {
   var hs = num(ev.intHomeScore), as = num(ev.intAwayScore);
   var ours = weAreHome ? hs : as;
   var theirs = weAreHome ? as : hs;
-  var status = String(ev.strStatus || ev.strProgress || '').trim().toLowerCase();
+  var statusRaw = String(ev.strStatus || ev.strProgress || '').trim();
+  var status = statusRaw.toLowerCase();
   var kickoff = kickoffOf(ev);
 
   var saidFinished = FINISHED_WORDS.indexOf(status) !== -1;
@@ -772,6 +778,7 @@ function normalise(ev) {
     score: (ours === null || theirs === null) ? '' : ours + '-' + theirs,
     result: (ours === null || theirs === null) ? null : (ours > theirs ? 'W' : (ours < theirs ? 'L' : 'D')),
     /* A score alone is not full time — the feed carries live ones too. */
+    status: statusRaw,
     finished: ours !== null && theirs !== null && !saidNotStarted && (saidFinished || lateEnough)
   };
 }
@@ -882,13 +889,13 @@ function checkNow(manual) {
   $('checkBtn').disabled = true;
   setStatus('Reading the results…');
 
-  return fetchResults().then(function (rows) {
+  return fetchResults(manual).then(function (rows) {
     var matches = rows.map(normalise).filter(function (m) { return m.id; });
     /* Oldest first, so a trophy catching up on a month banks them in order and
        the streak reads the right way round. */
     matches.sort(function (a, b) { return (a.kickoff || 0) - (b.kickoff || 0); });
 
-    var credited = 0, added = 0, read = 0, newest = null, playing = null;
+    var credited = 0, added = 0, read = 0, matched = 0, newest = null, playing = null;
     matches.forEach(function (m) {
       /* A match with a score that is not over yet is the other reason a win
          can look missing, so it is held on to and named rather than passed
@@ -900,6 +907,7 @@ function checkNow(manual) {
       if (state.seen[m.id]) return;
       var entry = bank(m, 'auto');
       if (entry) { added++; credited += entry.amount; }
+      else matched++;   // it was already in, put there by hand
     });
 
     state.lastCheck = Date.now();
@@ -913,6 +921,9 @@ function checkNow(manual) {
     if (added === 0) {
       if (playing) {
         setStatus(scoreline(playing) + ' is still on — it counts at full time.', 'ok');
+      } else if (matched) {
+        setStatus('The feed has caught up with ' + (matched === 1 ? 'a match' : matched + ' matches') +
+          ' you added by hand — no double counting.', 'ok');
       } else if (newest) {
         /* Naming the last match it could see is what makes "up to date"
            checkable: if that is Saturday and today is Monday, the feed is
@@ -940,7 +951,40 @@ function checkNow(manual) {
 /* One match in, one entry out — or none, when the result is worth nothing and
    there is nothing to record but the fact that it was read. Either way the id
    is marked seen, which is what stops the next check paying it again. */
+/* Did somebody already put this match in by hand?
+
+   Telling a person to add a win themselves while the feed catches up sets a
+   trap: the feed arrives on Tuesday, the app does not recognise the match it
+   already has — a hand-written line carries no match id — and the same win is
+   paid twice. So before banking anything, a match is checked against the lines
+   added by hand: same opponent, within a day and a half of the same date. If
+   one is there, the match id is written onto it and nothing new is created. */
+function alreadyByHand(m) {
+  var when = m.when ? Date.parse(m.when) : 0;
+  var opponent = (m.opponent || '').trim().toLowerCase();
+  if (!opponent) return null;
+  for (var i = 0; i < state.entries.length; i++) {
+    var e = state.entries[i];
+    if (e.kind !== 'in' || e.source !== 'manual' || e.eventId) continue;
+    if ((e.opponent || '').trim().toLowerCase() !== opponent) continue;
+    var theirs = Date.parse(e.when || e.at);
+    if (!when || !theirs || Math.abs(theirs - when) > 36 * 60 * 60 * 1000) continue;
+    return e;
+  }
+  return null;
+}
+
 function bank(m, source) {
+  var byHand = source === 'auto' ? alreadyByHand(m) : null;
+  if (byHand) {
+    byHand.eventId = m.id || '';
+    if (m.score && !byHand.score) byHand.score = m.score;
+    if (m.competition) byHand.competition = m.competition;
+    if (m.id) state.seen[m.id] = byHand.id;
+    save();
+    return null;
+  }
+
   var amount = state.amounts[m.result] || 0;
   var entry = {
     id: newId(),
@@ -1155,6 +1199,52 @@ function soundTheWin() {
     return;
   }
   fireCannon();
+}
+
+// ---------------------------------------------------------- what it can see
+
+/* When the app and the television disagree, this is how you find out which of
+   them is wrong without taking anybody's word for it. Each source is asked
+   separately and reported separately — how many matches it returned, how many
+   of them are ours — and then every match we can see is listed with what the
+   feed says about it and what this app would do with it.
+
+   A feed that has not caught up looks exactly like a broken app from the
+   outside. This is the difference. */
+function peekFeed() {
+  var key = apiKey(), team = encodeURIComponent(state.team.id), season = currentSeason();
+  var nothing = function () { return null; };
+  var sources = [
+    { name: 'the team’s last results', get: fetchJson(API + key + '/eventslast.php?id=' + team).catch(nothing) },
+    { name: 'the team’s season', get: fetchJson(API + key + '/eventsseason.php?id=' + team + '&s=' + season).catch(nothing) },
+    { name: 'the league’s season', get: leagueSeasonEvents(season).then(function (rows) { return { events: rows }; }).catch(nothing) }
+  ];
+
+  return Promise.all(sources.map(function (s2) { return s2.get; })).then(function (answers) {
+    var summary = [], seenIds = {}, ours = [];
+    answers.forEach(function (data, i) {
+      var list = (data && (data.results || data.events)) || [];
+      var mine = list.filter(involvesUs);
+      var count = list.length === 1 ? '1 match' : list.length + ' matches';
+      var mineWord = mine.length === 1 ? '1 of them ours' : mine.length + ' of them ours';
+      summary.push(sources[i].name + ': ' + (data === null ? 'no answer' : count + ', ' + mineWord));
+      mine.forEach(function (ev) {
+        var id = ev.idEvent || (ev.strHomeTeam + '|' + ev.strAwayTeam + '|' + ev.dateEvent);
+        if (seenIds[id]) return;
+        seenIds[id] = true;
+        ours.push(normalise(ev));
+      });
+    });
+    ours.sort(function (a, b) { return (b.kickoff || 0) - (a.kickoff || 0); });
+    return { summary: summary, matches: ours.slice(0, 8) };
+  });
+}
+
+function verdictOn(m) {
+  if (!m.result) return 'no score in the feed yet';
+  if (!m.finished) return 'the feed does not call it finished yet';
+  if (state.seen[m.id]) return 'counted';
+  return 'would count on the next check';
 }
 
 // ------------------------------------------------------------- the drawing
@@ -1662,6 +1752,44 @@ $('updateBtn').addEventListener('click', function () {
   }
   Promise.all(jobs).catch(function () {}).then(function () {
     location.replace(location.pathname + '?fresh=' + Date.now());
+  });
+});
+
+$('feedPeekBtn').addEventListener('click', function () {
+  var ul = $('feedPeek');
+  ul.innerHTML = '<li>Asking…</li>';
+  peekFeed().then(function (seen) {
+    ul.innerHTML = '';
+    seen.summary.forEach(function (line) {
+      var li = document.createElement('li');
+      li.className = 'peek-source';
+      li.textContent = line;
+      ul.appendChild(li);
+    });
+    if (!seen.matches.length) {
+      var none = document.createElement('li');
+      none.textContent = 'No matches for ' + state.team.name + ' in any of them.';
+      ul.appendChild(none);
+      return;
+    }
+    seen.matches.forEach(function (m) {
+      var li = document.createElement('li');
+      var when = m.kickoff ? new Date(m.kickoff).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '—';
+      var top = document.createElement('div');
+      top.textContent = when + ' · ' + (m.venue === 'H' ? state.team.name + ' v ' + m.opponent
+                                                        : m.opponent + ' v ' + state.team.name) +
+        (m.score ? ' · ' + m.score : '');
+      var sub = document.createElement('small');
+      sub.textContent = (m.status ? 'feed says "' + m.status + '" · ' : '') + verdictOn(m);
+      li.appendChild(top);
+      li.appendChild(sub);
+      ul.appendChild(li);
+    });
+  }).catch(function (err) {
+    ul.innerHTML = '';
+    var li = document.createElement('li');
+    li.textContent = 'Could not ask — ' + (err.message || err);
+    ul.appendChild(li);
   });
 });
 

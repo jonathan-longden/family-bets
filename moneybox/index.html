@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=20">
+<link rel="stylesheet" href="styles.css?v=21">
 </head>
 <body>
 
@@ -254,6 +254,17 @@
     </fieldset>
 
     <fieldset class="fs">
+      <legend>What it can see</legend>
+      <p class="hint">When the app and the television disagree, this says which of them is behind. It asks each
+        results feed separately and shows what came back, then every match it can find for your club with what
+        the feed says about it and what this app would do with it.</p>
+      <div class="row">
+        <button type="button" class="secondary" id="feedPeekBtn">Ask the feeds</button>
+      </div>
+      <ul class="picklist peek" id="feedPeek"></ul>
+    </fieldset>
+
+    <fieldset class="fs">
       <legend>The trophy itself</legend>
       <div class="row">
         <button type="button" class="secondary" id="exportBtn">Export</button>
@@ -330,6 +341,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=20"></script>
+<script src="app.js?v=21"></script>
 </body>
 </html>

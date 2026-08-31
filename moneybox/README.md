@@ -132,6 +132,29 @@ because a page that is shut gets no time to run. And phones will not make a
 sound until the person has touched the screen, so a win found on the way in
 is held and fired on your first tap rather than being swallowed.
 
+## When the app and the television disagree
+
+A results feed that has not caught up looks exactly like a broken app from the
+outside, and guessing which it is wastes everybody's evening. **Settings →
+What it can see → Ask the feeds** settles it: each source is asked separately
+and reported separately — how many matches came back and how many were yours —
+and then every match it can find for your club is listed with the feed's own
+word for it and what this app would do with it.
+
+> the league's season: 42 matches, 2 of them ours
+> 31 Aug · Aston Villa v Arsenal — feed says "NS" · no score in the feed yet
+
+That is a feed behind the football, not a trophy that has stopped counting. The
+table says the same thing more quietly: a club on P1 when the rest of the
+division is on P2 is a club whose latest match the feed has not recorded.
+
+**Add it by hand while you wait, and nothing is counted twice.** A win typed in
+by hand carries no match id, so when the feed does catch up the app would
+ordinarily bank it again. Instead, every incoming match is checked against the
+lines you added yourself — same opponent, within a day and a half of the same
+date — and where one matches, the match id is written onto that line rather
+than a second tenner being added. It says so when it happens.
+
 ## Moving the money
 
 The app does not move money, and after trying every way a page can, that is a
@@ -265,10 +288,10 @@ the browser has never seen. It leaves the trophy, the results and the bank
 link alone — they are not part of the app's copy. The build the phone is
 running is printed just above that button, and in the footer.
 
-The stylesheet and the script are also asked for by version (`app.js?v=17`).
+The stylesheet and the script are also asked for by version (`app.js?v=21`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=17`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=21`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 
