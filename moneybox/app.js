@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-28 · 17';
+var BUILD = '2026-08-28 · 18';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -1419,6 +1419,49 @@ bindSetting('hookHeaderValue', function (el) { state.hook.headerValue = el.value
 bindSetting('hookAuto', function (el) { state.hook.auto = el.checked; });
 bindSetting('apiKey', function (el) { state.apiKey = el.value.trim(); });
 bindSetting('soundMode', function (el) { state.sound.mode = el.value; });
+
+function showSoundName() {
+  var el = $('soundName');
+  if (!el) return;
+  el.textContent = state.sound && state.sound.name
+    ? state.sound.name
+    : 'no file chosen';
+}
+
+$('soundPick').addEventListener('click', function () { $('soundFile').click(); });
+
+$('soundFile').addEventListener('change', function () {
+  var file = $('soundFile').files[0];
+  if (!file) return;
+  /* Fifteen megabytes is several minutes of audio and well inside what the
+     store will hold; the point of the limit is to fail here, with a sentence,
+     rather than at the moment of a win. */
+  if (file.size > 15 * 1024 * 1024) {
+    $('soundName').textContent = 'that file is too big — trim it first';
+    $('soundFile').value = '';
+    return;
+  }
+  saveSound(file).then(function () {
+    state.sound.name = file.name;
+    state.sound.mode = 'mine';
+    $('soundMode').value = 'mine';
+    save();
+    showSoundName();
+  }).catch(function (err) {
+    $('soundName').textContent = 'could not keep that file — ' + (err.message || err);
+  }).finally(function () { $('soundFile').value = ''; });
+});
+
+$('soundTest').addEventListener('click', function () {
+  armAudio();
+  var mode = $('soundMode').value;
+  if (mode === 'off') { $('soundName').textContent = 'nothing to hear — set it to the cannon or your own sound'; return; }
+  if (mode === 'cannon') { fireCannon(); return; }
+  playOwnSound().catch(function (err) {
+    $('soundName').textContent = (err.message || String(err));
+  });
+});
+
 $('notifyOn').addEventListener('change', function () {
   var want = $('notifyOn').checked;
   if (!want) { state.notify = false; save(); return; }
