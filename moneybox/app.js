@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-28 · 18';
+var BUILD = '2026-08-30 · 19';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -188,21 +188,37 @@ function currentSeason(now) {
    gives away before. The last-results call is the cheap one; the season
    schedule is the fallback, and it also catches up a trophy that has not been
    opened for a month, which the last five matches would not. */
+/* Both feeds, every time, merged on the event id.
+
+   This used to ask for the last five results and only fall back to the season
+   when that came back empty — which is a fallback for the wrong failure. The
+   one that actually happens is a stale answer rather than no answer: the last
+   five arrive, none of them is Saturday's win, every one of them has already
+   been banked, and the app says it is up to date because from where it is
+   standing it is. Asking both and merging costs one more request and removes
+   the whole class of problem. */
 function fetchResults() {
   var key = apiKey(), team = state.team.id;
   var last = API + key + '/eventslast.php?id=' + encodeURIComponent(team);
   var season = API + key + '/eventsseason.php?id=' + encodeURIComponent(team) + '&s=' + currentSeason();
+  var nothing = function () { return null; };
 
-  return fetchJson(last).then(function (data) {
-    var rows = data && (data.results || data.events);
-    if (rows && rows.length) return rows;
-    throw new Error('no recent matches came back');
-  }).catch(function (err) {
-    return fetchJson(season).then(function (data) {
-      var rows = data && (data.events || data.results);
-      if (rows && rows.length) return rows;
-      throw err;
+  return Promise.all([
+    fetchJson(last).catch(nothing),
+    fetchJson(season).catch(nothing)
+  ]).then(function (answers) {
+    var seenIds = {}, rows = [];
+    answers.forEach(function (data) {
+      var list = (data && (data.results || data.events)) || [];
+      list.forEach(function (ev) {
+        var id = ev && (ev.idEvent || (ev.strHomeTeam + '|' + ev.strAwayTeam + '|' + ev.dateEvent));
+        if (!id || seenIds[id]) return;
+        seenIds[id] = true;
+        rows.push(ev);
+      });
     });
+    if (!rows.length) throw new Error('no matches came back');
+    return rows;
   });
 }
 
@@ -815,10 +831,15 @@ function checkNow(manual) {
        the streak reads the right way round. */
     matches.sort(function (a, b) { return (a.kickoff || 0) - (b.kickoff || 0); });
 
-    var credited = 0, added = 0, read = 0;
+    var credited = 0, added = 0, read = 0, newest = null, playing = null;
     matches.forEach(function (m) {
+      /* A match with a score that is not over yet is the other reason a win
+         can look missing, so it is held on to and named rather than passed
+         over in silence. */
+      if (!m.finished && m.result && m.kickoff && m.kickoff < Date.now()) playing = m;
       if (!m.finished || !m.result) return;
       read++;
+      if (!newest || (m.kickoff || 0) > (newest.kickoff || 0)) newest = m;
       if (state.seen[m.id]) return;
       var entry = bank(m, 'auto');
       if (entry) { added++; credited += entry.amount; }
@@ -833,7 +854,16 @@ function checkNow(manual) {
     refreshTable(manual || added > 0);
 
     if (added === 0) {
-      setStatus(read ? 'Nothing new — the trophy is up to date.' : 'No finished matches in the feed yet.', 'ok');
+      if (playing) {
+        setStatus(scoreline(playing) + ' is still on — it counts at full time.', 'ok');
+      } else if (newest) {
+        /* Naming the last match it could see is what makes "up to date"
+           checkable: if that is Saturday and today is Monday, the feed is
+           behind, not the trophy. */
+        setStatus('Up to date. The latest result it can see is ' + describe(newest) + '.', 'ok');
+      } else {
+        setStatus('No finished matches in the feed yet.', 'ok');
+      }
     } else {
       var word = added === 1 ? 'match' : 'matches';
       setStatus(added + ' new ' + word + ', ' + money(credited) + ' in.', 'ok');
@@ -1087,6 +1117,21 @@ function fillTo(pct) {
     top.setAttribute('cy', y.toFixed(2));
     top.setAttribute('opacity', pct > 0 ? '0.9' : '0');
   }
+}
+
+/* A match in progress is a scoreline, not a result: "beat" has not happened
+   yet and saying so at 2-0 with twenty minutes left is how you get shouted at. */
+function scoreline(m) {
+  return m.venue === 'H'
+    ? state.team.name + ' ' + m.score + ' ' + m.opponent
+    : m.opponent + ' ' + m.score.split('-').reverse().join('-') + ' ' + state.team.name;
+}
+
+function describe(m) {
+  var when = m.kickoff ? new Date(m.kickoff) : null;
+  return state.team.name + ' ' + (m.result === 'W' ? 'beat' : m.result === 'L' ? 'lost to' : 'drew with') +
+    ' ' + m.opponent + (m.score ? ' ' + m.score : '') +
+    (when ? ', ' + when.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }) : '');
 }
 
 function setStatus(text, kind) {
