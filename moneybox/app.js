@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-30 · 19';
+var BUILD = '2026-08-31 · 20';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -205,7 +205,10 @@ function fetchResults() {
 
   return Promise.all([
     fetchJson(last).catch(nothing),
-    fetchJson(season).catch(nothing)
+    fetchJson(season).catch(nothing),
+    leagueSeasonEvents(currentSeason()).then(function (rows) {
+      return { events: rows.filter(involvesUs) };
+    }).catch(nothing)
   ]).then(function (answers) {
     var seenIds = {}, rows = [];
     answers.forEach(function (data) {
@@ -222,11 +225,34 @@ function fetchResults() {
   });
 }
 
+/* The next fixture had the same fault as the results: it came from the team's
+   own feed, which was still offering a match that had already been played as
+   the one to come. Every source is asked, ours are picked out, and the next
+   fixture is simply the earliest one that has not kicked off yet — so a feed
+   that has not caught up cannot put yesterday in front of you as tomorrow. */
 function fetchNext() {
-  var url = API + apiKey() + '/eventsnext.php?id=' + encodeURIComponent(state.team.id);
-  return fetchJson(url).then(function (data) {
-    var rows = (data && (data.events || data.results)) || [];
-    return rows.length ? normalise(rows[0]) : null;
+  var nothing = function () { return null; };
+  var teamNext = API + apiKey() + '/eventsnext.php?id=' + encodeURIComponent(state.team.id);
+
+  return Promise.all([
+    fetchJson(teamNext).catch(nothing),
+    fetchJson(leagueNextUrl()).catch(nothing),
+    leagueSeasonEvents(currentSeason()).then(function (rows) { return { events: rows }; }).catch(nothing)
+  ]).then(function (answers) {
+    var seenIds = {}, soonest = null;
+    answers.forEach(function (data) {
+      var list = (data && (data.events || data.results)) || [];
+      list.forEach(function (ev) {
+        if (!involvesUs(ev)) return;
+        var id = ev.idEvent || (ev.strHomeTeam + '|' + ev.strAwayTeam + '|' + ev.dateEvent);
+        if (seenIds[id]) return;
+        seenIds[id] = true;
+        var m = normalise(ev);
+        if (m.result || !m.kickoff || m.kickoff <= Date.now()) return;
+        if (!soonest || m.kickoff < soonest.kickoff) soonest = m;
+      });
+    });
+    return soonest;
   });
 }
 
@@ -448,6 +474,37 @@ function previousSeason(season) {
   return isFinite(start) ? (start - 1) + '-' + start : season;
 }
 
+/* The league's own results, read once and handed to everyone who wants them.
+
+   This feed turns out to be ahead of the team's: the table was showing clubs
+   on two games played while the trophy still thought the last Arsenal match
+   was ten days ago, because the trophy was asking the team endpoints and only
+   the table was asking the league. Same competition, same matches, different
+   freshness — so the checker and the next fixture read it too, and a minute's
+   memo stops one check fetching it three times. */
+var leagueMemo = { at: 0, season: '', rows: null };
+
+function leagueSeasonEvents(season) {
+  if (leagueMemo.rows && leagueMemo.season === season && (Date.now() - leagueMemo.at) < 60000) {
+    return Promise.resolve(leagueMemo.rows);
+  }
+  return fetchJson(leagueEventsUrl(season)).then(function (d) {
+    var rows = (d && (d.events || d.results)) || [];
+    leagueMemo = { at: Date.now(), season: season, rows: rows };
+    return rows;
+  }).catch(function () { return leagueMemo.rows || []; });
+}
+
+/* Ours by id where the feed gives ids, by name where it does not. */
+function involvesUs(ev) {
+  var mine = String(state.team.id), name = (state.team.name || '').toLowerCase();
+  if (ev.idHomeTeam || ev.idAwayTeam) {
+    return String(ev.idHomeTeam) === mine || String(ev.idAwayTeam) === mine;
+  }
+  return String(ev.strHomeTeam || '').toLowerCase() === name ||
+         String(ev.strAwayTeam || '').toLowerCase() === name;
+}
+
 function leagueRoundUrl(season, round) {
   return API + apiKey() + '/eventsround.php?id=' + encodeURIComponent(state.league.id) +
     '&r=' + round + '&s=' + season;
@@ -501,7 +558,7 @@ function fetchTable() {
   var season = currentSeason();
   var noneOf = function () { return null; };
   return Promise.all([
-    fetchJson(leagueEventsUrl(season)).catch(noneOf),
+    leagueSeasonEvents(season).then(function (rows) { return { events: rows }; }).catch(noneOf),
     fetchJson(leagueRoundUrl(season, 1)).catch(noneOf),
     fetchJson(leagueNextUrl()).catch(noneOf)
   ])
