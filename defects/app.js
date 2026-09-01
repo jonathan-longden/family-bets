@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-29 · 44';
+var BUILD = '2026-09-01 · 45';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -4134,11 +4134,30 @@ function benchLoader(tf, weights) {
 }
 
 /* The SDK's own preprocess(), transcribed:
-     tensor4D -> resizeNearestNeighbor([640,640]) -> float32 -> /255 -> NCHW  */
+     tensor4D -> resizeNearestNeighbor([640,640]) -> float32 -> /255 -> NCHW
+
+   Written with top-level tf.* calls and NO METHOD CHAINING, and that is the
+   whole point rather than a style preference.
+
+   Chained ops — x.expandDims(0), x.asType('float32') — are not part of a
+   Tensor. They are registered onto its prototype by the UNION package,
+   @tensorflow/tfjs. What is vendored here is @tensorflow/tfjs-core plus the
+   backends, which is the smaller, correct dependency for this and does not
+   register any of them: x.expandDims is undefined.
+
+   This was written when the Roboflow SDK was still loaded. The SDK bundles the
+   union package, its copy registered the chained ops onto the shared prototype,
+   and these two lines worked — which is why the benchmark ran and produced the
+   numbers the survey was moved onto WASM for. Removing the SDK removed the
+   thing that was making them work, so preprocessing threw on the first frame,
+   every backend failed identically in the probe, and the gauge said "No
+   backend". The library was never the problem and neither was the model.
+
+   tf.cast is what asType aliases, so the arithmetic is unchanged. */
 function benchPreprocess(tf, canvas) {
   return tf.tidy(function () {
-    var px = tf.browser.fromPixels(canvas).expandDims(0);
-    var r = tf.image.resizeNearestNeighbor(px, [RF_SIZE, RF_SIZE]).asType('float32');
+    var px = tf.expandDims(tf.browser.fromPixels(canvas), 0);
+    var r = tf.cast(tf.image.resizeNearestNeighbor(px, [RF_SIZE, RF_SIZE]), 'float32');
     return tf.transpose(tf.div(r, 255), [0, 3, 1, 2]);
   });
 }

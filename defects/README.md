@@ -282,6 +282,42 @@ then trusted forever. A backend that was sane at eight o'clock and is not at
 half past is dropped mid-run, the fallback is brought up on the next look, and
 the diagnostics record what it produced when it went bad.
 
+### The SDK was holding a door open, and removing it shut the door
+
+Moving the survey onto WASM meant deleting the six-megabyte Roboflow SDK. That
+also deleted something nobody was relying on deliberately, and the survey stopped
+working on every backend at once.
+
+`x.expandDims(0)` and `x.asType('float32')` are ordinary-looking TensorFlow.js.
+They are **not part of a Tensor.** They are registered onto its prototype by the
+*union* package, `@tensorflow/tfjs`. What is vendored here is
+`@tensorflow/tfjs-core` plus the three backends — the smaller and correct
+dependency — and it registers none of them. `x.expandDims` is `undefined`.
+
+The preprocessing was written while the SDK was still on the page. The SDK
+bundles the union package, its copy registered those methods onto the shared
+prototype, and the two lines worked. That is why the benchmark ran and produced
+the numbers the whole WASM decision rests on. Remove the SDK and the same two
+lines throw on the first frame — in the startup probe, before any backend can be
+trusted, so **WASM and CPU both failed identically** and the gauge said
+`No backend`. The library was never the problem, and neither was the model.
+
+```js
+tf.expandDims(tf.browser.fromPixels(canvas), 0)               // not .expandDims(0)
+tf.cast(tf.image.resizeNearestNeighbor(px, [640, 640]), 'float32')   // not .asType(…)
+```
+
+`cast` is what `asType` aliases, so the arithmetic is unchanged — the rewritten
+path decodes the same detection at the same 0.7236 the benchmark measured.
+
+**Why no test caught it.** Every suite ran this code against a stub `tf`, which
+is right for testing *which backend gets chosen* and useless for testing whether
+the calls are ones the library accepts — a stub says yes to anything.
+`realtf.mjs` now runs the survey's own `infOnce` against the real TensorFlow.js
+on real WASM and CPU, and a static check refuses any chained tensor op in
+`app.js`. Both were confirmed against the bug: put the chained call back and both
+backends fail and the check names it.
+
 ### "No model" was three different faults wearing one label
 
 Three things have to happen before there is a model: 2.4 MB of TensorFlow.js off
