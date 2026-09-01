@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-01 · 45';
+var BUILD = '2026-09-01 · 46';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -2210,6 +2210,28 @@ function look() {
   }
   var vw = v.videoWidth, vh = v.videoHeight;
   var sq = squareFrame(v, vw, vh);
+  /* The photograph, taken NOW — from the same instant as the square that is
+     about to be inferred, rather than from wherever the vehicle has got to by
+     the time the answer comes back.
+
+     It used to be drawn after inference, straight off the live <video>:
+
+       c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)   // ~533 ms later
+
+     which is a different frame from the one the model was shown. At 30 mph a
+     533 ms WASM inference is seven metres of road, and on the CPU fallback it
+     is seventeen seconds of it — so the picture was of somewhere past the
+     defect, while t, the fix and detBox all described the frame that actually
+     contained it. The photograph disagreed with everything filed alongside it.
+
+     Drawing it here costs one scaled drawImage per look whether or not
+     anything is found. Encoding is still only done on a find — toBlob is where
+     the expense is, and that has not moved. */
+  var shot = $('shot');
+  var shotScale = Math.min(1, MAX_EDGE / Math.max(vw, vh));
+  shot.width = Math.round(vw * shotScale);
+  shot.height = Math.round(vh * shotScale);
+  shot.getContext('2d').drawImage(v, 0, 0, shot.width, shot.height);
   /* When the picture was taken, and what the fix said at that moment.
 
      Both used to be read at the end, when the entry was written — after
@@ -2272,10 +2294,9 @@ function look() {
     hits = hits.filter(function (f) {
       return !rejectReason(out.ctx, RF_SIZE, RF_SIZE, f.box);
     });
-    var v = $('vid'), c = $('shot');
-    var scale = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
-    c.width = Math.round(v.videoWidth * scale); c.height = Math.round(v.videoHeight * scale);
-    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    /* Already drawn, at the top of this look, from the frame the model was
+       actually shown. Nothing is grabbed from the live video here. */
+    var c = $('shot');
     if (!hits.length) return hud('Shadow, not a defect');
     var holes = hits.filter(function (f) { return typeFor(f.cls) === 'Pothole'; });
     if (!holes.length) return hud('Ironwork — sound cover, not logged');
@@ -2296,7 +2317,7 @@ function look() {
          defect that stays in shot keeps suppressing rather than timing out and
          being logged a second time from the same view. */
       dup.at = out.capturedAt;
-      return hud('Same defect — not logged again');
+      return improveFind(dup, holes, out, c, cand);
     }
     return logFind(holes, out, c, cand);
   }).catch(function (e) {
@@ -2309,7 +2330,49 @@ function look() {
 
 /* Writes the entry with no one looking, which is exactly why it is marked as
    such: the log has to keep saying which scores a person stood over. */
-function logFind(hits, out, c, cand) {
+/* The same defect, seen closer.
+
+   A defect is first detected at the far end of what the camera can resolve, and
+   the duplicate rule then suppressed every later look at it — so the entry kept
+   was always the worst one available: the defect twenty or forty metres off,
+   small, and at the top of the frame. Driving nearer only refreshed the
+   suppression clock.
+
+   Nearer is measurable without guessing at it. `share` is the detection box as
+   a fraction of the frame, and approaching a fixed object makes it grow; a
+   bigger share is a closer look at the same thing. When one arrives, the entry
+   is REPLACED rather than added to — same row, same defect, better photograph —
+   so the log still holds one entry per defect and the crew gets the frame taken
+   from closest to it.
+
+   Left alone once a person has touched it. An entry somebody has classified,
+   scored or annotated is theirs, and a later frame must not quietly overwrite
+   the thing they wrote. */
+function improveFind(dup, hits, out, c, cand) {
+  var best = hits.reduce(function (a, b) { return (b.share || 0) > (a.share || 0) ? b : a; });
+  var better = best && best.share != null && dup.share != null && best.share > dup.share;
+  if (!better) return hud('Same defect — not logged again');
+
+  var e = null;
+  for (var i = 0; i < S.items.length; i++) {
+    if (S.items[i].id === dup.id) { e = S.items[i]; break; }
+  }
+  /* No row to improve — it was deleted, or this record predates the id being
+     kept. The suppression still stands; only the replacement is skipped. */
+  if (!e) return hud('Same defect — not logged again');
+  if (e.catBy || e.catAt || (e.note && e.note.length) ||
+      e.scoredBy !== 'survey, unconfirmed') {
+    return hud('Same defect — already looked at, left alone');
+  }
+  return logFind(hits, out, c, cand, e);
+}
+
+/* `replacing` is an existing entry this look supersedes — see improveFind. It
+   deliberately goes through this same function rather than a second writer: a
+   replacement that built its fields anywhere else would drift from the original
+   the first time either changed, and a photograph disagreeing with the fields
+   filed beside it is the exact fault this pass is fixing. */
+function logFind(hits, out, c, cand, replacing) {
   var best = hits.reduce(function (a, b) { return (b.conf || 0) > (a.conf || 0) ? b : a; });
   var det = { conf: best.conf, share: best.share, count: hits.length,
               cls: best.cls, box: best.box };
@@ -2329,7 +2392,10 @@ function logFind(hits, out, c, cand) {
       if (!blob) { hud('Could not save the frame', 'bad'); return resolve(); }
       var capturedIso = new Date(capturedAt).toISOString();
       var e = {
-        id: nextId(),
+        /* The same row when this is a closer look at something already
+           logged, so the log keeps one entry per defect rather than one per
+           sighting. */
+        id: replacing ? replacing.id : nextId(),
         /* t is when the road was looked at, not when the row was written. The
            two are a second or so apart and it is the first that is the
            observation; storedAt keeps the second, because the gap between them
@@ -2367,28 +2433,65 @@ function logFind(hits, out, c, cand) {
         posConfM: est.confM, estBy: est.by, estWhy: est.why,
         cameraLeadM: est.leadM == null ? null : est.leadM
       };
+      /* Which defect this is an observation of. A closer look is an observation
+         of the SAME defect, so the existing link is carried over rather than
+         asked for again — re-filing on a position that has just moved a few
+         metres nearer risks the layer deciding this is a second defect, which
+         is the opposite of what a replacement is for. */
+      if (replacing && replacing.defect_id) e.defect_id = replacing.defect_id;
       /* The observation is attached to a defect before it is written, so the
          row that lands in the store already knows what it is an observation
          of — rather than being written first and patched afterwards, which
          leaves a window where a crash orphans it. */
-      fileObservation(e, survey.runId).then(function () {
+      (replacing && e.defect_id ? Promise.resolve()
+                                : fileObservation(e, survey.runId)).then(function () {
       return (dbBroken ? Promise.resolve() : putEntry(e)).then(function () {
-        S.items.unshift(e);
+        if (replacing) {
+          /* In place, and in the position it already holds: a closer look is
+             not newer news, it is the same news better photographed, and
+             moving it to the top of the log would make one defect look like
+             two arrivals. */
+          for (var i = 0; i < S.items.length; i++) {
+            if (S.items[i].id === e.id) { S.items[i] = e; break; }
+          }
+        } else {
+          S.items.unshift(e);
+          survey.logged++;
+        }
         addWords(e);
-        survey.logged++;
-        rememberFind(cand || { at: capturedAt, lat: est.lat, lon: est.lon, confM: est.confM,
+        /* The remembered find carries the row it produced and how big the
+           detection was, which is what lets the next look know there is
+           something to improve and whether it is closer. */
+        var rec = cand || { at: capturedAt, lat: est.lat, lon: est.lon, confM: est.confM,
           heading: f ? f.heading : null,
-          vlat: f ? f.lat : null, vlon: f ? f.lon : null });
+          vlat: f ? f.lat : null, vlon: f ? f.lon : null };
+        rec.id = e.id;
+        rec.share = det.share;
+        if (replacing) {
+          /* Update the record already suppressing this defect rather than
+             adding a second one for the same hole. */
+          for (var k = 0; k < survey.recent.length; k++) {
+            if (survey.recent[k].id === e.id) { survey.recent[k] = rec; break; }
+          }
+          survey.last = { at: rec.at,
+            gps: rec.vlat == null ? null : { lat: rec.vlat, lon: rec.vlon } };
+        } else {
+          rememberFind(rec);
+        }
         $('hudCount').textContent = survey.logged + ' logged';
         render();
         hud('Watching');
         /* A missing confidence used to just not appear, which reads exactly
            like a confident find. It is the one number that says whether the
            model is being decoded at all, so its absence is now said out loud. */
-        toast('Logged ' + typeFor(best.cls).toLowerCase() + ' — ' + pri.p + ', ' +
-            pri.word.toLowerCase() +
-            (det.conf == null ? ' (sureness out of range — the model is not being read properly)'
-                              : ' (' + Math.round(det.conf * 100) + '% sure)') +
+        var sure = det.conf == null
+          ? ' (sureness out of range — the model is not being read properly)'
+          : ' (' + Math.round(det.conf * 100) + '% sure)';
+        toast(replacing
+          ? 'Closer look kept for the ' + typeFor(best.cls).toLowerCase() +
+            ' already logged — ' + pri.p + ', ' + pri.word.toLowerCase() + sure + '.'
+          : 'Logged ' + typeFor(best.cls).toLowerCase() + ' — ' + pri.p + ', ' +
+            pri.word.toLowerCase() + sure +
             '. Not classified — nobody has looked at it.');
         resolve();
       }, function () {
