@@ -282,6 +282,63 @@ then trusted forever. A backend that was sane at eight o'clock and is not at
 half past is dropped mid-run, the fallback is brought up on the next look, and
 the diagnostics record what it produced when it went bad.
 
+### "No model" was three different faults wearing one label
+
+Three things have to happen before there is a model: 2.4 MB of TensorFlow.js off
+this origin, the weights off Roboflow, and a backend that will run them. They
+fail for different reasons and they are fixed by different people — and the
+gauge said the same two words for all three, so the only way to tell them apart
+was to open Diagnostics. Standing at a van looking at a phone, that is too much
+to ask. The gauge now names the half:
+
+| | what actually failed |
+|---|---|
+| **No runtime** | the 2.4 MB did not arrive from this site |
+| **No weights** | the model did not come back from Roboflow — signal, or the key |
+| **No backend** | both WASM and CPU were tried and neither would run it |
+
+The reason still lives in Diagnostics. This is the difference between "it's
+broken" and "the signal is".
+
+### A service worker cannot fix the load that installs it
+
+The vendored runtime used to go through the same network-first path as the app's
+own code: a four-second timeout and `cache: 'reload'`, so all 2.4 MB was
+re-fetched on **every** page load, and if any one of the five scripts took longer
+than four seconds there was nothing cached to fall back on. The app said "No
+model" and meant "this file was slow". Sending `/vendor/` down a cache-first path
+instead fixed that — pinned filenames cannot change, so asking again can only
+cost time.
+
+And the fix arrived one load late. The page that fetches the new worker is still
+being served by the old one, so *that* load still went through the old timeout
+and still failed. Reproduced in `swupgrade.mjs`: the load that installs the fix
+dies, the load after it succeeds. Telling somebody to open the app twice is not
+a fix.
+
+So a script that fails is asked for again, once, after the new worker takes
+charge — `controllerchange`, which is a real event rather than a guess, capped at
+a second and a half so a page with no worker does not sit waiting for one. Only
+the file that failed is re-requested: re-running the chain would execute the
+builds that already loaded a second time, and TensorFlow.js refuses to register
+the same kernel twice.
+
+A consequence of allowing a second attempt at all: the chain now records which
+scripts have **run**, not which have been fetched, and skips those. Signal coming
+back and a worker taking charge both start another attempt, and re-executing a
+build that already loaded makes TensorFlow.js throw on the second registration of
+a kernel it already has — which would turn a recoverable failure into a permanent
+one. This was found by the regression suite, not by reasoning about it.
+
+Diagnostics say when this happened, because it is worth seeing rather than
+papering over:
+
+```
+runtime      loaded — asked twice for tf-core.min.js. The first request was
+             answered by a service worker on its way out; that is the load a
+             deploy lands on.
+```
+
 ### It cannot pretend to be keeping up
 
 At 30 mph a 533 ms inference covers five metres and the survey is fine. The same
