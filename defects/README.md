@@ -282,6 +282,44 @@ then trusted forever. A backend that was sane at eight o'clock and is not at
 half past is dropped mid-run, the fallback is brought up on the next look, and
 the diagnostics record what it produced when it went bad.
 
+### The photograph, and which look it comes from
+
+Reported from a van: the picture was taken "either after or way before the
+defect". Two separate faults with the same symptom.
+
+**After.** The JPEG was drawn straight off the live `<video>` *after* inference
+returned, while `t`, the fix and `detBox` all described the frame the model was
+actually shown. On WASM that is 533 ms — seven metres at 30 mph — and on the CPU
+fallback seventeen seconds. The photograph disagreed with everything filed
+beside it, and the box coordinates did not correspond to the image they were
+stored with. It is now drawn at the same instant as the square that goes to the
+model; encoding still happens only on a find, so the cost is one scaled
+`drawImage` per look.
+
+**Way before.** A defect is first detected at the far end of what the camera can
+resolve, and the duplicate rule then suppressed every closer look at it —
+refreshing the suppression clock but never the entry. So the row kept was always
+the worst one available: the defect small, distant, and at the top of the frame.
+
+A closer look now **replaces** the entry instead of being discarded. Nearer is
+measurable rather than guessed at: `share` is the detection box as a fraction of
+the frame, and approaching a fixed object makes it grow. Same row, same
+`defect_id`, better photograph — the log still holds one entry per defect, and
+it stays where it is in the list rather than jumping to the top, because a
+closer look is not newer news.
+
+**This was not only a photograph problem.** Priority is derived from `share`, so
+logging at maximum range was under-scoring every defect in the survey. In the
+regression suite the same pothole scores **P4, lowest** from the distant look and
+**P1** from the closer one. A survey that files potholes at the bottom of the
+list because it photographed them from forty metres away is worse than one that
+misses them, and this had been true of every entry since the survey started
+logging on its own.
+
+An entry a person has classified, scored or annotated is never overwritten —
+theirs stands, and the closer look is dropped rather than quietly replacing what
+they wrote.
+
 ### The SDK was holding a door open, and removing it shut the door
 
 Moving the survey onto WASM meant deleting the six-megabyte Roboflow SDK. That
