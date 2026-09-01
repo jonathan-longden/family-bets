@@ -1,4 +1,4 @@
-const CACHE_NAME = 'defect-log-v19';
+const CACHE_NAME = 'defect-log-v20';
 /* Tiles live in their own cache, and the reason is not tidiness.
 
    They used to share the shell's cache, which meant two things that both went
@@ -30,13 +30,14 @@ const FILES_TO_CACHE = [
    they are cached as they are fetched rather than up front — ground you have
    looked at stays available, ground you have not does not. */
 const TILE_HOST = 'https://tile.openstreetmap.org';
-/* The detection library is six megabytes. Precaching it would make the first
-   visit pay for it before the camera even opens, so it is left to be cached the
-   first time a capture actually needs it — after which it is there offline.
-   The benchmark's own copy of TensorFlow.js under vendor/tfjs/ is another 2.4 MB
-   and is treated the same way, except that most people will never press the
-   button that fetches it. Both are same-origin, so the ordinary rule below
-   covers them: fetched once, then served from the cache. */
+/* Not precached, and not network-first either — see vendored() below.
+
+   The survey now runs on TensorFlow.js, so the 2.4 MB under vendor/tfjs/ is
+   fetched on the first load that starts the model rather than only when a
+   button is pressed. Precaching it would make the first visit pay for it before
+   the camera even opens; putting it through the network-first path meant
+   re-fetching it on every load, with a four-second timeout, which is what made
+   a slow connection say "No model". Cache first, once. */
 const NET_TIMEOUT = 4000;
 const FONT_HOSTS = ['https://fonts.googleapis.com', 'https://fonts.gstatic.com'];
 
@@ -91,6 +92,32 @@ async function networkFirst(req) {
     }
     throw new Error('offline and not cached');
   }
+}
+
+/* Vendored third-party builds: TensorFlow.js, its wasm binaries, Leaflet.
+
+   Cache first, and for a specific reason. These are pinned versions — the
+   filename IS the version — so re-fetching one can only ever confirm it has not
+   changed. There are 2.4 MB of TensorFlow.js and the survey cannot start
+   without all of it.
+
+   Network first was actively harmful here. It has a four-second timeout and it
+   passes cache:'reload', which skips the browser's own HTTP cache too, so every
+   single page load re-fetched the lot over the mobile connection; when any one
+   of the five scripts took longer than four seconds there was nothing cached to
+   fall back to and the model would not load at all. The app said "No model" and
+   meant "this file was slow". Reproduced with a five-second delay before it was
+   changed.
+
+   No timeout here on purpose: a slow first load is slow once, and after that it
+   is instant and works with no signal. */
+async function vendored(req) {
+  const cache = await caches.open(CACHE_NAME);
+  const hit = await cache.match(req);
+  if (hit) return unstorable(hit);
+  const res = await fetch(req);
+  if (res && res.ok) cache.put(req, res.clone()).catch(() => {});
+  return unstorable(res);
 }
 
 /* Going to the network is not enough on its own. The reply still carries the
@@ -152,5 +179,8 @@ self.addEventListener('fetch', event => {
   if (FONT_HOSTS.some(h => req.url.startsWith(h))) return event.respondWith(cacheFirst(req));
   if (req.url.startsWith(TILE_HOST)) return event.respondWith(tile(req));
   if (!req.url.startsWith(self.location.origin)) return;
+  /* Vendored third-party builds go cache first. Everything else is the app's
+     own code and goes network first, so a deploy lands on the next load. */
+  if (req.url.includes('/vendor/')) return event.respondWith(vendored(req));
   event.respondWith(networkFirst(req));
 });
