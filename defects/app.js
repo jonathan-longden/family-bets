@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-29 · 43';
+var BUILD = '2026-08-29 · 44';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -1112,10 +1112,52 @@ function prefetchModel() {
       modelChip('Ready', 'ready');
     });
   }, function (e) {
-    modelChip('No model', 'bad');
+    modelChip(noModelWord(), 'bad');
   });
 }
+
+/* "No model" is two words and a shrug.
+
+   Three separate things have to happen before there is a model: 2.4 MB of
+   TensorFlow.js off this origin, the weights off Roboflow, and a backend that
+   will run them. They fail for different reasons, they are fixed by different
+   people, and the gauge said the same thing for all three — so the only way to
+   tell them apart was to open Diagnostics and read the reason, which is a lot
+   to ask of somebody standing at a van looking at a phone.
+
+   The gauge now names the half. The reason still lives in Diagnostics; this is
+   the difference between "it's broken" and "the signal is". */
+function noModelWord() {
+  if (!benchTf) return 'No runtime';
+  /* Asked for and not got. A null rfMeta is NOT this case — it means the
+     weights were never asked for, which is somebody else's failure and must not
+     be pinned on the signal. */
+  if (rfMeta && (rfMeta.error || !rfMeta.weights)) return 'No weights';
+  if (infFacts.tried.length) return 'No backend';
+  /* The runtime loaded and it fell over before the weights were reached. Rare,
+     unclassified, and the old shrug is the honest answer: Diagnostics has the
+     reason. */
+  return 'No model';
+}
 window.addEventListener('online', prefetchModel);
+/* And when the worker changes hands.
+
+   Getting signal back is not the only thing that can turn a failed load into a
+   working one: a deploy does it too. The page that installs a new worker was
+   served by the old one, so its 2.4 MB may have failed under whatever the old
+   one did — and the moment the new worker claims the page, the same request
+   would succeed. The retry inside loadBenchTf covers the ordinary case; this
+   covers a changeover slower than that retry was willing to wait for.
+
+   prefetchModel does nothing if a load is already running or has succeeded, so
+   this cannot start a second one. */
+if (navigator.serviceWorker) {
+  try {
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      prefetchModel();
+    });
+  } catch (e) { /* nothing to hook; the retry above is the cover */ }
+}
 
 /* Bringing the model up.
 
@@ -3369,6 +3411,12 @@ function diagLines() {
   L.push('using        ' + (infFacts.backend
     ? infFacts.backend.toUpperCase() + ' — chosen ' + (infFacts.startedAt || '?')
     : 'nothing yet — the model has not been started'));
+  L.push('runtime      ' + (benchTf ? 'loaded' : 'NOT loaded') +
+    ((infFacts.retried || []).length
+      ? ' — asked twice for ' + infFacts.retried.join(', ') +
+        '. The first request was answered by a service worker on its way out; ' +
+        'that is the load a deploy lands on.'
+      : ''));
   if (infFacts.startFail) {
     L.push('LAST FAILURE ' + infFacts.startFail.why);
     L.push('             at ' + infFacts.startFail.at +
@@ -3939,23 +3987,87 @@ var BENCH_SCRIPTS = ['tf-core.min.js', 'tf-converter.min.js',
 var BENCH_ORDER = ['webgl', 'wasm', 'cpu'];
 var benchTf = null, benchLoading = null, benchResult = null;
 
-/* Classic script tags, in order, each waiting for the last: the UMD builds
-   attach to one shared `tf` global and the backends must find the core there
-   before they register. ~2.4 MB, fetched the first time the button is pressed
-   and never on the survey's path. */
+/* One classic script tag. The five are loaded in order, each waiting for the
+   last: the UMD builds attach to one shared `tf` global and the backends must
+   find the core there before they register.
+
+   This used to be fetched only when the benchmark button was pressed. The
+   survey runs on it now, so the 2.4 MB is fetched at startup — which is what
+   made how it fails worth this much care. */
+/* Which of them have actually executed. Not a cache of the fetch — a record of
+   the script having RUN, which is a different thing and the one that matters.
+
+   The chain can be started more than once now: a failed attempt leaves nothing
+   behind, and getting signal back or a new worker taking charge starts another.
+   Without this, that second attempt re-runs the builds that already loaded, and
+   TensorFlow.js throws on the second registration of a kernel it already has —
+   turning a recoverable failure into a permanent one. */
+var benchRan = {};
+
+function oneBenchScript(file) {
+  if (benchRan[file]) return Promise.resolve();
+  return new Promise(function (resolve, reject) {
+    var el = document.createElement('script');
+    el.src = BENCH_DIR + file;
+    el.onload = function () { benchRan[file] = true; resolve(); };
+    el.onerror = function () { reject(new Error('could not load ' + file)); };
+    document.head.appendChild(el);
+  });
+}
+
+/* A service worker cannot fix the load that installs it.
+
+   Caching these files cache-first was the right fix and it arrives one load
+   late: the page that fetches the new worker is still being served by the old
+   one, so its 2.4 MB still went through a four-second timeout and still said
+   "No model". Reproduced: the load that installs the fix fails, the one after
+   it succeeds. Telling somebody to load the app twice is not a fix.
+
+   So a script that fails is asked for again, once, after the new worker has
+   taken charge — which is a real event, not a guess: controllerchange fires
+   when it claims the page. Four seconds is the cap, because a page with no new
+   worker coming must not sit here waiting for one; four rather than one is
+   because the new worker precaches the shell before it activates, and on the
+   connection where this bug shows up at all that is not instant. The cost of
+   the cap is only ever a slower error message.
+
+   Only the file that failed is asked for again — the ones before it in the
+   chain already ran, and benchRan above is what makes sure they are not run a
+   second time. */
+function newWorkerInCharge() {
+  var timer = new Promise(function (r) { setTimeout(r, 4000); });
+  if (!navigator.serviceWorker) return timer;
+  var claimed = new Promise(function (r) {
+    try {
+      navigator.serviceWorker.addEventListener('controllerchange',
+        function () { r(); }, { once: true });
+    } catch (e) { /* left to the timer */ }
+  });
+  /* A short pause either way: claiming the page and being ready to answer for
+     it are not the same instant. */
+  return Promise.race([claimed, timer]).then(function () {
+    return new Promise(function (r) { setTimeout(r, 200); });
+  });
+}
+
+function benchScript(file) {
+  return oneBenchScript(file).catch(function (first) {
+    infFacts.retried.push(file);
+    return newWorkerInCharge().then(function () {
+      return oneBenchScript(file);
+    }).catch(function () {
+      /* The second failure says nothing the first did not, and the first is
+         the one that names what was being fetched. */
+      throw first;
+    });
+  });
+}
+
 function loadBenchTf() {
   if (benchTf) return Promise.resolve(benchTf);
   if (benchLoading) return benchLoading;
   benchLoading = BENCH_SCRIPTS.reduce(function (chain, file) {
-    return chain.then(function () {
-      return new Promise(function (resolve, reject) {
-        var el = document.createElement('script');
-        el.src = BENCH_DIR + file;
-        el.onload = resolve;
-        el.onerror = function () { reject(new Error('could not load ' + file)); };
-        document.head.appendChild(el);
-      });
-    });
+    return chain.then(function () { return benchScript(file); });
   }, Promise.resolve()).then(function () {
     if (!window.tf) throw new Error('TensorFlow.js did not attach itself');
     /* Same-origin, so the binaries work with no signal once cached. */
@@ -4427,7 +4539,12 @@ var infExcluded = [];                  // backends that failed, and stay failed
 var infFacts = {
   backend: null, tried: [], simd: null, threads: null, threadCount: null,
   cores: null, isolated: null, loads: 0, infers: 0, startFail: null,
-  lastMs: null, recent: [], demoted: null, startedAt: null
+  lastMs: null, recent: [], demoted: null, startedAt: null,
+  /* Which of the five runtime scripts had to be asked for twice. Empty is the
+     normal case; anything in it means the first request was answered by a
+     worker on its way out, and is worth seeing rather than being silently
+     papered over. */
+  retried: []
 };
 
 /* The picture the sanity check is run on.
