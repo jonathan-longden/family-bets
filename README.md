@@ -27,6 +27,10 @@ pot live, connect it to a free Firebase Realtime Database.
 >   Arsenal win, £10 goes in. It reads the results itself, banks each
 >   win once, and — pointed at a webhook wired to your bank — moves the
 >   tenner into a savings pot for you.
+> - **[Telly](telly/)** (`/telly/`) — an IPTV player for a phone: paste an
+>   M3U link, open a playlist file or sign in with Xtream credentials, and
+>   watch. Groups, search, favourites and thousands of channels without a
+>   stutter, all in one HTML file.
 > - **[Fucking Weather](outside/)** (`/outside/`) — a proper weather app
 >   that tells you exactly what the sky is doing, then takes the mickey
 >   out of it: now, hour by hour, today's best and worst bits, tomorrow,
@@ -34,7 +38,7 @@ pot live, connect it to a free Firebase Realtime Database.
 >   with an iPhone home-screen widget. Swearing optional. Also builds as a
 >   real iOS and Android app — see [`outside/mobile/`](outside/mobile/).
 >
-> All seven are separate PWAs with the same no-build setup.
+> All eight are separate no-build static apps.
 
 ## Firebase setup (for cross-device sync)
 
