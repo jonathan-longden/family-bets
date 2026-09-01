@@ -3082,6 +3082,19 @@ $('lb').addEventListener('click', function (e) { if (e.target === $('lb')) close
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('lb').hidden) closeFull(); });
 
 /* ---------- how much room is left ---------- */
+/* Which call is allowed to paint.
+
+   quota() runs on every render, and both of the things it shows come back
+   asynchronously — a read of the corrections store and the browser's storage
+   estimate. Two renders close together leave two reads in flight, and nothing
+   made them land in the order they were started, so an older answer could
+   arrive last and overwrite a newer one. That put "0 corrections kept" on the
+   screen, hidden, while the store held one and the export carried it.
+
+   It was always possible and it became likely when a closer look started
+   re-rendering the log mid-survey. A counter that reads the store correctly and
+   then paints the previous answer is worse than one that is simply slow. */
+var quotaSeq = 0;
 function quota() {
   var el = $('quota'); if (!el) return;
   if (dbBroken) {
@@ -3089,7 +3102,9 @@ function quota() {
       'and will be gone when the tab closes. Export before you finish.</b>';
     return;
   }
+  var seq = ++quotaSeq;
   allWrong().then(function (w) {
+    if (seq !== quotaSeq) return;        // a later read has already answered
     var n = $('wrongCount');
     if (!n) return;
     n.hidden = !w.length;
@@ -3099,10 +3114,11 @@ function quota() {
   });
   if (!navigator.storage || !navigator.storage.estimate) { el.textContent = ''; return; }
   navigator.storage.estimate().then(function (q) {
+    if (seq !== quotaSeq) return;
     if (!q || !q.quota) { el.textContent = ''; return; }
     var mb = function (n) { return (n / 1048576).toFixed(n < 104857600 ? 1 : 0) + ' MB'; };
     el.textContent = ' Using ' + mb(q.usage || 0) + ' of about ' + mb(q.quota) + ' available.';
-  }).catch(function () { el.textContent = ''; });
+  }).catch(function () { if (seq === quotaSeq) el.textContent = ''; });
 }
 
 /* ---------- export ---------- */
