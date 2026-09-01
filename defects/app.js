@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-08-29 · 42';
+var BUILD = '2026-08-29 · 43';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -1145,6 +1145,12 @@ function loadModel() {
     return engine;
   }).catch(function (e) {
     loading = null;   // a failure must not poison every later capture
+    /* Kept so the diagnostics can say WHY there is no model. "No model" on the
+       chip is two words and a shrug; when the failure happens before any
+       backend is tried — the runtime itself not loading, say — the list of
+       tried backends is empty and there was nothing else to read. */
+    infFacts.startFail = { why: String((e && e.message) || e).slice(0, 200),
+                           at: new Date().toISOString() };
     throw e;
   });
   return loading;
@@ -3363,6 +3369,13 @@ function diagLines() {
   L.push('using        ' + (infFacts.backend
     ? infFacts.backend.toUpperCase() + ' — chosen ' + (infFacts.startedAt || '?')
     : 'nothing yet — the model has not been started'));
+  if (infFacts.startFail) {
+    L.push('LAST FAILURE ' + infFacts.startFail.why);
+    L.push('             at ' + infFacts.startFail.at +
+      ((infFacts.tried || []).length ? '' :
+        '. No backend was reached, so this happened before the choice was made — ' +
+        'the runtime or the weights, not the backends.'));
+  }
   L.push('order        ' + SURVEY_BACKENDS.join(', then ') +
     '.  WebGL is NOT in this list and cannot be selected.');
   L.push('             (on this phone WebGL returned 20 detections at a');
@@ -4413,7 +4426,7 @@ var infSession = null;                 // { tf, model, backend }
 var infExcluded = [];                  // backends that failed, and stay failed
 var infFacts = {
   backend: null, tried: [], simd: null, threads: null, threadCount: null,
-  cores: null, isolated: null, loads: 0, infers: 0,
+  cores: null, isolated: null, loads: 0, infers: 0, startFail: null,
   lastMs: null, recent: [], demoted: null, startedAt: null
 };
 
