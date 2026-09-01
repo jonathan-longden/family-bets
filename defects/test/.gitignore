@@ -1,0 +1,6 @@
+# Suite output.
+report/
+
+# No trailing slash: this is sometimes a symlink rather than a directory, and
+# `node_modules/` matches only directories.
+node_modules

@@ -1,0 +1,12 @@
+{
+  "name": "defect-log-tests",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests for the defect log. See README.md.",
+  "scripts": {
+    "test": "./run.sh"
+  },
+  "devDependencies": {
+    "playwright": "^1.55.0"
+  }
+}
