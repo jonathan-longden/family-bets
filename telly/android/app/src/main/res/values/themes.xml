@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.Telly" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#06070A</item>
+        <item name="android:statusBarColor">#06070A</item>
+        <item name="android:navigationBarColor">#06070A</item>
+    </style>
+</resources>

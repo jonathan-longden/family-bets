@@ -28,6 +28,24 @@ off to Settings. Playback is never interrupted by navigating.
 **Add playlist** is a screen, not a modal: three large source cards with
 descriptions, then a spacious form.
 
+## The shape of it
+
+Telly is three things that fit together, and each works without the others:
+
+    telly/index.html   the web player — open it, add a playlist, watch
+    telly/android/     the native app — the same, without a browser's limits
+    telly/server/      an optional backend — accounts, entitlements, devices
+
+The server is what turns a player into a household system: one place holding
+the playlists and the provider's credentials, users who each see what they are
+entitled to, a device limit per account, and favourites that follow a person
+from the living room to the bedroom. It runs on a PC and moves to a VPS
+without the apps being rebuilt — they only ever know an API endpoint.
+
+None of it is required. The web app and the native app still take an M3U link,
+a file or Xtream details directly, exactly as they did before the server
+existed.
+
 ## Loading channels
 
 - **M3U URL** — a link to an `.m3u` / `.m3u8` playlist.
