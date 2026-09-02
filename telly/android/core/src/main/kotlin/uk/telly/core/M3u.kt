@@ -8,9 +8,16 @@ data class Channel(
     val url: String,
     val logo: String,
     val group: String,
-    val tvgId: String
+    val tvgId: String,
+    /**
+     * Set when this channel came from a Telly server rather than a playlist on
+     * the device. The address is then fetched a ticket at a time, so the app
+     * never holds one — which is the whole point of the server.
+     */
+    val serverId: Long? = null
 ) {
     val key: String get() = name.lowercase()
+    val needsTicket: Boolean get() = serverId != null
 }
 
 /** What a parsed playlist carries besides its channels. */

@@ -46,6 +46,11 @@ import kotlinx.coroutines.withContext
 import uk.telly.core.Channel
 import uk.telly.core.M3u
 import uk.telly.core.Streams
+import uk.telly.core.api.ApiException
+import uk.telly.core.api.Environment
+import uk.telly.core.api.Health
+import uk.telly.ui.ConnectScreen
+import uk.telly.ui.LoginScreen
 
 private val Ink = Color(0xFF06070A)
 private val Panel = Color(0xFF12151C)
@@ -63,7 +68,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private enum class Screen { SOURCES, CHANNELS }
+private enum class Screen { CONNECT, LOGIN, SOURCES, CHANNELS }
 
 @Composable
 private fun Telly() {
@@ -71,12 +76,20 @@ private fun Telly() {
     val store = remember { Storage(ctx) }
     val scope = rememberCoroutineScope()
 
+    val serverStore = remember { ServerStore(ctx) }
+    val server = remember { ServerSession(serverStore) }
+
     var screen by remember { mutableStateOf(Screen.SOURCES) }
     var channels by remember { mutableStateOf(listOf<Channel>()) }
     var favourites by remember { mutableStateOf(store.favourites) }
     var busy by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var current by remember { mutableStateOf<Channel?>(null) }
+
+    // Server mode state. Direct mode carries on exactly as it did.
+    var serverMode by remember { mutableStateOf(false) }
+    var environment by remember { mutableStateOf<Environment?>(null) }
+    var health by remember { mutableStateOf<Health?>(null) }
 
     fun adopt(list: List<Channel>, source: Source, cache: String?) {
         channels = list
@@ -87,19 +100,67 @@ private fun Telly() {
         busy = null
     }
 
+    /** Turns any failure into a sentence, and a dead session into a login screen. */
+    fun onApiFailure(e: Exception) {
+        if (e is ApiException) {
+            message = e.friendly()
+            if (e.needsSignIn) { environment = null; screen = Screen.LOGIN }
+        } else {
+            message = e.message ?: "That did not work."
+        }
+    }
+
     /** Anything that touches the network, off the main thread, with the failure kept. */
     fun load(what: String, work: suspend () -> Unit) {
         busy = what
         message = null
         scope.launch {
             try { withContext(Dispatchers.IO) { work() } }
-            catch (e: Exception) { message = e.message ?: "That did not work." }
+            catch (e: Exception) { onApiFailure(e) }
             finally { busy = null }
         }
     }
 
-    // Reload whatever was in use last time.
+    fun loadFromServer() {
+        load("Loading your channels…") {
+            val list = server.channels()
+            withContext(Dispatchers.Main) {
+                channels = list
+                favourites = server.favourites().mapNotNull { it.serverId?.let { id -> "srv:" + id } }.toSet()
+                current = null
+                screen = Screen.CHANNELS
+            }
+        }
+    }
+
+    // Reload whatever was in use last time: a server session if there is one,
+    // otherwise the playlist this device was holding.
     LaunchedEffect(Unit) {
+        if (serverStore.isConfigured) {
+            serverMode = true
+            screen = if (serverStore.hasSession) Screen.CHANNELS else Screen.LOGIN
+            busy = "Reconnecting…"
+            scope.launch {
+                try {
+                    val env = withContext(Dispatchers.IO) { server.resume() }
+                    if (env == null) {
+                        screen = Screen.LOGIN
+                    } else {
+                        environment = env
+                        val list = withContext(Dispatchers.IO) { server.channels() }
+                        val favs = withContext(Dispatchers.IO) { server.favourites() }
+                        channels = list
+                        favourites = favs.mapNotNull { it.serverId?.let { id -> "srv:" + id } }.toSet()
+                        screen = Screen.CHANNELS
+                    }
+                } catch (e: Exception) {
+                    onApiFailure(e)
+                    if (screen != Screen.LOGIN) screen = Screen.LOGIN
+                } finally { busy = null }
+            }
+            return@LaunchedEffect
+        }
+
         val src = store.source
         if (src != null) {
             load("Reloading your playlist…") {
@@ -124,11 +185,66 @@ private fun Telly() {
     Surface(color = Ink, modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             TopBar(
-                onSources = { screen = Screen.SOURCES },
-                showSources = screen == Screen.CHANNELS
+                onSources = {
+                    if (serverMode) {
+                        // Signing out is the server-mode equivalent of changing playlist.
+                        scope.launch {
+                            withContext(Dispatchers.IO) { runCatching { server.signOut() } }
+                            environment = null; channels = emptyList(); favourites = emptySet()
+                            current = null; message = null; screen = Screen.LOGIN
+                        }
+                    } else screen = Screen.SOURCES
+                },
+                showSources = screen == Screen.CHANNELS,
+                label = if (serverMode) "Sign out" else "Playlist",
+                subtitle = environment?.account?.displayName
             )
             Box(Modifier.weight(1f)) {
                 when (screen) {
+                    Screen.CONNECT -> ConnectScreen(
+                        initialEndpoint = serverStore.endpoint ?: "",
+                        busy = busy != null,
+                        error = message,
+                        health = health,
+                        canUseDirect = true,
+                        onTest = { endpoint ->
+                            health = null
+                            load("Looking for the server…") {
+                                val h = server.test(endpoint)
+                                withContext(Dispatchers.Main) { health = h; message = null }
+                            }
+                        },
+                        onContinue = { endpoint ->
+                            serverStore.endpoint = endpoint
+                            serverMode = true
+                            message = null
+                            screen = Screen.LOGIN
+                        },
+                        onUseDirect = { serverMode = false; message = null; screen = Screen.SOURCES }
+                    )
+
+                    Screen.LOGIN -> LoginScreen(
+                        serverLabel = serverStore.endpoint ?: "",
+                        initialUsername = serverStore.username ?: "",
+                        busy = busy != null,
+                        error = message,
+                        onSignIn = { username, password ->
+                            load("Signing in…") {
+                                val env = server.signIn(serverStore.endpoint.orEmpty(), username, password)
+                                val list = server.channels()
+                                val favs = server.favourites()
+                                withContext(Dispatchers.Main) {
+                                    environment = env
+                                    channels = list
+                                    favourites = favs.mapNotNull { it.serverId?.let { id -> "srv:" + id } }.toSet()
+                                    serverMode = true
+                                    screen = Screen.CHANNELS
+                                }
+                            }
+                        },
+                        onChangeServer = { health = null; message = null; screen = Screen.CONNECT }
+                    )
+
                     Screen.SOURCES -> SourcesScreen(
                         busy = busy,
                         message = message,
@@ -156,7 +272,8 @@ private fun Telly() {
                             store.forget()
                             channels = emptyList(); favourites = emptySet(); current = null
                             message = "Forgotten."
-                        }
+                        },
+                        onConnectServer = { health = null; message = null; screen = Screen.CONNECT }
                     )
 
                     Screen.CHANNELS -> ChannelsScreen(
@@ -165,8 +282,24 @@ private fun Telly() {
                         current = current,
                         busy = busy,
                         onToggleFavourite = { ch ->
-                            favourites = if (favourites.contains(ch.id)) favourites - ch.id else favourites + ch.id
-                            store.favourites = favourites
+                            val on = favourites.contains(ch.id)
+                            favourites = if (on) favourites - ch.id else favourites + ch.id
+                            val id = ch.serverId
+                            if (serverMode && id != null) {
+                                // Kept on the server, so it follows the person to the next screen.
+                                scope.launch {
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            if (on) server.removeFavourite(id) else server.addFavourite(id)
+                                        }
+                                    } catch (e: Exception) {
+                                        favourites = if (on) favourites + ch.id else favourites - ch.id
+                                        onApiFailure(e)
+                                    }
+                                }
+                            } else {
+                                store.favourites = favourites
+                            }
                         },
                         onPlay = { ch ->
                             current = ch
@@ -180,6 +313,13 @@ private fun Telly() {
         current?.let { ch ->
             PlayerScreen(
                 channel = ch,
+                resolveUrl = { channel ->
+                    // Direct channels already carry their address. Server ones
+                    // are given a ticket at the moment of playing, so nothing
+                    // playable is ever stored on the device.
+                    if (channel.needsTicket) server.playbackUrl(channel) else channel.url
+                },
+                onFailure = { e -> onApiFailure(e) },
                 onClose = { current = null }
             )
         }
@@ -187,7 +327,12 @@ private fun Telly() {
 }
 
 @Composable
-private fun TopBar(onSources: () -> Unit, showSources: Boolean) {
+private fun TopBar(
+    onSources: () -> Unit,
+    showSources: Boolean,
+    label: String = "Playlist",
+    subtitle: String? = null
+) {
     Row(
         Modifier.fillMaxWidth().background(Panel).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -204,9 +349,13 @@ private fun TopBar(onSources: () -> Unit, showSources: Boolean) {
             },
             color = Txt, fontWeight = FontWeight.Bold, letterSpacing = 3.sp
         )
+        if (subtitle != null) {
+            Spacer(Modifier.width(14.dp))
+            Text(subtitle, color = Dim, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
         Spacer(Modifier.weight(1f))
         if (showSources) {
-            TextButton(onClick = onSources) { Text("Playlist", color = Gold) }
+            TextButton(onClick = onSources) { Text(label, color = Gold) }
         }
     }
 }
@@ -222,7 +371,8 @@ private fun SourcesScreen(
     onUrl: (String) -> Unit,
     onFile: (String, String) -> Unit,
     onXtream: (String, String, String) -> Unit,
-    onForget: () -> Unit
+    onForget: () -> Unit,
+    onConnectServer: () -> Unit
 ) {
     val ctx = LocalContext.current
     var tab by remember { mutableStateOf(0) }
@@ -308,6 +458,7 @@ private fun SourcesScreen(
         Spacer(Modifier.weight(1f))
         Row {
             if (hasPlaylist) TextButton(onClick = onBack) { Text("Back to channels", color = Gold) }
+            TextButton(onClick = onConnectServer) { Text("Connect to a server", color = Gold) }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onForget) { Text("Forget everything", color = Bad) }
         }
@@ -484,16 +635,41 @@ private fun initials(name: String): String {
 /* ----------------------------- player ----------------------------- */
 
 @Composable
-private fun PlayerScreen(channel: Channel, onClose: () -> Unit) {
+private fun PlayerScreen(
+    channel: Channel,
+    resolveUrl: suspend (Channel) -> String,
+    onFailure: (Exception) -> Unit,
+    onClose: () -> Unit
+) {
     val ctx = LocalContext.current
-    var error by remember(channel.id) { mutableStateOf<String?>(Streams.refusal(channel.url)) }
+    var error by remember(channel.id) { mutableStateOf<String?>(null) }
     var buffering by remember(channel.id) { mutableStateOf(true) }
+    var url by remember(channel.id) { mutableStateOf(if (channel.needsTicket) null else channel.url) }
 
-    val player = remember(channel.id) {
-        if (Streams.refusal(channel.url) != null) null
+    // A server channel needs a ticket first. It is fetched here, off the main
+    // thread, and the player is not built until there is something to play.
+    LaunchedEffect(channel.id) {
+        if (url != null) return@LaunchedEffect
+        try {
+            val resolved = withContext(Dispatchers.IO) { resolveUrl(channel) }
+            url = resolved
+        } catch (e: Exception) {
+            error = if (e is ApiException) e.friendly() else (e.message ?: "That channel could not be opened.")
+            onFailure(e)
+            buffering = false
+        }
+    }
+
+    val target = url
+    LaunchedEffect(target) {
+        if (target != null) Streams.refusal(target)?.let { error = it }
+    }
+
+    val player = remember(channel.id, target) {
+        if (target == null || Streams.refusal(target) != null) null
         else ExoPlayer.Builder(ctx).build().apply {
-            val item = MediaItem.Builder().setUri(channel.url).apply {
-                if (Streams.isHls(channel.url)) setMimeType(MimeTypes.APPLICATION_M3U8)
+            val item = MediaItem.Builder().setUri(target).apply {
+                if (Streams.isHls(target)) setMimeType(MimeTypes.APPLICATION_M3U8)
             }.build()
             setMediaItem(item)
             addListener(object : Player.Listener {
@@ -510,7 +686,7 @@ private fun PlayerScreen(channel: Channel, onClose: () -> Unit) {
         }
     }
 
-    DisposableEffect(channel.id) {
+    DisposableEffect(channel.id, target) {
         onDispose { player?.release() }
     }
 

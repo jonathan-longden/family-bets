@@ -62,4 +62,8 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Tokens are kept in encrypted preferences rather than plain ones: a
+    // rooted or backed-up device should not hand over a session.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }
