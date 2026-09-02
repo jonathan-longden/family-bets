@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  IPTV providers overwhelmingly serve streams over plain http. A browser
+  refuses those on an https page; an app has to opt in, so it does, and
+  says so in its README rather than pretending otherwise.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -1,0 +1,53 @@
+name: Telly Android
+
+# The playlist logic is plain Kotlin and is unit-tested on every push.
+# The APK needs the Android SDK, which this runner has and a laptop may not,
+# so the build happens here and the result is attached to the run.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'telly/android/**'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'telly/android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Unit-test the playlist and Xtream logic
+        run: gradle --project-dir telly/android/core test
+
+      - name: Build the debug APK
+        run: gradle --project-dir telly/android assembleDebug
+
+      - name: Keep the test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-report
+          path: telly/android/core/build/reports/tests/test
+          if-no-files-found: ignore
+
+      - name: Attach the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: telly-debug-apk
+          path: telly/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
