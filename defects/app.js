@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-01 · 46';
+var BUILD = '2026-09-02 · 47';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -2209,29 +2209,34 @@ function look() {
     });
   }
   var vw = v.videoWidth, vh = v.videoHeight;
-  var sq = squareFrame(v, vw, vh);
-  /* The photograph, taken NOW — from the same instant as the square that is
-     about to be inferred, rather than from wherever the vehicle has got to by
-     the time the answer comes back.
 
-     It used to be drawn after inference, straight off the live <video>:
+  /* ONE read of the live video, and everything downstream comes from it.
+     This is evidence, so which frame it is has to be a fact rather than a
+     likelihood.
 
-       c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)   // ~533 ms later
+     The original fault was blatant: the JPEG was drawn AFTER inference
+     returned, straight off the live <video>, while t, the fix and detBox all
+     described the frame the model had been shown. At 34 mph a 700 ms inference
+     is ten metres of road, so the photograph could show the road past the
+     pothole it was filed against.
 
-     which is a different frame from the one the model was shown. At 30 mph a
-     533 ms WASM inference is seven metres of road, and on the CPU fallback it
-     is seventeen seconds of it — so the picture was of somewhere past the
-     defect, while t, the fix and detBox all described the frame that actually
-     contained it. The photograph disagreed with everything filed alongside it.
+     Drawing both here fixed the ten metres and left something weaker in place:
+     two drawImage(v, ...) calls, microseconds apart. In practice a <video>
+     does not advance between two reads inside one synchronous block — but "in
+     practice" is not a property, and a photograph that has to stand up as
+     evidence should not rest on one. So the video is read ONCE, into the
+     photograph, and the square the model sees is cut FROM THAT CANVAS. There
+     is now no second frame for them to disagree about.
 
-     Drawing it here costs one scaled drawImage per look whether or not
-     anything is found. Encoding is still only done on a find — toBlob is where
-     the expense is, and that has not moved. */
+     The cost is one extra resample: 1920×1080 → 1600×900 → 640×640 rather than
+     straight to 640. The intermediate is far larger than 640 in both axes, so
+     nothing the model can resolve is lost on the way through. */
   var shot = $('shot');
   var shotScale = Math.min(1, MAX_EDGE / Math.max(vw, vh));
   shot.width = Math.round(vw * shotScale);
   shot.height = Math.round(vh * shotScale);
   shot.getContext('2d').drawImage(v, 0, 0, shot.width, shot.height);
+  var sq = squareFrame(shot, shot.width, shot.height);
   /* When the picture was taken, and what the fix said at that moment.
 
      Both used to be read at the end, when the entry was written — after
@@ -2255,16 +2260,43 @@ function look() {
     ? { lat: fixAtCapture.lat, lon: fixAtCapture.lon } : null;
   createImageBitmap(sq.canvas).then(function (input) {
     /* The same shape the library's CVImage had, without the library. */
+    var startedAt = Date.now();
     return engine.infer(worker, { bitmapImage: input }).then(function (preds) {
+      var finishedAt = Date.now();
+      /* The bitmap is a copy of the square, held only for the call that needs
+         it. The canvas it came from stays alive as long as `sq` is in scope,
+         which is what the rejectReason texture test reads. */
+      if (input && input.close) { try { input.close(); } catch (e) {} }
       return { preds: takeDiag(preds), w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
-               vw: vw, vh: vh, capturedAt: capturedAt, fix: fixAtCapture };
+               vw: vw, vh: vh, capturedAt: capturedAt, fix: fixAtCapture,
+               /* The frame's own size, so a box in the 640 square can be put
+                  back where it belongs on the photograph that was saved. */
+               shotW: shot.width, shotH: shot.height,
+               inferenceStartedAt: startedAt, inferenceFinishedAt: finishedAt };
+    }, function (e) {
+      if (input && input.close) { try { input.close(); } catch (x) {} }
+      throw e;
     });
   }).then(function (out) {
     var raw = out.preds || [];
-    var hits = raw.map(function (p) { return usableFind(p, out.w, out.h); })
-                  .filter(Boolean)
-                  .filter(function (f) { return f.conf == null || f.conf >= SURVEY_CONF; });
-    if (raw.length && !hits.length) {
+    /* Measurable and confident are two different questions, and answering them
+       together said the wrong thing out loud.
+
+       These used to be one filter, so anything that came back under
+       SURVEY_CONF fell into the branch below and the screen read "Model output
+       unusable". It was seen in the field on a frame the model had answered
+       with a pothole at 0.5351 and a perfectly good box: the output was
+       usable, it was simply below the bar this survey sets for writing a
+       defect down with nobody watching. Telling the driver the model is broken
+       when the model has just seen something is the exact misattribution this
+       file keeps having to correct — and it hides the one number that matters
+       when working out why a pothole was missed. */
+    var measurable = raw.map(function (p) { return usableFind(p, out.w, out.h); })
+                        .filter(Boolean);
+    var hits = measurable.filter(function (f) {
+      return f.conf == null || f.conf >= SURVEY_CONF;
+    });
+    if (raw.length && !measurable.length) {
       /* Nothing measurable came back. Saying so beats writing down a guess, and
          a survey that quietly logged guesses is what produced a morning of
          two-hour emergencies. */
@@ -2287,6 +2319,19 @@ function look() {
          longer covering one stretch of road, in which case saying "Watching"
          would be claiming a coverage the survey is not achieving. */
       var slow = coverageWarning();
+      /* Seen, and not sure enough. Worth saying out loud rather than showing
+         the same "Watching" as an empty road: it is the difference between a
+         model that found nothing and a threshold that turned something down,
+         and only one of those is answered by driving closer. The number is the
+         one to bring to any argument about where the bar should sit. */
+      var near = measurable.reduce(function (a, b) {
+        return (b.conf || 0) > (a.conf || 0) ? b : a;
+      }, { conf: 0 });
+      if (!slow && near.conf) {
+        return hud('Seen ' + typeFor(near.cls).toLowerCase() + ' at ' +
+                   Math.round(near.conf * 100) + '% — under the ' +
+                   Math.round(SURVEY_CONF * 100) + '% bar, not logged');
+      }
       return hud(slow || 'Watching', slow ? 'bad' : '');
     }
     /* Boxes and pixels are both in the 640 square, so no rescaling is needed
@@ -2401,6 +2446,19 @@ function logFind(hits, out, c, cand, replacing) {
            observation; storedAt keeps the second, because the gap between them
            is itself worth being able to see. */
         t: capturedIso, capturedAt: capturedIso, storedAt: new Date().toISOString(),
+        /* The frame's own history, so which frame produced this observation is
+           a matter of record rather than of trust. inferenceStartedAt is
+           strictly after capturedAt and strictly before inferenceFinishedAt;
+           frameAgeMs is how old the photograph already was when the row was
+           written, which is the number that was silently many metres before
+           the capture was moved to the top of the look. */
+        inferenceStartedAt: out && out.inferenceStartedAt
+          ? new Date(out.inferenceStartedAt).toISOString() : null,
+        inferenceFinishedAt: out && out.inferenceFinishedAt
+          ? new Date(out.inferenceFinishedAt).toISOString() : null,
+        inferenceMs: out && out.inferenceFinishedAt && out.inferenceStartedAt
+          ? out.inferenceFinishedAt - out.inferenceStartedAt : null,
+        frameAgeMs: Math.max(0, Date.now() - capturedAt),
         img: blob,
         imp: p.imp, prob: p.prb, score: n,
         /* No category and no response time. The survey has not measured a
@@ -2416,6 +2474,20 @@ function logFind(hits, out, c, cand, replacing) {
         scoredBy: 'survey, unconfirmed',
         detConf: det.conf, detShare: det.share, detCount: det.count,
         detBox: det.box,          // kept so a wrong entry can be diagnosed later
+        /* The same box on the photograph that was actually saved.
+           detBox is in the 640 square, and the square is a STRETCH of a 16:9
+           frame — 1920×1080 squashed 3× horizontally and 1.7× vertically — so
+           its numbers cannot be drawn on the evidence photograph without being
+           put back. Anyone marking up the image needs this one; anyone arguing
+           about the model needs detBox. Both are kept because they are not
+           interchangeable, and working one out from the other later means
+           knowing what the frame size was at the time. */
+        detBoxImage: (out && out.shotW && out.shotH && det.box) ? {
+          x: det.box.x * out.shotW / RF_SIZE, y: det.box.y * out.shotH / RF_SIZE,
+          w: det.box.w * out.shotW / RF_SIZE, h: det.box.h * out.shotH / RF_SIZE
+        } : null,
+        imgW: (out && out.shotW) || null, imgH: (out && out.shotH) || null,
+        videoW: (out && out.vw) || null, videoH: (out && out.vh) || null,
         type: typeFor(best.cls), note: '',
         /* Where the vehicle was, unmodified. These keep the names they have
            always had and mean what they have always meant, so nothing reading
@@ -3524,6 +3596,8 @@ function diagLines() {
     }
     var bench0 = benchLines();
     if (bench0) { L.push(''); L.push(bench0); }
+    var miss0 = missLines();
+    if (miss0) { L.push(''); L.push(miss0); }
   }
   L.push('');
   L.push('SURVEY BACKEND  (what the survey itself is running on, right now)');
@@ -4954,15 +5028,290 @@ function coverageWarning() {
   return null;
 }
 
+/* ---------- why was that pothole not logged? ----------
+
+   Diagnostic only. It changes nothing about the survey: no threshold moves, no
+   weights change, nothing is written to the log. It exists to answer one
+   question that the survey screen cannot, because the survey screen only ever
+   shows what survived.
+
+   A miss has several possible authors and they need different remedies:
+
+     the model produced no pothole candidate at all      — a model problem
+     it produced one, under the bar                      — a threshold argument
+     it produced one, and NMS dropped it                 — a decoder problem
+     it produced one, and the shadow test rejected it    — a filter problem
+     the box was unmeasurable                            — a decode problem
+
+   Only the first is answered by retraining, and the survey's own display
+   cannot tell any of them apart. So this reports EVERY candidate the graph
+   produced above a deliberately low floor, what each stage did to it, and what
+   would have survived at each threshold — which turns "it missed it" into a
+   number somebody can argue with. */
+var MISS_FLOOR = 0.05;          // below this a YOLO anchor is background noise
+var MISS_STEPS = [0.05, 0.10, 0.25, 0.40, 0.50, 0.65];
+var MISS_LIST = 25;             // candidates listed per class, highest first
+var missResult = null;
+
+/* Every anchor, every class — not the winner-takes-all the decoder needs.
+
+   benchMaxScores keeps one score per anchor, the best class, because that is
+   what NMS wants. For a miss that is exactly the wrong summary: a pothole at
+   0.42 sitting under a manhole at 0.44 on the same anchor disappears from the
+   report entirely, and that is a case worth being able to see. */
+function missCandidates(data, numBoxes, numClasses, classNames, size) {
+  var per = [];
+  for (var c = 0; c < numClasses; c++) per.push([]);
+  var best = [];
+  for (var c2 = 0; c2 < numClasses; c2++) best.push(null);
+
+  for (var w = 0; w < numBoxes; w++) {
+    var o = w * (numClasses + 4);
+    for (var a = 0; a < numClasses; a++) {
+      var v = data[w * numClasses + (w + 1) * 4 + a];
+      if (!isFinite(v)) continue;
+      var rec = null;
+      if (v >= MISS_FLOOR) {
+        rec = { anchor: w, cls: classNames[a] || ('class ' + a), conf: v,
+                box: { x: data[o], y: data[o + 1], w: data[o + 2], h: data[o + 3] } };
+        per[a].push(rec);
+      }
+      if (!best[a] || v > best[a].conf) {
+        best[a] = rec || { anchor: w, cls: classNames[a] || ('class ' + a), conf: v,
+                           box: { x: data[o], y: data[o + 1],
+                                  w: data[o + 2], h: data[o + 3] } };
+      }
+    }
+  }
+  per.forEach(function (l) { l.sort(function (x, y) { return y.conf - x.conf; }); });
+  return { per: per, best: best };
+}
+
+/* One picture, every stage, nothing filtered out of the report.
+
+   The preprocessing, the decoder arithmetic, the NMS parameters and the shadow
+   test are the survey's own functions called from here, not copies. A report
+   produced by a second implementation would describe a pipeline that does not
+   run on a road. */
+function missAnalyse(tf, model, canvas, label, srcW, srcH) {
+  var input = null, out = null, moved = null;
+  return Promise.resolve().then(function () {
+    input = benchPreprocess(tf, canvas);
+    var t0 = performance.now();
+    out = model.execute(input);
+    var one = Array.isArray(out) ? out[0] : out;
+    var rawShape = one && one.shape ? [].concat(one.shape) : null;
+    moved = tf.transpose(one, [0, 2, 1]);
+    var data = moved.dataSync();
+    var ms = performance.now() - t0;
+    var numBoxes = moved.shape[1], numClasses = moved.shape[2] - 4;
+    var classNames = (rfMeta && rfMeta.classes) || ['manhole', 'pothole'];
+
+    var lo = Infinity, hi = -Infinity;
+    for (var i = 0; i < data.length; i++) {
+      var v = data[i]; if (v < lo) lo = v; if (v > hi) hi = v;
+    }
+    var sane = isFinite(lo) && isFinite(hi) && Math.abs(hi) < 1e4 && Math.abs(lo) < 1e4;
+
+    var cand = missCandidates(data, numBoxes, numClasses, classNames, RF_SIZE);
+    /* How many anchors clear each bar, per class. This is the table that says
+       whether moving the threshold would have caught the thing, and by how
+       much — rather than anybody guessing. */
+    var steps = MISS_STEPS.map(function (t) {
+      return { at: t, counts: cand.per.map(function (l) {
+        return l.filter(function (r) { return r.conf >= t; }).length;
+      }) };
+    });
+
+    /* NMS exactly as the survey runs it, on the CPU backend as the library
+       does, with the same score, IoU and box cap. */
+    var sc = benchMaxScores(data, numBoxes, numClasses);
+    var boxes = benchBoxes(data, numBoxes, numClasses, RF_SIZE);
+    var was = tf.getBackend();
+    return tf.setBackend('cpu').then(function () {
+      var keep = tf.tidy(function () {
+        return tf.image.nonMaxSuppression(
+          tf.tensor2d(boxes, [numBoxes, 4]), sc.scores,
+          RF_MAXBOX, RF_IOU, RF_SCORE).dataSync();
+      });
+      /* What the survey would do with each survivor, stage by stage. */
+      var kept = [];
+      for (var k = 0; k < keep.length; k++) {
+        var ai = keep[k], o = ai * (numClasses + 4);
+        var p = { class: classNames[sc.classes[ai]], confidence: sc.scores[ai],
+                  bbox: { x: data[o], y: data[o + 1],
+                          width: data[o + 2], height: data[o + 3] } };
+        var u = usableFind(p, RF_SIZE, RF_SIZE);
+        var shadow = u ? rejectReason(canvasCtx(canvas), RF_SIZE, RF_SIZE, u.box) : null;
+        kept.push({ anchor: ai, cls: p.class, conf: p.confidence, box: u && u.box,
+                    share: u && u.share, measurable: !!u,
+                    overBar: !!(u && (u.conf == null || u.conf >= SURVEY_CONF)),
+                    shadow: shadow });
+      }
+      return tf.setBackend(was).then(function () {
+        return {
+          at: new Date().toISOString(), label: label,
+          srcW: srcW, srcH: srcH, inW: RF_SIZE, inH: RF_SIZE,
+          rawShape: rawShape, numBoxes: numBoxes, numClasses: numClasses,
+          classNames: classNames, min: lo, max: hi, sane: sane, ms: Math.round(ms),
+          backend: was, floor: MISS_FLOOR, steps: steps,
+          best: cand.best, per: cand.per.map(function (l) { return l.slice(0, MISS_LIST); }),
+          perTotal: cand.per.map(function (l) { return l.length; }),
+          nmsIn: numBoxes, kept: kept,
+          thresholds: { score: RF_SCORE, iou: RF_IOU, maxBoxes: RF_MAXBOX,
+                        survey: SURVEY_CONF }
+        };
+      });
+    });
+  }).then(function (r) { infDispose(tf, [input, out, moved]); return r; },
+          function (e) { infDispose(tf, [input, out, moved]); throw e; });
+}
+
+/* The shadow test reads pixels, so it needs the context the frame was drawn
+   on rather than the canvas element. */
+function canvasCtx(c) {
+  try { return c.getContext('2d', { willReadFrequently: true }); }
+  catch (e) { return c.getContext('2d'); }
+}
+
+function runMiss(source, w, h, label) {
+  var s = $('tState');
+  busy(true);
+  s.textContent = 'Bringing the model up…';
+  var sq = squareFrame(source, w, h);
+  loadBenchTf().then(function (tf) {
+    /* The session the survey itself uses when there is one, so this reports on
+       the same weights on the same backend rather than on a second setup that
+       happens to be lying around. */
+    var have = infSession && infSession.model
+      ? Promise.resolve(infSession)
+      : infCapabilities(tf).then(function () { return infPick(tf); });
+    return have.then(function (sess) {
+      s.textContent = 'Running one picture through ' + sess.backend.toUpperCase() + '…';
+      return missAnalyse(sess.tf, sess.model, sq.canvas, label, w, h);
+    });
+  }).then(function (r) {
+    missResult = r;
+    paintFrameTest(); paintDiag();
+    var pot = r.classNames.indexOf('pothole');
+    var top = pot >= 0 && r.best[pot] ? r.best[pot].conf : null;
+    s.textContent = top == null
+      ? 'Done — no pothole channel in this output. Read the table below.'
+      : 'Done. Best pothole candidate anywhere in the frame: ' +
+        round4(top) + (top >= SURVEY_CONF ? ' — over the survey bar.'
+                                          : ' — under the ' + SURVEY_CONF + ' survey bar.');
+    busy(false);
+  }, function (e) {
+    missResult = null;
+    s.textContent = 'Miss analysis could not run: ' + String((e && e.message) || e);
+    busy(false);
+  });
+}
+
+function missLines() {
+  var r = missResult;
+  if (!r) return '';
+  var L = [];
+  var pad = function (t, n) { t = String(t); while (t.length < n) t += ' '; return t; };
+  L.push('MISS ANALYSIS  (diagnostic only — nothing here changes the survey)');
+  L.push('picture    ' + r.label + ', ' + r.srcW + '×' + r.srcH);
+  L.push('given to   ' + r.inW + '×' + r.inH + ' — STRETCHED, not cropped: ' +
+    'x×' + (r.srcW / r.inW).toFixed(2) + ', y×' + (r.srcH / r.inH).toFixed(2) +
+    (Math.abs((r.srcW / r.inW) / (r.srcH / r.inH) - 1) > 0.05
+      ? '  (a round pothole arrives ' +
+        ((r.srcW / r.inW) / (r.srcH / r.inH)).toFixed(2) + '× taller than wide)'
+      : ''));
+  L.push('backend    ' + String(r.backend).toUpperCase() + ', ' + r.ms + ' ms');
+  L.push('output     ' + (r.rawShape || []).join('×') + ' → ' + r.numBoxes +
+    ' anchors × ' + r.numClasses + ' classes');
+  L.push('raw range  ' + round4(r.min) + ' to ' + round4(r.max) +
+    (r.sane ? '  (plausible)' : '  ** IMPLAUSIBLE — this backend is not usable **'));
+  L.push('');
+  L.push('HIGHEST CANDIDATE PER CLASS  (anywhere in the frame, before any filter)');
+  r.classNames.forEach(function (n, i) {
+    var b = r.best[i];
+    L.push('  ' + pad(n, 10) + (b ? round4(b.conf) +
+      '   box ' + Math.round(b.box.w) + '×' + Math.round(b.box.h) +
+      ' at ' + Math.round(b.box.x) + ',' + Math.round(b.box.y) +
+      ' (anchor ' + b.anchor + ')' : 'no channel'));
+  });
+  L.push('');
+  L.push('HOW MANY CANDIDATES CLEAR EACH BAR');
+  L.push('  ' + pad('bar', 8) + r.classNames.map(function (n) { return pad(n, 12); }).join(''));
+  r.steps.forEach(function (st) {
+    L.push('  ' + pad(st.at.toFixed(2) + (st.at === r.thresholds.survey ? ' *' : ''), 8) +
+      st.counts.map(function (c) { return pad(c, 12); }).join(''));
+  });
+  L.push('  * the survey bar. Nothing below it is written down unattended.');
+  L.push('');
+  r.classNames.forEach(function (n, i) {
+    L.push('EVERY ' + n.toUpperCase() + ' CANDIDATE ABOVE ' + r.floor +
+      '  (' + r.perTotal[i] + ' total' +
+      (r.perTotal[i] > MISS_LIST ? ', highest ' + MISS_LIST + ' shown' : '') + ')');
+    if (!r.per[i].length) {
+      L.push('  none — the model produced no ' + n + ' candidate at all on this frame');
+    } else {
+      r.per[i].forEach(function (c) {
+        L.push('  ' + round4(c.conf) + '   ' +
+          Math.round(c.box.w) + '×' + Math.round(c.box.h) +
+          ' at ' + Math.round(c.box.x) + ',' + Math.round(c.box.y) +
+          '   ' + ((c.box.w * c.box.h) / (RF_SIZE * RF_SIZE) * 100).toFixed(2) +
+          '% of frame');
+      });
+    }
+    L.push('');
+  });
+  L.push('NMS  (score ' + r.thresholds.score + ', IoU ' + r.thresholds.iou +
+    ', at most ' + r.thresholds.maxBoxes + ')');
+  L.push('  in         ' + r.nmsIn + ' anchors');
+  L.push('  out        ' + r.kept.length);
+  if (!r.kept.length) {
+    L.push('  nothing survived NMS, so nothing could reach the survey');
+  } else {
+    r.kept.forEach(function (k) {
+      L.push('  ' + pad(k.cls, 10) + round4(k.conf) +
+        (!k.measurable ? '   REJECTED: box not measurable'
+          : k.shadow ? '   REJECTED by the shadow test: ' + k.shadow
+          : !k.overBar ? '   under the survey bar (' + r.thresholds.survey + ') — not logged'
+          : '   WOULD BE LOGGED'));
+    });
+  }
+  L.push('');
+  var logged = r.kept.filter(function (k) {
+    return k.measurable && !k.shadow && k.overBar;
+  }).length;
+  L.push('FINAL SURVEY DETECTIONS  ' + logged +
+    (logged ? '' : '  — this frame would produce no entry'));
+  L.push('');
+  L.push('WHAT THIS SAYS');
+  var pot = r.classNames.indexOf('pothole');
+  var bestPot = pot >= 0 && r.best[pot] ? r.best[pot].conf : 0;
+  if (!bestPot || bestPot < MISS_FLOOR) {
+    L.push('  The model produced NO pothole candidate on this frame. Moving the');
+    L.push('  threshold cannot change that; this is the model or the picture, not');
+    L.push('  the application.');
+  } else if (bestPot >= SURVEY_CONF) {
+    L.push('  The model saw a pothole at ' + round4(bestPot) + ', over the bar. If it');
+    L.push('  was not logged, the reason is below — NMS, the shadow test, or the box.');
+  } else {
+    L.push('  The model DID see a pothole here, at ' + round4(bestPot) + ', and the');
+    L.push('  application turned it down: the survey bar is ' + SURVEY_CONF + '.');
+    L.push('  That is a threshold decision, not a model failure. What it would cost');
+    L.push('  to accept it is in the table above — every other candidate at that');
+    L.push('  level gets in too.');
+  }
+  return L.join('\n');
+}
+
 function paintFrameTest() {
   var pre = $('frameText'), wrap = $('tShotWrap');
   /* The benchmark never runs the SDK, so it produces no frame test. Its table
      still belongs on the screen rather than only in the copied diagnostics. */
-  var benchOnly = benchLines();
-  pre.hidden = !frameTest && !benchOnly;
+  var extra = [missLines(), benchLines()].filter(Boolean).join('\n\n');
+  pre.hidden = !frameTest && !extra;
   if (!frameTest) {
     wrap.hidden = true;
-    pre.textContent = benchOnly;
+    pre.textContent = extra;
     return;
   }
   pre.textContent = frameLines(frameTest);
@@ -5120,6 +5469,26 @@ $('benchFile').addEventListener('change', function () {
     .catch(function () { return createImageBitmap(file); })
     .then(function (bmp) {
       runBench(bmp, bmp.width, bmp.height, 'photo · ' + file.name);
+    }, function (e) {
+      busy(false);
+      $('tState').textContent = 'Could not run it: the picture never reached the model — ' +
+        'this browser could not decode "' + file.name + '" (' +
+        (file.type || 'no type given') + '). [' + String((e && e.message) || e) + ']';
+    });
+});
+
+/* The miss analysis, over a photograph of a road that WAS missed.
+   Diagnostic only: it reports what every stage did and changes nothing. */
+$('missFile').addEventListener('change', function () {
+  var file = this.files && this.files[0];
+  this.value = '';
+  if (!file) return;
+  busy(true);
+  $('tState').textContent = 'Decoding the photograph…';
+  createImageBitmap(file, { imageOrientation: 'from-image' })
+    .catch(function () { return createImageBitmap(file); })
+    .then(function (bmp) {
+      runMiss(bmp, bmp.width, bmp.height, 'photo · ' + file.name);
     }, function (e) {
       busy(false);
       $('tState').textContent = 'Could not run it: the picture never reached the model — ' +

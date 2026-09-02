@@ -286,7 +286,16 @@
         <button class="btn ghost" id="bTestBench">Benchmark the camera</button>
         <label class="btn ghost" for="benchFile" id="benchFileLabel">Benchmark a photo</label>
         <input type="file" id="benchFile" accept="image/*" hidden>
+        <label class="btn ghost" for="missFile" id="missFileLabel">Why was this missed?</label>
+        <input type="file" id="missFile" accept="image/*" hidden>
       </div>
+      <span class="hint"><b>Why was this missed?</b> takes a photograph of a road the survey
+        drove past without logging, and reports what every stage did to it: the raw output
+        range, every pothole and manhole candidate the model produced above 0.05 with its box,
+        how many clear each threshold, what NMS kept, what the shadow test rejected, and what
+        would have been logged. It answers the question the survey screen cannot — whether the
+        model never saw the pothole, or saw it and the application turned it down. It is a
+        report only: no threshold moves, no weights change, nothing is written to the log.</span>
       <span class="hint">Runs ONE picture through WebGL, WASM and CPU in turn — same picture,
         same preprocessing, same weights, same decoder, same NMS — and reports what each one
         managed. Three passes each, so the first cold run is separated from the warmed ones.

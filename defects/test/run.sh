@@ -32,6 +32,7 @@ fi
 # deploy*.mjs are excluded: they check the live GitHub Pages site, which needs
 # outbound network and says nothing about the working tree.
 ALL="amend backend bench bounded classes closer decode diag diagnose decodefail
+     evidence miss
      diagscreen dupes frame frametest garbage geo layout local map meta mig note
      offline orient precision priority rawtype realtf secrets selftest shadow
      shell split strip survey sw swall swupgrade test upright vendorcache w3wkey

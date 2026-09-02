@@ -107,16 +107,20 @@ await openDiag();
   const src = await (await fetch(B + 'app.js')).text();
   const calls = src.match(/createImageBitmap\([^)]*/g) || [];
   const onFile = calls.filter(c => /\bfile\b/.test(c));
-  // Two photo entry points now — the real-frame test and the benchmark — each
-  // with a retry without the orientation option. What matters is not the count
-  // but that every one of them is a photo picker: nothing on the camera or
-  // survey path decodes a Blob, so nothing there can raise those words.
-  ok(onFile.length === 4,
-     'the only Blob-decoding calls are the two photo pickers and their retries: ' +
+  // Derived, not hard-coded. There are three photo entry points now — the
+  // real-frame test, the benchmark and the miss analysis — each with a retry
+  // without the orientation option, and this assertion had to be edited every
+  // time one was added, which made it a test of the count rather than of the
+  // property. The property is that every Blob decode belongs to a picker:
+  // nothing on the camera or survey path decodes a Blob, so nothing there can
+  // raise those words.
+  const pickers = src.match(/\$\('(tFile|benchFile|missFile)'\)\.addEventListener/g) || [];
+  ok(pickers.length >= 2,
+     'the photo pickers are found: ' + JSON.stringify(pickers));
+  ok(onFile.length === pickers.length * 2,
+     'and every Blob-decoding call is one of them plus its retry — ' +
+     pickers.length + ' pickers, ' + onFile.length + ' calls: ' +
      JSON.stringify(onFile));
-  const pickers = (src.match(/\$\('(tFile|benchFile)'\)\.addEventListener/g) || []);
-  ok(pickers.length === 2,
-     'and there are exactly two of them, both file pickers: ' + JSON.stringify(pickers));
   const look = src.slice(src.indexOf('function look()'), src.indexOf('function logFind'));
   ok(/createImageBitmap\(sq\.canvas\)/.test(look) && !/createImageBitmap\(file/.test(look),
      'the survey converts a canvas, never a file, so it cannot raise those words');
@@ -230,8 +234,10 @@ await openDiag();
   const look = src.slice(src.indexOf('function look()'), src.indexOf('function logFind'));
   ok(!/sourceFacts|sourceProblem|SourceError|canvasContent/.test(look),
      'the survey loop has none of this checking bolted onto it');
-  ok(/squareFrame\(v, vw, vh\)/.test(look) && /createImageBitmap\(sq\.canvas\)/.test(look),
-     'and builds its frame exactly as it did before');
+  ok(/squareFrame\(shot, shot\.width, shot\.height\)/.test(look) &&
+     /createImageBitmap\(sq\.canvas\)/.test(look),
+     'and still builds its frame the same way — one square, from the captured ' +
+     'photograph, handed over as a bitmap');
   const tf = src.slice(src.indexOf('function testFrame'), src.indexOf('function rotatedFrame'));
   ok(/squareFrame\(source, w, h\)/.test(tf) &&
      /engine\.infer\(worker, \{ bitmapImage: input \}\)/.test(tf),

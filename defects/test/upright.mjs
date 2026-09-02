@@ -225,8 +225,14 @@ const openDiag = async (page) => {
   const look = src.slice(src.indexOf('function look()'), src.indexOf('function logFind'));
   ok(!/rotatedFrame/.test(look),
      'the survey loop does not rotate anything — this release only measures');
-  ok(/squareFrame\(v, vw, vh\)/.test(look),
-     'and still builds its frame exactly as it did');
+  // The square is now cut from the captured photograph rather than from a
+  // second read of the <video> — see evidence.mjs. What this suite cares about
+  // is unchanged and still asserted: ONE unrotated square, built the same way
+  // for every look, with no orientation work anywhere near it.
+  ok(/squareFrame\(shot, shot\.width, shot\.height\)/.test(look),
+     'and still builds one unrotated square, now cut from the captured frame');
+  ok((look.match(/squareFrame\(/g) || []).length === 1,
+     'exactly once per look, so there is no second frame to disagree about');
 }
 
 console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nall passed');
