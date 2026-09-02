@@ -961,6 +961,8 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <div class="kv"><span>Native HLS</span><b id="setNative">—</b></div>
         <div class="kv"><span>Last channel</span><b id="setLast">None</b></div>
         <div class="kv"><span>Stream</span><b id="setStream">—</b></div>
+        <div class="kv"><span>Page origin</span><b id="setOrigin">—</b></div>
+        <div class="kv"><span>Blocked as insecure</span><b id="setInsecure">—</b></div>
       </div>
       <div class="spanel">
         <h3>Stored on this device</h3>
@@ -1950,6 +1952,11 @@ function refreshSettings(){
   $('#setLast').textContent = last ? last.name : 'None';
   const cur = channelById(state.currentId);
   $('#setStream').textContent = cur ? (currentQuality() || (looksLikeHls(cur.url) ? 'HLS' : 'direct')) : '—';
+  $('#setOrigin').textContent = location.protocol.replace(':', '');
+  const ins = insecureCount(state.channels);
+  $('#setInsecure').textContent = !state.channels.length ? '—'
+    : ins ? fmt(ins) + ' of ' + fmt(state.channels.length) + ' channels'
+    : 'none';
   $('#motionState').textContent = document.body.classList.contains('no-motion') ? 'Reduced' : 'Full';
   const ui = store.get(K.ui, {});
   $$('[data-scale]').forEach(b => b.classList.toggle('on', (ui.scale || 'm') === b.dataset.scale));
@@ -2158,6 +2165,21 @@ function teardown(){
 
 function browserCanTry(u){ return /^https?:\/\//i.test(u); }
 
+/* A page served over https may not load an http:// stream: the browser
+   refuses it before any request is made. Nothing in here can change that. */
+function mixedBlocked(u){ return location.protocol === 'https:' && /^http:\/\//i.test(u); }
+
+/* A bare .ts URL is a continuous MPEG-TS stream. hls.js can play .ts
+   segments inside a playlist, but no browser can play the raw stream. */
+function rawTs(u){ return /\.ts(\?|#|$)/i.test(u); }
+
+function insecureCount(chans){
+  if (location.protocol !== 'https:') return 0;
+  let n = 0;
+  for (const c of chans) if (/^http:\/\//i.test(c.url)) n++;
+  return n;
+}
+
 function schemeOf(u){
   const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//.exec(u);
   return m ? m[1].toLowerCase() : '';
@@ -2259,7 +2281,8 @@ function playHls(ch, myGen){
       if (code === 404)
         return fail('Channel not found', 'The server answered 404 for this stream — the playlist may be out of date.', ch);
       if (data.details === 'manifestLoadError' || data.details === 'manifestLoadTimeOut')
-        return fail('Stream is not responding', 'This channel could not be loaded. It may be offline, or the server may be blocking browser requests (CORS).', ch);
+        return fail('Stream is not responding',
+          'Nothing came back for this channel. Either it is offline, or its server does not send the CORS headers a browser needs — most IPTV servers do not, which is why they work in VLC but not in a web page.', ch);
       return fail('The stream dropped out', 'Network error: ' + data.details + '.', ch);
     }
     fail('This channel would not play', data.details || 'Unknown playback error.', ch);
@@ -2276,12 +2299,24 @@ function play(ch, isRetry){
   store.set(K.last, ch.id);
   pushRecent(ch.id);
 
-  if (!browserCanTry(ch.url)){
-    const sch = schemeOf(ch.url).toUpperCase();
+  const blocker =
+    !browserCanTry(ch.url)
+      ? (schemeOf(ch.url)
+          ? { t: schemeOf(ch.url).toUpperCase() + ' streams cannot play in a browser',
+              s: 'This channel is a ' + schemeOf(ch.url) + ':// stream. Browsers only speak http and https; a desktop player such as VLC can open it.' }
+          : { t: 'This channel has no playable stream',
+              s: 'The playlist gives no stream address for this channel.' })
+    : mixedBlocked(ch.url)
+      ? { t: 'Blocked as insecure content',
+          s: 'This channel is an http:// stream and Telly is running on https://, so the browser refuses to load it — it never reaches the network. The stream itself would have to offer https. Opening Telly over http, or using a player that is not a browser, avoids this.' }
+    : rawTs(ch.url)
+      ? { t: 'Raw MPEG-TS cannot play in a browser',
+          s: 'This channel is a bare .ts stream rather than an .m3u8 playlist. Browsers cannot decode it. Many providers offer the same channel as .m3u8 — that one will play.' }
+    : null;
+
+  if (blocker){
     setHero(ch); setBackdrop(ch); setPoster(ch); repaintRows(); setPlayerLive(true); placeSoon();
-    fail(sch ? sch + ' streams cannot play in a browser' : 'This channel has no playable stream',
-         sch ? 'The playlist points at ' + ch.url.split('://')[0] + '://, which browsers do not support. A desktop player such as VLC can open it.'
-             : 'The playlist gives no stream address for this channel.', ch);
+    fail(blocker.t, blocker.s, ch);
     return;
   }
 
@@ -2577,6 +2612,12 @@ function adopt(chans, source, label, fileText){
   refreshSettings();
 
   let note = 'Loaded ' + fmt(chans.length) + ' channels from ' + label + '.';
+  const insecure = insecureCount(chans);
+  if (insecure){
+    note += ' ' + fmt(insecure) + ' of them ' + (insecure === 1 ? 'is an' : 'are') +
+      ' http:// stream' + (insecure === 1 ? '' : 's') +
+      ', which this browser will block because Telly is on https://.';
+  }
   if (fileText != null){
     if (!store.set(K.cache, { name: source.name, text: fileText })){
       store.del(K.cache);

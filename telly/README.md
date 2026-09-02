@@ -69,6 +69,29 @@ address is a placeholder rather than a URL are skipped, and a channel
 carrying an `rtmp://` or `rtsp://` address — which no browser can play —
 says so at once instead of timing out.
 
+## Why a channel will not play
+
+A browser is a fussier IPTV client than VLC, and three of its rules stop
+streams that are perfectly fine elsewhere. Telly names which one it hit
+rather than guessing:
+
+- **Insecure content.** Hosted on `https://` (GitHub Pages, for instance),
+  the browser refuses to load an `http://` stream at all — the request is
+  never made. Most IPTV providers hand out `http://` URLs. Telly counts
+  these when a playlist loads and says so on each one; Settings shows how
+  many of your channels are affected. Opening Telly over `http://` avoids it.
+- **CORS.** For `.m3u8` playback hls.js fetches the playlist and segments
+  with JavaScript, so the stream's server must send
+  `Access-Control-Allow-Origin`. Most IPTV servers do not, which is exactly
+  why a channel plays in VLC and not in a web page. Safari and iOS use the
+  browser's own HLS support and are not bound by this.
+- **Raw MPEG-TS.** A bare `.ts` address is a continuous transport stream and
+  no browser can decode it. The same channel offered as `.m3u8` will play.
+
+None of these are things a web page can work around, so if a provider's
+line-up is `http://` or `.ts` only, a native player is the right tool for
+it — that is a property of the provider, not of Telly.
+
 ## Remote and keyboard
 
 Arrow keys move focus by geometry, so it behaves on a TV remote as well as
