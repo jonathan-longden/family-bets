@@ -35,10 +35,39 @@ descriptions, then a spacious form.
 - **Xtream** — server URL, username and password. Telly calls
   `player_api.php` for the live categories and channels and builds the
   stream URLs itself.
+- **Free channels** — a catalogue of public playlists, one tap each.
 
 Both network options need the server to allow cross-origin requests, since
 the browser fetches the playlist directly. If a server refuses, save the
 playlist and use the File option, which always works.
+
+## Free channels
+
+Telly ships a catalogue of 64 public playlists so it is useful with no
+subscription at all: worldwide indexes, 38 countries, 16 genres, and the
+free ad-supported services. Filter by name or country and tap one; it loads
+exactly like a URL you typed yourself, and the URL is on every row.
+
+Telly hosts none of these. They are maintained by other people, and each
+one can change, go quiet, or refuse browser requests at any time — the
+error says which. The lists come from:
+
+- [iptv-org/iptv](https://github.com/iptv-org/iptv) — a large index of
+  publicly available streams, published as country, category and language
+  playlists.
+- [Free-TV/IPTV](https://github.com/Free-TV/IPTV) — a smaller, hand-checked
+  selection.
+- [i.mjh.nz](https://i.mjh.nz) — line-ups for the free ad-supported
+  services (Pluto TV, Samsung TV Plus, Plex, Roku, Stirr).
+
+These index free-to-air and free ad-supported channels. Telly will play any
+playlist you point it at, but nothing that requires somebody else's paid
+subscription is bundled with it.
+
+Real playlists are untidy, and Telly is built for that: entries whose
+address is a placeholder rather than a URL are skipped, and a channel
+carrying an `rtmp://` or `rtsp://` address — which no browser can play —
+says so at once instead of timing out.
 
 ## Remote and keyboard
 

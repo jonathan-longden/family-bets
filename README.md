@@ -29,9 +29,10 @@ pot live, connect it to a free Firebase Realtime Database.
 >   tenner into a savings pot for you.
 > - **[Telly](telly/)** (`/telly/`) — an IPTV player with a cinematic
 >   ten-foot interface: paste an M3U link, open a playlist file or sign in
->   with Xtream credentials, and watch. A hub with a live hero, a proper
->   channel browser, remote-friendly focus, favourites and thousands of
->   channels without a stutter — all in one HTML file.
+>   with Xtream credentials, and watch — or pick from a built-in catalogue
+>   of free public channel lists. A hub with a live hero, a proper channel
+>   browser, remote-friendly focus, favourites and thousands of channels
+>   without a stutter — all in one HTML file.
 > - **[Fucking Weather](outside/)** (`/outside/`) — a proper weather app
 >   that tells you exactly what the sky is doing, then takes the mickey
 >   out of it: now, hour by hour, today's best and worst bits, tomorrow,
