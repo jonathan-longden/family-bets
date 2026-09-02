@@ -282,6 +282,88 @@ then trusted forever. A backend that was sane at eight o'clock and is not at
 half past is dropped mid-run, the fallback is brought up on the next look, and
 the diagnostics record what it produced when it went bad.
 
+### One frame, and no second opinion about which one
+
+Evidence, so which frame it is has to be a fact rather than a likelihood.
+
+The original fault was blatant: the JPEG was drawn **after** inference returned,
+straight off the live `<video>`, while `t`, the fix and `detBox` all described
+the frame the model had been shown. At 34 mph a 700 ms inference is ten metres
+of road, so the photograph could show the road past the pothole it was filed
+against.
+
+Moving both to the top of the look fixed the ten metres and left something
+weaker standing: two `drawImage(v, …)` calls, microseconds apart. In practice a
+`<video>` does not advance between two reads inside one synchronous block — but
+"in practice" is not a property, and a photograph that has to stand up as
+evidence should not rest on one. The video is now read **once**, into the
+photograph, and the square the model sees is cut from that canvas:
+
+```js
+shot.getContext('2d').drawImage(v, 0, 0, shot.width, shot.height);
+var sq = squareFrame(shot, shot.width, shot.height);      // from the canvas
+```
+
+The cost is one extra resample — 1920×1080 → 1600×900 → 640×640 rather than
+straight to 640 — and the intermediate is far larger than 640 in both axes, so
+nothing the model can resolve is lost on the way through.
+
+Each entry now carries its own chain of custody: `capturedAt`,
+`inferenceStartedAt`, `inferenceFinishedAt`, `storedAt`, `inferenceMs` and
+`frameAgeMs`. `evidence.mjs` asserts the order, and asserts it the hard way —
+it makes the camera move during inference and shows that two cuts of the stored
+frame are identical while the live video has visibly moved on.
+
+**And the box now exists in both coordinate systems.** `detBox` is in the 640
+square, and the square is a *stretch* of a 16:9 frame — 1920×1080 squashed 3×
+horizontally and 1.7× vertically — so its numbers cannot be drawn on the
+evidence photograph without being put back. `detBoxImage` is that same box in
+saved-image pixels. Both are kept because they are not interchangeable: one
+argues about the model, the other marks up the picture.
+
+### Why was this missed?
+
+A miss has several possible authors and they need different remedies:
+
+| what happened | what fixes it |
+|---|---|
+| no pothole candidate at all | the model, or the picture |
+| a candidate under the survey bar | a threshold argument |
+| a candidate NMS dropped | the decoder |
+| a candidate the shadow test rejected | the filter |
+| an unmeasurable box | the decode |
+
+**Only the first is answered by retraining**, and the survey screen cannot tell
+any of them apart, because it only ever shows what survived. So Diagnostics has
+a photo picker that reports what every stage did: the raw range, every candidate
+per class above 0.05 with its box and its share of the frame, how many clear
+each threshold from 0.05 to 0.65, what NMS kept, what the shadow test rejected,
+and what would have been logged.
+
+It is a report only. No threshold moves, nothing is written, and the backend it
+borrows is put back as it found it — `miss.mjs` spends a third of its assertions
+on exactly that.
+
+#### The survey was calling its own successes failures
+
+Seen in the field, on a frame the model had answered with a pothole at **0.5351**
+and a perfectly good box:
+
+```
+MODEL OUTPUT UNUSABLE
+```
+
+It was nothing of the sort. Measurable and confident had been folded into one
+filter, so anything under `SURVEY_CONF` fell into the branch meant for output
+that could not be decoded at all. Telling the driver the model is broken when
+the model has just seen something is the same misattribution this file keeps
+having to correct — and it hid the one number that explains a miss. The two
+questions are now asked separately, and a below-bar detection says what it was:
+
+```
+Seen pothole at 54% — under the 65% bar, not logged
+```
+
 ### The photograph, and which look it comes from
 
 Reported from a van: the picture was taken "either after or way before the
