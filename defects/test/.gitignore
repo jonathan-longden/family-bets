@@ -4,3 +4,8 @@ report/
 # No trailing slash: this is sometimes a symlink rather than a directory, and
 # `node_modules/` matches only directories.
 node_modules
+
+# Screenshots mig.mjs and test.mjs write beside themselves as they run.
+# Output of a test, not an input to one.
+*.png
+!fixtures/*.png
