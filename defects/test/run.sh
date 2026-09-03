@@ -36,8 +36,8 @@ fi
 ALL="amend backend batch bench bounded classes closer decode decodefail diag diagnose
      diagscreen dupes evidence frame frametest garbage geo layout local map meta
      mig miss note offline orient precision priority rawtype realtf secrets
-     selftest shadow shell split strip survey sw swall swupgrade test upright
-     vendorcache w3wkey where"
+     registry selftest shadow shell split strip survey sw swall swupgrade test
+     upright vendorcache w3wkey where"
 SUITES=${*:-$ALL}
 
 mkdir -p report

@@ -69,6 +69,7 @@ in `app.js`.
 | `miss` | the miss-analysis report, and that it changes nothing it reports on |
 | `offline` `sw` `swall` `swupgrade` `vendorcache` | the service worker, caching, and deploys landing |
 | `realtf` | the production inference path on the real TensorFlow.js |
+| `registry` | which model produced an observation, and that the baseline survives |
 | `secrets` | nothing that should not be in a public repository is |
 | `survey` `shell` `test` `bounded` `strip` | the survey loop, the shell, exports |
 

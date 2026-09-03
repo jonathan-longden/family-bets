@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-03 · 49';
+var BUILD = '2026-09-03 · 50';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -119,9 +119,107 @@ var LEAD_MAX_M = 60;          // beyond this somebody has typed a number, not a 
    The version still carries the yolo11n model, so this has to name the yolov8n
    one exactly rather than ask for whatever is deployed. decode.mjs in the test
    suite holds the library's own arithmetic over both layouts. */
-var RF_MODEL_ID = 'jonathan-longden-s-workspace/pothole-fine-tuning-ghl9u-54ssb-1-yolov8n-t3';
-var RF_MODEL = 'pothole-fine-tuning-ghl9u-54ssb';   // only the fallback path uses these
-var RF_VERSION = 1;
+/* THE MODEL REGISTRY.
+
+   Until now there was one model id in one constant, and an entry in the log
+   carried no record of what produced it. That is fine while there is only ever
+   one model and it never changes. It stops being fine the moment a second one
+   is being considered: every observation already in the log becomes evidence of
+   unknown provenance, and "the new model found more" cannot be told from "we
+   drove down a worse road".
+
+   So each model is declared here with what it is, what it was trained on, and
+   when it arrived, and every observation is stamped with the one that made it.
+
+   The baseline is not a default that happens to be first in the list. It is the
+   model this survey is known to work with, it is marked as such, and nothing in
+   the app can select its way out of having one: an unknown key, a model that
+   will not load, a registry someone has edited badly — all of them end up back
+   here. Adding a candidate does not deploy it; ACTIVE_MODEL does, and only a
+   person editing that line does. */
+var MODELS = [
+  { key: 'yolov8n-t3',
+    name: 'YOLOv8n pothole/manhole',
+    version: 1,
+    baseline: true,
+    modelId: 'jonathan-longden-s-workspace/pothole-fine-tuning-ghl9u-54ssb-1-yolov8n-t3',
+    project: 'pothole-fine-tuning-ghl9u-54ssb',
+    projectVersion: 1,
+    arch: 'yolov8n',
+    decoder: 'yolov8',
+    runtime: 'tfjs graph model · WASM, CPU fallback',
+    input: 640,
+    classes: ['manhole', 'pothole'],
+    /* What is actually known about the training run, and no more. The split,
+       the class balance and the metrics live in Roboflow and have never been
+       read into this repository; the report says UNKNOWN rather than a number
+       somebody would later quote. */
+    dataset: 'fork of pothole-model-for-zed-cameras/pothole-fine-tuning-ghl9u',
+    datasetVersion: '1',
+    datasetImages: 17497,
+    epochs: 50,
+    addedAt: '2026-08-19' }
+];
+
+/* Which one the survey runs. Deliberately a constant and not a setting: a
+   model swap is a decision with evidence behind it, not a toggle to be found by
+   somebody scrolling through a diagnostics screen at the roadside. */
+var ACTIVE_MODEL = 'yolov8n-t3';
+
+/* Why the app is not running what was asked for, when that happens. Read by the
+   diagnostics; null when nothing went wrong. */
+var modelFallback = null;
+
+function baselineModel() {
+  for (var i = 0; i < MODELS.length; i++) if (MODELS[i].baseline) return MODELS[i];
+  return MODELS[0] || null;
+}
+function modelByKey(k) {
+  for (var i = 0; i < MODELS.length; i++) if (MODELS[i].key === k) return MODELS[i];
+  return null;
+}
+/* The model in force. Never null while the registry has anything in it, and
+   never something the registry does not describe. */
+function activeModel() {
+  var m = modelByKey(ACTIVE_MODEL);
+  if (m) return m;
+  var b = baselineModel();
+  if (b && !modelFallback) {
+    modelFallback = { asked: ACTIVE_MODEL, using: b.key,
+                      why: 'no model with that key is in the registry',
+                      at: new Date().toISOString() };
+  }
+  return b;
+}
+/* What goes on an observation. Flat scalars on purpose: these travel into the
+   CSV and the GeoJSON, and a nested object is what makes a GIS import quietly
+   drop a column. */
+function modelStamp() {
+  var m = activeModel();
+  if (!m) return {};
+  return { modelKey: m.key, modelName: m.name, modelVersion: m.version,
+           modelArch: m.arch, modelInput: m.input,
+           modelRuntime: m.runtime, datasetVersion: m.datasetVersion };
+}
+/* A model that returns the wrong number of classes is not a model that is doing
+   badly — it is a different model, or a broken export, and decoding it against
+   this registry's class names would put confident nonsense in the log. The
+   check is on the shape, before anything is believed. */
+function modelValidate(rawShape, m) {
+  m = m || activeModel();
+  if (!m || !rawShape || rawShape.length !== 3) return null;
+  var ch = rawShape[1], want = m.classes.length + 4;
+  if (ch !== want) {
+    return 'the graph returned ' + ch + ' channels; ' + m.name + ' is registered ' +
+           'with ' + m.classes.length + ' classes, which is ' + want +
+           '. This is not the model the registry describes.';
+  }
+  return null;
+}
+
+var RF_MODEL_ID = activeModel().modelId;
+var RF_MODEL = activeModel().project;              // only the fallback path uses these
+var RF_VERSION = activeModel().projectVersion;
 
 /* What the model's own words mean in the log.
 
@@ -2430,6 +2528,7 @@ function logFind(hits, out, c, cand, replacing) {
   /* The fix as it was when the frame was taken, not as it is now. */
   var capturedAt = (out && out.capturedAt) || Date.now();
   var f = (out && out.fix) || null;
+  var mdl = modelStamp();
   var est = estimatePosition(f, capturedAt, null);
 
   return new Promise(function (resolve) {
@@ -2472,6 +2571,13 @@ function logFind(hits, out, c, cand, replacing) {
         surface: S.foot ? 'Footway/cycleway' : 'Carriageway',
         tag: S.tag || '',
         scoredBy: 'survey, unconfirmed',
+        /* Which model said so. Without this, an entry logged today and an entry
+           logged after a model swap are indistinguishable, and no comparison
+           between the two can be made afterwards from the log alone. */
+        modelKey: mdl.modelKey, modelName: mdl.modelName,
+        modelVersion: mdl.modelVersion, modelArch: mdl.modelArch,
+        modelInput: mdl.modelInput, modelRuntime: mdl.modelRuntime,
+        datasetVersion: mdl.datasetVersion,
         detConf: det.conf, detShare: det.share, detCount: det.count,
         detBox: det.box,          // kept so a wrong entry can be diagnosed later
         /* The same box on the photograph that was actually saved.
@@ -3531,6 +3637,32 @@ function diagLines() {
     L.push('WEIGHTS');
     L.push('           ' + describeWeights(rfMeta.weights));
   }
+  L.push('');
+  /* The registry, on the glass. A comparison between two models is only worth
+     anything if it is obvious which one was running, and this is the screen
+     somebody photographs and sends back. */
+  L.push('MODEL REGISTRY');
+  var act = activeModel(), base = baselineModel();
+  MODELS.forEach(function (m) {
+    L.push('  ' + (m.key === (act && act.key) ? '> ' : '  ') + m.key +
+      (m.baseline ? '   [BASELINE]' : ''));
+    L.push('      ' + m.name + ' · v' + m.version + ' · ' + m.arch);
+    L.push('      input ' + m.input + ' · classes ' + m.classes.join(', '));
+    L.push('      runtime ' + m.runtime);
+    L.push('      dataset ' + m.dataset + ' · v' + m.datasetVersion +
+      (m.datasetImages ? ' · ' + m.datasetImages.toLocaleString() + ' images' : '') +
+      (m.epochs ? ' · ' + m.epochs + ' epochs' : ''));
+    L.push('      added ' + m.addedAt);
+  });
+  L.push('  active     ' + (act ? act.key : 'NONE — the registry is empty'));
+  L.push('  baseline   ' + (base ? base.key + ' — present' : 'MISSING'));
+  L.push('  fallback   ' + (modelFallback
+    ? 'asked for ' + modelFallback.asked + ', using ' + modelFallback.using +
+      ' — ' + modelFallback.why
+    : 'none — running what was asked for'));
+  L.push('  metrics    UNKNOWN. Precision, recall, mAP and the train/val/test');
+  L.push('             split live in Roboflow and have never been read into');
+  L.push('             this repository. No number here is invented to fill it.');
   L.push('');
   L.push('SELF TEST  (the model, shown a flat grey square with nothing in it)');
   if (!selfTest) {
@@ -4791,6 +4923,13 @@ function infOnce(tf, model, source) {
     out = model.execute(input);
     var one = Array.isArray(out) ? out[0] : out;
     var rawShape = one && one.shape ? [].concat(one.shape) : null;
+    /* Before anything in this output is believed, check it is the output the
+       registry says this model has. A graph with a different number of classes
+       decoded against these class names does not fail — it succeeds, and puts
+       a confident wrong answer in the log. That is the failure mode this app
+       has already had once, with confidences in the millions. */
+    var wrong = modelValidate(rawShape);
+    if (wrong) throw new Error('model mismatch: ' + wrong);
     moved = tf.transpose(one, [0, 2, 1]);
     var data = moved.dataSync();
     var msExecute = performance.now() - t0;

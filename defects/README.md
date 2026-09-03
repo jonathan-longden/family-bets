@@ -1153,6 +1153,63 @@ that does not match what the library expects. Which model to try instead is a
 guess, and every guess otherwise costs a deploy and a drive. The ranges say
 which.
 
+## Which model said so
+
+There was one model id in one constant, and an entry in the log carried no
+record of what produced it. That is fine while there is only ever one model and
+it never changes. It stops being fine the moment a second one is being
+considered: every observation already logged becomes evidence of unknown
+provenance, and *"the new model found more"* cannot be told from *"we drove down
+a worse road"*.
+
+So each model is declared in a registry with what it is, what it was trained on
+and when it arrived, and every observation is stamped with the one that made it
+— `modelKey`, `modelName`, `modelVersion`, `modelArch`, `modelInput`,
+`modelRuntime`, `datasetVersion`, all flat scalars because they travel into the
+CSV and the GeoJSON and a nested object is what makes a GIS import quietly drop
+a column.
+
+Three things the registry is careful about:
+
+**The baseline cannot be selected away from.** It is marked, not merely first in
+the list. An unknown key, a registry someone has edited badly — both end up back
+at the baseline, and the fallback is recorded rather than silent:
+
+```
+  active     yolov8n-t3
+  baseline   yolov8n-t3 — present
+  fallback   none — running what was asked for
+```
+
+**A model swap is not a toggle.** `ACTIVE_MODEL` is a constant that nothing in
+the app assigns; `registry.mjs` greps the source to keep it that way. Adding a
+candidate to the registry does not deploy it. Somebody editing that line does,
+with evidence behind them.
+
+**The metrics say UNKNOWN, and stay that way.** Precision, recall, mAP and the
+train/validation/test split live in Roboflow and have never been read into this
+repository. A registry carrying a plausible-looking mAP nobody measured is worse
+than one that says nothing, because the number gets quoted.
+
+### The output has to be the output the registry describes
+
+A graph with a different number of classes, decoded against these two class
+names, does not fail. It succeeds — and puts a confident wrong answer in the
+log. That is not hypothetical here: it is exactly how a living room was logged
+as a Category 2 on a 28-day clock, from a head the decoder could not read.
+
+So `infOnce` — the one path every look and the startup probe both go through —
+checks the raw shape against the registry *before* it transposes anything:
+
+```
+model mismatch: the graph returned 84 channels; YOLOv8n pothole/manhole is
+registered with 2 classes, which is 6. This is not the model the registry
+describes.
+```
+
+An 80-class COCO export is refused rather than decoded. A shape it cannot judge
+is not failed on a guess.
+
 ## Shadows
 
 Tree shadows across a carriageway are what this model gets wrong, and it is
