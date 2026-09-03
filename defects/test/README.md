@@ -63,6 +63,7 @@ in `app.js`.
 | `dupes` `split` `mig` | one entry per defect, observations vs defects, the migration |
 | `batch` | several photographs in one pass, the table across them, the sweep |
 | `evidence` | one frame from capture to evidence, and the timestamps that prove it |
+| `fourways` | the rotation instrument loses nothing, and which way up a frame is |
 | `frame` `frametest` `upright` `orient` `shadow` | what the camera hands over and what is rejected |
 | `geo` `map` `where` `w3wkey` | position, the map, three-word addresses |
 | `local` `meta` `selftest` `diag` `diagnose` `diagscreen` | the model's own diagnostics |
