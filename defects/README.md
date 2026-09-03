@@ -1199,16 +1199,25 @@ log. That is not hypothetical here: it is exactly how a living room was logged
 as a Category 2 on a 28-day clock, from a head the decoder could not read.
 
 So `infOnce` — the one path every look and the startup probe both go through —
-checks the raw shape against the registry *before* it transposes anything:
+checks against the registry before a single box is read out:
 
 ```
-model mismatch: the graph returned 84 channels; YOLOv8n pothole/manhole is
-registered with 2 classes, which is 6. This is not the model the registry
+model mismatch: the graph decodes to 80 classes; YOLOv8n pothole/manhole is
+registered with 2 (manhole, pothole). This is not the model the registry
 describes.
 ```
 
-An 80-class COCO export is refused rather than decoded. A shape it cannot judge
+An 80-class COCO export is refused rather than decoded. A count it cannot judge
 is not failed on a guess.
+
+The first version of this check read the **raw** output shape and assumed the
+channels were on axis 1. That is true of this model — `[1, 6, 8400]` — and it
+broke `backend.mjs`, whose stub declares the other real layout, `[1, 8400, 6]`.
+The stub was not wrong. Both layouts exist, and reading one as the other is
+precisely the fault that produced confidences in the millions here. A check that
+assumed the layout would have been asserting the very thing in doubt. It now
+checks `numClasses` — the number the decoder is about to match class names
+against — after the transpose, where the layout question is already settled.
 
 ## Shadows
 

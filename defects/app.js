@@ -203,16 +203,21 @@ function modelStamp() {
 }
 /* A model that returns the wrong number of classes is not a model that is doing
    badly — it is a different model, or a broken export, and decoding it against
-   this registry's class names would put confident nonsense in the log. The
-   check is on the shape, before anything is believed. */
-function modelValidate(rawShape, m) {
+   this registry's class names would put confident nonsense in the log.
+
+   The count checked is the one the decoder is about to USE, not the raw output
+   shape. Both layouts are real — [1, 6, 8400] and [1, 8400, 6] — and this app
+   has already been burned by reading one as the other, so a check that assumed
+   which axis the channels were on would be asserting the very thing in doubt.
+   After the transpose there is no ambiguity left: whatever numClasses says is
+   what the class names will be matched against. */
+function modelValidate(numClasses, m) {
   m = m || activeModel();
-  if (!m || !rawShape || rawShape.length !== 3) return null;
-  var ch = rawShape[1], want = m.classes.length + 4;
-  if (ch !== want) {
-    return 'the graph returned ' + ch + ' channels; ' + m.name + ' is registered ' +
-           'with ' + m.classes.length + ' classes, which is ' + want +
-           '. This is not the model the registry describes.';
+  if (!m || typeof numClasses !== 'number' || !isFinite(numClasses)) return null;
+  if (numClasses !== m.classes.length) {
+    return 'the graph decodes to ' + numClasses + ' classes; ' + m.name +
+           ' is registered with ' + m.classes.length + ' (' + m.classes.join(', ') +
+           '). This is not the model the registry describes.';
   }
   return null;
 }
@@ -4923,18 +4928,18 @@ function infOnce(tf, model, source) {
     out = model.execute(input);
     var one = Array.isArray(out) ? out[0] : out;
     var rawShape = one && one.shape ? [].concat(one.shape) : null;
-    /* Before anything in this output is believed, check it is the output the
-       registry says this model has. A graph with a different number of classes
-       decoded against these class names does not fail — it succeeds, and puts
-       a confident wrong answer in the log. That is the failure mode this app
-       has already had once, with confidences in the millions. */
-    var wrong = modelValidate(rawShape);
-    if (wrong) throw new Error('model mismatch: ' + wrong);
     moved = tf.transpose(one, [0, 2, 1]);
     var data = moved.dataSync();
     var msExecute = performance.now() - t0;
     var t1 = performance.now();
     var numBoxes = moved.shape[1], numClasses = moved.shape[2] - 4;
+    /* Before a single box is read out, check this is the output the registry
+       says this model has. A graph with a different number of classes decoded
+       against these class names does not fail — it succeeds, and puts a
+       confident wrong answer in the log. That is the failure mode this app has
+       already had, with confidences in the millions. */
+    var wrong = modelValidate(numClasses);
+    if (wrong) throw new Error('model mismatch: ' + wrong);
 
     var lo = Infinity, hi = -Infinity;
     for (var i = 0; i < data.length; i++) {

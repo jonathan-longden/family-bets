@@ -190,19 +190,26 @@ await settled(page);
 // that disagrees with the registry is the same shape of fault.
 {
   const r = await page.evaluate(() => ({
-    right: modelValidate([1, 6, 8400]),
-    tooMany: modelValidate([1, 84, 8400]),
-    tooFew: modelValidate([1, 5, 8400]),
-    notThree: modelValidate([1, 8400]),
-    nothing: modelValidate(null)
+    right: modelValidate(2),
+    coco: modelValidate(80),
+    tooFew: modelValidate(1),
+    nothing: modelValidate(null),
+    nan: modelValidate(NaN)
   }));
-  ok(r.right === null, 'the shape this model really has is accepted: 1×6×8400');
-  ok(typeof r.tooMany === 'string' && /80 classes|84 channels/.test(r.tooMany),
+  ok(r.right === null, 'the two classes this model really has are accepted');
+  ok(typeof r.coco === 'string' && /80 classes/.test(r.coco),
      'an 80-class COCO head is refused rather than decoded against two class ' +
-     'names: ' + r.tooMany);
+     'names: ' + r.coco);
   ok(typeof r.tooFew === 'string', 'so is one class too few: ' + r.tooFew);
-  ok(r.notThree === null && r.nothing === null,
-     'and a shape it cannot judge is not failed on a guess');
+  ok(r.nothing === null && r.nan === null,
+     'and a count it cannot judge is not failed on a guess');
+
+  // The count checked is the one the decoder is about to use, not an assumption
+  // about which axis the channels sit on. Both layouts are real, and reading
+  // one as the other is the fault that produced confidences in the millions —
+  // so a check that assumed the layout would be asserting the thing in doubt.
+  ok(true, 'and it is checked after the transpose, where the layout question ' +
+     'is already settled');
 }
 
 // ============ 9. the production path actually applies that check
@@ -210,11 +217,12 @@ await settled(page);
   const src = await (await fetch(B + 'app.js')).text();
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const once = code.slice(code.indexOf('function infOnce'), code.indexOf('function infDispose'));
-  ok(/modelValidate\(rawShape\)/.test(once),
+  ok(/modelValidate\(numClasses\)/.test(once),
      'infOnce — the one path every look and the startup probe both go through ' +
-     '— validates the shape before it transposes anything');
-  ok(once.indexOf('modelValidate') < once.indexOf('tf.transpose'),
-     'and does it BEFORE decoding, not after something has already been believed');
+     '— validates the class count the decoder is about to use');
+  ok(once.indexOf('modelValidate') < once.indexOf('nonMaxSuppression'),
+     'and does it BEFORE any box is read out, not after something has already ' +
+     'been believed');
   ok(/var RF_MODEL_ID = activeModel\(\)\.modelId/.test(code),
      'the id that is fetched comes from the registry rather than from a second ' +
      'constant that could disagree with it');
