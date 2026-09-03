@@ -33,7 +33,7 @@ fi
 # shellhelp.mjs are shared helpers with nothing to assert. dumpmiss.mjs prints
 # one miss report and asserts nothing — it exists so the assertions in miss.mjs
 # can be written against text that really appears rather than text I expected.
-ALL="amend backend bench bounded classes closer decode decodefail diag diagnose
+ALL="amend backend batch bench bounded classes closer decode decodefail diag diagnose
      diagscreen dupes evidence frame frametest garbage geo layout local map meta
      mig miss note offline orient precision priority rawtype realtf secrets
      selftest shadow shell split strip survey sw swall swupgrade test upright

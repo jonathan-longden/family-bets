@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-03 · 48';
+var BUILD = '2026-09-03 · 49';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -5049,13 +5049,23 @@ function coverageWarning() {
    would have survived at each threshold — which turns "it missed it" into a
    number somebody can argue with. */
 var MISS_FLOOR = 0.05;          // below this a YOLO anchor is background noise
-var MISS_STEPS = [0.05, 0.10, 0.25, 0.40, 0.50, 0.65];
+var MISS_STEPS = [0.05, 0.10, 0.25, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65];
+/* The sweep is the part of that table anybody would actually consider
+   moving the bar to. Below it the question stops being calibration and
+   starts being whether the model saw anything at all. */
+var MISS_SWEEP = 0.40;
 var MISS_LIST = 25;             // candidates listed per class, highest first
 /* The finest stride in a YOLOv8 head: the P3 feature map is the input divided
    by 8, so anything smaller than this in the tensor has at most one anchor
    sitting on it. Used only to say, in the report, how small is too small. */
 var MISS_STRIDE = 8;
 var missResult = null;
+/* Every photograph in the batch, in the order they were picked. One image
+   answers "was this one missed, and by which stage". The decision that is
+   actually in front of us — whether 0.65 is too high, or whether the model
+   needs replacing — cannot be made from one image, so a batch keeps its runs
+   side by side and the report leads with the table across them. */
+var missRuns = [];
 
 /* Every anchor, every class — not the winner-takes-all the decoder needs.
 
@@ -5140,31 +5150,58 @@ function missAnalyse(tf, model, canvas, label, srcW, srcH) {
     var sc = benchMaxScores(data, numBoxes, numClasses);
     var boxes = benchBoxes(data, numBoxes, numClasses, RF_SIZE);
     var was = tf.getBackend();
-    return tf.setBackend('cpu').then(function () {
+
+    /* One survivor, taken through the rest of the survey's stages. Pulled out
+       because NMS has to be run twice: once at the score the survey uses, for
+       the report of what really happens, and once at the bottom of the sweep,
+       because a bar of 0.40 is meaningless if NMS threw everything under 0.50
+       away before the bar was ever consulted. */
+    var stages = function (ai) {
+      var o = ai * (numClasses + 4);
+      var p = { class: classNames[sc.classes[ai]], confidence: sc.scores[ai],
+                bbox: { x: data[o], y: data[o + 1],
+                        width: data[o + 2], height: data[o + 3] } };
+      var u = usableFind(p, RF_SIZE, RF_SIZE);
+      var shadow = u ? rejectReason(canvasCtx(canvas), RF_SIZE, RF_SIZE, u.box) : null;
+      return { anchor: ai, cls: p.class, conf: p.confidence, box: u && u.box,
+               share: u && u.share, measurable: !!u,
+               overBar: !!(u && (u.conf == null || u.conf >= SURVEY_CONF)),
+               shadow: shadow,
+               /* The survey logs potholes and drops ironwork — "Ironwork —
+                  sound cover, not logged". A report that said a manhole
+                  WOULD BE LOGGED would be wrong about the one thing it
+                  exists to be right about. */
+               logs: typeFor(p.class) === 'Pothole' };
+    };
+    var nmsAt = function (score) {
       var keep = tf.tidy(function () {
         return tf.image.nonMaxSuppression(
           tf.tensor2d(boxes, [numBoxes, 4]), sc.scores,
-          RF_MAXBOX, RF_IOU, RF_SCORE).dataSync();
+          RF_MAXBOX, RF_IOU, score).dataSync();
       });
-      /* What the survey would do with each survivor, stage by stage. */
-      var kept = [];
-      for (var k = 0; k < keep.length; k++) {
-        var ai = keep[k], o = ai * (numClasses + 4);
-        var p = { class: classNames[sc.classes[ai]], confidence: sc.scores[ai],
-                  bbox: { x: data[o], y: data[o + 1],
-                          width: data[o + 2], height: data[o + 3] } };
-        var u = usableFind(p, RF_SIZE, RF_SIZE);
-        var shadow = u ? rejectReason(canvasCtx(canvas), RF_SIZE, RF_SIZE, u.box) : null;
-        kept.push({ anchor: ai, cls: p.class, conf: p.confidence, box: u && u.box,
-                    share: u && u.share, measurable: !!u,
-                    overBar: !!(u && (u.conf == null || u.conf >= SURVEY_CONF)),
-                    shadow: shadow,
-                    /* The survey logs potholes and drops ironwork — "Ironwork —
-                       sound cover, not logged". A report that said a manhole
-                       WOULD BE LOGGED would be wrong about the one thing it
-                       exists to be right about. */
-                    logs: typeFor(p.class) === 'Pothole' });
-      }
+      var list = [];
+      for (var k = 0; k < keep.length; k++) list.push(stages(keep[k]));
+      return list;
+    };
+
+    return tf.setBackend('cpu').then(function () {
+      var kept = nmsAt(RF_SCORE);
+
+      /* The sweep. Not candidate counts — these are boxes that came through
+         NMS and through the shadow test, which is what "a detection" means to
+         the survey. Run from the bottom of the sweep so that lowering the bar
+         is actually tested rather than assumed. */
+      var wide = nmsAt(Math.min(MISS_SWEEP, RF_SCORE));
+      var sweep = MISS_STEPS.filter(function (t) { return t >= MISS_SWEEP; })
+        .map(function (t) {
+          var live = wide.filter(function (k) {
+            return k.measurable && !k.shadow && k.conf >= t;
+          });
+          return { at: t,
+                   pot: live.filter(function (k) { return k.logs; }).length,
+                   man: live.filter(function (k) { return !k.logs; }).length };
+        });
+
       return tf.setBackend(was).then(function () {
         return {
           at: new Date().toISOString(), label: label,
@@ -5172,7 +5209,8 @@ function missAnalyse(tf, model, canvas, label, srcW, srcH) {
           msPre: msPre, inShape: inShape,
           rawShape: rawShape, numBoxes: numBoxes, numClasses: numClasses,
           classNames: classNames, min: lo, max: hi, sane: sane, ms: Math.round(ms),
-          backend: was, floor: MISS_FLOOR, steps: steps,
+          backend: was, floor: MISS_FLOOR, steps: steps, sweep: sweep,
+          sweepFrom: Math.min(MISS_SWEEP, RF_SCORE),
           best: cand.best, per: cand.per.map(function (l) { return l.slice(0, MISS_LIST); }),
           perTotal: cand.per.map(function (l) { return l.length; }),
           nmsIn: numBoxes, kept: kept,
@@ -5197,7 +5235,7 @@ function runMiss(source, w, h, label) {
   busy(true);
   s.textContent = 'Bringing the model up…';
   var sq = squareFrame(source, w, h);
-  loadBenchTf().then(function (tf) {
+  return loadBenchTf().then(function (tf) {
     /* The session the survey itself uses when there is one, so this reports on
        the same weights on the same backend rather than on a second setup that
        happens to be lying around. */
@@ -5210,6 +5248,7 @@ function runMiss(source, w, h, label) {
     });
   }).then(function (r) {
     missResult = r;
+    missRuns.push(r);
     paintFrameTest(); paintDiag();
     var pot = r.classNames.indexOf('pothole');
     var top = pot >= 0 && r.best[pot] ? r.best[pot].conf : null;
@@ -5223,11 +5262,41 @@ function runMiss(source, w, h, label) {
     missResult = null;
     s.textContent = 'Miss analysis could not run: ' + String((e && e.message) || e);
     busy(false);
+    return null;                        // a bad frame ends that image, not the batch
   });
 }
 
-function missLines() {
-  var r = missResult;
+/* Which of the possible authors a miss had, as a letter and a reason. Shared
+   between the table across images and the verdict under each one, so the two
+   can never disagree about the same frame. */
+function missCase(r) {
+  var pot = r.classNames.indexOf('pothole');
+  var bp = (pot >= 0 && r.best[pot]) ? r.best[pot] : null;
+  var best = bp ? bp.conf : 0;
+  var kept = r.kept.filter(function (k) { return k.logs; });
+  if (!best || best < MISS_FLOOR) return { code: 'A', best: 0 };
+  if (best < r.thresholds.survey) return { code: 'B', best: best };
+  if (!kept.length) return { code: 'C', best: best };
+  if (kept.some(function (k) { return k.shadow; })) {
+    return { code: 'D', best: best,
+             why: (kept.filter(function (k) { return k.shadow; })[0] || {}).shadow };
+  }
+  if (kept.some(function (k) { return !k.measurable; })) return { code: 'G', best: best };
+  return { code: '-', best: best };
+}
+
+/* The largest pothole candidate on a frame, which is the one worth quoting:
+   the box that would have been logged if anything was going to be. */
+function missBiggest(r) {
+  var i = r.classNames.indexOf('pothole');
+  var list = (i >= 0 && r.per[i]) ? r.per[i] : [];
+  return list.reduce(function (a, b) {
+    if (!a) return b;
+    return (b.box.w * b.box.h) > (a.box.w * a.box.h) ? b : a;
+  }, null);
+}
+
+function missOne(r) {
   if (!r) return '';
   var L = [];
   var pad = function (t, n) { t = String(t); while (t.length < n) t += ' '; return t; };
@@ -5346,6 +5415,37 @@ function missLines() {
   }
   L.push('');
 
+  /* What the survey would actually detect at each bar — boxes through NMS and
+     through the shadow test, not raw anchors. The two are different by a lot,
+     and the difference is the whole argument about where the bar should be. */
+  L.push('THRESHOLD SWEEP  (diagnostic — the bar in production is still ' +
+    r.thresholds.survey + ')');
+  if (!r.sweep) {
+    L.push('  not available on this run');
+  } else {
+    L.push('  ' + pad('bar', 8) + pad('potholes', 12) + pad('ironwork', 12) +
+      'change from ' + r.thresholds.survey);
+    var atBar = 0;
+    r.sweep.forEach(function (st) {
+      if (st.at === r.thresholds.survey) atBar = st.pot;
+    });
+    r.sweep.forEach(function (st) {
+      var d = st.pot - atBar;
+      L.push('  ' + pad(st.at.toFixed(2) + (st.at === r.thresholds.survey ? ' *' : ''), 8) +
+        pad(st.pot, 12) + pad(st.man, 12) +
+        (d === 0 ? 'same' : (d > 0 ? '+' + d : String(d)) + ' pothole box' +
+          (Math.abs(d) === 1 ? '' : 'es')));
+    });
+    L.push('  NMS was run from ' + r.sweepFrom + ' for this table. In production it');
+    L.push('  runs at ' + r.thresholds.score + ', so anything below that is discarded');
+    L.push('  before the ' + r.thresholds.survey + ' bar is ever consulted — which is');
+    L.push('  why a bar of 0.40 alone would not change what gets logged.');
+    L.push('  Extra boxes at a lower bar are NOT known to be false positives.');
+    L.push('  Nothing here can tell a real pothole from a wet patch; that needs');
+    L.push('  a person looking at the photograph.');
+  }
+  L.push('');
+
   L.push('SURVEY THRESHOLD');
   f('current threshold', r.thresholds.survey);
   f('unchanged by this tool', 'yes — nothing here writes a threshold');
@@ -5372,9 +5472,9 @@ function missLines() {
   /* Which of the possible authors this was. The whole point of the report is
      that these need different remedies and only one of them is retraining. */
   L.push('WHICH KIND OF MISS IS THIS?');
-  var bestPot = bp ? bp.conf : 0;
-  var potKept = r.kept.filter(function (k) { return k.logs; });
-  if (!bestPot || bestPot < MISS_FLOOR) {
+  var verdict = missCase(r);
+  var bestPot = verdict.best;
+  if (verdict.code === 'A') {
     L.push('  A. THE MODEL NEVER PRODUCED A POTHOLE CANDIDATE.');
     L.push('     Moving the threshold cannot reach this, and neither can NMS or');
     L.push('     any filter — there was nothing for them to drop. Three things');
@@ -5389,25 +5489,126 @@ function missLines() {
     L.push('          anchor to be found by. Distant potholes lose height first.');
     L.push('       Otherwise it is the model itself, on this kind of road, in');
     L.push('       this light. Only that last one is answered by retraining.');
-  } else if (bestPot < r.thresholds.survey) {
+  } else if (verdict.code === 'B') {
     L.push('  B. THE MODEL SAW IT AT ' + round4(bestPot) + ' AND THE BAR IS ' +
       r.thresholds.survey + '.');
     L.push('     A threshold decision, not a model failure. The table above says');
     L.push('     what else gets in at each lower bar — that is the cost side.');
-  } else if (!potKept.length) {
+  } else if (verdict.code === 'C') {
     L.push('  C. THE MODEL WAS CONFIDENT (' + round4(bestPot) + ') AND NMS DROPPED IT.');
     L.push('     The decoder, not the model and not the threshold.');
-  } else if (potKept.some(function (k) { return k.shadow; })) {
-    L.push('  D. THE SHADOW/GEOMETRY FILTER REJECTED IT: ' +
-      (potKept.filter(function (k) { return k.shadow; })[0] || {}).shadow);
+  } else if (verdict.code === 'D') {
+    L.push('  D. THE SHADOW/GEOMETRY FILTER REJECTED IT: ' + verdict.why);
     L.push('     The filter, not the model.');
-  } else if (potKept.some(function (k) { return !k.measurable; })) {
+  } else if (verdict.code === 'G') {
     L.push('  G. THE BOX CAME BACK UNMEASURABLE — a decode problem, not a miss.');
   } else {
     L.push('  NOT A MISS. This frame would have been logged: pothole at ' +
       round4(bestPot) + '.');
   }
   return L.join('\n');
+}
+
+/* The table across a batch. One image says which stage dropped one pothole;
+   this says whether the bar is wrong, whether the model is wrong, or whether
+   the pictures are. It is the shape of the decision, not a summary of it —
+   there is no ground truth in the app, so "was there really a pothole?" is a
+   column a person fills in, and the report says UNKNOWN rather than guessing. */
+function missTable() {
+  if (missRuns.length < 2) return '';
+  var L = [];
+  var pad = function (t, n) { t = String(t); while (t.length < n) t += ' '; return t; };
+  var bars = MISS_STEPS.filter(function (t) { return t >= MISS_SWEEP; });
+
+  L.push('ACROSS ALL ' + missRuns.length + ' PHOTOGRAPHS');
+  L.push('');
+  var head = pad('image', 26) + pad('real?', 9) + pad('best pot', 10) +
+    pad('box 640', 12) + pad('box source', 13) +
+    bars.map(function (b) { return pad(b.toFixed(2), 6); }).join('') + 'type';
+  L.push('  ' + head);
+  L.push('  ' + new Array(head.length + 1).join('-'));
+
+  var confs = [], counts = { A: 0, B: 0, C: 0, D: 0, G: 0, '-': 0 };
+  var over = 0, between = 0, none = 0;
+  missRuns.forEach(function (r) {
+    var v = missCase(r);
+    var big = missBiggest(r);
+    counts[v.code] = (counts[v.code] || 0) + 1;
+    confs.push(v.best);
+    if (v.best >= r.thresholds.survey) over++;
+    else if (v.best >= MISS_SWEEP) between++;
+    else none++;
+    var sx = r.srcW / r.inW, sy = r.srcH / r.inH;
+    var name = String(r.label).replace(/^photo · /, '');
+    L.push('  ' + pad(name.length > 24 ? name.slice(0, 23) + '…' : name, 26) +
+      pad('UNKNOWN', 9) +
+      pad(v.best ? round4(v.best) : 'none', 10) +
+      pad(big ? Math.round(big.box.w) + '×' + Math.round(big.box.h) : '—', 12) +
+      pad(big ? Math.round(big.box.w * sx) + '×' + Math.round(big.box.h * sy) : '—', 13) +
+      bars.map(function (b) {
+        var st = (r.sweep || []).filter(function (x) { return x.at === b; })[0];
+        return pad(st ? st.pot : '?', 6);
+      }).join('') + v.code);
+  });
+  L.push('');
+  L.push('  real?      UNKNOWN in every row on purpose. The app has no ground');
+  L.push('             truth; whether each photograph really shows a pothole is');
+  L.push('             a judgement to write in by hand before reading the rest.');
+  L.push('  0.40-0.65  pothole boxes surviving NMS and the shadow test at that');
+  L.push('             bar. Not candidates — detections.');
+  L.push('  type       A no candidate · B under the bar · C NMS dropped it');
+  L.push('             D filter rejected it · G unmeasurable · - would be logged');
+  L.push('');
+
+  var sum = confs.reduce(function (a, b) { return a + b; }, 0);
+  var g = function (k, v) { L.push('  ' + pad(k + ':', 29) + v); };
+  g('photographs tested', missRuns.length);
+  g('best pothole confidence', round4(Math.max.apply(null, confs)));
+  g('worst', round4(Math.min.apply(null, confs)));
+  g('average', round4(sum / confs.length));
+  g('at or above ' + SURVEY_CONF, over);
+  g('between ' + MISS_SWEEP + ' and ' + SURVEY_CONF, between);
+  g('no useful candidate', none);
+  /* A tie is not a most-common outcome, and calling one of them the winner
+     because it sorted first would be the report inventing a finding. */
+  var live = Object.keys(counts).filter(function (k) { return counts[k]; })
+    .sort(function (a, b) { return counts[b] - counts[a]; });
+  var top = live.filter(function (k) { return counts[k] === counts[live[0]]; });
+  g('most common outcome', !live.length ? 'none'
+    : top.length > 1
+      ? 'no single one — ' + top.join(', ') + ' tie at ' + counts[live[0]]
+      : live[0] + ' (' + counts[live[0]] + ' of ' + missRuns.length + ')');
+  L.push('');
+
+  /* The reading, spelled out, because the whole point of the batch is to stop
+     the decision being made on a feeling about one photograph. */
+  L.push('  WHAT THIS SHAPE MEANS');
+  if (over > missRuns.length / 2) {
+    L.push('    Mostly over the bar. The model is working on these frames; a');
+    L.push('    miss in the van is then about which frames get looked at —');
+    L.push('    cadence and speed — not about detection.');
+  } else if (between >= missRuns.length / 2) {
+    L.push('    Mostly between ' + MISS_SWEEP + ' and ' + SURVEY_CONF + '. The model is');
+    L.push('    finding these and the application is declining them. That is a');
+    L.push('    calibration question, and the cost side is false positives —');
+    L.push('    which needs somebody to look at the extra boxes, not more');
+    L.push('    training.');
+  } else if (none > missRuns.length / 2) {
+    L.push('    Mostly no candidate at all. Now the box sizes above matter: if');
+    L.push('    the misses are small and distant, look at camera geometry and');
+    L.push('    input strategy first. If they are large and obvious, that is');
+    L.push('    the case for retraining or replacing the model.');
+  } else {
+    L.push('    No majority. Read the type column: the remedies differ per row');
+    L.push('    and a single verdict over this set would be a guess.');
+  }
+  return L.join('\n');
+}
+
+function missLines() {
+  if (!missRuns.length) return missOne(missResult);
+  return [missTable()].concat(missRuns.map(missOne))
+    .filter(Boolean).join('\n\n' + new Array(72).join('=') + '\n\n');
 }
 
 function paintFrameTest() {
@@ -5587,21 +5788,47 @@ $('benchFile').addEventListener('change', function () {
 /* The miss analysis, over a photograph of a road that WAS missed.
    Diagnostic only: it reports what every stage did and changes nothing. */
 $('missFile').addEventListener('change', function () {
-  var file = this.files && this.files[0];
+  var files = [].slice.call(this.files || []);
   this.value = '';
-  if (!file) return;
+  if (!files.length) return;
+  /* A new pick is a new batch. Otherwise the table across images would grow
+     every time somebody tried one more photograph, and quietly stop being a
+     table about the set they meant. */
+  missRuns = [];
+  missResult = null;
+  paintFrameTest();
   busy(true);
-  $('tState').textContent = 'Decoding the photograph…';
-  createImageBitmap(file, { imageOrientation: 'from-image' })
-    .catch(function () { return createImageBitmap(file); })
-    .then(function (bmp) {
-      runMiss(bmp, bmp.width, bmp.height, 'photo · ' + file.name);
-    }, function (e) {
+
+  var next = function (i) {
+    if (i >= files.length) {
       busy(false);
-      $('tState').textContent = 'Could not run it: the picture never reached the model — ' +
-        'this browser could not decode "' + file.name + '" (' +
-        (file.type || 'no type given') + '). [' + String((e && e.message) || e) + ']';
-    });
+      if (files.length > 1) {
+        $('tState').textContent = 'Done. ' + missRuns.length + ' of ' +
+          files.length + ' photographs went through. The table across them is ' +
+          'at the top of the report.';
+      }
+      return;
+    }
+    var file = files[i];
+    $('tState').textContent = files.length > 1
+      ? 'Decoding ' + (i + 1) + ' of ' + files.length + ': ' + file.name + '…'
+      : 'Decoding the photograph…';
+    return createImageBitmap(file, { imageOrientation: 'from-image' })
+      .catch(function () { return createImageBitmap(file); })
+      .then(function (bmp) {
+        return runMiss(bmp, bmp.width, bmp.height, 'photo · ' + file.name);
+      }, function (e) {
+        /* One picture this browser cannot decode should not take the other
+           seven with it — say which one, and carry on. */
+        $('tState').textContent = 'Could not run it: the picture never reached ' +
+          'the model — this browser could not decode "' + file.name + '" (' +
+          (file.type || 'no type given') + '). [' +
+          String((e && e.message) || e) + ']';
+        return null;
+      })
+      .then(function () { return next(i + 1); });
+  };
+  next(0);
 });
 
 $('tFile').addEventListener('change', function () {

@@ -61,6 +61,7 @@ in `app.js`.
 | `closer` | the photograph is the frame the model saw; a closer look replaces the entry |
 | `decode` `rawtype` `garbage` `precision` `layout` | reading the model's output, and refusing to guess at it |
 | `dupes` `split` `mig` | one entry per defect, observations vs defects, the migration |
+| `batch` | several photographs in one pass, the table across them, the sweep |
 | `evidence` | one frame from capture to evidence, and the timestamps that prove it |
 | `frame` `frametest` `upright` `orient` `shadow` | what the camera hands over and what is rejected |
 | `geo` `map` `where` `w3wkey` | position, the map, three-word addresses |

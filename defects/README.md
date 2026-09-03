@@ -376,6 +376,57 @@ application it is diagnosing is worse than no diagnostic, so the class that
 survives now carries whether the survey would write it down, and ironwork says
 so plainly.
 
+#### The bar is 0.65, but the floor is 0.50
+
+The obvious way to ask "what would happen at 0.40?" is to count the anchors
+above 0.40 and call them detections. That answer is wrong, and wrong in the
+direction that makes lowering the bar look attractive. NMS runs at `RF_SCORE`,
+which is **0.50**: everything below it is discarded before `SURVEY_CONF` is
+consulted at all. So the sweep re-runs NMS from the bottom of the range and
+counts what comes through it *and* through the shadow test — detections, not
+candidates — and says what it did:
+
+```
+THRESHOLD SWEEP  (diagnostic — the bar in production is still 0.65)
+  bar     potholes    ironwork    change from 0.65
+  0.40    1           0           +1 pothole box
+  0.50    1           0           +1 pothole box
+  0.55    0           0           same
+  0.65 *  0           0           same
+  NMS was run from 0.4 for this table. In production it
+  runs at 0.5, so anything below that is discarded
+  before the 0.65 bar is ever consulted — which is
+  why a bar of 0.40 alone would not change what gets logged.
+```
+
+It also refuses to call the extra boxes false positives. Nothing in the app can
+tell a real pothole from a wet patch; that is a person with the photograph, and
+the report says so rather than handing over a number that looks like evidence.
+
+#### One photograph cannot answer the question being asked of it
+
+"Is 0.65 too high?" and "does the model need replacing?" are questions about a
+set, not a frame. So the picker takes several photographs at once and leads with
+the table across them:
+
+```
+  image                     real?    best pot  box 640     box source   0.40  0.45  0.50  0.55  0.60  0.65  type
+  road-one.png              UNKNOWN  0.88      56×49       8×7          1     1     1     1     1     1     -
+  road-two.png              UNKNOWN  0.5351    56×49       8×7          1     1     1     0     0     0     B
+  road-three.png            UNKNOWN  none      —           —            0     0     0     0     0     0     A
+```
+
+`real?` is `UNKNOWN` in every row and stays that way. The app has no ground
+truth, and a column of guesses about which photographs really contain a pothole
+would quietly become the premise of the retrain decision. It is a column for a
+person to fill in.
+
+The aggregates underneath — best, worst, average, how many cleared the bar, how
+many sat between 0.40 and 0.65, how many produced nothing — are what separates
+"the application is declining what the model finds" from "the model is not
+finding it". A tie is reported as a tie rather than as whichever outcome sorted
+first.
+
 #### The survey was calling its own successes failures
 
 Seen in the field, on a frame the model had answered with a pothole at **0.5351**

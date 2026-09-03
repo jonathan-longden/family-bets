@@ -73,7 +73,7 @@ await openDiag();
 // case and returns it unchanged, which silently tests the same thing twice.
 const runOn = async (anchors) => {
   await install(anchors);
-  await page.evaluate(() => { window.missResult = null; paintFrameTest(); });
+  await page.evaluate(() => { window.missResult = null; window.missRuns = []; paintFrameTest(); });
   await page.waitForFunction(() => !/MISS ANALYSIS/.test(
     document.getElementById('frameText').textContent), null, { timeout: 10000 });
   await page.setInputFiles('#missFile', join(FIXTURES, 'pothole-fixture.png'));
