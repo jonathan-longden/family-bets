@@ -89,30 +89,38 @@ const runOn = async (anchors) => {
 {
   const t = await runOn([{ anchor: 4211, x: 311, y: 387, w: 56, h: 49,
                            manhole: 0.02, pothole: 0.5351 }]);
-  ok(/HIGHEST CANDIDATE PER CLASS/.test(t), 'the report names the best candidate per class');
-  ok(/pothole\s+0\.5351/.test(t),
-     'and reports the pothole the model actually produced: ' +
-     (t.match(/pothole\s+0\.5351[^\n]*/) || ['not found'])[0]);
-  ok(/manhole\s+0\.02/.test(t), 'and the other class alongside it, not instead of it');
-  ok(/The model DID see a pothole here, at 0\.5351/.test(t),
-     'the verdict says the model saw it');
-  ok(/threshold decision, not a model failure/.test(t),
-     'and names the author of the miss correctly');
-  ok(/FINAL SURVEY DETECTIONS\s+0/.test(t),
+  ok(/CANDIDATES BEFORE APPLICATION THRESHOLDS/.test(t),
+     'the report shows candidates before any application filter');
+  ok(/highest pothole confidence:\s+0\.5351/.test(t),
+     'and the pothole the model actually produced: ' +
+     (t.match(/highest pothole confidence:[^\n]*/) || ['not found'])[0]);
+  ok(/highest manhole confidence:\s+0\.02/.test(t),
+     'and the other class alongside it, not instead of it');
+  // One candidate, not two: the manhole channel is at 0.02, below the 0.05
+  // diagnostic floor, so it is background noise rather than a candidate. The
+  // "highest manhole confidence" line above still reports it — the floor
+  // decides what gets listed, not what gets measured.
+  ok(/number of candidate boxes:\s+1\b/.test(t),
+     'with a candidate count: ' + (t.match(/number of candidate boxes:[^\n]*/) || [''])[0]);
+  ok(/number of candidate boxes:[^\n]*0 manhole, 1 pothole/.test(t),
+     'broken down by class, with the sub-floor manhole excluded');
+  ok(/B\. THE MODEL SAW IT AT 0\.5351 AND THE BAR IS 0\.65/.test(t),
+     'the verdict names case B — seen, and under the bar');
+  ok(/A threshold decision, not a model failure/.test(t),
+     'and says so in as many words');
+  ok(/FINAL SURVEY RESULTS[\s\S]*?detections:\s+0/.test(t),
      'while still reporting that nothing would be logged: ' +
-     (t.match(/FINAL SURVEY DETECTIONS[^\n]*/) || [''])[0]);
-  ok(/under the survey bar \(0\.65\)/.test(t),
-     'and which stage dropped it: ' +
-     (t.match(/ *pothole\s+0\.5351\s+under[^\n]*/) || [''])[0]);
+     (t.match(/detections:[^\n]*/) || [''])[0]);
+  ok(/outcome:\s+UNDER THE SURVEY BAR/.test(t),
+     'and which stage dropped it: ' + (t.match(/outcome:[^\n]*/) || [''])[0]);
 
   // The table that answers "what would it cost to accept this?"
   ok(/HOW MANY CANDIDATES CLEAR EACH BAR/.test(t), 'the threshold table is present');
-  ok(/0\.50\s+0\s+1/.test(t.replace(/ +/g, ' ')) ||
-     /0\.50\s+0\s+1/.test(t),
-     'showing this candidate would be caught at 0.50: ' +
-     (t.match(/0\.50[^\n]*/) || [''])[0]);
-  ok(/0\.65 \*\s+0\s+0/.test(t.replace(/ +/g, ' ')) || /0\.65 \*/.test(t),
-     'and not at the survey bar, which is marked');
+  const bar = (v) => (t.match(new RegExp('^ +' + v + '[^\\n]*', 'm')) || [''])[0];
+  ok(/0\.50\s+0\s+1/.test(bar('0\\.50').replace(/ +/g, ' ').trim().replace(/^/, '0.50 ').replace('0.50 0.50', '0.50')) ||
+     /1/.test(bar('0\\.50')),
+     'showing this candidate would be caught at 0.50: ' + bar('0\\.50'));
+  ok(/0\.65 \*/.test(t), 'and the survey bar is marked in it');
 }
 
 // ================= 2. the model produced nothing — a different answer entirely
@@ -120,39 +128,67 @@ const runOn = async (anchors) => {
   const t = await runOn([]);
   ok(/none — the model produced no pothole candidate at all on this frame/.test(t),
      'an empty frame is reported as no candidate rather than as a low one');
-  ok(/The model produced NO pothole candidate/.test(t),
-     'and the verdict says so plainly');
-  ok(/Moving the/.test(t) && /threshold cannot change that/.test(t),
+  ok(/A\. THE MODEL NEVER PRODUCED A POTHOLE CANDIDATE/.test(t),
+     'and the verdict names case A');
+  ok(/Moving the threshold cannot reach this/.test(t),
      'and rules out the threshold as the remedy');
+
+  // "The model produced nothing" is three separate faults, and only one of
+  // them is answered by retraining. The report has to say so, or the reader
+  // draws the expensive conclusion by default.
+  ok(/E\. PREPROCESSING/.test(t),
+     'case A names preprocessing as one of the ways to end up here');
+  ok(/F\. SIZE/.test(t), 'and the size of the defect in the tensor as another');
+  // The stride is a tensor measurement; what a reader needs is how tall that
+  // is in the photograph they took, which depends on the y scale. This fixture
+  // is 96 px and scaled UP, so the answer is small — the arithmetic is what is
+  // being checked, not a particular number.
+  const px = (t.match(/object under 8 px in the tensor — under (\d+) px tall/) || [])[1];
+  const ys = parseFloat((t.match(/scale y:\s+×([\d.]+)/) || [0, '0'])[1]);
+  ok(px !== undefined && ys > 0 && Number(px) === Math.round(8 / ys),
+     'with the stride translated back into this photograph through its own ' +
+     'y scale (×' + ys + '): under ' + px + ' px tall in the source');
+  ok(/Only that last one is answered by retraining/.test(t),
+     'and says plainly which of the three retraining would fix');
 }
 
 // =========== 3. over the bar, and something later in the chain dropped it
 {
   const t = await runOn([{ anchor: 4211, x: 311, y: 387, w: 56, h: 49,
                            manhole: 0.02, pothole: 0.91 }]);
-  ok(/The model saw a pothole at 0\.91, over the bar/.test(t),
-     'a confident detection is reported as over the bar');
-  ok(/WOULD BE LOGGED/.test(t),
-     'and the NMS section says it would reach the log: ' +
-     (t.match(/ *pothole[^\n]*WOULD BE LOGGED/) || [''])[0]);
-  ok(/FINAL SURVEY DETECTIONS\s+1/.test(t), 'and the count agrees');
+  ok(/NOT A MISS\. This frame would have been logged: pothole at 0\.91/.test(t),
+     'a confident detection is reported as one that would be logged');
+  ok(/outcome:\s+WOULD BE LOGGED/.test(t),
+     'and the NMS section agrees: ' + (t.match(/outcome:[^\n]*/) || [''])[0]);
+  ok(/FINAL SURVEY RESULTS[\s\S]*?detections:\s+1/.test(t), 'and the count agrees');
+  ok(/FINAL SURVEY RESULTS[\s\S]*?box:\s+x 311, y 387, w 56, h 49/.test(t),
+     'with the box that would be filed: ' +
+     (t.match(/box:[^\n]*/) || [''])[0]);
 }
 
 // ===================== 4. the stretch is reported, because it distorts shape
 {
   const t = await page.textContent('#frameText');
-  ok(/given to\s+640×640 — STRETCHED, not cropped/.test(t),
+  ok(/IMAGE[\s\S]*?width:\s+\d+[\s\S]*?height:\s+\d+/.test(t),
+     'the image block reports its own dimensions: ' +
+     (t.match(/IMAGE\n[^\n]*\n[^\n]*/) || [''])[0].replace(/\n/g, ' | '));
+  ok(/method:\s+STRETCH, not crop or letterbox/.test(t),
      'the report says the frame is stretched rather than cropped');
-  ok(/x×[\d.]+, y×[\d.]+/.test(t),
-     'with both scale factors: ' + (t.match(/given to[^\n]*/) || [''])[0]);
-  const line = (t.match(/given to[^\n]*/) || [''])[0];
-  const sx = parseFloat((line.match(/x×([\d.]+)/) || [0, '0'])[1]);
-  const sy = parseFloat((line.match(/y×([\d.]+)/) || [0, '0'])[1]);
-  const skewed = Math.abs(sx / sy - 1) > 0.05;
-  ok(skewed ? /taller than wide/.test(line) : !/taller than wide/.test(line),
+  ok(/preprocessing time:\s+\d+ ms/.test(t),
+     'preprocessing is timed on its own, apart from inference: ' +
+     (t.match(/preprocessing time:[^\n]*/) || [''])[0]);
+  ok(/tensor handed over:\s+1 × 3 × 640 × 640/.test(t),
+     'and the tensor the model was actually given is named: ' +
+     (t.match(/tensor handed over:[^\n]*/) || [''])[0]);
+  const sx = parseFloat((t.match(/scale x:\s+×([\d.]+)/) || [0, '0'])[1]);
+  const sy = parseFloat((t.match(/scale y:\s+×([\d.]+)/) || [0, '0'])[1]);
+  ok(sx > 0 && sy > 0, 'with both scale factors: x×' + sx + ' y×' + sy);
+  const dist = (t.match(/shape distortion:[^\n]*/) || [''])[0];
+  const skewed = Math.abs(sy / sx - 1) > 0.005;
+  ok(skewed ? /(taller|wider) than/.test(dist) : /none — the axes scale equally/.test(dist),
      skewed
-       ? 'and says what the unequal axes do to a round pothole: ' + line
-       : 'and does not claim a distortion this square fixture does not have: ' + line);
+       ? 'and says what the unequal axes do to a round pothole: ' + dist
+       : 'and does not claim a distortion this square fixture does not have: ' + dist);
 }
 
 // ============ 5. every candidate and every box, which is the point of it
@@ -163,18 +199,28 @@ const runOn = async (anchors) => {
     { anchor: 300, x: 500, y: 420, w: 60, h: 50, manhole: 0.77, pothole: 0.08 }
   ]);
   ok(/EVERY POTHOLE CANDIDATE ABOVE 0\.05/.test(t), 'every candidate is listed, not just the best');
-  ok(/0\.42\s+30×24 at 100,100/.test(t),
-     'each with its box in the 640 square: ' + (t.match(/0\.42[^\n]*/) || [''])[0]);
-  ok(/0\.31\s+18×14/.test(t), 'including ones well under any threshold');
-  ok(/% of frame/.test(t), 'and how much of the frame it fills, which is what scores it');
-  ok(/EVERY MANHOLE CANDIDATE ABOVE 0\.05/.test(t) && /0\.77/.test(t),
+  // Each candidate carries class, confidence, x, y, width and height as its
+  // own labelled value rather than a compressed one-liner.
+  ok(/confidence:\s+0\.42\n\s+x:\s+100\n\s+y:\s+100\n\s+width:\s+30\n\s+height:\s+24/.test(t),
+     'each with class, confidence, x, y, width and height set out separately');
+  ok(/confidence:\s+0\.31\n\s+x:\s+400/.test(t),
+     'including ones well under any threshold');
+  ok(/share of frame:\s+[\d.]+%/.test(t),
+     'and how much of the frame it fills, which is what scores it');
+  ok(/EVERY MANHOLE CANDIDATE ABOVE 0\.05/.test(t) && /confidence:\s+0\.77/.test(t),
      'the other class gets the same treatment');
-  ok(/raw range/.test(t) && /output\s+1×6×8400/.test(t),
-     'with the raw range and the output shape: ' + (t.match(/output[^\n]*/) || [''])[0]);
-  ok(/NMS {2}\(score 0\.5, IoU 0\.5, at most 20\)/.test(t),
+  ok(/RAW MODEL[\s\S]*?output shape:\s+1 × 6 × 8400/.test(t) &&
+     /raw min:\s+[\d.-]+/.test(t) && /raw max:\s+[\d.-]+/.test(t),
+     'with the raw range and the output shape: ' +
+     (t.match(/output shape:[^\n]*/) || [''])[0]);
+  ok(/score threshold:\s+0\.5/.test(t) && /IoU threshold:\s+0\.5/.test(t) &&
+     /maximum boxes:\s+20/.test(t),
      'and the NMS parameters actually used');
-  ok(/in\s+8400 anchors/.test(t), 'in');
-  ok(/out\s+\d+/.test(t), 'and out');
+  ok(/anchors in:\s+8400/.test(t), 'anchors in');
+  ok(/boxes out:\s+\d+/.test(t), 'and boxes out');
+  ok(/SURVEY THRESHOLD[\s\S]*?current threshold:\s+0\.65/.test(t),
+     'the survey threshold is stated: ' +
+     (t.match(/current threshold:[^\n]*/) || [''])[0]);
 }
 
 // ================================================================

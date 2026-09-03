@@ -344,6 +344,38 @@ It is a report only. No threshold moves, nothing is written, and the backend it
 borrows is put back as it found it — `miss.mjs` spends a third of its assertions
 on exactly that.
 
+The report ends by naming which row of that table this frame belongs to, because
+the rows are easy to confuse when you are reading numbers rather than causes:
+
+```
+WHICH KIND OF MISS IS THIS?
+  B. THE MODEL SAW IT AT 0.5351 AND THE BAR IS 0.65.
+     A threshold decision, not a model failure. The table above says
+     what else gets in at each lower bar — that is the cost side.
+```
+
+Two of its lines are there because of what the frame is put through before the
+model sees it. Preprocessing stretches the photograph to 640 × 640 rather than
+cropping or letterboxing it, so the report prints both scale factors and what
+they do to a round object:
+
+```
+  scale x:                     ×0.3333
+  scale y:                     ×0.5926
+  shape distortion:            a round pothole arrives 1.78× taller than wide
+```
+
+That is the frame the model is judged on, and it is not the frame you took.
+The preprocessing time is timed separately from inference for the same reason —
+so a slow report cannot be blamed on the model by default.
+
+One accuracy note, found by reading the output rather than the code: the report
+first said `WOULD BE LOGGED` under a manhole, which the survey has never logged
+(`Ironwork — sound cover, not logged`). A diagnostic that misreports the
+application it is diagnosing is worse than no diagnostic, so the class that
+survives now carries whether the survey would write it down, and ironwork says
+so plainly.
+
 #### The survey was calling its own successes failures
 
 Seen in the field, on a frame the model had answered with a pothole at **0.5351**

@@ -61,9 +61,11 @@ in `app.js`.
 | `closer` | the photograph is the frame the model saw; a closer look replaces the entry |
 | `decode` `rawtype` `garbage` `precision` `layout` | reading the model's output, and refusing to guess at it |
 | `dupes` `split` `mig` | one entry per defect, observations vs defects, the migration |
+| `evidence` | one frame from capture to evidence, and the timestamps that prove it |
 | `frame` `frametest` `upright` `orient` `shadow` | what the camera hands over and what is rejected |
 | `geo` `map` `where` `w3wkey` | position, the map, three-word addresses |
 | `local` `meta` `selftest` `diag` `diagnose` `diagscreen` | the model's own diagnostics |
+| `miss` | the miss-analysis report, and that it changes nothing it reports on |
 | `offline` `sw` `swall` `swupgrade` `vendorcache` | the service worker, caching, and deploys landing |
 | `realtf` | the production inference path on the real TensorFlow.js |
 | `secrets` | nothing that should not be in a public repository is |
