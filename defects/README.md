@@ -344,6 +344,89 @@ It is a report only. No threshold moves, nothing is written, and the backend it
 borrows is put back as it found it — `miss.mjs` spends a third of its assertions
 on exactly that.
 
+The report ends by naming which row of that table this frame belongs to, because
+the rows are easy to confuse when you are reading numbers rather than causes:
+
+```
+WHICH KIND OF MISS IS THIS?
+  B. THE MODEL SAW IT AT 0.5351 AND THE BAR IS 0.65.
+     A threshold decision, not a model failure. The table above says
+     what else gets in at each lower bar — that is the cost side.
+```
+
+Two of its lines are there because of what the frame is put through before the
+model sees it. Preprocessing stretches the photograph to 640 × 640 rather than
+cropping or letterboxing it, so the report prints both scale factors and what
+they do to a round object:
+
+```
+  scale x:                     ×0.3333
+  scale y:                     ×0.5926
+  shape distortion:            a round pothole arrives 1.78× taller than wide
+```
+
+That is the frame the model is judged on, and it is not the frame you took.
+The preprocessing time is timed separately from inference for the same reason —
+so a slow report cannot be blamed on the model by default.
+
+One accuracy note, found by reading the output rather than the code: the report
+first said `WOULD BE LOGGED` under a manhole, which the survey has never logged
+(`Ironwork — sound cover, not logged`). A diagnostic that misreports the
+application it is diagnosing is worse than no diagnostic, so the class that
+survives now carries whether the survey would write it down, and ironwork says
+so plainly.
+
+#### The bar is 0.65, but the floor is 0.50
+
+The obvious way to ask "what would happen at 0.40?" is to count the anchors
+above 0.40 and call them detections. That answer is wrong, and wrong in the
+direction that makes lowering the bar look attractive. NMS runs at `RF_SCORE`,
+which is **0.50**: everything below it is discarded before `SURVEY_CONF` is
+consulted at all. So the sweep re-runs NMS from the bottom of the range and
+counts what comes through it *and* through the shadow test — detections, not
+candidates — and says what it did:
+
+```
+THRESHOLD SWEEP  (diagnostic — the bar in production is still 0.65)
+  bar     potholes    ironwork    change from 0.65
+  0.40    1           0           +1 pothole box
+  0.50    1           0           +1 pothole box
+  0.55    0           0           same
+  0.65 *  0           0           same
+  NMS was run from 0.4 for this table. In production it
+  runs at 0.5, so anything below that is discarded
+  before the 0.65 bar is ever consulted — which is
+  why a bar of 0.40 alone would not change what gets logged.
+```
+
+It also refuses to call the extra boxes false positives. Nothing in the app can
+tell a real pothole from a wet patch; that is a person with the photograph, and
+the report says so rather than handing over a number that looks like evidence.
+
+#### One photograph cannot answer the question being asked of it
+
+"Is 0.65 too high?" and "does the model need replacing?" are questions about a
+set, not a frame. So the picker takes several photographs at once and leads with
+the table across them:
+
+```
+  image                     real?    best pot  box 640     box source   0.40  0.45  0.50  0.55  0.60  0.65  type
+  road-one.png              UNKNOWN  0.88      56×49       8×7          1     1     1     1     1     1     -
+  road-two.png              UNKNOWN  0.5351    56×49       8×7          1     1     1     0     0     0     B
+  road-three.png            UNKNOWN  none      —           —            0     0     0     0     0     0     A
+```
+
+`real?` is `UNKNOWN` in every row and stays that way. The app has no ground
+truth, and a column of guesses about which photographs really contain a pothole
+would quietly become the premise of the retrain decision. It is a column for a
+person to fill in.
+
+The aggregates underneath — best, worst, average, how many cleared the bar, how
+many sat between 0.40 and 0.65, how many produced nothing — are what separates
+"the application is declining what the model finds" from "the model is not
+finding it". A tie is reported as a tie rather than as whichever outcome sorted
+first.
+
 #### The survey was calling its own successes failures
 
 Seen in the field, on a frame the model had answered with a pothole at **0.5351**
@@ -1069,6 +1152,146 @@ bbox — so when the numbers inside it are wrong, it is the model's output layou
 that does not match what the library expects. Which model to try instead is a
 guess, and every guess otherwise costs a deploy and a drive. The ranges say
 which.
+
+## The frame that was missed, not a photograph of where it was
+
+The miss report is only as good as the pictures fed to it, and the picture you
+can get after the fact is not the one that was missed: different angle, stopped
+vehicle, different light, minutes later. The frame that was actually missed is
+gone the moment the survey moves on.
+
+So footage. Record the drive, scrub back to the hole nobody logged, and put
+**that** frame through the miss report.
+
+**It records the camera stream, not the screen.** `new MediaRecorder(stream, …)`
+takes the same `MediaStream` object that is on `#vid.srcObject` — the survey's
+own source. A screen recording would carry the CSS rotation that makes the
+display look upright, which is the one thing currently most worth being able to
+see plainly: the model never sees that correction, and neither should the
+footage. `footage.mjs` asserts the identity of the two objects and greps the
+source for `getDisplayMedia` to keep it that way.
+
+**The type is probed, never assumed.** `MediaRecorder.isTypeSupported` is the
+only honest answer and it differs between two phones of the same make. Five
+candidates are asked about in preference order; the first yes wins. Three
+different failures are told apart rather than collapsed into "recording is
+broken": no `MediaRecorder` at all, a `MediaRecorder` that supports none of
+them, and one that throws when asked — a browser that throws has not said yes.
+
+**Nothing accumulates in memory.** `mr.start(3000)` hands over a slice every
+three seconds and each one is written away as it arrives, keyed
+`<id>:<zero-padded seq>` so reading one recording back is a range query rather
+than a scan of every recording on the device. The array that MediaRecorder
+would otherwise fill is never built.
+
+**It stops itself.** Ten minutes, or when free storage minus a 200 MB reserve
+runs out, whichever comes first — and the record says which cap ended it. A
+chunk that fails to write ends the recording out loud, because carrying on
+would produce a video with a hole in it and no sign of one.
+
+### Getting the frame out
+
+Pause, scrub, **Analyse this frame**. The frame on screen is drawn at the
+video's own `videoWidth × videoHeight` — real pixels, real aspect ratio, nothing
+cropped — and handed to `runMiss`, the same function the photo picker calls. The
+preprocessing from there is the survey's own, and the report prints its two
+scale factors as it always does.
+
+One guard worth its line: below `readyState 2` there is no decoded frame for the
+current time and `drawImage` returns **black rather than failing**. That would
+put a miss report on an empty square and have it read like a finding, so the
+frame is refused instead.
+
+### The sidecar
+
+Metadata lives beside the video, never inside it. Start and end timestamps,
+duration, byte count, chunk count, the MIME type used and the others that were
+available, the resolution actually delivered, what the track says about itself
+(which need not match what `openCamera` asked for), the run id, the build, and a
+GPS sample about once a second — so a frame can later be put on a map without
+the recording carrying the cost of doing it live.
+
+And, because this feature exists for the orientation question: `appRot`,
+`videoRot`, `screenAngle`, `screenType`, `portraitViewport`, `videoWidth` and
+`videoHeight`, all taken at the moment recording starts rather than
+reconstructed afterwards. They are shown under the player and follow the
+scrubber.
+
+### What it deliberately cannot do
+
+The survey loop has no knowledge of footage at all — `footage.mjs` greps `look()`
+to prove it. Recording runs no inference, changes no cadence, writes no
+observation and starts no survey. Nothing in the footage code can write or
+delete an entry. Version 4 of the database adds two stores and touches nothing
+that was already in it. Everything stays on the device: no uploads, no cloud
+processing, and the screen says plainly that footage of a public road contains
+people, number plates and private property.
+
+## Which model said so
+
+There was one model id in one constant, and an entry in the log carried no
+record of what produced it. That is fine while there is only ever one model and
+it never changes. It stops being fine the moment a second one is being
+considered: every observation already logged becomes evidence of unknown
+provenance, and *"the new model found more"* cannot be told from *"we drove down
+a worse road"*.
+
+So each model is declared in a registry with what it is, what it was trained on
+and when it arrived, and every observation is stamped with the one that made it
+— `modelKey`, `modelName`, `modelVersion`, `modelArch`, `modelInput`,
+`modelRuntime`, `datasetVersion`, all flat scalars because they travel into the
+CSV and the GeoJSON and a nested object is what makes a GIS import quietly drop
+a column.
+
+Three things the registry is careful about:
+
+**The baseline cannot be selected away from.** It is marked, not merely first in
+the list. An unknown key, a registry someone has edited badly — both end up back
+at the baseline, and the fallback is recorded rather than silent:
+
+```
+  active     yolov8n-t3
+  baseline   yolov8n-t3 — present
+  fallback   none — running what was asked for
+```
+
+**A model swap is not a toggle.** `ACTIVE_MODEL` is a constant that nothing in
+the app assigns; `registry.mjs` greps the source to keep it that way. Adding a
+candidate to the registry does not deploy it. Somebody editing that line does,
+with evidence behind them.
+
+**The metrics say UNKNOWN, and stay that way.** Precision, recall, mAP and the
+train/validation/test split live in Roboflow and have never been read into this
+repository. A registry carrying a plausible-looking mAP nobody measured is worse
+than one that says nothing, because the number gets quoted.
+
+### The output has to be the output the registry describes
+
+A graph with a different number of classes, decoded against these two class
+names, does not fail. It succeeds — and puts a confident wrong answer in the
+log. That is not hypothetical here: it is exactly how a living room was logged
+as a Category 2 on a 28-day clock, from a head the decoder could not read.
+
+So `infOnce` — the one path every look and the startup probe both go through —
+checks against the registry before a single box is read out:
+
+```
+model mismatch: the graph decodes to 80 classes; YOLOv8n pothole/manhole is
+registered with 2 (manhole, pothole). This is not the model the registry
+describes.
+```
+
+An 80-class COCO export is refused rather than decoded. A count it cannot judge
+is not failed on a guess.
+
+The first version of this check read the **raw** output shape and assumed the
+channels were on axis 1. That is true of this model — `[1, 6, 8400]` — and it
+broke `backend.mjs`, whose stub declares the other real layout, `[1, 8400, 6]`.
+The stub was not wrong. Both layouts exist, and reading one as the other is
+precisely the fault that produced confidences in the millions here. A check that
+assumed the layout would have been asserting the very thing in doubt. It now
+checks `numClasses` — the number the decoder is about to match class names
+against — after the transpose, where the layout question is already settled.
 
 ## Shadows
 
