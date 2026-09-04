@@ -41,7 +41,7 @@ await page.evaluate(() => {
 await page.waitForFunction(() => document.getElementById('vid').videoWidth > 0);
 
 const hit = (conf = 0.9) => [{ class: 'pothole', confidence: conf,
-  bbox: { x: 100, y: 100, width: 299, height: 299 } }];   // 4% of the photograph
+  bbox: { x: 100, y: 100, width: 128, height: 128 } }];   // 4% of the photograph
 
 await rec(page);
 ok(await page.getAttribute('#bRec', 'aria-pressed') === 'true', 'the button reads as recording');
@@ -54,10 +54,9 @@ ok(/^\d\d:\d\d$/.test(await page.textContent('#recTime')), 'and how long it has 
 await page.evaluate(h => { window.__hits = h; }, hit());
 await page.waitForFunction(() => document.getElementById('hudCount').textContent === '1 logged', null, { timeout: 15000 });
 ok(true, 'a defect is logged with nobody asking');
-// Back to P4, where it started. Share is the fraction of the photograph, and
-// the 299px stub is set to the same 4% the 128px stub measured under the
-// original stretch — which is the point of the rule: the same defect scores the
-// same whatever preprocessing is in front of it.
+// A 128px box is 4% of the photograph — the "small" band. Share is the fraction
+// of the PHOTOGRAPH under every preprocessing this app has shipped, which is why
+// this number has survived a letterbox and a crop and come back unchanged.
 ok(/Logged pothole — P4, lowest \(90% sure\)/.test(await page.textContent('#hudToast')),
    'scored by the same rules as a deliberate capture: ' + await page.textContent('#hudToast'));
 ok(/Not classified/.test(await page.textContent('#hudToast')),
@@ -76,10 +75,7 @@ ok(true, 'a defect 100m down the road is logged as a new one');
 
 // --- a big one down the road scores accordingly ---
 await page.evaluate(() => { window.__hits = [{ class: 'pothole', confidence: 0.9,
-  // 15.5% of the photograph → the "large" band. It cannot be 27% any more: the
-  // crop is about 18% of the frame, so nothing inside it can cover more of the
-  // photograph than that, and "very large" is out of reach by construction.
-  bbox: { x: 0, y: 30, width: 600, height: 580 } }]; });
+  bbox: { x: 300, y: 280, width: 350, height: 320 } }]; });   // 27% → very large
 await ctx.setGeolocation({ latitude: 53.0018, longitude: -1.1, accuracy: 8 });
 await page.waitForFunction(() => document.getElementById('hudCount').textContent === '3 logged', null, { timeout: 20000 });
 ok(/Logged pothole — P1/.test(await page.textContent('#hudToast')),

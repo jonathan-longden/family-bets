@@ -71,7 +71,7 @@ await rec(page);
 
 // ============================ 1. the photograph is the frame that was inferred
 {
-  await page.evaluate(h => { window.__hits = h; }, hit(299));
+  await page.evaluate(h => { window.__hits = h; }, hit(128));
   await page.waitForFunction(() => document.getElementById('hudCount').textContent === '1 logged',
     null, { timeout: 20000 });
   const order = await page.evaluate(() => window.__order.join(','));
@@ -97,7 +97,7 @@ const first = await entry();
      'the first, distant look is on the row: share ' + (first && first.share));
   ok(first.id != null, 'and the row has an id the survey can find again');
 
-  await page.evaluate(h => { window.__hits = h; }, hit(599));   // 16% — nearer
+  await page.evaluate(h => { window.__hits = h; }, hit(256));   // 16% — nearer
   await page.waitForFunction(
     () => /Closer look kept/.test(document.getElementById('hudToast').textContent),
     null, { timeout: 20000 });
@@ -107,7 +107,7 @@ const first = await entry();
   ok(now.id === first.id, 'the same row, kept: ' + now.id + ' vs ' + first.id);
   ok(now.share > first.share,
      'carrying the closer look: share ' + first.share + ' → ' + now.share);
-  ok(now.box.w === 599, 'and the box that goes with it: ' + JSON.stringify(now.box));
+  ok(now.box.w === 256, 'and the box that goes with it: ' + JSON.stringify(now.box));
   ok(now.t !== first.t, 'stamped when the closer frame was taken, not the first');
   ok(now.defect_id && now.defect_id === first.defect_id,
      'still an observation of the same defect: ' + now.defect_id);
@@ -118,7 +118,7 @@ const first = await entry();
 // ================================= 3. a further-off look does not replace it
 {
   const before = await entry();
-  await page.evaluate(h => { window.__hits = h; }, hit(374));   // smaller again
+  await page.evaluate(h => { window.__hits = h; }, hit(160));   // smaller again
   await page.waitForFunction(
     () => /not logged again/.test(document.getElementById('hudState').textContent),
     null, { timeout: 20000 });
@@ -133,7 +133,7 @@ const first = await entry();
 {
   await page.evaluate(() => { S.items[0].scoredBy = 'someone who looked at it'; });
   const before = await entry();
-  await page.evaluate(h => { window.__hits = h; }, hit(639));   // much nearer
+  await page.evaluate(h => { window.__hits = h; }, hit(420));   // much nearer
   await page.waitForFunction(
     () => /already looked at, left alone/.test(document.getElementById('hudState').textContent),
     null, { timeout: 20000 });
@@ -149,7 +149,7 @@ const first = await entry();
 {
   await page.evaluate(() => { S.items[0].scoredBy = 'survey, unconfirmed'; });
   await ctx.setGeolocation({ latitude: 53.0009, longitude: -1.1, accuracy: 8 });  // ~100 m
-  await page.evaluate(h => { window.__hits = h; }, hit(299));
+  await page.evaluate(h => { window.__hits = h; }, hit(128));
   await page.waitForFunction(() => document.getElementById('hudCount').textContent === '2 logged',
     null, { timeout: 25000 });
   ok(true, 'a defect down the road is still logged as a new one');

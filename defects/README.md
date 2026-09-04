@@ -1153,114 +1153,52 @@ that does not match what the library expects. Which model to try instead is a
 guess, and every guess otherwise costs a deploy and a drive. The ranges say
 which.
 
-## The frame the model is shown: a road crop
+## The frame the model is shown: stretched, on the evidence
 
-It stretched until build 55, letterboxed until 56, and neither was right for a
-2340×1080 frame. The stretch put a **2.17× distortion** through the model. The
-letterbox fixed the shape and paid for it in resolution — preserving the ratio
-means scaling both axes by the smaller factor, so the road lost more than half
-its vertical detail and 54% of the square was padding the model still had to
-process.
+This went round the houses. Build 55 letterboxed, 56 cropped the road band, and
+57 is back to the stretch it started with — not because the arithmetic behind the
+crop was wrong, but because the arithmetic was answering the wrong question.
 
-A square crop of the road band is the only variant that improves both axes at
-once: **×3.80 horizontally and ×1.76 vertically** against the stretch, no
-distortion, no padding. A 0.3 m pothole at 15 m goes from about 11 × 3 px in the
-tensor to **42 × 6** — across the 8 px stride in both directions for the first
-time.
+The four preprocessings ran side by side on a real frame, same weights, same
+decoder, same NMS:
 
-### What it costs
+| variant | best pothole | logged at 0.65? |
+|---|---|---|
+| **A stretch** | **0.8034** | yes |
+| D road band + letterbox | 0.6814 | yes |
+| C road crop, square | 0.5950 | no |
+| B letterbox | 0.5510 | no |
 
-**Field of view.** On a 2340-wide frame the crop is about 26% of the width.
-Verges, kerb lines and anything at the edge of the carriageway are outside the
-frame the model sees. The diagnostics print the crop so it is never a surprise:
+All four put the box in the same place in the original — about 38% across and
+73% down — so this is one defect seen four ways, not four opinions. The crop puts
+far more pixels on it, **175 × 87 in the tensor against the stretch's 58 × 41**,
+and the model is *less* sure of the bigger picture.
 
-```
-  crop       616×616 at 862,378  — 26% of the width, 57% of the height
-             the road band between 35% and 92% down the frame, squared and scaled ×1.039.
-             Anything outside it is not shown to the model at all.
-```
+The likely reason is the opposite of what the pixel count suggests. That pothole
+is **wide and flat**: 145 × 58 in the photograph, about 2.5:1. The stretch scales
+y by 0.711 and x by 0.400, squeezing it to roughly 1.4:1 — close to round. The
+distortion three builds went into removing appears to be what makes flat road
+defects resemble the compact potholes the model was trained on. Preserving the
+true shape gives the model something it likes less.
 
-**The `very large` band is out of reach, and it costs nothing.** `share` is the
-fraction of the *photograph*, and the crop is roughly 18% of it, so nothing
-inside the crop can cover more of the photograph than that. `very large` starts
-at 30%, so no observation reaches it. **P1 still does**: `large` scores
-imp 4 × prb 4 = 16, and P1 needs 16. The band above it also scored P1, so the
-top priority is as reachable as it ever was — only the words under it change.
+Two things worth keeping from the detour.
 
-What the cap really says is that a defect big enough to fill 30% of the whole
-frame is now partly outside the view, and the survey scores what it can see
-rather than guessing at the rest.
+**`fit` stays**, and now carries a scale per axis. Everything that turns a model
+box back into a picture coordinate reads it — `fitToSource` is the only inverse —
+so the next preprocessing question costs a function rather than a rewrite. Three
+builds each broke a hand-written inverse in the tests; `evidence.mjs` now reads
+the app's own fit instead of recomputing one.
 
-### Share is the fraction of the photograph, always
+**Share is the fraction of the photograph, under every preprocessing.** It drives
+`bandFor()` and so the priority a survey writes down, and it must not move when
+preprocessing does. `s × srcW` by `s × srcH` — the whole photograph at the
+preprocessing's own scale — makes the ratio identical under a stretch, a
+letterbox and a crop alike. The proof is in the test churn: every stub in
+`survey`, `priority`, `amend`, `garbage` and `closer` went back to exactly the
+value it held before any of this, and passed.
 
-`detShare` drives `bandFor()` and so the priority a survey writes down, and it
-must not move when preprocessing does. Under the original stretch, box ÷ 640²
-already was the fraction of the photograph. Under letterboxing it had to be
-taken against the content. Under a crop it would be far larger, because cropping
-zooms in — the same pothole covers more of a narrower view, and every defect
-would quietly score higher than the same defect did last week.
-
-`s × srcW` by `s × srcH` — the whole photograph measured at the crop's own scale
-— makes the ratio identical under all three. One rule, and it is why entries from
-before and after these builds can still be compared.
-
-### Putting a box back on the photograph
-
-A cropped square is not a map of the picture at all, so `squareFrame` returns a
-`fit` and `fitToSource` is the one place that inverts it: unscale, then add the
-crop's offset. `detBoxImage` used to be `detBox.x * shotW / RF_SIZE`, which was
-right under a stretch and became silently wrong the moment the square stopped
-covering the whole frame — it would not throw, it would draw the box in the wrong
-place, which is this file's oldest failure mode.
-
-## Superseded: letterboxed, not stretched
-
-Until build 55 the survey stretched whatever the camera gave it into a 640
-square. On a 16:9 frame that is a 1.78× distortion; on the 2340×1080 a modern
-phone hands over it is **2.17×**, and a round pothole arrived more than twice as
-tall as it was wide.
-
-**The cost is real and should be stated rather than buried.** Preserving the
-aspect ratio means scaling both axes by the *smaller* factor, so a wide frame
-loses vertical detail — on 2340×1080, ×0.2735 where the stretch gave ×0.5926 —
-and the padding is frame the model still has to process. The measured arithmetic
-for all four candidate preprocessings is in `preproc.mjs`; on that evidence a
-road-focused crop is better than either. Letterboxing is what was asked for and
-what is deployed; the A/B tool remains, so the question stays answerable with
-real numbers rather than argument.
-
-### Three things that had to change with it
-
-Once there is padding, the 640 square is **no longer a linear map of the
-photograph**, and everything that turns a model box back into a picture
-coordinate has to know where the content sits. `squareFrame` returns a `fit`,
-and `fitToSource` is the one place that inverts it.
-
-**The evidence box.** `detBoxImage` used to be `detBox.x * shotW / RF_SIZE`.
-That was exactly right while the square was a stretch of the whole photograph
-and became silently wrong the moment there was padding — it would not throw, it
-would just draw the box in the wrong place, which is this file's oldest failure
-mode. It goes through the fit now.
-
-**Boxes that straddle the padding.** The model is shown the bars and is free to
-draw across them. Mapped back, such a box runs off the top or bottom of the
-photograph, so it is clamped to the picture: the part over padding corresponds
-to nothing that was photographed.
-
-**Share, and therefore priority.** `detShare` drives `bandFor()`, which drives
-the priority written down. Measured against the padded square it would shrink by
-the padding ratio and move every band. It is measured against the **picture**
-instead — and those cancel exactly, because a real object shrinks by the same
-ratio the denominator does:
-
-```
-stretch:    (300 × 640/1600) × (200 × 640/900) ÷ (640 × 640)  = 0.020833
-letterbox:  (300 × 0.4)      × (200 × 0.4)     ÷ (640 × 360)  = 0.020833
-```
-
-`preproc.mjs` asserts that equality and that the band is the same either side of
-it, because otherwise every entry logged after this build would be scored
-differently from every entry before it and the two could never be compared.
+The A/B tool remains, and the wide 2340×1080 case — the frame that was actually
+missed — has yet to be run through it.
 
 ## Four times, at the camera rather than afterwards
 
