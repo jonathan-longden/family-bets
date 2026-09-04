@@ -1153,7 +1153,57 @@ that does not match what the library expects. Which model to try instead is a
 guess, and every guess otherwise costs a deploy and a drive. The ranges say
 which.
 
+## The frame the model is shown: letterboxed, not stretched
+
+Until build 55 the survey stretched whatever the camera gave it into a 640
+square. On a 16:9 frame that is a 1.78× distortion; on the 2340×1080 a modern
+phone hands over it is **2.17×**, and a round pothole arrived more than twice as
+tall as it was wide.
+
+**The cost is real and should be stated rather than buried.** Preserving the
+aspect ratio means scaling both axes by the *smaller* factor, so a wide frame
+loses vertical detail — on 2340×1080, ×0.2735 where the stretch gave ×0.5926 —
+and the padding is frame the model still has to process. The measured arithmetic
+for all four candidate preprocessings is in `preproc.mjs`; on that evidence a
+road-focused crop is better than either. Letterboxing is what was asked for and
+what is deployed; the A/B tool remains, so the question stays answerable with
+real numbers rather than argument.
+
+### Three things that had to change with it
+
+Once there is padding, the 640 square is **no longer a linear map of the
+photograph**, and everything that turns a model box back into a picture
+coordinate has to know where the content sits. `squareFrame` returns a `fit`,
+and `fitToSource` is the one place that inverts it.
+
+**The evidence box.** `detBoxImage` used to be `detBox.x * shotW / RF_SIZE`.
+That was exactly right while the square was a stretch of the whole photograph
+and became silently wrong the moment there was padding — it would not throw, it
+would just draw the box in the wrong place, which is this file's oldest failure
+mode. It goes through the fit now.
+
+**Boxes that straddle the padding.** The model is shown the bars and is free to
+draw across them. Mapped back, such a box runs off the top or bottom of the
+photograph, so it is clamped to the picture: the part over padding corresponds
+to nothing that was photographed.
+
+**Share, and therefore priority.** `detShare` drives `bandFor()`, which drives
+the priority written down. Measured against the padded square it would shrink by
+the padding ratio and move every band. It is measured against the **picture**
+instead — and those cancel exactly, because a real object shrinks by the same
+ratio the denominator does:
+
+```
+stretch:    (300 × 640/1600) × (200 × 640/900) ÷ (640 × 640)  = 0.020833
+letterbox:  (300 × 0.4)      × (200 × 0.4)     ÷ (640 × 360)  = 0.020833
+```
+
+`preproc.mjs` asserts that equality and that the band is the same either side of
+it, because otherwise every entry logged after this build would be scored
+differently from every entry before it and the two could never be compared.
+
 ## Four times, at the camera rather than afterwards
+
 
 At 34 mph a pothole is in frame for about one look, and at 15 m it is roughly
 eleven pixels wide and **one and a half tall** in the tensor. Zoom is the one

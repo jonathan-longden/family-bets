@@ -181,20 +181,35 @@ const e = await entry();
 {
   ok(e.detBox && e.detBoxImage, 'both boxes are stored: ' + JSON.stringify(e.detBox));
   ok(e.imgW > 0 && e.imgH > 0, 'with the evidence frame size: ' + e.imgW + '×' + e.imgH);
-  const sx = e.imgW / 640, sy = e.imgH / 640;
-  ok(Math.abs(e.detBoxImage.x - e.detBox.x * sx) < 0.01 &&
-     Math.abs(e.detBoxImage.y - e.detBox.y * sy) < 0.01 &&
-     Math.abs(e.detBoxImage.w - e.detBox.w * sx) < 0.01 &&
-     Math.abs(e.detBoxImage.h - e.detBox.h * sy) < 0.01,
-     'detBoxImage is detBox mapped onto the saved photograph: ' +
-     JSON.stringify(e.detBoxImage));
+
+  // Build 55 letterboxes. The old assertion here multiplied by imgW/640 and
+  // imgH/640, which was exactly right while the square was a stretch of the
+  // whole photograph and is exactly wrong once there is padding — it would not
+  // throw, it would put the box in the wrong place. So the mapping is checked
+  // against the geometry the app actually used.
+  const s = Math.min(640 / e.imgW, 640 / e.imgH);
+  const padX = (640 - e.imgW * s) / 2, padY = (640 - e.imgH * s) / 2;
+  const near = (a, b) => Math.abs(a - b) < 0.01;
+  ok(near(e.detBoxImage.x, (e.detBox.x - padX) / s) &&
+     near(e.detBoxImage.y, (e.detBox.y - padY) / s) &&
+     near(e.detBoxImage.w, e.detBox.w / s),
+     'detBoxImage is detBox put back through the letterbox — padding removed, ' +
+     'then unscaled: ' + JSON.stringify(e.detBoxImage));
   ok(e.detBoxImage.x >= 0 && e.detBoxImage.y >= 0 &&
      e.detBoxImage.x + e.detBoxImage.w <= e.imgW + 1 &&
      e.detBoxImage.y + e.detBoxImage.h <= e.imgH + 1,
      'and it lands inside the image rather than off the edge of it');
-  ok(Math.abs(sx - sy) > 0.01,
-     'the two axes really do scale differently, which is why the mapped box is ' +
-     'needed at all: x×' + sx.toFixed(3) + ' y×' + sy.toFixed(3));
+  ok(padY > 1 && Math.abs(padX) < 1,
+     'this frame really is padded top and bottom, so the mapping is doing ' +
+     'something a plain multiply could not: ' + Math.round(padY) + ' px each');
+  // This stubbed box deliberately straddles the bottom pad, which a real
+  // detection can also do — the model is shown the bars and may draw across
+  // them. Mapped back it would run past the bottom of the photograph, so it is
+  // clamped to the picture: the part over padding was never photographed.
+  ok(e.detBoxImage.y + e.detBoxImage.h <= e.imgH + 0.01,
+     'a box straddling the padding is clamped to the image rather than mapped ' +
+     'off the bottom of it: y ' + Math.round(e.detBoxImage.y) + ' + h ' +
+     Math.round(e.detBoxImage.h) + ' against ' + e.imgH);
 }
 
 // ============================== 6. the frame is released, and nothing leaks

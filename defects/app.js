@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-03 · 54';
+var BUILD = '2026-09-03 · 55';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -258,12 +258,55 @@ var RF_SIZE = 640;      // what the model was trained on, and what it is given
 
    It also makes everything downstream agree: the boxes, the shadow test and the
    share of the frame are all in this one 640 by 640 space. */
+/* The frame the model is shown: LETTERBOXED, not stretched.
+   
+   It stretched until build 55. On a 16:9 frame that was a 1.78x distortion; on
+   the 2340x1080 a modern phone hands over it is 2.17x, and a round pothole
+   arrived more than twice as tall as it was wide.
+   
+   The cost of the change is real and worth stating: preserving the ratio means
+   scaling both axes by the SMALLER factor, so a wide frame loses vertical
+   detail — on 2340x1080, x0.2735 where the stretch gave x0.5926 — and the
+   padding is frame the model still has to process. The measured arithmetic is
+   in preproc.mjs and the README.
+   
+   `fit` is the whole point of the return value. Once there is padding, the 640
+   square is no longer a linear map of the photograph, and every consumer that
+   turns a model box back into a picture coordinate has to know where the
+   content sits. Anything that multiplies by shotW/RF_SIZE is wrong now. */
 function squareFrame(source, w, h) {
   var c = document.createElement('canvas');
   c.width = RF_SIZE; c.height = RF_SIZE;
   var ctx = c.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE);
-  return { canvas: c, ctx: ctx };
+  var s = Math.min(RF_SIZE / w, RF_SIZE / h);
+  var dw = w * s, dh = h * s;
+  var padX = (RF_SIZE - dw) / 2, padY = (RF_SIZE - dh) / 2;
+  /* Black rather than left transparent: the shadow test reads pixels, and an
+     unpainted canvas reads as zeroes anyway. Painting it says so on purpose. */
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, RF_SIZE, RF_SIZE);
+  ctx.drawImage(source, 0, 0, w, h, padX, padY, dw, dh);
+  return { canvas: c, ctx: ctx,
+           fit: { s: s, padX: padX, padY: padY, dw: dw, dh: dh, srcW: w, srcH: h } };
+}
+
+/* A model box, in the 640 square, back to the coordinates of whatever was
+   handed to squareFrame. One function, so there is one place to be right. */
+function fitToSource(box, fit) {
+  if (!box || !fit) return null;
+  var x = (box.x - fit.padX) / fit.s, y = (box.y - fit.padY) / fit.s;
+  var w = box.w / fit.s, h = box.h / fit.s;
+  /* A box may straddle the padding: the model is shown those bars and is free
+     to draw across them. Mapped back, that lands outside the photograph — a
+     box starting above row zero, or running past the bottom edge. Clamped to
+     the picture, because the part over the padding corresponds to nothing that
+     was photographed, and a box drawn off the edge of the evidence is worse
+     than one that stops at it. */
+  var x0 = Math.max(0, Math.min(x, fit.srcW));
+  var y0 = Math.max(0, Math.min(y, fit.srcH));
+  var x1 = Math.max(0, Math.min(x + w, fit.srcW));
+  var y1 = Math.max(0, Math.min(y + h, fit.srcH));
+  return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
 }
 
 /* Survey mode: the camera runs and the model watches it, and anything it finds
@@ -2555,6 +2598,11 @@ function look() {
          which is what the rejectReason texture test reads. */
       if (input && input.close) { try { input.close(); } catch (e) {} }
       return { preds: takeDiag(preds), w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
+               /* Where the picture sits inside the padded square. Everything
+                  that turns a model box back into a picture coordinate needs
+                  this, and nothing may assume the square is a linear map of
+                  the photograph any more. */
+               fit: sq.fit,
                vw: vw, vh: vh, capturedAt: capturedAt, fix: fixAtCapture,
                /* The frame's own size, so a box in the 640 square can be put
                   back where it belongs on the photograph that was saved. */
@@ -2578,7 +2626,14 @@ function look() {
        when the model has just seen something is the exact misattribution this
        file keeps having to correct — and it hides the one number that matters
        when working out why a pothole was missed. */
-    var measurable = raw.map(function (p) { return usableFind(p, out.w, out.h); })
+    /* Share is measured against the picture, not against the padded square.
+       Under the old stretch those were the same thing; under letterboxing they
+       are not, and using the square would shrink every share by the padding
+       ratio — quietly moving every priority band and making entries logged
+       before and after this build incomparable. */
+    var fitW = (out.fit && out.fit.dw) || out.w;
+    var fitH = (out.fit && out.fit.dh) || out.h;
+    var measurable = raw.map(function (p) { return usableFind(p, fitW, fitH); })
                         .filter(Boolean);
     var hits = measurable.filter(function (f) {
       return f.conf == null || f.conf >= SURVEY_CONF;
@@ -2781,10 +2836,12 @@ function logFind(hits, out, c, cand, replacing) {
            about the model needs detBox. Both are kept because they are not
            interchangeable, and working one out from the other later means
            knowing what the frame size was at the time. */
-        detBoxImage: (out && out.shotW && out.shotH && det.box) ? {
-          x: det.box.x * out.shotW / RF_SIZE, y: det.box.y * out.shotH / RF_SIZE,
-          w: det.box.w * out.shotW / RF_SIZE, h: det.box.h * out.shotH / RF_SIZE
-        } : null,
+        /* Through the fit, never by multiplying by shotW/RF_SIZE. That
+           shortcut was correct while the square was a stretch of the whole
+           photograph and became silently wrong the moment there was padding:
+           it would not throw, it would just draw the box in the wrong place,
+           which is this file's oldest failure mode. */
+        detBoxImage: (out && out.fit && det.box) ? fitToSource(det.box, out.fit) : null,
         imgW: (out && out.shotW) || null, imgH: (out && out.shotH) || null,
         videoW: (out && out.vw) || null, videoH: (out && out.vh) || null,
         type: typeFor(best.cls), note: '',
@@ -4040,10 +4097,13 @@ var lastSourceFail = null;
    one was lost. "The model found it and the shadow test threw it away" and "the
    model never found it" are different faults, and they used to look identical
    from outside. */
-function filterTrace(raw, ctx) {
+/* fit is optional so a caller with no letterbox geometry still gets the old
+   behaviour rather than a crash; every caller in the app passes one. */
+function filterTrace(raw, ctx, fit) {
   var trace = [], kept = [];
+  var fitW = (fit && fit.dw) || RF_SIZE, fitH = (fit && fit.dh) || RF_SIZE;
   raw.forEach(function (p, i) {
-    var f = usableFind(p, RF_SIZE, RF_SIZE);
+    var f = usableFind(p, fitW, fitH);
     if (!f) {
       trace.push('#' + (i + 1) + ' dropped — not a usable find (unknown class, or a box ' +
                  'that is not a box)');
@@ -4280,9 +4340,13 @@ function rotatedFrame(source, w, h, deg) {
   ctx.translate(RF_SIZE / 2, RF_SIZE / 2);
   ctx.rotate(deg * Math.PI / 180);
   ctx.translate(-RF_SIZE / 2, -RF_SIZE / 2);
-  /* Drawn to the same stretched square first, so the only difference from the
-     survey's own frame is the quarter turn. */
-  ctx.drawImage(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE);
+  /* Drawn to the same square the survey builds — letterboxed since build 55 —
+     so the only difference from the survey's own frame is the quarter turn. A
+     rotation test whose frame differed from production in a second way would
+     answer a question nobody asked. */
+  var rs = Math.min(RF_SIZE / w, RF_SIZE / h);
+  ctx.drawImage(source, 0, 0, w, h,
+                (RF_SIZE - w * rs) / 2, (RF_SIZE - h * rs) / 2, w * rs, h * rs);
   ctx.restore();
   return { canvas: c, ctx: ctx };
 }
@@ -5658,7 +5722,11 @@ function missVariant(source, w, h, how) {
   ctx.drawImage(source, cx, cy, cw, ch, padX, padY, cw * sx, ch * sy);
 
   return { canvas: c, ctx: ctx,
-           shape: { how: how, srcW: w, srcH: h,
+           /* ab marks a variant built for the A/B comparison. runMiss also
+              carries a shape now — the survey's own letterbox geometry, so its
+              boxes map back too — and without this flag a batch of photographs
+              would render the A/B table instead of the table across them. */
+           shape: { ab: true, how: how, srcW: w, srcH: h,
                     cropX: cx, cropY: cy, cropW: cw, cropH: ch,
                     sx: sx, sy: sy, padX: padX, padY: padY,
                     used: (cw * sx) * (ch * sy) / (RF_SIZE * RF_SIZE) } };
@@ -5728,6 +5796,13 @@ function runMiss(source, w, h, label) {
   busy(true);
   s.textContent = 'Bringing the model up…';
   var sq = squareFrame(source, w, h);
+  /* The survey's own geometry, handed to the report so its boxes can be put
+     back on the photograph exactly the way the evidence box is. */
+  var shape = { how: 'letterbox', srcW: w, srcH: h,
+                cropX: 0, cropY: 0, cropW: w, cropH: h,
+                sx: sq.fit.s, sy: sq.fit.s,
+                padX: sq.fit.padX, padY: sq.fit.padY,
+                used: (sq.fit.dw * sq.fit.dh) / (RF_SIZE * RF_SIZE) };
   return loadBenchTf().then(function (tf) {
     /* The session the survey itself uses when there is one, so this reports on
        the same weights on the same backend rather than on a second setup that
@@ -5737,7 +5812,7 @@ function runMiss(source, w, h, label) {
       : infCapabilities(tf).then(function () { return infPick(tf); });
     return have.then(function (sess) {
       s.textContent = 'Running one picture through ' + sess.backend.toUpperCase() + '…';
-      return missAnalyse(sess.tf, sess.model, sq.canvas, label, w, h);
+      return missAnalyse(sess.tf, sess.model, sq.canvas, label, w, h, shape);
     });
   }).then(function (r) {
     missResult = r;
@@ -6102,13 +6177,13 @@ function missTable() {
    stage do"; this answers the only question being asked — which preprocessing
    gets the most out of this picture, and is the box it found on the defect. */
 function missAB() {
-  var runs = missRuns.filter(function (r) { return r.shape; });
+  var runs = missRuns.filter(function (r) { return r.shape && r.shape.ab; });
   if (runs.length < 2) return '';
   var L = [];
   var pad = function (t, n) { t = String(t); while (t.length < n) t += ' '; return t; };
   var bars = [0.05, 0.10, 0.25, 0.40, 0.50, 0.65];
 
-  L.push('PREPROCESSING A/B  (diagnostic — production still stretches)');
+  L.push('PREPROCESSING A/B  (diagnostic — production letterboxes since build 55)');
   L.push('  ' + runs[0].srcW + ' × ' + runs[0].srcH + ' source, aspect ' +
     (runs[0].srcW / runs[0].srcH).toFixed(3));
   L.push('');

@@ -87,7 +87,13 @@ await rec(page);
 // ================================ 2. a closer look replaces, it does not add
 const first = await entry();
 {
-  ok(first && first.share > 0.03 && first.share < 0.05,
+  // Share is measured against the PICTURE since build 55, not against the
+  // padded square — so a stubbed 128px box in the 640 square now reads 0.071
+  // where it read 0.040. That is an artefact of stubbing a fixed box: a real
+  // object shrinks by exactly the padding ratio at the same time, and its share
+  // is unchanged. preproc.mjs proves that invariance directly, which is what
+  // keeps priority bands comparable across this build.
+  ok(first && first.share > 0.06 && first.share < 0.08,
      'the first, distant look is on the row: share ' + (first && first.share));
   ok(first.id != null, 'and the row has an id the survey can find again');
 

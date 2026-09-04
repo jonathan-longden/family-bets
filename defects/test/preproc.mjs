@@ -160,19 +160,67 @@ await settled(page);
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const square = code.slice(code.indexOf('function squareFrame'),
                             code.indexOf('function squareFrame') + 400);
-  ok(/drawImage\(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE\)/.test(square),
-     'squareFrame still stretches — the survey does exactly what it did before');
-  ok(!/letterbox|padX|cropSquare/.test(square),
-     'with no letterboxing or cropping anywhere in it');
+  // Build 55: production letterboxes. The variants above are still measured
+  // against each other, but A is now history rather than what the survey does.
+  ok(/Math\.min\(RF_SIZE \/ w, RF_SIZE \/ h\)/.test(square),
+     'squareFrame scales by the smaller factor — it letterboxes');
+  ok(/padX/.test(square) && /fillRect\(0, 0, RF_SIZE, RF_SIZE\)/.test(square),
+     'centring the picture on a painted ground rather than leaving the pad ' +
+     'undefined for the shadow test to read');
+  ok(!/drawImage\(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE\)/.test(square),
+     'and the stretch is gone from it entirely');
   const look = code.slice(code.indexOf('function look()'), code.indexOf('function logFind'));
   ok(/squareFrame\(shot,/.test(look) && !/missVariant/.test(look),
-     'and the survey loop still calls squareFrame, not a variant');
+     'the survey loop still calls squareFrame, not a variant');
+  ok(/out\.fit/.test(look),
+     'and carries the fit out with the frame, because a padded square is no ' +
+     'longer a linear map of the photograph');
   const after = await page.evaluate(() => ({
     conf: window.SURVEY_CONF, score: window.RF_SCORE, size: window.RF_SIZE
   }));
   ok(after.conf === 0.65 && after.score === 0.5 && after.size === 640,
      'thresholds and input size untouched: ' +
      [after.conf, after.score, after.size].join(', '));
+}
+
+// ============ 4. a real object's share — and so its priority — did not move
+//
+// The claim that made this change safe to deploy. Share drives bandFor(), which
+// drives the priority a survey writes down, so if letterboxing changed it then
+// every entry logged after build 55 would be scored differently from every
+// entry before it, and the two could never be compared.
+//
+// Stretch measured a box against the whole 640 square. Letterbox measures it
+// against the picture inside the padding. Those cancel exactly, because the
+// object shrinks by the same ratio the denominator does — and that is worth
+// checking with numbers rather than with algebra on a whiteboard.
+{
+  const r = await page.evaluate(() => {
+    const W = 1600, H = 900;           // what the survey's shot canvas looks like
+    // A real object, in real photograph pixels.
+    const objW = 300, objH = 200;
+
+    // What the old stretch produced: each axis scaled by its own factor, share
+    // taken against the full square.
+    const oldBoxW = objW * (640 / W), oldBoxH = objH * (640 / H);
+    const oldShare = (oldBoxW * oldBoxH) / (640 * 640);
+
+    // What letterboxing produces: one scale for both axes, share taken against
+    // the content, which is what the app now passes to usableFind.
+    const s = Math.min(640 / W, 640 / H);
+    const newBoxW = objW * s, newBoxH = objH * s;
+    const dw = W * s, dh = H * s;
+    const newShare = (newBoxW * newBoxH) / (dw * dh);
+
+    return { oldShare, newShare,
+             oldBand: bandFor(oldShare), newBand: bandFor(newShare) };
+  });
+  ok(Math.abs(r.oldShare - r.newShare) < 1e-9,
+     'the same real object measures the same share under both preprocessings: ' +
+     r.oldShare.toFixed(6) + ' against ' + r.newShare.toFixed(6));
+  ok(JSON.stringify(r.oldBand) === JSON.stringify(r.newBand),
+     'so it falls in the same band, and the priority a survey writes down does ' +
+     'not move across this build: ' + (r.newBand && r.newBand.word));
 }
 
 console.log(fails.length ? '\nFAILURES: ' + fails.length : '\nall passed');
