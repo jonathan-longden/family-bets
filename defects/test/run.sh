@@ -38,7 +38,7 @@ ALL="amend backend batch bench bounded classes closer decode decodefail diag dia
      local map meta
      mig miss note offline orient precision priority rawtype realtf secrets
      registry selftest shadow shell split strip survey sw swall swupgrade test
-     upright vendorcache w3wkey where"
+     upright vendorcache w3wkey where zoom"
 SUITES=${*:-$ALL}
 
 mkdir -p report

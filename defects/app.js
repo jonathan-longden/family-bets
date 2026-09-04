@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-03 · 51';
+var BUILD = '2026-09-03 · 53';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -681,6 +681,160 @@ $('hudSurface').addEventListener('click', function () {
   toast('Now recording finds as ' + (S.foot ? 'footway' : 'carriageway') + '.');
 });
 
+/* ---------- zoom ----------
+
+   At 34 mph a pothole is in frame for about one look, and at 15 m it is roughly
+   eleven pixels wide and one and a half tall in the tensor. Zoom is the one
+   lever that changes that arithmetic without touching the model: it puts more
+   sensor pixels on the road ahead before anything is resized.
+
+   It has to happen at the TRACK, not afterwards. Cropping the 640 square would
+   be the same pixels enlarged — no new detail, a narrower field of view, and a
+   quiet lie in the diagnostics. So this drives MediaStreamTrack.applyConstraints
+   and then reads getSettings back to find out what the camera actually did,
+   because asking and being obeyed are different things.
+
+   Support is narrow and this says so rather than pretending. */
+
+/* The zoom the survey wants. One constant, because the number appears on a
+   button, in the diagnostics, in what is asked of the camera and in what the
+   tests check — and four of those drifting apart is how a screen ends up
+   claiming 4x while the camera is at 2. */
+var ZOOM_WANT = 4;
+
+var zoom = { supported: false, requested: ZOOM_WANT, actual: null, min: null,
+             max: null, step: null, why: 'not looked at yet', asked: null };
+
+function zoomTrack() {
+  if (!stream) return null;
+  return stream.getVideoTracks()[0] || null;
+}
+
+/* What this camera can actually do. Read from the track rather than assumed
+   from the browser name: two phones running the same Chrome differ, and the
+   same phone differs between its front and back cameras. */
+function zoomProbe() {
+  var t = zoomTrack();
+  zoom.actual = null;
+  if (!t) {
+    zoom.supported = false; zoom.why = 'the camera is not running';
+    return zoom;
+  }
+  if (!t.getCapabilities) {
+    zoom.supported = false;
+    zoom.why = 'this browser has no getCapabilities — zoom cannot be asked for';
+    return zoom;
+  }
+  var caps = {};
+  try { caps = t.getCapabilities() || {}; }
+  catch (e) {
+    zoom.supported = false;
+    zoom.why = 'getCapabilities threw: ' + String((e && e.message) || e);
+    return zoom;
+  }
+  if (!('zoom' in caps)) {
+    zoom.supported = false;
+    zoom.why = 'this camera reports no zoom capability';
+    zoom.min = zoom.max = zoom.step = null;
+    return zoom;
+  }
+  var z = caps.zoom || {};
+  zoom.supported = true;
+  zoom.why = null;
+  zoom.min = z.min == null ? null : z.min;
+  zoom.max = z.max == null ? null : z.max;
+  zoom.step = z.step == null ? null : z.step;
+  try {
+    var st = t.getSettings ? t.getSettings() : {};
+    zoom.actual = st.zoom == null ? null : st.zoom;
+  } catch (e) {}
+  return zoom;
+}
+
+/* The nearest value this camera will accept. A device whose range stops at 1.5
+   should go to 1.5 rather than fail, and one with a step of 0.5 should not be
+   asked for 2.3 — being refused for asking a fraction too precisely is a
+   pointless way to have no zoom. */
+function zoomNearest(want) {
+  var lo = zoom.min == null ? 1 : zoom.min;
+  var hi = zoom.max == null ? want : zoom.max;
+  var v = Math.min(hi, Math.max(lo, want));
+  if (zoom.step && zoom.step > 0) {
+    v = lo + Math.round((v - lo) / zoom.step) * zoom.step;
+    v = Math.min(hi, Math.max(lo, v));
+    /* Steps are floats and floats drift; 1.9999999999 is not a value anybody
+       should read on a diagnostics screen. */
+    v = Math.round(v * 1e6) / 1e6;
+  }
+  return v;
+}
+
+function zoomApply(want) {
+  zoom.requested = want;
+  zoomProbe();
+  var t = zoomTrack();
+  if (!t || !zoom.supported) { paintZoom(); return Promise.resolve(zoom); }
+  var v = zoomNearest(want);
+  zoom.asked = v;
+  /* advanced: a plain constraint is a requirement and is rejected outright by
+     some implementations; advanced is best-effort, which is why the result is
+     read back rather than believed. */
+  return t.applyConstraints({ advanced: [{ zoom: v }] }).then(function () {
+    var st = {};
+    try { st = t.getSettings ? t.getSettings() : {}; } catch (e) {}
+    zoom.actual = st.zoom == null ? null : st.zoom;
+    /* Applied without complaint and did nothing is a real outcome on some
+       cameras, and it must not read as success. */
+    if (zoom.actual == null) {
+      zoom.why = 'the camera accepted the request but reports no zoom setting back';
+    } else if (Math.abs(zoom.actual - v) > (zoom.step || 0.01)) {
+      zoom.why = 'asked for ' + v + ' and the camera settled at ' + zoom.actual;
+    } else {
+      zoom.why = null;
+    }
+    paintZoom();
+    return zoom;
+  }, function (e) {
+    zoom.why = 'the camera refused it: ' + String((e && e.name) || (e && e.message) || e);
+    try {
+      var st = t.getSettings ? t.getSettings() : {};
+      zoom.actual = st.zoom == null ? null : st.zoom;
+    } catch (x) {}
+    paintZoom();
+    return zoom;
+  });
+}
+
+/* What the diagnostics and the entry metadata quote: what the camera IS doing,
+   never what it was asked to do. */
+function zoomNow() {
+  var t = zoomTrack();
+  if (!t || !t.getSettings) return null;
+  try {
+    var st = t.getSettings() || {};
+    return st.zoom == null ? null : st.zoom;
+  } catch (e) { return null; }
+}
+
+function paintZoom() {
+  var box = $('zoomPills');
+  if (!box) return;
+  var t = zoomTrack();
+  box.hidden = !t;
+  if (!t) return;
+  var on = zoom.actual != null && zoom.actual > 1.01;
+  $('zoom1').setAttribute('aria-pressed', String(!on));
+  $('zoomIn').setAttribute('aria-pressed', String(on));
+  $('zoomIn').textContent = ZOOM_WANT + '×';
+  var un = !zoom.supported;
+  $('zoom1').disabled = un;
+  $('zoomIn').disabled = un;
+  $('zoomNote').textContent = un
+    ? ZOOM_WANT + '× zoom unavailable on this camera'
+    : (zoom.why ? zoom.why : (zoom.actual == null ? '' : zoom.actual + '× applied'));
+  $('zoomNote').hidden = !un && !zoom.why && zoom.actual == null;
+}
+
 /* ---------- camera ----------
 
    The app opens looking at the road. There is no start screen to get past,
@@ -715,6 +869,14 @@ async function openCamera(byTap) {
     paintRec();          // the strip has to hear about the camera too
     paintSpace();
     footPaint();         // recording needs a stream, so the button follows it
+    /* 4× is what the survey wants, so the camera is asked for it as it opens
+       rather than waiting for somebody to remember a button at the roadside.
+       On a camera with no zoom this does nothing at all and says so; on one
+       whose range stops short it goes as far as it goes and reports the number
+       it reached. It never pretends. */
+    zoomProbe();
+    paintZoom();
+    if (zoom.supported) zoomApply(ZOOM_WANT);
     startGps();
   } catch (e) {
     /* Opening without being asked is allowed to fail quietly: some browsers
@@ -744,6 +906,8 @@ function stopAll() {
      when you last stopped. */
   S.gps = null;
   $('badge').textContent = 'Camera off';
+  zoom.supported = false; zoom.actual = null; zoom.why = 'the camera is not running';
+  paintZoom();
   footPaint();
   $('rec').hidden = true;
   $('bRec').disabled = true;
@@ -2599,6 +2763,10 @@ function logFind(hits, out, c, cand, replacing) {
         /* Which model said so. Without this, an entry logged today and an entry
            logged after a model swap are indistinguishable, and no comparison
            between the two can be made afterwards from the log alone. */
+        /* What the camera was doing when this frame was taken. A find at 2×
+           is a different observation from a find at 1× — same road, different
+           number of pixels on it — and later comparison needs to know which. */
+        zoom: zoomNow(),
         modelKey: mdl.modelKey, modelName: mdl.modelName,
         modelVersion: mdl.modelVersion, modelArch: mdl.modelArch,
         modelInput: mdl.modelInput, modelRuntime: mdl.modelRuntime,
@@ -3662,6 +3830,35 @@ function diagLines() {
     L.push('WEIGHTS');
     L.push('           ' + describeWeights(rfMeta.weights));
   }
+  L.push('');
+  L.push('CAMERA');
+  var zv = $('vid');
+  L.push('  resolution ' + (zv && zv.videoWidth
+    ? zv.videoWidth + ' × ' + zv.videoHeight
+    : 'no camera running'));
+  var ztr = zoomTrack();
+  if (ztr) {
+    var zst = {};
+    try { zst = ztr.getSettings ? ztr.getSettings() : {}; } catch (e) {}
+    L.push('  track      ' + (zst.width || '?') + ' × ' + (zst.height || '?') +
+      (zst.frameRate ? ' @ ' + Math.round(zst.frameRate) : '') +
+      (zst.facingMode ? ' · ' + zst.facingMode : ''));
+  }
+  L.push('');
+  L.push('ZOOM');
+  L.push('  supported  ' + (zoom.supported ? 'yes' : 'no' +
+    (zoom.why ? ' — ' + zoom.why : '')));
+  L.push('  requested  ' + zoom.requested + '×' +
+    (zoom.asked != null && zoom.asked !== zoom.requested
+      ? '  (asked the camera for ' + zoom.asked + ', the nearest it allows)' : ''));
+  L.push('  actual     ' + (zoom.actual == null
+    ? 'the camera reports none' : zoom.actual + '×'));
+  L.push('  min        ' + (zoom.min == null ? '—' : zoom.min));
+  L.push('  max        ' + (zoom.max == null ? '—' : zoom.max));
+  L.push('  step       ' + (zoom.step == null ? '—' : zoom.step));
+  if (zoom.supported && zoom.why) L.push('  note       ' + zoom.why);
+  L.push('  applied at the camera track, not by cropping the frame the model is');
+  L.push('  given — a crop would be the same pixels enlarged and a narrower view.');
   L.push('');
   /* The registry, on the glass. A comparison between two models is only worth
      anything if it is obvious which one was running, and this is the screen
@@ -5878,6 +6075,8 @@ function footStart() {
       trackW: tr.settings.width || null, trackH: tr.settings.height || null,
       frameRate: tr.settings.frameRate || null,
       facing: tr.settings.facingMode || null,
+      zoom: tr.settings.zoom == null ? null : tr.settings.zoom,
+      zoomSupported: !!zoom.supported,
       /* H: the orientation question, in full, per recording. */
       appRot: facts.appRot, videoRot: facts.videoRot,
       screenAngle: facts.screenAngle, screenType: facts.screenType,
@@ -6381,6 +6580,11 @@ $('benchFile').addEventListener('change', function () {
 
 /* The miss analysis, over a photograph of a road that WAS missed.
    Diagnostic only: it reports what every stage did and changes nothing. */
+/* Zoom. The only thing these change is the camera track — no threshold, no
+   cadence, and nothing about how the frame is cut up afterwards. */
+$('zoom1').addEventListener('click', function () { zoomApply(1); });
+$('zoomIn').addEventListener('click', function () { zoomApply(ZOOM_WANT); });
+
 /* Footage controls. Diagnostic only: none of these touch the survey, the
    model, the thresholds or the evidence photographs. */
 $('bFootStart').addEventListener('click', function () { footStart(); });

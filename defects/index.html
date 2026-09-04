@@ -52,11 +52,21 @@
         </div>
       </div>
       <div class="pills">
+        <!-- Zoom happens at the camera track, never by cropping the model's
+             frame afterwards: the same pixels enlarged would be a narrower
+             view with no new detail in it. Hidden until there is a camera to
+             ask, and disabled outright when the camera has no zoom. -->
+        <span class="pill zoom" id="zoomPills" hidden>
+          <span class="cap">Zoom</span>
+          <button type="button" id="zoom1" aria-pressed="false">1×</button>
+          <button type="button" id="zoomIn" aria-pressed="true">4×</button>
+        </span>
         <button type="button" class="pill" id="hudSurface">Carriageway</button>
         <label class="pill tag"><span class="cap">Tag</span>
           <input type="text" id="pTag" placeholder="road, job number, anything"
                  autocomplete="off" spellcheck="false" maxlength="60"></label>
       </div>
+      <div class="zoomnote" id="zoomNote" hidden></div>
     </div>
 
     <div class="mid">
