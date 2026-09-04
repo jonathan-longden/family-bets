@@ -187,21 +187,29 @@ const e = await entry();
   // whole photograph and is exactly wrong once there is padding — it would not
   // throw, it would put the box in the wrong place. So the mapping is checked
   // against the geometry the app actually used.
-  const s = Math.min(640 / e.imgW, 640 / e.imgH);
-  const padX = (640 - e.imgW * s) / 2, padY = (640 - e.imgH * s) / 2;
+  // Build 56 crops the road band rather than letterboxing, so the inverse is
+  // an unscale plus the crop's own offset. Computed here the way the app
+  // computes it, so the assertion tracks the geometry rather than a constant.
+  const top = Math.round(e.imgH * 0.35), bot = Math.round(e.imgH * 0.92);
+  const band = bot - top;
+  const side = Math.min(e.imgW, band);
+  const cropX = Math.round((e.imgW - side) / 2);
+  const cropY = Math.max(0, Math.min(Math.round(top + (band - side) / 2),
+                                     Math.max(0, e.imgH - side)));
+  const s = 640 / side;
   const near = (a, b) => Math.abs(a - b) < 0.01;
-  ok(near(e.detBoxImage.x, (e.detBox.x - padX) / s) &&
-     near(e.detBoxImage.y, (e.detBox.y - padY) / s) &&
+  ok(near(e.detBoxImage.x, cropX + e.detBox.x / s) &&
+     near(e.detBoxImage.y, cropY + e.detBox.y / s) &&
      near(e.detBoxImage.w, e.detBox.w / s),
-     'detBoxImage is detBox put back through the letterbox — padding removed, ' +
-     'then unscaled: ' + JSON.stringify(e.detBoxImage));
+     'detBoxImage is detBox unscaled and put back at the crop\'s offset: ' +
+     JSON.stringify(e.detBoxImage));
   ok(e.detBoxImage.x >= 0 && e.detBoxImage.y >= 0 &&
      e.detBoxImage.x + e.detBoxImage.w <= e.imgW + 1 &&
      e.detBoxImage.y + e.detBoxImage.h <= e.imgH + 1,
      'and it lands inside the image rather than off the edge of it');
-  ok(padY > 1 && Math.abs(padX) < 1,
-     'this frame really is padded top and bottom, so the mapping is doing ' +
-     'something a plain multiply could not: ' + Math.round(padY) + ' px each');
+  ok(cropY > 1 && side < e.imgW,
+     'the crop really is a window into the frame, so the mapping is doing ' +
+     'something a plain multiply could not: ' + side + '² at ' + cropX + ',' + cropY);
   // This stubbed box deliberately straddles the bottom pad, which a real
   // detection can also do — the model is shown the bars and may draw across
   // them. Mapped back it would run past the bottom of the photograph, so it is

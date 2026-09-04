@@ -128,8 +128,20 @@ ok(/by class {3}manhole 0\.1204 {4}pothole 0\.83/.test(t),
    (t.match(/by class.*/) || [])[0]);
 ok(/DETECTIONS {3}1 came back/.test(t), 'reports how many detections came back');
 ok(/#1 {2}pothole {2}0\.83/.test(t), 'and lists them');
-ok(/KEPT — the survey would log this/.test(t), 'and traces them through the survey filters');
-ok(/WOULD LOG {4}1 pothole/.test(t), 'and says what the survey would have done: ' +
+// The verdict, not a particular verdict. Since build 56 the survey crops the
+// road band, and on the live fake camera that band is a moving pattern — so the
+// shadow test genuinely keeps this detection on some runs and rejects it as
+// grained-like-the-road on others. Pinning the assertion to KEPT made the suite
+// flaky (65, 63, 65 over three runs) without saying anything true about the app.
+//
+// What must hold is that every detection is traced to an outcome, and that the
+// count at the bottom agrees with the trace above it.
+const kept = /KEPT — the survey would log this/.test(t);
+ok(kept || /dropped — .*shadow, not a hole|dropped — a band far longer/.test(t),
+   'and traces them through the survey filters, to an outcome either way: ' +
+   ((t.match(/#1 .*/) || [])[0] || 'no trace line'));
+ok(new RegExp('WOULD LOG {4}' + (kept ? 1 : 0) + ' pothole').test(t),
+   'and says what the survey would have done, agreeing with that trace: ' +
    (t.match(/WOULD LOG.*/) || [])[0]);
 ok(await page.isVisible('#tShot'), 'and shows the frame that was actually analysed');
 ok(await page.evaluate(() => (document.getElementById('tShot').src || '').startsWith('blob:')),
@@ -197,7 +209,11 @@ ok(!/NEVER REACHED THE APP/.test(t), 'and does not blame the library for it');
 // A real 96x96 PNG on disk: grey tarmac with a dark ellipse in it. Written by
 // hand the first time and rejected by the decoder, which is exactly what the
 // app is supposed to do with a file it cannot read.
-const fixture = join(FIXTURES, 'pothole-fixture.png');
+// A road-shaped fixture, not a 96px square. Since build 56 the survey crops
+// the road band out of the frame, and a tiny flat fixture crops down to a
+// single shade — which the app correctly reports as ALL ONE SHADE and the
+// shadow test correctly refuses. The fixture was the problem, not the app.
+const fixture = join(FIXTURES, 'road-640.png');
 await page.evaluate(() => {
   window.__reply = [
     { class: 'pothole', confidence: 0.72, bbox: { x: 100, y: 200, width: 90, height: 80 } },
@@ -212,7 +228,7 @@ await page.waitForFunction(() => /Done/.test(document.getElementById('tState').t
 t = await page.textContent('#frameText');
 // headed PHOTO TEST rather than REAL FRAME: identical code from squareFrame
 // onwards, but a different test to whoever is reading the result
-ok(/PHOTO TEST {2}\(photo · pothole-fixture\.png\)/.test(t),
+ok(/PHOTO TEST {2}\(photo · road-640\.png\)/.test(t),
    'a photo from the phone can be tested, and is named: ' + t.split('\n')[0]);
 ok(/image {8}\d+×\d+ as supplied/.test(t),
    'and the report gives the image dimensions it was handed: ' +
@@ -252,7 +268,7 @@ const diag = await page.evaluate(() => diagLines());
 ok(/PHOTO TEST/.test(diag),
    'the copied diagnostics carry the result — headed PHOTO TEST, because the last ' +
    'thing run here was a photograph');
-ok(/pothole-fixture\.png/.test(diag), 'including which frame it was');
+ok(/road-640\.png/.test(diag), 'including which frame it was');
 ok(/BEST ANCHOR/.test(diag) && /backend/.test(diag),
    'with the best anchor and the backend, so one paste is the whole answer');
 ok(/LAST TENSOR/.test(diag), 'and the last-tensor line is still there');

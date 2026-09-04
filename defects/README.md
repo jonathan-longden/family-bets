@@ -1153,7 +1153,67 @@ that does not match what the library expects. Which model to try instead is a
 guess, and every guess otherwise costs a deploy and a drive. The ranges say
 which.
 
-## The frame the model is shown: letterboxed, not stretched
+## The frame the model is shown: a road crop
+
+It stretched until build 55, letterboxed until 56, and neither was right for a
+2340×1080 frame. The stretch put a **2.17× distortion** through the model. The
+letterbox fixed the shape and paid for it in resolution — preserving the ratio
+means scaling both axes by the smaller factor, so the road lost more than half
+its vertical detail and 54% of the square was padding the model still had to
+process.
+
+A square crop of the road band is the only variant that improves both axes at
+once: **×3.80 horizontally and ×1.76 vertically** against the stretch, no
+distortion, no padding. A 0.3 m pothole at 15 m goes from about 11 × 3 px in the
+tensor to **42 × 6** — across the 8 px stride in both directions for the first
+time.
+
+### What it costs
+
+**Field of view.** On a 2340-wide frame the crop is about 26% of the width.
+Verges, kerb lines and anything at the edge of the carriageway are outside the
+frame the model sees. The diagnostics print the crop so it is never a surprise:
+
+```
+  crop       616×616 at 862,378  — 26% of the width, 57% of the height
+             the road band between 35% and 92% down the frame, squared and scaled ×1.039.
+             Anything outside it is not shown to the model at all.
+```
+
+**The `very large` band is out of reach, and it costs nothing.** `share` is the
+fraction of the *photograph*, and the crop is roughly 18% of it, so nothing
+inside the crop can cover more of the photograph than that. `very large` starts
+at 30%, so no observation reaches it. **P1 still does**: `large` scores
+imp 4 × prb 4 = 16, and P1 needs 16. The band above it also scored P1, so the
+top priority is as reachable as it ever was — only the words under it change.
+
+What the cap really says is that a defect big enough to fill 30% of the whole
+frame is now partly outside the view, and the survey scores what it can see
+rather than guessing at the rest.
+
+### Share is the fraction of the photograph, always
+
+`detShare` drives `bandFor()` and so the priority a survey writes down, and it
+must not move when preprocessing does. Under the original stretch, box ÷ 640²
+already was the fraction of the photograph. Under letterboxing it had to be
+taken against the content. Under a crop it would be far larger, because cropping
+zooms in — the same pothole covers more of a narrower view, and every defect
+would quietly score higher than the same defect did last week.
+
+`s × srcW` by `s × srcH` — the whole photograph measured at the crop's own scale
+— makes the ratio identical under all three. One rule, and it is why entries from
+before and after these builds can still be compared.
+
+### Putting a box back on the photograph
+
+A cropped square is not a map of the picture at all, so `squareFrame` returns a
+`fit` and `fitToSource` is the one place that inverts it: unscale, then add the
+crop's offset. `detBoxImage` used to be `detBox.x * shotW / RF_SIZE`, which was
+right under a stretch and became silently wrong the moment the square stopped
+covering the whole frame — it would not throw, it would draw the box in the wrong
+place, which is this file's oldest failure mode.
+
+## Superseded: letterboxed, not stretched
 
 Until build 55 the survey stretched whatever the camera gave it into a 640
 square. On a 16:9 frame that is a 1.78× distortion; on the 2340×1080 a modern

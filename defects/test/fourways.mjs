@@ -120,7 +120,7 @@ ok(r.srcW === 640 && r.srcH === 640,
   const src = await (await fetch(B + 'app.js')).text();
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const look = code.slice(code.indexOf('function look()'), code.indexOf('function logFind'));
-  const square = code.slice(code.indexOf('function squareFrame'), code.indexOf('function squareFrame') + 400);
+  const square = code.slice(code.indexOf('function squareFrame'), code.indexOf('function fitToSource'));
 
   ok(!/rotate|rotatedFrame/.test(look),
      'look() — the survey capture — does not rotate anything');

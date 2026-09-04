@@ -158,15 +158,20 @@ await settled(page);
 {
   const src = await (await fetch(B + 'app.js')).text();
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  // To the end of the function, not a fixed number of characters: squareFrame
+  // grew when it started cropping, and a 400-char window stopped reaching its
+  // own drawImage — which failed an assertion about code that was correct.
   const square = code.slice(code.indexOf('function squareFrame'),
-                            code.indexOf('function squareFrame') + 400);
+                            code.indexOf('function fitToSource'));
   // Build 55: production letterboxes. The variants above are still measured
   // against each other, but A is now history rather than what the survey does.
-  ok(/Math\.min\(RF_SIZE \/ w, RF_SIZE \/ h\)/.test(square),
-     'squareFrame scales by the smaller factor — it letterboxes');
-  ok(/padX/.test(square) && /fillRect\(0, 0, RF_SIZE, RF_SIZE\)/.test(square),
-     'centring the picture on a painted ground rather than leaving the pad ' +
-     'undefined for the shadow test to read');
+  ok(/ROAD_TOP/.test(square) && /ROAD_BOT/.test(square),
+     'squareFrame takes the road band — below the horizon, above the bonnet');
+  ok(/Math\.min\(w, band\)/.test(square),
+     'and the largest square that fits inside it, so there is no distortion ' +
+     'and no padding');
+  ok(/drawImage\(source, cx, cy, side, side, 0, 0, RF_SIZE, RF_SIZE\)/.test(square),
+     'drawn from that crop to the whole square');
   ok(!/drawImage\(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE\)/.test(square),
      'and the stretch is gone from it entirely');
   const look = code.slice(code.indexOf('function look()'), code.indexOf('function logFind'));

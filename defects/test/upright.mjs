@@ -27,16 +27,10 @@ const stub = () => {
     c.width = c.height = 640;
     const x = c.getContext('2d');
     x.drawImage(img.bitmapImage, 0, 0);
-    const px = (a, b) => Array.from(x.getImageData(a, b, 1, 1).data).slice(0, 3).join(',');
-    // Which SIDE the letterbox padding is on. Since build 55 the square is
-    // letterboxed, and that turns out to be the sturdiest evidence a rotation
-    // happened: at 0° and 180° the bars run across the top and bottom, at 90°
-    // and 270° they run down the sides. Canvas corners are padding at every
-    // angle and read 0,0,0 four times over; interior pixels of this fake
-    // camera are a flat field and read the same four times too. The bars are
-    // neither — they move.
-    window.__rotSeen.push({ tl: px(320, 20), tr: px(20, 320),
-                            br: px(320, 620), bl: px(620, 320) });
+    // Only that a frame arrived. Whether it was turned is asked of
+    // rotatedFrame directly further down, on a source that has something in it
+    // to turn — this fake camera's road band is a flat field.
+    window.__rotSeen.push({ seen: true });
     return Promise.resolve(window.__reply.slice());
   } };
   window.worker = 1;
@@ -191,12 +185,38 @@ const openDiag = async (page) => {
 
   const seen = await page.evaluate(() => window.__rotSeen);
   ok(seen.length === 4, 'it ran the model four times: ' + seen.length);
-  // a quarter turn moves the letterbox bars from the top and bottom to the
-  // sides; identical readings across all four would mean nothing turned
-  const corners = seen.map(s => s.tl + '|' + s.tr);
-  ok(new Set(corners).size > 1,
-     'and the frame genuinely changed between them — the padding moved: ' +
-     JSON.stringify(corners.map(c => c.slice(0, 11))));
+  // The pixel probe here has been wrong three times, each time because it was
+  // pinned to an artefact of whatever preprocessing was current: canvas corners
+  // under the stretch, the padding edge under the letterbox, and a grid over a
+  // crop that lands on a flat green field of the fake camera. The fixture has
+  // no structure left in the road band to rotate.
+  //
+  // So the two questions are asked separately and directly. Did the button turn
+  // the frame through the four angles? And does rotatedFrame actually rotate?
+  const degs = await page.evaluate(() => spinTest.rows.map(r => r.deg));
+  ok(JSON.stringify(degs) === '[0,90,180,270]',
+     'it asked for each quarter turn in order: ' + degs.join(', '));
+
+  const turned = await page.evaluate(() => {
+    const c = document.createElement('canvas');
+    c.width = 900; c.height = 900;
+    const x = c.getContext('2d');
+    x.fillStyle = '#222'; x.fillRect(0, 0, 900, 900);
+    x.fillStyle = '#fff'; x.fillRect(360, 380, 200, 90);   // off-centre, not square
+    const sig = (deg) => {
+      const f = deg ? rotatedFrame(c, 900, 900, deg) : squareFrame(c, 900, 900);
+      const d = f.ctx.getImageData(0, 0, 640, 640).data;
+      const g = [];
+      for (let gy = 1; gy < 16; gy++) for (let gx = 1; gx < 16; gx++) {
+        g.push(d[(gy * 40 * 640 + gx * 40) * 4]);
+      }
+      return g.join(',');
+    };
+    return [0, 90, 180, 270].map(sig);
+  });
+  ok(new Set(turned).size === 4,
+     'and rotatedFrame really does turn the frame — four angles, ' +
+     new Set(turned).size + ' distinct results on a source with something in it');
 
   const t = await page.textContent('#frameText');
   ok(/FOUR WAYS UP/.test(t), 'the report carries the four-way table');
