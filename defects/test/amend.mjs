@@ -37,7 +37,11 @@ ok(await page.getAttribute('#segFoot', 'aria-pressed') === 'true',
 // --- a survey find is recorded against it ---
 await settled(page);
 await page.evaluate(() => {
-  window.__hits = [{ class:'pothole', confidence:0.9, bbox:{x:300,y:280,width:350,height:320} }];
+  // 0.75x the box this was written with: share is measured against the
+  // letterboxed picture since build 55, and that factor makes the measured
+  // share identical to what it was before, so the bands under test are the
+  // same ones.
+  window.__hits = [{ class:'pothole', confidence:0.9, bbox:{x:300,y:280,width:262,height:240} }];
   window.engine = { infer: () => Promise.resolve(window.__hits) };
   window.worker = 1; window.loadModel = () => Promise.resolve({});
 });

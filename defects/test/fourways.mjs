@@ -125,7 +125,7 @@ ok(r.srcW === 640 && r.srcH === 640,
   ok(!/rotate|rotatedFrame/.test(look),
      'look() — the survey capture — does not rotate anything');
   ok(!/rotate/.test(square),
-     'and squareFrame is a stretch with no rotation in it: the model input ' +
+     'and squareFrame has no rotation in it either: the model input ' +
      'orientation is whatever the camera track hands over');
   ok(/drawImage\(v, 0, 0/.test(look),
      'the frame is read straight off the video element, whose CSS transform ' +

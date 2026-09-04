@@ -107,20 +107,26 @@ await openDiag();
   const src = await (await fetch(B + 'app.js')).text();
   const calls = src.match(/createImageBitmap\([^)]*/g) || [];
   const onFile = calls.filter(c => /\bfile\b/.test(c));
-  // Derived, not hard-coded. There are three photo entry points now — the
-  // real-frame test, the benchmark and the miss analysis — each with a retry
-  // without the orientation option, and this assertion had to be edited every
-  // time one was added, which made it a test of the count rather than of the
-  // property. The property is that every Blob decode belongs to a picker:
-  // nothing on the camera or survey path decodes a Blob, so nothing there can
-  // raise those words.
-  const pickers = src.match(/\$\('(tFile|benchFile|missFile)'\)\.addEventListener/g) || [];
-  ok(pickers.length >= 2,
-     'the photo pickers are found: ' + JSON.stringify(pickers));
-  ok(onFile.length === pickers.length * 2,
-     'and every Blob-decoding call is one of them plus its retry — ' +
-     pickers.length + ' pickers, ' + onFile.length + ' calls: ' +
-     JSON.stringify(onFile));
+  // Counting pickers was the wrong shape for this. It was an explicit list of
+  // names that broke when a third entry point arrived, then a name pattern
+  // that broke when it matched a Save-as-text button, and both times the edit
+  // was to the count rather than to anything anybody cared about.
+  //
+  // The property is about the CALLS: a Blob decode is always attempted with
+  // the orientation option and always retried without it, so the two forms
+  // come in pairs. That holds however many pickers there are, and needs no
+  // edit when a fifth is added.
+  const oriented = onFile.filter(c => /imageOrientation/.test(c));
+  const bare = onFile.filter(c => !/imageOrientation/.test(c));
+  ok(oriented.length >= 2,
+     'photo entry points decode Blobs with the orientation option: ' +
+     oriented.length + ' of them');
+  ok(oriented.length === bare.length,
+     'and every one has its retry without that option, for browsers that do ' +
+     'not know it — ' + oriented.length + ' attempts, ' + bare.length +
+     ' retries');
+  ok(onFile.length === oriented.length + bare.length,
+     'with nothing else decoding a Blob at all: ' + onFile.length + ' calls');
   const look = src.slice(src.indexOf('function look()'), src.indexOf('function logFind'));
   ok(/createImageBitmap\(sq\.canvas\)/.test(look) && !/createImageBitmap\(file/.test(look),
      'the survey converts a canvas, never a file, so it cannot raise those words');

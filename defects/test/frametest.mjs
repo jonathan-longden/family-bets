@@ -285,8 +285,18 @@ ok(await page.evaluate(() => !document.getElementById('tVid').srcObject),
 
 // --- the survey screen is untouched by any of this ---
 ok(await page.isVisible('#bRec'), 'the record button is where it was');
-ok(await page.evaluate(() => document.querySelectorAll('.live .chrome button').length) <= 2,
+// The camera zoom control is two buttons inside .pills, and it belongs on the
+// driving screen — it is a camera control, not a diagnostic. So the count that
+// guards this excludes it, and a second assertion states the intent directly:
+// nothing that opens diagnostics or runs a test may appear on the driving
+// screen, whatever the button count says.
+ok(await page.evaluate(() =>
+     document.querySelectorAll('.live .chrome button:not(#zoomPills button)').length) <= 2,
    'and no test button was added to the driving screen');
+ok(await page.evaluate(() => ['bTestCam', 'bTestSpin', 'bTestBench', 'bFootStart',
+      'bFootStop', 'bFootFrame', 'tFile', 'benchFile', 'missFile', 'bCopyDiag']
+      .every((id) => { const el = document.getElementById(id); return !el || !el.closest('.live'); })),
+   'and no diagnostic or test control lives inside the driving screen at all');
 
 console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nall passed');
 await browser.close();

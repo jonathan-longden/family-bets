@@ -54,8 +54,11 @@ ok(/^\d\d:\d\d$/.test(await page.textContent('#recTime')), 'and how long it has 
 await page.evaluate(h => { window.__hits = h; }, hit());
 await page.waitForFunction(() => document.getElementById('hudCount').textContent === '1 logged', null, { timeout: 15000 });
 ok(true, 'a defect is logged with nobody asking');
-// a 128px box in the 640 square is 4% → small → 2x2 = 4
-ok(/Logged pothole — P4, lowest \(90% sure\)/.test(await page.textContent('#hudToast')),
+// A 128px box in the 640 square is 7.1% of the PICTURE since build 55 — share
+// is measured against the letterboxed content, not the padded square. The band
+// moves for this stub because the stub holds the box size fixed; a real object
+// scales down by the same padding ratio, so its share and its band do not move.
+ok(/Logged pothole — P2, look at soon \(90% sure\)/.test(await page.textContent('#hudToast')),
    'scored by the same rules as a deliberate capture: ' + await page.textContent('#hudToast'));
 ok(/Not classified/.test(await page.textContent('#hudToast')),
    'and that nothing has been classified');

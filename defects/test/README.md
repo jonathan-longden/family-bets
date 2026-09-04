@@ -67,8 +67,10 @@ in `app.js`.
 | `fourways` | the rotation instrument loses nothing, and which way up a frame is |
 | `frame` `frametest` `upright` `orient` `shadow` | what the camera hands over and what is rejected |
 | `geo` `map` `where` `w3wkey` | position, the map, three-word addresses |
+| `zoom` | 2× at the camera track, and what happens on cameras that cannot |
 | `local` `meta` `selftest` `diag` `diagnose` `diagscreen` | the model's own diagnostics |
 | `miss` | the miss-analysis report, and that it changes nothing it reports on |
+| `preproc` | the four preprocessings, and boxes mapped back to the original |
 | `offline` `sw` `swall` `swupgrade` `vendorcache` | the service worker, caching, and deploys landing |
 | `realtf` | the production inference path on the real TensorFlow.js |
 | `registry` | which model produced an observation, and that the baseline survives |

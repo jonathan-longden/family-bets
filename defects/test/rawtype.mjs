@@ -220,7 +220,10 @@ const press = async () => {
      'there is no second decoder in the diagnostic path: ' +
      ((code.match(/.*(decode|nonMaxSuppression|sigmoid).*/i) || [])[0] || 'nothing found'));
   const ft = src.slice(src.indexOf('function filterTrace'), src.indexOf('function cssRotation'));
-  ok(/usableFind\(p, RF_SIZE, RF_SIZE\)/.test(ft) && /SURVEY_CONF/.test(ft),
+  // fitW/fitH since build 55, which is stronger than RF_SIZE was: share is
+  // measured against the picture inside the letterbox, exactly as look() does
+  // it, rather than against the padded square.
+  ok(/usableFind\(p, fitW, fitH\)/.test(ft) && /SURVEY_CONF/.test(ft),
      'and the filters are the survey\'s own, at the survey\'s own threshold');
 }
 

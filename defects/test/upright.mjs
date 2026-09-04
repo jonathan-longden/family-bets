@@ -28,7 +28,15 @@ const stub = () => {
     const x = c.getContext('2d');
     x.drawImage(img.bitmapImage, 0, 0);
     const px = (a, b) => Array.from(x.getImageData(a, b, 1, 1).data).slice(0, 3).join(',');
-    window.__rotSeen.push({ tl: px(4, 4), tr: px(635, 4), br: px(635, 635), bl: px(4, 635) });
+    // Which SIDE the letterbox padding is on. Since build 55 the square is
+    // letterboxed, and that turns out to be the sturdiest evidence a rotation
+    // happened: at 0° and 180° the bars run across the top and bottom, at 90°
+    // and 270° they run down the sides. Canvas corners are padding at every
+    // angle and read 0,0,0 four times over; interior pixels of this fake
+    // camera are a flat field and read the same four times too. The bars are
+    // neither — they move.
+    window.__rotSeen.push({ tl: px(320, 20), tr: px(20, 320),
+                            br: px(320, 620), bl: px(620, 320) });
     return Promise.resolve(window.__reply.slice());
   } };
   window.worker = 1;
@@ -183,11 +191,11 @@ const openDiag = async (page) => {
 
   const seen = await page.evaluate(() => window.__rotSeen);
   ok(seen.length === 4, 'it ran the model four times: ' + seen.length);
-  // a rotated frame puts different content in the corners; identical corners
-  // across all four would mean nothing actually turned
+  // a quarter turn moves the letterbox bars from the top and bottom to the
+  // sides; identical readings across all four would mean nothing turned
   const corners = seen.map(s => s.tl + '|' + s.tr);
   ok(new Set(corners).size > 1,
-     'and the frame genuinely changed between them — the corners differ: ' +
+     'and the frame genuinely changed between them — the padding moved: ' +
      JSON.stringify(corners.map(c => c.slice(0, 11))));
 
   const t = await page.textContent('#frameText');

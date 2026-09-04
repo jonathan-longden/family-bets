@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-03 · 51';
+var BUILD = '2026-09-03 · 55';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -258,12 +258,55 @@ var RF_SIZE = 640;      // what the model was trained on, and what it is given
 
    It also makes everything downstream agree: the boxes, the shadow test and the
    share of the frame are all in this one 640 by 640 space. */
+/* The frame the model is shown: LETTERBOXED, not stretched.
+   
+   It stretched until build 55. On a 16:9 frame that was a 1.78x distortion; on
+   the 2340x1080 a modern phone hands over it is 2.17x, and a round pothole
+   arrived more than twice as tall as it was wide.
+   
+   The cost of the change is real and worth stating: preserving the ratio means
+   scaling both axes by the SMALLER factor, so a wide frame loses vertical
+   detail — on 2340x1080, x0.2735 where the stretch gave x0.5926 — and the
+   padding is frame the model still has to process. The measured arithmetic is
+   in preproc.mjs and the README.
+   
+   `fit` is the whole point of the return value. Once there is padding, the 640
+   square is no longer a linear map of the photograph, and every consumer that
+   turns a model box back into a picture coordinate has to know where the
+   content sits. Anything that multiplies by shotW/RF_SIZE is wrong now. */
 function squareFrame(source, w, h) {
   var c = document.createElement('canvas');
   c.width = RF_SIZE; c.height = RF_SIZE;
   var ctx = c.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE);
-  return { canvas: c, ctx: ctx };
+  var s = Math.min(RF_SIZE / w, RF_SIZE / h);
+  var dw = w * s, dh = h * s;
+  var padX = (RF_SIZE - dw) / 2, padY = (RF_SIZE - dh) / 2;
+  /* Black rather than left transparent: the shadow test reads pixels, and an
+     unpainted canvas reads as zeroes anyway. Painting it says so on purpose. */
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, RF_SIZE, RF_SIZE);
+  ctx.drawImage(source, 0, 0, w, h, padX, padY, dw, dh);
+  return { canvas: c, ctx: ctx,
+           fit: { s: s, padX: padX, padY: padY, dw: dw, dh: dh, srcW: w, srcH: h } };
+}
+
+/* A model box, in the 640 square, back to the coordinates of whatever was
+   handed to squareFrame. One function, so there is one place to be right. */
+function fitToSource(box, fit) {
+  if (!box || !fit) return null;
+  var x = (box.x - fit.padX) / fit.s, y = (box.y - fit.padY) / fit.s;
+  var w = box.w / fit.s, h = box.h / fit.s;
+  /* A box may straddle the padding: the model is shown those bars and is free
+     to draw across them. Mapped back, that lands outside the photograph — a
+     box starting above row zero, or running past the bottom edge. Clamped to
+     the picture, because the part over the padding corresponds to nothing that
+     was photographed, and a box drawn off the edge of the evidence is worse
+     than one that stops at it. */
+  var x0 = Math.max(0, Math.min(x, fit.srcW));
+  var y0 = Math.max(0, Math.min(y, fit.srcH));
+  var x1 = Math.max(0, Math.min(x + w, fit.srcW));
+  var y1 = Math.max(0, Math.min(y + h, fit.srcH));
+  return { x: x0, y: y0, w: Math.max(0, x1 - x0), h: Math.max(0, y1 - y0) };
 }
 
 /* Survey mode: the camera runs and the model watches it, and anything it finds
@@ -681,6 +724,160 @@ $('hudSurface').addEventListener('click', function () {
   toast('Now recording finds as ' + (S.foot ? 'footway' : 'carriageway') + '.');
 });
 
+/* ---------- zoom ----------
+
+   At 34 mph a pothole is in frame for about one look, and at 15 m it is roughly
+   eleven pixels wide and one and a half tall in the tensor. Zoom is the one
+   lever that changes that arithmetic without touching the model: it puts more
+   sensor pixels on the road ahead before anything is resized.
+
+   It has to happen at the TRACK, not afterwards. Cropping the 640 square would
+   be the same pixels enlarged — no new detail, a narrower field of view, and a
+   quiet lie in the diagnostics. So this drives MediaStreamTrack.applyConstraints
+   and then reads getSettings back to find out what the camera actually did,
+   because asking and being obeyed are different things.
+
+   Support is narrow and this says so rather than pretending. */
+
+/* The zoom the survey wants. One constant, because the number appears on a
+   button, in the diagnostics, in what is asked of the camera and in what the
+   tests check — and four of those drifting apart is how a screen ends up
+   claiming 4x while the camera is at 2. */
+var ZOOM_WANT = 4;
+
+var zoom = { supported: false, requested: ZOOM_WANT, actual: null, min: null,
+             max: null, step: null, why: 'not looked at yet', asked: null };
+
+function zoomTrack() {
+  if (!stream) return null;
+  return stream.getVideoTracks()[0] || null;
+}
+
+/* What this camera can actually do. Read from the track rather than assumed
+   from the browser name: two phones running the same Chrome differ, and the
+   same phone differs between its front and back cameras. */
+function zoomProbe() {
+  var t = zoomTrack();
+  zoom.actual = null;
+  if (!t) {
+    zoom.supported = false; zoom.why = 'the camera is not running';
+    return zoom;
+  }
+  if (!t.getCapabilities) {
+    zoom.supported = false;
+    zoom.why = 'this browser has no getCapabilities — zoom cannot be asked for';
+    return zoom;
+  }
+  var caps = {};
+  try { caps = t.getCapabilities() || {}; }
+  catch (e) {
+    zoom.supported = false;
+    zoom.why = 'getCapabilities threw: ' + String((e && e.message) || e);
+    return zoom;
+  }
+  if (!('zoom' in caps)) {
+    zoom.supported = false;
+    zoom.why = 'this camera reports no zoom capability';
+    zoom.min = zoom.max = zoom.step = null;
+    return zoom;
+  }
+  var z = caps.zoom || {};
+  zoom.supported = true;
+  zoom.why = null;
+  zoom.min = z.min == null ? null : z.min;
+  zoom.max = z.max == null ? null : z.max;
+  zoom.step = z.step == null ? null : z.step;
+  try {
+    var st = t.getSettings ? t.getSettings() : {};
+    zoom.actual = st.zoom == null ? null : st.zoom;
+  } catch (e) {}
+  return zoom;
+}
+
+/* The nearest value this camera will accept. A device whose range stops at 1.5
+   should go to 1.5 rather than fail, and one with a step of 0.5 should not be
+   asked for 2.3 — being refused for asking a fraction too precisely is a
+   pointless way to have no zoom. */
+function zoomNearest(want) {
+  var lo = zoom.min == null ? 1 : zoom.min;
+  var hi = zoom.max == null ? want : zoom.max;
+  var v = Math.min(hi, Math.max(lo, want));
+  if (zoom.step && zoom.step > 0) {
+    v = lo + Math.round((v - lo) / zoom.step) * zoom.step;
+    v = Math.min(hi, Math.max(lo, v));
+    /* Steps are floats and floats drift; 1.9999999999 is not a value anybody
+       should read on a diagnostics screen. */
+    v = Math.round(v * 1e6) / 1e6;
+  }
+  return v;
+}
+
+function zoomApply(want) {
+  zoom.requested = want;
+  zoomProbe();
+  var t = zoomTrack();
+  if (!t || !zoom.supported) { paintZoom(); return Promise.resolve(zoom); }
+  var v = zoomNearest(want);
+  zoom.asked = v;
+  /* advanced: a plain constraint is a requirement and is rejected outright by
+     some implementations; advanced is best-effort, which is why the result is
+     read back rather than believed. */
+  return t.applyConstraints({ advanced: [{ zoom: v }] }).then(function () {
+    var st = {};
+    try { st = t.getSettings ? t.getSettings() : {}; } catch (e) {}
+    zoom.actual = st.zoom == null ? null : st.zoom;
+    /* Applied without complaint and did nothing is a real outcome on some
+       cameras, and it must not read as success. */
+    if (zoom.actual == null) {
+      zoom.why = 'the camera accepted the request but reports no zoom setting back';
+    } else if (Math.abs(zoom.actual - v) > (zoom.step || 0.01)) {
+      zoom.why = 'asked for ' + v + ' and the camera settled at ' + zoom.actual;
+    } else {
+      zoom.why = null;
+    }
+    paintZoom();
+    return zoom;
+  }, function (e) {
+    zoom.why = 'the camera refused it: ' + String((e && e.name) || (e && e.message) || e);
+    try {
+      var st = t.getSettings ? t.getSettings() : {};
+      zoom.actual = st.zoom == null ? null : st.zoom;
+    } catch (x) {}
+    paintZoom();
+    return zoom;
+  });
+}
+
+/* What the diagnostics and the entry metadata quote: what the camera IS doing,
+   never what it was asked to do. */
+function zoomNow() {
+  var t = zoomTrack();
+  if (!t || !t.getSettings) return null;
+  try {
+    var st = t.getSettings() || {};
+    return st.zoom == null ? null : st.zoom;
+  } catch (e) { return null; }
+}
+
+function paintZoom() {
+  var box = $('zoomPills');
+  if (!box) return;
+  var t = zoomTrack();
+  box.hidden = !t;
+  if (!t) return;
+  var on = zoom.actual != null && zoom.actual > 1.01;
+  $('zoom1').setAttribute('aria-pressed', String(!on));
+  $('zoomIn').setAttribute('aria-pressed', String(on));
+  $('zoomIn').textContent = ZOOM_WANT + '×';
+  var un = !zoom.supported;
+  $('zoom1').disabled = un;
+  $('zoomIn').disabled = un;
+  $('zoomNote').textContent = un
+    ? ZOOM_WANT + '× zoom unavailable on this camera'
+    : (zoom.why ? zoom.why : (zoom.actual == null ? '' : zoom.actual + '× applied'));
+  $('zoomNote').hidden = !un && !zoom.why && zoom.actual == null;
+}
+
 /* ---------- camera ----------
 
    The app opens looking at the road. There is no start screen to get past,
@@ -715,6 +912,14 @@ async function openCamera(byTap) {
     paintRec();          // the strip has to hear about the camera too
     paintSpace();
     footPaint();         // recording needs a stream, so the button follows it
+    /* 4× is what the survey wants, so the camera is asked for it as it opens
+       rather than waiting for somebody to remember a button at the roadside.
+       On a camera with no zoom this does nothing at all and says so; on one
+       whose range stops short it goes as far as it goes and reports the number
+       it reached. It never pretends. */
+    zoomProbe();
+    paintZoom();
+    if (zoom.supported) zoomApply(ZOOM_WANT);
     startGps();
   } catch (e) {
     /* Opening without being asked is allowed to fail quietly: some browsers
@@ -744,6 +949,8 @@ function stopAll() {
      when you last stopped. */
   S.gps = null;
   $('badge').textContent = 'Camera off';
+  zoom.supported = false; zoom.actual = null; zoom.why = 'the camera is not running';
+  paintZoom();
   footPaint();
   $('rec').hidden = true;
   $('bRec').disabled = true;
@@ -2391,6 +2598,11 @@ function look() {
          which is what the rejectReason texture test reads. */
       if (input && input.close) { try { input.close(); } catch (e) {} }
       return { preds: takeDiag(preds), w: RF_SIZE, h: RF_SIZE, ctx: sq.ctx,
+               /* Where the picture sits inside the padded square. Everything
+                  that turns a model box back into a picture coordinate needs
+                  this, and nothing may assume the square is a linear map of
+                  the photograph any more. */
+               fit: sq.fit,
                vw: vw, vh: vh, capturedAt: capturedAt, fix: fixAtCapture,
                /* The frame's own size, so a box in the 640 square can be put
                   back where it belongs on the photograph that was saved. */
@@ -2414,7 +2626,14 @@ function look() {
        when the model has just seen something is the exact misattribution this
        file keeps having to correct — and it hides the one number that matters
        when working out why a pothole was missed. */
-    var measurable = raw.map(function (p) { return usableFind(p, out.w, out.h); })
+    /* Share is measured against the picture, not against the padded square.
+       Under the old stretch those were the same thing; under letterboxing they
+       are not, and using the square would shrink every share by the padding
+       ratio — quietly moving every priority band and making entries logged
+       before and after this build incomparable. */
+    var fitW = (out.fit && out.fit.dw) || out.w;
+    var fitH = (out.fit && out.fit.dh) || out.h;
+    var measurable = raw.map(function (p) { return usableFind(p, fitW, fitH); })
                         .filter(Boolean);
     var hits = measurable.filter(function (f) {
       return f.conf == null || f.conf >= SURVEY_CONF;
@@ -2599,6 +2818,10 @@ function logFind(hits, out, c, cand, replacing) {
         /* Which model said so. Without this, an entry logged today and an entry
            logged after a model swap are indistinguishable, and no comparison
            between the two can be made afterwards from the log alone. */
+        /* What the camera was doing when this frame was taken. A find at 2×
+           is a different observation from a find at 1× — same road, different
+           number of pixels on it — and later comparison needs to know which. */
+        zoom: zoomNow(),
         modelKey: mdl.modelKey, modelName: mdl.modelName,
         modelVersion: mdl.modelVersion, modelArch: mdl.modelArch,
         modelInput: mdl.modelInput, modelRuntime: mdl.modelRuntime,
@@ -2613,10 +2836,12 @@ function logFind(hits, out, c, cand, replacing) {
            about the model needs detBox. Both are kept because they are not
            interchangeable, and working one out from the other later means
            knowing what the frame size was at the time. */
-        detBoxImage: (out && out.shotW && out.shotH && det.box) ? {
-          x: det.box.x * out.shotW / RF_SIZE, y: det.box.y * out.shotH / RF_SIZE,
-          w: det.box.w * out.shotW / RF_SIZE, h: det.box.h * out.shotH / RF_SIZE
-        } : null,
+        /* Through the fit, never by multiplying by shotW/RF_SIZE. That
+           shortcut was correct while the square was a stretch of the whole
+           photograph and became silently wrong the moment there was padding:
+           it would not throw, it would just draw the box in the wrong place,
+           which is this file's oldest failure mode. */
+        detBoxImage: (out && out.fit && det.box) ? fitToSource(det.box, out.fit) : null,
         imgW: (out && out.shotW) || null, imgH: (out && out.shotH) || null,
         videoW: (out && out.vw) || null, videoH: (out && out.vh) || null,
         type: typeFor(best.cls), note: '',
@@ -3663,6 +3888,35 @@ function diagLines() {
     L.push('           ' + describeWeights(rfMeta.weights));
   }
   L.push('');
+  L.push('CAMERA');
+  var zv = $('vid');
+  L.push('  resolution ' + (zv && zv.videoWidth
+    ? zv.videoWidth + ' × ' + zv.videoHeight
+    : 'no camera running'));
+  var ztr = zoomTrack();
+  if (ztr) {
+    var zst = {};
+    try { zst = ztr.getSettings ? ztr.getSettings() : {}; } catch (e) {}
+    L.push('  track      ' + (zst.width || '?') + ' × ' + (zst.height || '?') +
+      (zst.frameRate ? ' @ ' + Math.round(zst.frameRate) : '') +
+      (zst.facingMode ? ' · ' + zst.facingMode : ''));
+  }
+  L.push('');
+  L.push('ZOOM');
+  L.push('  supported  ' + (zoom.supported ? 'yes' : 'no' +
+    (zoom.why ? ' — ' + zoom.why : '')));
+  L.push('  requested  ' + zoom.requested + '×' +
+    (zoom.asked != null && zoom.asked !== zoom.requested
+      ? '  (asked the camera for ' + zoom.asked + ', the nearest it allows)' : ''));
+  L.push('  actual     ' + (zoom.actual == null
+    ? 'the camera reports none' : zoom.actual + '×'));
+  L.push('  min        ' + (zoom.min == null ? '—' : zoom.min));
+  L.push('  max        ' + (zoom.max == null ? '—' : zoom.max));
+  L.push('  step       ' + (zoom.step == null ? '—' : zoom.step));
+  if (zoom.supported && zoom.why) L.push('  note       ' + zoom.why);
+  L.push('  applied at the camera track, not by cropping the frame the model is');
+  L.push('  given — a crop would be the same pixels enlarged and a narrower view.');
+  L.push('');
   /* The registry, on the glass. A comparison between two models is only worth
      anything if it is obvious which one was running, and this is the screen
      somebody photographs and sends back. */
@@ -3843,10 +4097,13 @@ var lastSourceFail = null;
    one was lost. "The model found it and the shadow test threw it away" and "the
    model never found it" are different faults, and they used to look identical
    from outside. */
-function filterTrace(raw, ctx) {
+/* fit is optional so a caller with no letterbox geometry still gets the old
+   behaviour rather than a crash; every caller in the app passes one. */
+function filterTrace(raw, ctx, fit) {
   var trace = [], kept = [];
+  var fitW = (fit && fit.dw) || RF_SIZE, fitH = (fit && fit.dh) || RF_SIZE;
   raw.forEach(function (p, i) {
-    var f = usableFind(p, RF_SIZE, RF_SIZE);
+    var f = usableFind(p, fitW, fitH);
     if (!f) {
       trace.push('#' + (i + 1) + ' dropped — not a usable find (unknown class, or a box ' +
                  'that is not a box)');
@@ -4083,9 +4340,13 @@ function rotatedFrame(source, w, h, deg) {
   ctx.translate(RF_SIZE / 2, RF_SIZE / 2);
   ctx.rotate(deg * Math.PI / 180);
   ctx.translate(-RF_SIZE / 2, -RF_SIZE / 2);
-  /* Drawn to the same stretched square first, so the only difference from the
-     survey's own frame is the quarter turn. */
-  ctx.drawImage(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE);
+  /* Drawn to the same square the survey builds — letterboxed since build 55 —
+     so the only difference from the survey's own frame is the quarter turn. A
+     rotation test whose frame differed from production in a second way would
+     answer a question nobody asked. */
+  var rs = Math.min(RF_SIZE / w, RF_SIZE / h);
+  ctx.drawImage(source, 0, 0, w, h,
+                (RF_SIZE - w * rs) / 2, (RF_SIZE - h * rs) / 2, w * rs, h * rs);
   ctx.restore();
   return { canvas: c, ctx: ctx };
 }
@@ -5271,7 +5532,7 @@ function missCandidates(data, numBoxes, numClasses, classNames, size) {
    test are the survey's own functions called from here, not copies. A report
    produced by a second implementation would describe a pipeline that does not
    run on a road. */
-function missAnalyse(tf, model, canvas, label, srcW, srcH) {
+function missAnalyse(tf, model, canvas, label, srcW, srcH, shape) {
   var input = null, out = null, moved = null;
   return Promise.resolve().then(function () {
     /* Preprocessing timed on its own. It is not inference, and a miss blamed
@@ -5370,7 +5631,7 @@ function missAnalyse(tf, model, canvas, label, srcW, srcH) {
         return {
           at: new Date().toISOString(), label: label,
           srcW: srcW, srcH: srcH, inW: RF_SIZE, inH: RF_SIZE,
-          msPre: msPre, inShape: inShape,
+          msPre: msPre, inShape: inShape, shape: shape || null,
           rawShape: rawShape, numBoxes: numBoxes, numClasses: numClasses,
           classNames: classNames, min: lo, max: hi, sane: sane, ms: Math.round(ms),
           backend: was, floor: MISS_FLOOR, steps: steps, sweep: sweep,
@@ -5394,11 +5655,154 @@ function canvasCtx(c) {
   catch (e) { return c.getContext('2d'); }
 }
 
+/* ---------- preprocessing A/B ----------
+
+   The survey stretches whatever the camera gives it into a 640 square. On a
+   16:9 frame that is a 1.78x distortion; on the 2340x1080 a modern phone hands
+   over it is 2.17x, and a round pothole arrives more than twice as tall as it
+   is wide.
+
+   The obvious fix is letterboxing, and for THIS aspect ratio the obvious fix is
+   wrong: preserving the ratio means scaling both axes by the smaller factor, so
+   the road loses more than half its vertical detail and 54% of the square is
+   padding the model still has to process. The arithmetic says a road-focused
+   square crop is the only variant that improves both axes at once.
+
+   That is a prediction, and predictions about this model have been wrong before.
+   So: run the same picture through all four and let the numbers decide.
+
+   Diagnostic only. Nothing here touches squareFrame, which is what the survey
+   uses and what production still does. */
+
+var MISS_AB = [
+  { key: 'A', name: 'STRETCH (what the survey does now)', how: 'stretch' },
+  { key: 'B', name: 'LETTERBOX', how: 'letterbox' },
+  { key: 'C', name: 'ROAD CROP, square', how: 'cropSquare' },
+  { key: 'D', name: 'ROAD CROP + LETTERBOX', how: 'cropLetterbox' }
+];
+/* Where the road is in a frame taken from a windscreen: below the horizon and
+   above the bonnet. Fractions of the frame height rather than pixels, so the
+   same numbers work whatever the camera hands over. */
+var ROAD_TOP = 0.35, ROAD_BOT = 0.92;
+
+/* One variant's 640 square, and the transform that undoes it.
+   A box at (tx, ty) in the tensor came from
+       srcX = cropX + (tx - padX) / sx
+   which is what maps the model's answer back onto the photograph. */
+function missVariant(source, w, h, how) {
+  var c = document.createElement('canvas');
+  c.width = c.height = RF_SIZE;
+  var ctx = canvasCtx(c);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, RF_SIZE, RF_SIZE);
+
+  var cx = 0, cy = 0, cw = w, ch = h;
+  if (how === 'cropSquare' || how === 'cropLetterbox') {
+    var top = Math.round(h * ROAD_TOP), bot = Math.round(h * ROAD_BOT);
+    cy = top; ch = Math.max(1, bot - top);
+    if (how === 'cropSquare') {
+      /* A square crop cannot be wider than the band is tall, and it sits in the
+         middle because that is where the road ahead is. */
+      cw = Math.min(w, ch);
+      cx = Math.round((w - cw) / 2);
+    } else {
+      cw = w; cx = 0;
+    }
+  }
+
+  var sx, sy, padX = 0, padY = 0;
+  if (how === 'stretch') {
+    sx = RF_SIZE / cw; sy = RF_SIZE / ch;
+  } else {
+    var sc = Math.min(RF_SIZE / cw, RF_SIZE / ch);
+    sx = sy = sc;
+    padX = (RF_SIZE - cw * sc) / 2;
+    padY = (RF_SIZE - ch * sc) / 2;
+  }
+  ctx.drawImage(source, cx, cy, cw, ch, padX, padY, cw * sx, ch * sy);
+
+  return { canvas: c, ctx: ctx,
+           /* ab marks a variant built for the A/B comparison. runMiss also
+              carries a shape now — the survey's own letterbox geometry, so its
+              boxes map back too — and without this flag a batch of photographs
+              would render the A/B table instead of the table across them. */
+           shape: { ab: true, how: how, srcW: w, srcH: h,
+                    cropX: cx, cropY: cy, cropW: cw, cropH: ch,
+                    sx: sx, sy: sy, padX: padX, padY: padY,
+                    used: (cw * sx) * (ch * sy) / (RF_SIZE * RF_SIZE) } };
+}
+
+/* A tensor box back onto the original photograph. Without this the comparison
+   cannot answer the question that matters — whether the model is looking at the
+   defect or at some unrelated texture — because every variant reports its boxes
+   in a different 640 square. */
+function missToSource(box, sh) {
+  if (!box || !sh) return null;
+  return {
+    x: sh.cropX + (box.x - sh.padX) / sh.sx,
+    y: sh.cropY + (box.y - sh.padY) / sh.sy,
+    w: box.w / sh.sx,
+    h: box.h / sh.sy
+  };
+}
+
+function runMissAB(source, w, h, label) {
+  var st = $('tState');
+  busy(true);
+  missRuns = []; missResult = null; paintFrameTest();
+  st.textContent = 'Bringing the model up…';
+  return loadBenchTf().then(function (tf) {
+    var have = infSession && infSession.model
+      ? Promise.resolve(infSession)
+      : infCapabilities(tf).then(function () { return infPick(tf); });
+    return have.then(function (sess) {
+      var i = 0;
+      function step() {
+        if (i >= MISS_AB.length) return Promise.resolve();
+        var v = MISS_AB[i];
+        st.textContent = 'Variant ' + v.key + ' of ' + MISS_AB.length + ': ' +
+          v.name + '…';
+        var built = missVariant(source, w, h, v.how);
+        return missAnalyse(sess.tf, sess.model, built.canvas,
+                           v.key + ' · ' + v.name + ' · ' + label, w, h,
+                           built.shape)
+          .then(function (r) {
+            missRuns.push(r);
+            paintFrameTest();
+            i++;
+            return step();
+          });
+      }
+      return step();
+    });
+  }).then(function () {
+    paintFrameTest(); paintDiag();
+    var best = missRuns.reduce(function (a, b) {
+      return (missCase(b).best || 0) > (missCase(a).best || 0) ? b : a;
+    }, missRuns[0]);
+    st.textContent = missRuns.length
+      ? 'Done. Strongest pothole candidate under ' +
+        String(best.label).split(' · ')[0] + ': ' + round4(missCase(best).best)
+      : 'Nothing ran.';
+    busy(false);
+  }, function (e) {
+    st.textContent = 'The A/B could not run: ' + String((e && e.message) || e);
+    busy(false);
+  });
+}
+
 function runMiss(source, w, h, label) {
   var s = $('tState');
   busy(true);
   s.textContent = 'Bringing the model up…';
   var sq = squareFrame(source, w, h);
+  /* The survey's own geometry, handed to the report so its boxes can be put
+     back on the photograph exactly the way the evidence box is. */
+  var shape = { how: 'letterbox', srcW: w, srcH: h,
+                cropX: 0, cropY: 0, cropW: w, cropH: h,
+                sx: sq.fit.s, sy: sq.fit.s,
+                padX: sq.fit.padX, padY: sq.fit.padY,
+                used: (sq.fit.dw * sq.fit.dh) / (RF_SIZE * RF_SIZE) };
   return loadBenchTf().then(function (tf) {
     /* The session the survey itself uses when there is one, so this reports on
        the same weights on the same backend rather than on a second setup that
@@ -5408,7 +5812,7 @@ function runMiss(source, w, h, label) {
       : infCapabilities(tf).then(function () { return infPick(tf); });
     return have.then(function (sess) {
       s.textContent = 'Running one picture through ' + sess.backend.toUpperCase() + '…';
-      return missAnalyse(sess.tf, sess.model, sq.canvas, label, w, h);
+      return missAnalyse(sess.tf, sess.model, sq.canvas, label, w, h, shape);
     });
   }).then(function (r) {
     missResult = r;
@@ -5769,8 +6173,88 @@ function missTable() {
   return L.join('\n');
 }
 
+/* The A/B, as one table. Four full reports underneath it answer "what did each
+   stage do"; this answers the only question being asked — which preprocessing
+   gets the most out of this picture, and is the box it found on the defect. */
+function missAB() {
+  var runs = missRuns.filter(function (r) { return r.shape && r.shape.ab; });
+  if (runs.length < 2) return '';
+  var L = [];
+  var pad = function (t, n) { t = String(t); while (t.length < n) t += ' '; return t; };
+  var bars = [0.05, 0.10, 0.25, 0.40, 0.50, 0.65];
+
+  L.push('PREPROCESSING A/B  (diagnostic — production letterboxes since build 55)');
+  L.push('  ' + runs[0].srcW + ' × ' + runs[0].srcH + ' source, aspect ' +
+    (runs[0].srcW / runs[0].srcH).toFixed(3));
+  L.push('');
+  var head = pad('variant', 24) + pad('crop', 12) + pad('scale x', 10) +
+    pad('scale y', 10) + pad('distort', 9) + pad('used', 7) + pad('best pot', 10) +
+    'best man';
+  L.push('  ' + head);
+  L.push('  ' + new Array(head.length + 1).join('-'));
+  runs.forEach(function (r) {
+    var sh = r.shape, v = missCase(r);
+    var man = r.classNames.indexOf('manhole');
+    var bm = man >= 0 && r.best[man] ? r.best[man].conf : 0;
+    L.push('  ' + pad(String(r.label).split(' · ').slice(0, 2).join(' ').slice(0, 22), 24) +
+      pad(sh.cropW + '×' + sh.cropH, 12) +
+      pad('×' + sh.sx.toFixed(4), 10) + pad('×' + sh.sy.toFixed(4), 10) +
+      pad((sh.sy / sh.sx).toFixed(3), 9) +
+      pad(Math.round(sh.used * 100) + '%', 7) +
+      pad(v.best ? round4(v.best) : 'none', 10) +
+      (bm ? round4(bm) : 'none'));
+  });
+  L.push('');
+
+  L.push('  HOW MANY POTHOLE CANDIDATES CLEAR EACH BAR');
+  L.push('  ' + pad('variant', 24) + bars.map(function (b) {
+    return pad(b.toFixed(2), 7); }).join('') + 'NMS out');
+  runs.forEach(function (r) {
+    var pot = r.classNames.indexOf('pothole');
+    var list = pot >= 0 ? r.per[pot] : [];
+    var total = pot >= 0 ? r.perTotal[pot] : 0;
+    L.push('  ' + pad(String(r.label).split(' · ')[0] + ' ' +
+        String(r.label).split(' · ')[1].slice(0, 18), 24) +
+      bars.map(function (b) {
+        /* per[] is capped at MISS_LIST for display; the steps table is the
+           honest count over every anchor. */
+        var st = r.steps.filter(function (x) { return Math.abs(x.at - b) < 1e-9; })[0];
+        return pad(st ? st.counts[pot] : (b <= r.floor ? total : '?'), 7);
+      }).join('') + r.kept.length);
+  });
+  L.push('');
+
+  /* The whole point: every variant reports its boxes in a different 640 square,
+     so they cannot be compared until they are put back on the photograph. */
+  L.push('  STRONGEST POTHOLE CANDIDATES, MAPPED BACK TO THE ORIGINAL IMAGE');
+  runs.forEach(function (r) {
+    var pot = r.classNames.indexOf('pothole');
+    var list = (pot >= 0 ? r.per[pot] : []).slice(0, 3);
+    L.push('  ' + String(r.label).split(' · ').slice(0, 2).join(' '));
+    if (!list.length) { L.push('      no pothole candidate above ' + r.floor); return; }
+    list.forEach(function (c, i) {
+      var o = missToSource(c.box, r.shape);
+      L.push('      [' + (i + 1) + '] ' + round4(c.conf) +
+        '   640: x ' + Math.round(c.box.x) + ' y ' + Math.round(c.box.y) +
+        ' w ' + Math.round(c.box.w) + ' h ' + Math.round(c.box.h));
+      L.push('          original: x ' + Math.round(o.x) + ' y ' + Math.round(o.y) +
+        ' w ' + Math.round(o.w) + ' h ' + Math.round(o.h) +
+        '   (' + Math.round(o.x / r.srcW * 100) + '% across, ' +
+        Math.round(o.y / r.srcH * 100) + '% down)');
+    });
+  });
+  L.push('');
+  L.push('  Compare the ORIGINAL coordinates between variants. Boxes that land in');
+  L.push('  the same place are the model finding the same thing; boxes scattered');
+  L.push('  across the frame are texture, not a defect.');
+  return L.join('\n');
+}
+
 function missLines() {
   if (!missRuns.length) return missOne(missResult);
+  var ab = missAB();
+  if (ab) return [ab].concat(missRuns.map(missOne))
+    .filter(Boolean).join('\n\n' + new Array(72).join('=') + '\n\n');
   return [missTable()].concat(missRuns.map(missOne))
     .filter(Boolean).join('\n\n' + new Array(72).join('=') + '\n\n');
 }
@@ -5878,6 +6362,8 @@ function footStart() {
       trackW: tr.settings.width || null, trackH: tr.settings.height || null,
       frameRate: tr.settings.frameRate || null,
       facing: tr.settings.facingMode || null,
+      zoom: tr.settings.zoom == null ? null : tr.settings.zoom,
+      zoomSupported: !!zoom.supported,
       /* H: the orientation question, in full, per recording. */
       appRot: facts.appRot, videoRot: facts.videoRot,
       screenAngle: facts.screenAngle, screenType: facts.screenType,
@@ -6381,6 +6867,11 @@ $('benchFile').addEventListener('change', function () {
 
 /* The miss analysis, over a photograph of a road that WAS missed.
    Diagnostic only: it reports what every stage did and changes nothing. */
+/* Zoom. The only thing these change is the camera track — no threshold, no
+   cadence, and nothing about how the frame is cut up afterwards. */
+$('zoom1').addEventListener('click', function () { zoomApply(1); });
+$('zoomIn').addEventListener('click', function () { zoomApply(ZOOM_WANT); });
+
 /* Footage controls. Diagnostic only: none of these touch the survey, the
    model, the thresholds or the evidence photographs. */
 $('bFootStart').addEventListener('click', function () { footStart(); });
@@ -6392,6 +6883,25 @@ $('bFootClose').addEventListener('click', function () { footClose(); footPaint()
 $('footVid').addEventListener('timeupdate', function () {
   if (footPlay.meta) $('footPlayMeta').textContent =
     footWhere(footPlay.meta, $('footVid').currentTime);
+});
+
+/* One picture, four preprocessings, same weights and same decoder. Diagnostic:
+   squareFrame is untouched and the survey still stretches. */
+$('abFile').addEventListener('change', function () {
+  var file = this.files && this.files[0];
+  this.value = '';
+  if (!file) return;
+  busy(true);
+  $('tState').textContent = 'Decoding the photograph…';
+  createImageBitmap(file, { imageOrientation: 'from-image' })
+    .catch(function () { return createImageBitmap(file); })
+    .then(function (bmp) {
+      runMissAB(bmp, bmp.width, bmp.height, file.name);
+    }, function (e) {
+      busy(false);
+      $('tState').textContent = 'Could not run it: this browser could not decode "' +
+        file.name + '" — ' + String((e && e.message) || e);
+    });
 });
 
 $('missFile').addEventListener('change', function () {
