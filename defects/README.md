@@ -1153,6 +1153,80 @@ that does not match what the library expects. Which model to try instead is a
 guess, and every guess otherwise costs a deploy and a drive. The ranges say
 which.
 
+## The frame that was missed, not a photograph of where it was
+
+The miss report is only as good as the pictures fed to it, and the picture you
+can get after the fact is not the one that was missed: different angle, stopped
+vehicle, different light, minutes later. The frame that was actually missed is
+gone the moment the survey moves on.
+
+So footage. Record the drive, scrub back to the hole nobody logged, and put
+**that** frame through the miss report.
+
+**It records the camera stream, not the screen.** `new MediaRecorder(stream, …)`
+takes the same `MediaStream` object that is on `#vid.srcObject` — the survey's
+own source. A screen recording would carry the CSS rotation that makes the
+display look upright, which is the one thing currently most worth being able to
+see plainly: the model never sees that correction, and neither should the
+footage. `footage.mjs` asserts the identity of the two objects and greps the
+source for `getDisplayMedia` to keep it that way.
+
+**The type is probed, never assumed.** `MediaRecorder.isTypeSupported` is the
+only honest answer and it differs between two phones of the same make. Five
+candidates are asked about in preference order; the first yes wins. Three
+different failures are told apart rather than collapsed into "recording is
+broken": no `MediaRecorder` at all, a `MediaRecorder` that supports none of
+them, and one that throws when asked — a browser that throws has not said yes.
+
+**Nothing accumulates in memory.** `mr.start(3000)` hands over a slice every
+three seconds and each one is written away as it arrives, keyed
+`<id>:<zero-padded seq>` so reading one recording back is a range query rather
+than a scan of every recording on the device. The array that MediaRecorder
+would otherwise fill is never built.
+
+**It stops itself.** Ten minutes, or when free storage minus a 200 MB reserve
+runs out, whichever comes first — and the record says which cap ended it. A
+chunk that fails to write ends the recording out loud, because carrying on
+would produce a video with a hole in it and no sign of one.
+
+### Getting the frame out
+
+Pause, scrub, **Analyse this frame**. The frame on screen is drawn at the
+video's own `videoWidth × videoHeight` — real pixels, real aspect ratio, nothing
+cropped — and handed to `runMiss`, the same function the photo picker calls. The
+preprocessing from there is the survey's own, and the report prints its two
+scale factors as it always does.
+
+One guard worth its line: below `readyState 2` there is no decoded frame for the
+current time and `drawImage` returns **black rather than failing**. That would
+put a miss report on an empty square and have it read like a finding, so the
+frame is refused instead.
+
+### The sidecar
+
+Metadata lives beside the video, never inside it. Start and end timestamps,
+duration, byte count, chunk count, the MIME type used and the others that were
+available, the resolution actually delivered, what the track says about itself
+(which need not match what `openCamera` asked for), the run id, the build, and a
+GPS sample about once a second — so a frame can later be put on a map without
+the recording carrying the cost of doing it live.
+
+And, because this feature exists for the orientation question: `appRot`,
+`videoRot`, `screenAngle`, `screenType`, `portraitViewport`, `videoWidth` and
+`videoHeight`, all taken at the moment recording starts rather than
+reconstructed afterwards. They are shown under the player and follow the
+scrubber.
+
+### What it deliberately cannot do
+
+The survey loop has no knowledge of footage at all — `footage.mjs` greps `look()`
+to prove it. Recording runs no inference, changes no cadence, writes no
+observation and starts no survey. Nothing in the footage code can write or
+delete an entry. Version 4 of the database adds two stores and touches nothing
+that was already in it. Everything stays on the device: no uploads, no cloud
+processing, and the screen says plainly that footage of a public road contains
+people, number plates and private property.
+
 ## Which model said so
 
 There was one model id in one constant, and an entry in the log carried no

@@ -310,6 +310,40 @@
       <pre class="diag" id="frameText" hidden></pre>
     </div>
 
+    <!-- Footage. A development tool: record the drive from the same camera
+         stream the survey watches, then scrub back to the hole nobody logged
+         and put THAT frame through the miss report. Nothing here runs unless
+         it is switched on, and the survey behaves identically when it is
+         not. -->
+    <div class="card">
+      <h2><span class="dot" id="footDot"></span> Record footage</h2>
+      <span class="hint">Records the <b>camera stream</b>, not the screen — so the footage is
+        what the model is given, including any rotation the display corrects and the model
+        never sees. Recording is independent of detection: it does not change the survey,
+        its cadence, its thresholds or its evidence photographs.</span>
+      <div class="row">
+        <button class="btn" id="bFootStart">Start recording</button>
+        <button class="btn ghost" id="bFootStop">Stop recording</button>
+      </div>
+      <pre class="diag" id="footState">Ready.</pre>
+      <span class="hint"><b>This stays on this device.</b> Nothing is uploaded and there is no
+        cloud processing. Footage of a public road will contain people, number plates, vehicles
+        and private property — treat the recordings accordingly and delete them when the
+        analysis is done.</span>
+      <div id="footList"><div class="hint">Nothing recorded yet.</div></div>
+      <div id="footPlayWrap" hidden>
+        <video id="footVid" class="footvid" controls playsinline preload="metadata"></video>
+        <div class="row">
+          <button class="btn" id="bFootFrame">Analyse this frame</button>
+          <button class="btn ghost" id="bFootClose">Close</button>
+        </div>
+        <span class="hint">Pause on the defect that was missed, then <b>Analyse this frame</b>.
+          The exact frame on screen is taken at its own resolution and sent to
+          <b>Why was this missed?</b> — no second camera capture, no photograph of the screen.</span>
+        <pre class="diag" id="footPlayMeta"></pre>
+      </div>
+    </div>
+
     <div class="row">
       <button class="btn" id="bCopyDiag">Copy</button>
       <button class="btn ghost" id="bDiagFile">Save as text</button>

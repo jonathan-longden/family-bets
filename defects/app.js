@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-03 · 50';
+var BUILD = '2026-09-03 · 51';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -366,6 +366,14 @@ var stream = null, watchId = null, ageTimer = null, urls = [], lbUrl = null;
    photograph in it and there is no version of that worth the risk. The code
    says observation everywhere it means one. */
 var DB_NAME = 'deflog', STORE = 'defects', WRONG = 'wrong', PHYS = 'physical';
+/* Version 4 adds two stores and touches nothing that was already there.
+   FOOT holds one sidecar record per recording — when, how long, what
+   resolution, which way up. FOOTC holds the recording itself, in the
+   pieces MediaRecorder hands over, because a drive's worth of video
+   assembled in memory before it is written is the phone running out of
+   it. The key is a string rather than a compound one so a range read is
+   the same on every engine. */
+var FOOT = 'footage', FOOTC = 'footchunk';
 var db = null, dbBroken = false;
 
 /* Timestamp ids were fine for one device and are not for two. Two phones
@@ -388,7 +396,7 @@ function uuid() {
 function openDb() {
   return new Promise(function (resolve, reject) {
     if (!self.indexedDB) return reject(new Error('no IndexedDB'));
-    var req = indexedDB.open(DB_NAME, 3);
+    var req = indexedDB.open(DB_NAME, 4);
     req.onupgradeneeded = function () {
       var d = req.result;
       if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE, { keyPath: 'id' });
@@ -402,6 +410,12 @@ function openDb() {
          a failure can be reported rather than aborting an upgrade transaction
          and leaving the database on the old version with no explanation. */
       if (!d.objectStoreNames.contains(PHYS)) d.createObjectStore(PHYS, { keyPath: 'defect_id' });
+      /* Version 4. Additive in exactly the same way: two new stores, and not a
+         line that reads or rewrites an observation. Footage is a diagnostic
+         that happens to live in the same database; it must never be able to
+         cost somebody their survey. */
+      if (!d.objectStoreNames.contains(FOOT)) d.createObjectStore(FOOT, { keyPath: 'id' });
+      if (!d.objectStoreNames.contains(FOOTC)) d.createObjectStore(FOOTC, { keyPath: 'key' });
     };
     req.onsuccess = function () { resolve(req.result); };
     req.onerror = function () { reject(req.error); };
@@ -700,6 +714,7 @@ async function openCamera(byTap) {
     paintSurface();
     paintRec();          // the strip has to hear about the camera too
     paintSpace();
+    footPaint();         // recording needs a stream, so the button follows it
     startGps();
   } catch (e) {
     /* Opening without being asked is allowed to fail quietly: some browsers
@@ -717,6 +732,10 @@ $('bStop').addEventListener('click', function () { closeMenu(); stopAll(); });
 function stopAll() {
   if (survey.on) endSurvey();
   releaseWake();          // in case the survey was already off and the lock was not
+  /* A recorder whose track has been stopped does not pause, it errors. The
+     footage is a diagnostic and must never be the thing that breaks closing
+     the camera, so it is ended first and its failure is its own. */
+  if (foot.on) { try { footStop('camera closed'); } catch (e) {} }
   if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
   if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
   if (ageTimer) { clearInterval(ageTimer); ageTimer = null; }
@@ -725,6 +744,7 @@ function stopAll() {
      when you last stopped. */
   S.gps = null;
   $('badge').textContent = 'Camera off';
+  footPaint();
   $('rec').hidden = true;
   $('bRec').disabled = true;
   $('camGate').hidden = false;
@@ -5755,6 +5775,436 @@ function missLines() {
     .filter(Boolean).join('\n\n' + new Array(72).join('=') + '\n\n');
 }
 
+/* ---------- footage ----------
+
+   A development tool, and it earns its place because of what the last few days
+   established: the app cannot tell you why a pothole was missed if the frame it
+   was missed on is gone. The miss report is only as good as the pictures fed to
+   it, and a photograph taken afterwards, from a stopped vehicle, at a different
+   angle, in different light, is not the frame that was missed.
+
+   So: record the drive, scrub back to the hole nobody logged, and put THAT
+   frame through the miss report.
+
+   The rule that makes it worth anything is that the footage comes from the same
+   MediaStream the survey looks at — not from the screen, and not from a second
+   camera request. A recording of the screen would carry the CSS rotation that
+   the model never sees, which on current evidence is the one thing most worth
+   being able to see plainly.
+
+   Nothing here runs unless somebody turns it on. */
+
+var FOOT_SLICE = 3000;             // ms per chunk handed over and written away
+var FOOT_MAX_MS = 10 * 60 * 1000;  // a cap, because a phone's storage is not a disk
+var FOOT_MAX_BYTES = 512 * 1024 * 1024;
+var FOOT_KEEP_FREE = 200 * 1024 * 1024;  // never fill the device to the brim
+/* Probed, never assumed. isTypeSupported is the only honest answer, and it
+   differs between two phones of the same make. Ordered best-compression first;
+   whatever this browser can record it can also play back, which is the only
+   playback that has to work. */
+var FOOT_TYPES = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm',
+                  'video/mp4;codecs=h264', 'video/mp4'];
+
+var foot = { rec: null, id: null, on: false, seq: 0, bytes: 0,
+             startedAt: null, timer: null, meta: null, err: null };
+var footPlay = { id: null, url: null, meta: null };
+
+/* What this browser will actually record. Returns the whole picture rather than
+   just the winner, because "no supported type" and "MediaRecorder is missing"
+   are different faults and the screen should be able to say which. */
+function footSupport() {
+  if (typeof MediaRecorder === 'undefined') {
+    return { ok: false, why: 'this browser has no MediaRecorder', types: [], picked: null };
+  }
+  var able = [];
+  if (MediaRecorder.isTypeSupported) {
+    for (var i = 0; i < FOOT_TYPES.length; i++) {
+      try { if (MediaRecorder.isTypeSupported(FOOT_TYPES[i])) able.push(FOOT_TYPES[i]); }
+      catch (e) { /* a browser that throws on the question has not said yes */ }
+    }
+  }
+  return able.length
+    ? { ok: true, why: null, types: able, picked: able[0] }
+    : { ok: false, why: 'MediaRecorder is here but supports none of the types this asks for',
+        types: [], picked: null };
+}
+
+/* The video track the survey is looking at, and what it says about itself. Read
+   rather than assumed: the resolution asked for in openCamera is an "ideal",
+   and a phone is free to hand back something else entirely. */
+function footTrack() {
+  if (!stream) return null;
+  var t = stream.getVideoTracks()[0];
+  if (!t) return null;
+  var st = {};
+  try { st = t.getSettings ? t.getSettings() : {}; } catch (e) {}
+  return { track: t, label: t.label || null, settings: st };
+}
+
+function footRoom() {
+  if (!navigator.storage || !navigator.storage.estimate) return Promise.resolve(null);
+  return navigator.storage.estimate().then(function (e) {
+    if (!e || !e.quota) return null;
+    return Math.max(0, e.quota - (e.usage || 0) - FOOT_KEEP_FREE);
+  }).catch(function () { return null; });
+}
+
+function footStart() {
+  if (foot.on) return Promise.resolve(null);
+  var sup = footSupport();
+  if (!sup.ok) { foot.err = sup.why; footPaint(); return Promise.resolve(null); }
+  var tr = footTrack();
+  if (!tr) { foot.err = 'the camera is not running'; footPaint(); return Promise.resolve(null); }
+
+  return footRoom().then(function (room) {
+    var cap = room == null ? FOOT_MAX_BYTES : Math.min(FOOT_MAX_BYTES, room);
+    if (cap < 20 * 1024 * 1024) {
+      foot.err = 'not enough free storage to record safely';
+      footPaint();
+      return null;
+    }
+    var v = $('vid');
+    /* Everything about which way up this is, taken at the moment recording
+       starts. It is the reason the feature exists, so it is recorded before a
+       single frame is, not reconstructed afterwards. */
+    var facts = orientationFacts(v.videoWidth, v.videoHeight, 'camera');
+    var id = 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    var meta = {
+      id: id, startedAt: new Date().toISOString(), startedMs: Date.now(),
+      endedAt: null, ms: 0, bytes: 0, chunks: 0,
+      mime: sup.picked, supported: sup.types,
+      videoW: v.videoWidth || null, videoH: v.videoHeight || null,
+      trackLabel: tr.label,
+      trackW: tr.settings.width || null, trackH: tr.settings.height || null,
+      frameRate: tr.settings.frameRate || null,
+      facing: tr.settings.facingMode || null,
+      /* H: the orientation question, in full, per recording. */
+      appRot: facts.appRot, videoRot: facts.videoRot,
+      screenAngle: facts.screenAngle, screenType: facts.screenType,
+      portraitViewport: facts.portraitViewport,
+      /* G: the sidecar. Which drive this belongs to, and where the vehicle was
+         when it started. Samples are added as the recording runs. */
+      runId: (survey && survey.runId) || null,
+      surveyOn: !!(survey && survey.on),
+      build: BUILD, ua: (navigator.userAgent || '').slice(0, 200),
+      modelKey: modelStamp().modelKey || null,
+      gps: [], cap: cap, capped: null
+    };
+
+    var mr;
+    try { mr = new MediaRecorder(stream, { mimeType: sup.picked }); }
+    catch (e) {
+      foot.err = 'MediaRecorder refused this stream: ' + String((e && e.message) || e);
+      footPaint();
+      return null;
+    }
+
+    foot.rec = mr; foot.id = id; foot.on = true; foot.seq = 0; foot.bytes = 0;
+    foot.startedAt = Date.now(); foot.meta = meta; foot.err = null;
+
+    /* Each slice is written away as it arrives. Nothing accumulates: the array
+       MediaRecorder would otherwise fill is never built. */
+    mr.ondataavailable = function (ev) {
+      if (!ev.data || !ev.data.size) return;
+      var seq = foot.seq++;
+      foot.bytes += ev.data.size;
+      meta.bytes = foot.bytes; meta.chunks = foot.seq;
+      putFootChunk({ key: id + ':' + String(seq).padStart(6, '0'),
+                     rec: id, seq: seq, bytes: ev.data.size, blob: ev.data })
+        .catch(function (e) {
+          /* A write that fails is the end of this recording, said out loud.
+             Carrying on would produce a video with a hole in it and no sign. */
+          foot.err = 'could not write a chunk: ' + String((e && e.message) || e);
+          footStop('write failed');
+        });
+      if (foot.bytes >= cap) { meta.capped = 'storage'; footStop('storage cap'); }
+    };
+    mr.onerror = function (ev) {
+      foot.err = 'MediaRecorder error: ' +
+        String((ev && ev.error && ev.error.name) || 'unknown');
+      footStop('recorder error');
+    };
+
+    /* Painted before the metadata write, not after it. The indicator and the
+       buttons describe whether this is recording, and that became true a line
+       ago — making the screen wait for a database round trip to say so leaves
+       Start live while recording is already running. */
+    footPaint();
+
+    try { mr.start(FOOT_SLICE); }
+    catch (e) {
+      foot.on = false; foot.rec = null;
+      foot.err = 'MediaRecorder would not start: ' + String((e && e.message) || e);
+      footPaint();
+      return null;
+    }
+
+    foot.timer = setInterval(function () {
+      if (!foot.on) return;
+      var ms = Date.now() - foot.startedAt;
+      if (foot.meta) foot.meta.ms = ms;
+      /* One GPS sample a second at most, so a frame can later be put on a map
+         without the recording carrying the burden of doing it live. */
+      if (S.gps && foot.meta) {
+        var g = foot.meta.gps;
+        if (!g.length || Date.now() - g[g.length - 1].t > 950) {
+          g.push({ t: Date.now(), ms: ms, lat: S.gps.lat, lon: S.gps.lon,
+                   acc: S.gps.acc == null ? null : Math.round(S.gps.acc),
+                   speed: S.gps.speed, heading: S.gps.heading });
+        }
+      }
+      if (ms >= FOOT_MAX_MS) { if (foot.meta) foot.meta.capped = 'time'; footStop('time cap'); return; }
+      footPaint();
+    }, 1000);
+
+    return putFootMeta(meta).then(function () { footPaint(); return id; });
+  });
+}
+
+function footStop(why) {
+  if (!foot.on) return Promise.resolve(null);
+  foot.on = false;
+  if (foot.timer) { clearInterval(foot.timer); foot.timer = null; }
+  var mr = foot.rec, meta = foot.meta;
+  foot.rec = null;
+  if (mr && mr.state !== 'inactive') {
+    try { mr.stop(); } catch (e) { /* already gone */ }
+  }
+  if (!meta) { footPaint(); return Promise.resolve(null); }
+  meta.endedAt = new Date().toISOString();
+  meta.ms = Date.now() - foot.startedAt;
+  meta.bytes = foot.bytes; meta.chunks = foot.seq;
+  meta.stopWhy = why || 'asked';
+  /* The last slice arrives after stop() resolves, so the record is written once
+     more a moment later rather than being trusted as final here. */
+  return putFootMeta(meta).then(function () {
+    footPaint();
+    setTimeout(function () {
+      meta.bytes = foot.bytes; meta.chunks = foot.seq;
+      putFootMeta(meta).then(footPaint, function () {});
+    }, FOOT_SLICE + 500);
+    return meta.id;
+  });
+}
+
+function putFootMeta(m) { return tx('readwrite', function (st) { return st.put(m); }, FOOT); }
+function putFootChunk(c) { return tx('readwrite', function (st) { return st.put(c); }, FOOTC); }
+function allFootage() {
+  return tx('readonly', function (st) { return st.getAll(); }, FOOT).then(function (r) {
+    return (r || []).sort(function (a, b) { return b.startedMs - a.startedMs; });
+  });
+}
+/* The pieces back in the order they were written. A range over the key rather
+   than a filter over everything, so opening one recording does not read every
+   recording on the device. */
+function footChunks(id) {
+  return tx('readonly', function (st) {
+    return st.getAll(IDBKeyRange.bound(id + ':', id + ':￿'));
+  }, FOOTC).then(function (r) {
+    return (r || []).sort(function (a, b) { return a.seq - b.seq; });
+  });
+}
+function footAssemble(id, mime) {
+  return footChunks(id).then(function (rows) {
+    if (!rows.length) throw new Error('no chunks were written for this recording');
+    return new Blob(rows.map(function (r) { return r.blob; }),
+                    { type: mime || 'video/webm' });
+  });
+}
+function footDelete(id) {
+  return footChunks(id).then(function (rows) {
+    return rows.reduce(function (p, r) {
+      return p.then(function () {
+        return tx('readwrite', function (st) { return st.delete(r.key); }, FOOTC);
+      });
+    }, Promise.resolve());
+  }).then(function () {
+    return tx('readwrite', function (st) { return st.delete(id); }, FOOT);
+  });
+}
+
+/* ---------- footage: on the screen ---------- */
+
+function footSize(b) {
+  if (b == null) return '?';
+  return b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB'
+       : b >= 1024 ? Math.round(b / 1024) + ' kB' : b + ' B';
+}
+function footClock(ms) {
+  var s = Math.max(0, Math.round((ms || 0) / 1000));
+  return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+
+function footPaint() {
+  var sup = footSupport();
+  var bs = $('bFootStart'), bx = $('bFootStop'), st = $('footState');
+  if (!bs) return;
+  bs.disabled = foot.on || !sup.ok || !stream;
+  bx.disabled = !foot.on;
+  $('footDot').classList.toggle('on', foot.on);
+
+  var L = [];
+  if (foot.err) L.push('⚠ ' + foot.err);
+  if (!sup.ok) {
+    L.push(sup.why + ' — recording is not available on this browser.');
+  } else if (foot.on) {
+    L.push('Recording ' + footClock(Date.now() - foot.startedAt) +
+      ' · ' + footSize(foot.bytes) + ' · ' + foot.meta.mime);
+    L.push('Stops itself at ' + footClock(FOOT_MAX_MS) + ' or when storage runs low.');
+  } else {
+    L.push('Ready. This browser will record ' + sup.picked + '.');
+    L.push('The camera stream itself is recorded, not the screen — so what you ' +
+           'see here is what the model is given, CSS rotation and all.');
+  }
+  st.textContent = L.join('\n');
+  footList();
+}
+
+function footList() {
+  var box = $('footList');
+  if (!box) return;
+  allFootage().then(function (rows) {
+    if (!rows.length) { box.innerHTML = '<div class="hint">Nothing recorded yet.</div>'; return; }
+    box.innerHTML = '';
+    rows.forEach(function (m) {
+      var d = document.createElement('div');
+      d.className = 'footrow';
+      var res = (m.videoW && m.videoH) ? m.videoW + '×' + m.videoH : 'resolution not reported';
+      var turn = (m.appRot || m.videoRot)
+        ? '  ·  app ' + (m.appRot || 0) + '°, video ' + (m.videoRot || 0) + '°'
+        : '';
+      d.innerHTML = '<b>' + esc(new Date(m.startedMs).toLocaleString()) + '</b><br>' +
+        '<span class="hint">' + esc(footClock(m.ms)) + '  ·  ' + esc(footSize(m.bytes)) +
+        '  ·  ' + esc(res) + '  ·  ' + esc(m.mime || '?') + esc(turn) +
+        (m.capped ? '  ·  stopped by the ' + esc(m.capped) + ' cap' : '') + '</span>';
+      var row = document.createElement('div');
+      row.className = 'row';
+      var open = document.createElement('button');
+      open.className = 'btn ghost'; open.textContent = 'Open';
+      open.addEventListener('click', function () { footOpen(m.id); });
+      var del = document.createElement('button');
+      del.className = 'btn ghost'; del.textContent = 'Delete';
+      del.addEventListener('click', function () {
+        if (!confirm('Delete this recording? Survey observations are not touched.')) return;
+        footDelete(m.id).then(function () {
+          if (footPlay.id === m.id) footClose();
+          footPaint();
+        });
+      });
+      row.appendChild(open); row.appendChild(del);
+      d.appendChild(row);
+      box.appendChild(d);
+    });
+  }, function (e) {
+    box.innerHTML = '<div class="hint">Could not read the recordings: ' +
+      esc(String((e && e.message) || e)) + '</div>';
+  });
+}
+
+function footClose() {
+  if (footPlay.url) { URL.revokeObjectURL(footPlay.url); footPlay.url = null; }
+  footPlay.id = null; footPlay.meta = null;
+  var w = $('footPlayWrap');
+  if (w) w.hidden = true;
+  var v = $('footVid');
+  if (v) v.removeAttribute('src');
+}
+
+function footOpen(id) {
+  $('footState').textContent = 'Assembling the recording…';
+  return allFootage().then(function (rows) {
+    var m = rows.filter(function (r) { return r.id === id; })[0];
+    if (!m) throw new Error('that recording is not in the store');
+    return footAssemble(id, m.mime).then(function (blob) {
+      footClose();
+      footPlay.id = id; footPlay.meta = m;
+      footPlay.url = URL.createObjectURL(blob);
+      var v = $('footVid');
+      v.src = footPlay.url;
+      $('footPlayWrap').hidden = false;
+      $('footPlayMeta').textContent = footWhere(m, 0);
+      $('footState').textContent =
+        'Scrub to the defect that was missed, pause, then Analyse this frame.';
+      footPaint();
+    });
+  }).catch(function (e) {
+    $('footState').textContent = 'Could not open it: ' + String((e && e.message) || e);
+  });
+}
+
+/* Where the vehicle was at a given moment of a recording, from the sidecar
+   samples. The nearest sample rather than an interpolation: saying "about here,
+   from a fix half a second away" is honest, and a smoothed position between two
+   fixes is a number nobody measured. */
+function footWhere(m, sec) {
+  if (!m) return '';
+  var L = [new Date(m.startedMs + sec * 1000).toISOString()];
+  var g = m.gps || [], best = null;
+  for (var i = 0; i < g.length; i++) {
+    var d = Math.abs(g[i].ms - sec * 1000);
+    if (!best || d < best.d) best = { d: d, s: g[i] };
+  }
+  if (best) {
+    var s = best.s;
+    L.push(s.lat.toFixed(5) + ', ' + s.lon.toFixed(5) +
+      (s.acc == null ? '' : ' ±' + s.acc + ' m') +
+      (s.speed == null ? '' : ' · ' + (s.speed * 2.23694).toFixed(0) + ' mph') +
+      (s.heading == null ? '' : ' · heading ' + Math.round(s.heading) + '°') +
+      ' (fix ' + (best.d / 1000).toFixed(1) + ' s away)');
+  } else {
+    L.push('no position was recorded');
+  }
+  L.push('video ' + (m.videoW || '?') + '×' + (m.videoH || '?') +
+    ' · app ' + (m.appRot || 0) + '° · video ' + (m.videoRot || 0) +
+    '° · screen ' + (m.screenAngle == null ? '?' : m.screenAngle) + '°' +
+    ' · viewport ' + (m.portraitViewport ? 'portrait' : 'landscape'));
+  return L.join('\n');
+}
+
+/* E and F: the frame on screen, into the miss report.
+
+   Drawn at the video's own videoWidth × videoHeight — the frame's real pixels,
+   its real aspect ratio, nothing cropped and nothing letterboxed. From there it
+   goes through runMiss, which is the same function the photo picker calls, so
+   the preprocessing is the survey's own and the report prints its two scale
+   factors as it always does. */
+function footFrame() {
+  /* Named pv, not v. `v` is the live camera everywhere else in this file, and
+     closer.mjs greps the source to prove nothing reads the live video again
+     after inference — the fix that stopped evidence photographs being ten
+     metres down the road from the pothole they were filed against. This draws
+     from the RECORDING, which is a different element and a different question,
+     and it should not have to look like the thing that guard exists to catch. */
+  var pv = $('footVid');
+  if (!pv || !footPlay.id) return null;
+  var w = pv.videoWidth, h = pv.videoHeight;
+  if (!w || !h) return null;
+  /* HAVE_CURRENT_DATA. Below it there is no frame decoded for the current
+     time, and drawImage returns black rather than failing — which would put a
+     miss report on an empty square and have it read like a finding. */
+  if (pv.readyState < 2) return null;
+  var c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(pv, 0, 0, w, h);
+  return { canvas: c, w: w, h: h, t: pv.currentTime };
+}
+
+function footAnalyse() {
+  var f = footFrame();
+  if (!f) {
+    $('footState').textContent =
+      'No frame to take — open a recording and let it show a picture first.';
+    return;
+  }
+  var m = footPlay.meta || {};
+  footPlay.frameAt = f.t;
+  $('footPlayMeta').textContent = footWhere(m, f.t);
+  /* The label carries the recording and the offset, so a report copied out of
+     here can be traced back to the second of the drive it came from. */
+  runMiss(f.canvas, f.w, f.h,
+    'footage · ' + (m.id || '?') + ' at ' + f.t.toFixed(2) + 's');
+}
+
 function paintFrameTest() {
   var pre = $('frameText'), wrap = $('tShotWrap');
   /* The benchmark never runs the SDK, so it produces no frame test. Its table
@@ -5931,6 +6381,19 @@ $('benchFile').addEventListener('change', function () {
 
 /* The miss analysis, over a photograph of a road that WAS missed.
    Diagnostic only: it reports what every stage did and changes nothing. */
+/* Footage controls. Diagnostic only: none of these touch the survey, the
+   model, the thresholds or the evidence photographs. */
+$('bFootStart').addEventListener('click', function () { footStart(); });
+$('bFootStop').addEventListener('click', function () { footStop('asked'); });
+$('bFootFrame').addEventListener('click', footAnalyse);
+$('bFootClose').addEventListener('click', function () { footClose(); footPaint(); });
+/* Scrubbing updates where and which way up, so the numbers on screen always
+   describe the frame being looked at rather than the one it opened on. */
+$('footVid').addEventListener('timeupdate', function () {
+  if (footPlay.meta) $('footPlayMeta').textContent =
+    footWhere(footPlay.meta, $('footVid').currentTime);
+});
+
 $('missFile').addEventListener('change', function () {
   var files = [].slice.call(this.files || []);
   this.value = '';
@@ -6013,6 +6476,7 @@ function openDiag() {
   show('diag');
   paintFrameTest();
   paintDiag();
+  footPaint();
   /* Both are cached and cheap the second time, and this is the screen someone
      opens precisely because something is wrong — so ask now rather than wait
      for a failure to ask on their behalf. */

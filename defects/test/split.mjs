@@ -68,7 +68,9 @@ await page.waitForFunction(() => document.getElementById('badge').textContent ==
 await page.waitForFunction(() => S.items.length === 3, null, { timeout: 15000 });
 await settled(page);
 
-ok(await page.evaluate(() => db.version) === 3, 'the app opened it at version 3');
+// Version 4 adds the two footage stores. The bump is deliberate and this
+// assertion is what makes it deliberate: an accidental schema change fails here.
+ok(await page.evaluate(() => db.version) === 4, 'the app opened it at version 4');
 ok(await page.evaluate(() => S.items.length) === 3,
    'and every existing entry is still there — nothing disappeared in the upgrade');
 const mig = await page.evaluate(() => S.items.map(i => ({
