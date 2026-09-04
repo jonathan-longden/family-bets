@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-04 · 57';
+var BUILD = '2026-09-04 · 58';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -5785,10 +5785,67 @@ function missToSource(box, sh) {
   };
 }
 
+/* The four colours the variants are drawn in, so a box on the picture can be
+   read back to the row it came from without counting. */
+var AB_INK = { A: '#e5484d', B: '#3b82f6', C: '#22c55e', D: '#f59e0b' };
+
+/* The question the coordinates cannot answer.
+   
+   "Is the strongest candidate on a visible defect, or is it road texture?" is
+   settled by looking, and the report only ever gave numbers. So the source is
+   drawn with each variant's best box on it, in the variant's own colour. Boxes
+   that stack on one spot are four preprocessings agreeing about one thing;
+   boxes scattered across the frame are texture, and that is obvious in a glance
+   and laborious from a table of numbers. */
+function abPicture(source, w, h) {
+  var wrap = $('abShotWrap');
+  if (!wrap) return;
+  var runs = missRuns.filter(function (r) { return r.shape && r.shape.ab; });
+  if (!runs.length) { wrap.hidden = true; return; }
+
+  var max = 1200;
+  var sc = Math.min(1, max / Math.max(w, h));
+  var c = document.createElement('canvas');
+  c.width = Math.round(w * sc); c.height = Math.round(h * sc);
+  var x = c.getContext('2d');
+  x.drawImage(source, 0, 0, c.width, c.height);
+
+  runs.forEach(function (r) {
+    var key = String(r.label).split(' · ')[0];
+    var pot = r.classNames.indexOf('pothole');
+    var best = (pot >= 0 && r.per[pot] && r.per[pot][0]) || null;
+    if (!best) return;
+    var o = missToSource(best.box, r.shape);
+    if (!o) return;
+    x.strokeStyle = AB_INK[key] || '#fff';
+    x.lineWidth = Math.max(2, Math.round(3 * sc));
+    x.strokeRect(o.x * sc, o.y * sc, o.w * sc, o.h * sc);
+    x.fillStyle = AB_INK[key] || '#fff';
+    x.font = Math.max(12, Math.round(20 * sc)) + 'px system-ui, sans-serif';
+    x.fillText(key + ' ' + round4(best.conf),
+               o.x * sc + 2, Math.max(14, o.y * sc - 4));
+  });
+
+  if (abUrl) { URL.revokeObjectURL(abUrl); abUrl = null; }
+  c.toBlob(function (blob) {
+    abUrl = URL.createObjectURL(blob);
+    $('abShot').src = abUrl;
+    wrap.hidden = false;
+  }, 'image/jpeg', 0.85);
+}
+var abUrl = null;
+
+/* Null for a picked file, a number for a camera frame. Set by the caller
+   rather than read here, because only the caller knows where the pixels came
+   from — and a file that happens to be open while the camera is at 4× was not
+   taken at 4×. */
+var abZoom = null;
+
 function runMissAB(source, w, h, label) {
   var st = $('tState');
   busy(true);
   missRuns = []; missResult = null; paintFrameTest();
+  if ($('abShotWrap')) $('abShotWrap').hidden = true;
   st.textContent = 'Bringing the model up…';
   return loadBenchTf().then(function (tf) {
     var have = infSession && infSession.model
@@ -5806,6 +5863,7 @@ function runMissAB(source, w, h, label) {
                            v.key + ' · ' + v.name + ' · ' + label, w, h,
                            built.shape)
           .then(function (r) {
+            r.zoom = abZoom;
             missRuns.push(r);
             paintFrameTest();
             i++;
@@ -5816,6 +5874,7 @@ function runMissAB(source, w, h, label) {
     });
   }).then(function () {
     paintFrameTest(); paintDiag();
+    abPicture(source, w, h);
     var best = missRuns.reduce(function (a, b) {
       return (missCase(b).best || 0) > (missCase(a).best || 0) ? b : a;
     }, missRuns[0]);
@@ -6251,6 +6310,13 @@ function missAB() {
   L.push('PREPROCESSING A/B  (diagnostic — production stretches)');
   L.push('  ' + runs[0].srcW + ' × ' + runs[0].srcH + ' source, aspect ' +
     (runs[0].srcW / runs[0].srcH).toFixed(3));
+  /* Zoom belongs in the header because it acts UPSTREAM of every variant. A
+     frame taken at 4× has the defect four times bigger before any of this
+     starts, so comparing a 4× run against a 1× run is comparing two things at
+     once. Only a camera frame can know; a picked file cannot. */
+  L.push('  ' + (runs[0].zoom == null
+    ? 'from a file — the zoom it was taken at is not recorded in this report'
+    : 'camera frame at ' + runs[0].zoom + '× zoom'));
   L.push('');
   var head = pad('variant', 24) + pad('crop', 12) + pad('scale x', 10) +
     pad('scale y', 10) + pad('distort', 9) + pad('used', 7) + pad('best pot', 10) +
@@ -6952,10 +7018,29 @@ $('footVid').addEventListener('timeupdate', function () {
 
 /* One picture, four preprocessings, same weights and same decoder. Diagnostic:
    squareFrame is untouched and the survey still stretches. */
+/* The A/B on the live camera, at whatever zoom is set.
+   
+   A picked file cannot separate the zoom effect from the preprocessing effect:
+   the frame arrived already zoomed or not, and nothing in it says which. Run
+   the same four variants on a camera frame and the header records the zoom, so
+   two runs at two zooms can be compared as a pair. */
+$('bAbCam').addEventListener('click', function () {
+  var v = $('vid');
+  if (!stream || !v.videoWidth) {
+    $('tState').textContent = 'The camera is not running — start it, then come back.';
+    return;
+  }
+  var z = zoomNow();
+  abZoom = z == null ? 1 : z;
+  runMissAB(v, v.videoWidth, v.videoHeight,
+            'camera at ' + abZoom + '× · ' + new Date().toLocaleTimeString());
+});
+
 $('abFile').addEventListener('change', function () {
   var file = this.files && this.files[0];
   this.value = '';
   if (!file) return;
+  abZoom = null;                 // a file records no zoom, and must not borrow one
   busy(true);
   $('tState').textContent = 'Decoding the photograph…';
   createImageBitmap(file, { imageOrientation: 'from-image' })

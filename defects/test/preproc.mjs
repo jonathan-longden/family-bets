@@ -280,6 +280,93 @@ await settled(page);
   await page.evaluate(() => { window.missRuns = []; window.missResult = null; });
 }
 
+// ============ 6. the picture that answers "defect, or texture?"
+//
+// The coordinates alone cannot settle it. Four boxes drawn on the original in
+// four colours can: stacked on one spot they are four preprocessings agreeing
+// about one thing, scattered across the frame they are texture.
+{
+  const r = await page.evaluate(async () => {
+    const W = 1600, H = 900;
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const x = c.getContext('2d');
+    x.fillStyle = '#555'; x.fillRect(0, 0, W, H);
+    const bmp = await createImageBitmap(c);
+
+    // Four runs with a known best box each, as the A/B would leave them.
+    window.missRuns = ['A', 'B', 'C', 'D'].map((k, i) => {
+      const v = missVariant(c, W, H,
+        ['stretch', 'letterbox', 'cropSquare', 'cropLetterbox'][i]);
+      return {
+        label: k + ' · name · f.jpg', srcW: W, srcH: H, shape: v.shape,
+        classNames: ['manhole', 'pothole'],
+        per: [[], [{ cls: 'pothole', conf: 0.5 + i / 100,
+                     box: { x: 200, y: 300, w: 60, h: 40 }, anchor: 1 }]],
+        perTotal: [0, 1], best: [null, { conf: 0.5 + i / 100 }], kept: []
+      };
+    });
+    abPicture(bmp, W, H);
+    await new Promise((res) => setTimeout(res, 400));
+    const img = document.getElementById('abShot');
+    return { hidden: document.getElementById('abShotWrap').hidden,
+             src: (img.getAttribute('src') || '').slice(0, 5),
+             cap: document.querySelector('#abShotWrap .cap').textContent };
+  });
+  ok(r.hidden === false, 'the annotated picture is shown after an A/B');
+  ok(r.src === 'blob:', 'as a blob, not written anywhere: ' + r.src);
+  ok(/stacked on one spot|scattered/.test(r.cap),
+     'with the caption that says how to read it: ' + r.cap.replace(/\s+/g, ' ').trim().slice(0, 80));
+
+  const inks = await page.evaluate(() => Object.keys(AB_INK).sort().join(''));
+  ok(inks === 'ABCD', 'and one colour per variant: ' + inks);
+  await page.evaluate(() => { window.missRuns = []; window.missResult = null; });
+}
+
+// ============ 7. zoom is recorded, because it acts upstream of every variant
+{
+  const r = await page.evaluate(() => {
+    const before = window.abZoom;
+    window.abZoom = 4;
+    const withZoom = (() => {
+      window.missRuns = [1, 2].map((n) => ({
+        label: (n === 1 ? 'A' : 'B') + ' · name · f', srcW: 1600, srcH: 900,
+        shape: { ab: true, how: 'stretch', srcW: 1600, srcH: 900, cropX: 0, cropY: 0,
+                 cropW: 1600, cropH: 900, sx: 0.4, sy: 0.711, padX: 0, padY: 0, used: 1 },
+        zoom: 4, classNames: ['manhole', 'pothole'], per: [[], []],
+        perTotal: [0, 0], best: [null, null], kept: [], steps: []
+      }));
+      return missAB();
+    })();
+    window.missRuns.forEach((r) => { r.zoom = null; });
+    const noZoom = missAB();
+    window.abZoom = before;
+    window.missRuns = [];
+    return { withZoom, noZoom };
+  });
+  ok(/camera frame at 4× zoom/.test(r.withZoom),
+     'a camera run says what zoom it was taken at: ' +
+     (r.withZoom.match(/camera frame at[^\n]*/) || [''])[0]);
+  ok(/from a file — the zoom it was taken at is not recorded/.test(r.noZoom),
+     'and a picked file says it does not know, rather than borrowing the ' +
+     'camera\'s current setting: ' +
+     (r.noZoom.match(/from a file[^\n]*/) || [''])[0]);
+
+  const src = await (await fetch(B + 'app.js')).text();
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  // Scoped to the listener and checked by order, not by adjacent lines: the
+  // first version of this pinned the two statements as neighbours and failed on
+  // a trailing comment between them, which is layout rather than behaviour.
+  const picker = code.slice(code.indexOf("$('abFile').addEventListener"),
+                            code.indexOf("$('missFile').addEventListener"));
+  ok(/abZoom = null/.test(picker) &&
+     picker.indexOf('abZoom = null') < picker.indexOf('runMissAB'),
+     'the file picker clears the zoom before running, so a file opened while ' +
+     'the camera sits at 4× is not reported as a 4× frame');
+  ok(/abZoom = z == null \? 1 : z/.test(code),
+     'and the camera button reads the zoom actually applied to the track');
+}
+
 console.log(fails.length ? '\nFAILURES: ' + fails.length : '\nall passed');
 await browser.close();
 process.exit(fails.length ? 1 : 0);
