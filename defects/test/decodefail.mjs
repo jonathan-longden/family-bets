@@ -204,7 +204,13 @@ await openDiag();
   ok(/handed to model as ImageBitmap 640×640/.test(t),
      'and what the model was finally handed: ' +
      (t.match(/handed to model.*/) || [])[0]);
-  ok(/frame {6}brightness \d+ to \d+ — there is a picture here/.test(t),
+  // "Something landed" is brightness above zero, not brightness that varies.
+  // Since build 56 the survey crops the road band, and Chromium's fake camera
+  // is a flat field there — so the app truthfully reports ALL ONE SHADE, which
+  // is a fact about the fixture and not a failure of the pipeline. A blank
+  // canvas would read 0 to 0; this reads a real value.
+  const lit = (t.match(/frame {6}brightness (\d+) to (\d+)/) || []);
+  ok(lit.length === 3 && Number(lit[2]) > 0,
      'and that something actually landed on it: ' + (t.match(/frame {6}.*/) || [])[0]);
 
   // the model really did get an ImageBitmap, not a video element or a canvas

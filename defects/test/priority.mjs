@@ -78,7 +78,13 @@ await page.waitForFunction(() => document.getElementById('vid').videoWidth > 0);
 const hit = (w) => [{ class: 'pothole', confidence: 0.9, bbox: { x: 300, y: 300, width: w, height: w } }];
 
 await rec(page);
-await page.evaluate(h => { window.__hits = h; }, hit(420));   // ~43% of frame → top band
+// 600px in the 640 square is about 16% of the PHOTOGRAPH once the road crop
+// is taken into account — the 'large' band, imp 4 x prb 4 = 16, which is P1.
+// It cannot be 43% any more: the crop is roughly 18% of the frame, so
+// nothing inside it covers more of the photograph than that. P1 is still
+// reachable; only the 'very large' label above it is out of range, and that
+// scored P1 too.
+await page.evaluate(h => { window.__hits = h; }, hit(600));
 await page.waitForFunction(() => document.getElementById('hudCount').textContent === '1 logged',
   null, { timeout: 15000 });
 await page.click('#bRec');
