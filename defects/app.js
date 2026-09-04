@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-03 · 53';
+var BUILD = '2026-09-03 · 54';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -5468,7 +5468,7 @@ function missCandidates(data, numBoxes, numClasses, classNames, size) {
    test are the survey's own functions called from here, not copies. A report
    produced by a second implementation would describe a pipeline that does not
    run on a road. */
-function missAnalyse(tf, model, canvas, label, srcW, srcH) {
+function missAnalyse(tf, model, canvas, label, srcW, srcH, shape) {
   var input = null, out = null, moved = null;
   return Promise.resolve().then(function () {
     /* Preprocessing timed on its own. It is not inference, and a miss blamed
@@ -5567,7 +5567,7 @@ function missAnalyse(tf, model, canvas, label, srcW, srcH) {
         return {
           at: new Date().toISOString(), label: label,
           srcW: srcW, srcH: srcH, inW: RF_SIZE, inH: RF_SIZE,
-          msPre: msPre, inShape: inShape,
+          msPre: msPre, inShape: inShape, shape: shape || null,
           rawShape: rawShape, numBoxes: numBoxes, numClasses: numClasses,
           classNames: classNames, min: lo, max: hi, sane: sane, ms: Math.round(ms),
           backend: was, floor: MISS_FLOOR, steps: steps, sweep: sweep,
@@ -5589,6 +5589,138 @@ function missAnalyse(tf, model, canvas, label, srcW, srcH) {
 function canvasCtx(c) {
   try { return c.getContext('2d', { willReadFrequently: true }); }
   catch (e) { return c.getContext('2d'); }
+}
+
+/* ---------- preprocessing A/B ----------
+
+   The survey stretches whatever the camera gives it into a 640 square. On a
+   16:9 frame that is a 1.78x distortion; on the 2340x1080 a modern phone hands
+   over it is 2.17x, and a round pothole arrives more than twice as tall as it
+   is wide.
+
+   The obvious fix is letterboxing, and for THIS aspect ratio the obvious fix is
+   wrong: preserving the ratio means scaling both axes by the smaller factor, so
+   the road loses more than half its vertical detail and 54% of the square is
+   padding the model still has to process. The arithmetic says a road-focused
+   square crop is the only variant that improves both axes at once.
+
+   That is a prediction, and predictions about this model have been wrong before.
+   So: run the same picture through all four and let the numbers decide.
+
+   Diagnostic only. Nothing here touches squareFrame, which is what the survey
+   uses and what production still does. */
+
+var MISS_AB = [
+  { key: 'A', name: 'STRETCH (what the survey does now)', how: 'stretch' },
+  { key: 'B', name: 'LETTERBOX', how: 'letterbox' },
+  { key: 'C', name: 'ROAD CROP, square', how: 'cropSquare' },
+  { key: 'D', name: 'ROAD CROP + LETTERBOX', how: 'cropLetterbox' }
+];
+/* Where the road is in a frame taken from a windscreen: below the horizon and
+   above the bonnet. Fractions of the frame height rather than pixels, so the
+   same numbers work whatever the camera hands over. */
+var ROAD_TOP = 0.35, ROAD_BOT = 0.92;
+
+/* One variant's 640 square, and the transform that undoes it.
+   A box at (tx, ty) in the tensor came from
+       srcX = cropX + (tx - padX) / sx
+   which is what maps the model's answer back onto the photograph. */
+function missVariant(source, w, h, how) {
+  var c = document.createElement('canvas');
+  c.width = c.height = RF_SIZE;
+  var ctx = canvasCtx(c);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, RF_SIZE, RF_SIZE);
+
+  var cx = 0, cy = 0, cw = w, ch = h;
+  if (how === 'cropSquare' || how === 'cropLetterbox') {
+    var top = Math.round(h * ROAD_TOP), bot = Math.round(h * ROAD_BOT);
+    cy = top; ch = Math.max(1, bot - top);
+    if (how === 'cropSquare') {
+      /* A square crop cannot be wider than the band is tall, and it sits in the
+         middle because that is where the road ahead is. */
+      cw = Math.min(w, ch);
+      cx = Math.round((w - cw) / 2);
+    } else {
+      cw = w; cx = 0;
+    }
+  }
+
+  var sx, sy, padX = 0, padY = 0;
+  if (how === 'stretch') {
+    sx = RF_SIZE / cw; sy = RF_SIZE / ch;
+  } else {
+    var sc = Math.min(RF_SIZE / cw, RF_SIZE / ch);
+    sx = sy = sc;
+    padX = (RF_SIZE - cw * sc) / 2;
+    padY = (RF_SIZE - ch * sc) / 2;
+  }
+  ctx.drawImage(source, cx, cy, cw, ch, padX, padY, cw * sx, ch * sy);
+
+  return { canvas: c, ctx: ctx,
+           shape: { how: how, srcW: w, srcH: h,
+                    cropX: cx, cropY: cy, cropW: cw, cropH: ch,
+                    sx: sx, sy: sy, padX: padX, padY: padY,
+                    used: (cw * sx) * (ch * sy) / (RF_SIZE * RF_SIZE) } };
+}
+
+/* A tensor box back onto the original photograph. Without this the comparison
+   cannot answer the question that matters — whether the model is looking at the
+   defect or at some unrelated texture — because every variant reports its boxes
+   in a different 640 square. */
+function missToSource(box, sh) {
+  if (!box || !sh) return null;
+  return {
+    x: sh.cropX + (box.x - sh.padX) / sh.sx,
+    y: sh.cropY + (box.y - sh.padY) / sh.sy,
+    w: box.w / sh.sx,
+    h: box.h / sh.sy
+  };
+}
+
+function runMissAB(source, w, h, label) {
+  var st = $('tState');
+  busy(true);
+  missRuns = []; missResult = null; paintFrameTest();
+  st.textContent = 'Bringing the model up…';
+  return loadBenchTf().then(function (tf) {
+    var have = infSession && infSession.model
+      ? Promise.resolve(infSession)
+      : infCapabilities(tf).then(function () { return infPick(tf); });
+    return have.then(function (sess) {
+      var i = 0;
+      function step() {
+        if (i >= MISS_AB.length) return Promise.resolve();
+        var v = MISS_AB[i];
+        st.textContent = 'Variant ' + v.key + ' of ' + MISS_AB.length + ': ' +
+          v.name + '…';
+        var built = missVariant(source, w, h, v.how);
+        return missAnalyse(sess.tf, sess.model, built.canvas,
+                           v.key + ' · ' + v.name + ' · ' + label, w, h,
+                           built.shape)
+          .then(function (r) {
+            missRuns.push(r);
+            paintFrameTest();
+            i++;
+            return step();
+          });
+      }
+      return step();
+    });
+  }).then(function () {
+    paintFrameTest(); paintDiag();
+    var best = missRuns.reduce(function (a, b) {
+      return (missCase(b).best || 0) > (missCase(a).best || 0) ? b : a;
+    }, missRuns[0]);
+    st.textContent = missRuns.length
+      ? 'Done. Strongest pothole candidate under ' +
+        String(best.label).split(' · ')[0] + ': ' + round4(missCase(best).best)
+      : 'Nothing ran.';
+    busy(false);
+  }, function (e) {
+    st.textContent = 'The A/B could not run: ' + String((e && e.message) || e);
+    busy(false);
+  });
 }
 
 function runMiss(source, w, h, label) {
@@ -5966,8 +6098,88 @@ function missTable() {
   return L.join('\n');
 }
 
+/* The A/B, as one table. Four full reports underneath it answer "what did each
+   stage do"; this answers the only question being asked — which preprocessing
+   gets the most out of this picture, and is the box it found on the defect. */
+function missAB() {
+  var runs = missRuns.filter(function (r) { return r.shape; });
+  if (runs.length < 2) return '';
+  var L = [];
+  var pad = function (t, n) { t = String(t); while (t.length < n) t += ' '; return t; };
+  var bars = [0.05, 0.10, 0.25, 0.40, 0.50, 0.65];
+
+  L.push('PREPROCESSING A/B  (diagnostic — production still stretches)');
+  L.push('  ' + runs[0].srcW + ' × ' + runs[0].srcH + ' source, aspect ' +
+    (runs[0].srcW / runs[0].srcH).toFixed(3));
+  L.push('');
+  var head = pad('variant', 24) + pad('crop', 12) + pad('scale x', 10) +
+    pad('scale y', 10) + pad('distort', 9) + pad('used', 7) + pad('best pot', 10) +
+    'best man';
+  L.push('  ' + head);
+  L.push('  ' + new Array(head.length + 1).join('-'));
+  runs.forEach(function (r) {
+    var sh = r.shape, v = missCase(r);
+    var man = r.classNames.indexOf('manhole');
+    var bm = man >= 0 && r.best[man] ? r.best[man].conf : 0;
+    L.push('  ' + pad(String(r.label).split(' · ').slice(0, 2).join(' ').slice(0, 22), 24) +
+      pad(sh.cropW + '×' + sh.cropH, 12) +
+      pad('×' + sh.sx.toFixed(4), 10) + pad('×' + sh.sy.toFixed(4), 10) +
+      pad((sh.sy / sh.sx).toFixed(3), 9) +
+      pad(Math.round(sh.used * 100) + '%', 7) +
+      pad(v.best ? round4(v.best) : 'none', 10) +
+      (bm ? round4(bm) : 'none'));
+  });
+  L.push('');
+
+  L.push('  HOW MANY POTHOLE CANDIDATES CLEAR EACH BAR');
+  L.push('  ' + pad('variant', 24) + bars.map(function (b) {
+    return pad(b.toFixed(2), 7); }).join('') + 'NMS out');
+  runs.forEach(function (r) {
+    var pot = r.classNames.indexOf('pothole');
+    var list = pot >= 0 ? r.per[pot] : [];
+    var total = pot >= 0 ? r.perTotal[pot] : 0;
+    L.push('  ' + pad(String(r.label).split(' · ')[0] + ' ' +
+        String(r.label).split(' · ')[1].slice(0, 18), 24) +
+      bars.map(function (b) {
+        /* per[] is capped at MISS_LIST for display; the steps table is the
+           honest count over every anchor. */
+        var st = r.steps.filter(function (x) { return Math.abs(x.at - b) < 1e-9; })[0];
+        return pad(st ? st.counts[pot] : (b <= r.floor ? total : '?'), 7);
+      }).join('') + r.kept.length);
+  });
+  L.push('');
+
+  /* The whole point: every variant reports its boxes in a different 640 square,
+     so they cannot be compared until they are put back on the photograph. */
+  L.push('  STRONGEST POTHOLE CANDIDATES, MAPPED BACK TO THE ORIGINAL IMAGE');
+  runs.forEach(function (r) {
+    var pot = r.classNames.indexOf('pothole');
+    var list = (pot >= 0 ? r.per[pot] : []).slice(0, 3);
+    L.push('  ' + String(r.label).split(' · ').slice(0, 2).join(' '));
+    if (!list.length) { L.push('      no pothole candidate above ' + r.floor); return; }
+    list.forEach(function (c, i) {
+      var o = missToSource(c.box, r.shape);
+      L.push('      [' + (i + 1) + '] ' + round4(c.conf) +
+        '   640: x ' + Math.round(c.box.x) + ' y ' + Math.round(c.box.y) +
+        ' w ' + Math.round(c.box.w) + ' h ' + Math.round(c.box.h));
+      L.push('          original: x ' + Math.round(o.x) + ' y ' + Math.round(o.y) +
+        ' w ' + Math.round(o.w) + ' h ' + Math.round(o.h) +
+        '   (' + Math.round(o.x / r.srcW * 100) + '% across, ' +
+        Math.round(o.y / r.srcH * 100) + '% down)');
+    });
+  });
+  L.push('');
+  L.push('  Compare the ORIGINAL coordinates between variants. Boxes that land in');
+  L.push('  the same place are the model finding the same thing; boxes scattered');
+  L.push('  across the frame are texture, not a defect.');
+  return L.join('\n');
+}
+
 function missLines() {
   if (!missRuns.length) return missOne(missResult);
+  var ab = missAB();
+  if (ab) return [ab].concat(missRuns.map(missOne))
+    .filter(Boolean).join('\n\n' + new Array(72).join('=') + '\n\n');
   return [missTable()].concat(missRuns.map(missOne))
     .filter(Boolean).join('\n\n' + new Array(72).join('=') + '\n\n');
 }
@@ -6596,6 +6808,25 @@ $('bFootClose').addEventListener('click', function () { footClose(); footPaint()
 $('footVid').addEventListener('timeupdate', function () {
   if (footPlay.meta) $('footPlayMeta').textContent =
     footWhere(footPlay.meta, $('footVid').currentTime);
+});
+
+/* One picture, four preprocessings, same weights and same decoder. Diagnostic:
+   squareFrame is untouched and the survey still stretches. */
+$('abFile').addEventListener('change', function () {
+  var file = this.files && this.files[0];
+  this.value = '';
+  if (!file) return;
+  busy(true);
+  $('tState').textContent = 'Decoding the photograph…';
+  createImageBitmap(file, { imageOrientation: 'from-image' })
+    .catch(function () { return createImageBitmap(file); })
+    .then(function (bmp) {
+      runMissAB(bmp, bmp.width, bmp.height, file.name);
+    }, function (e) {
+      busy(false);
+      $('tState').textContent = 'Could not run it: this browser could not decode "' +
+        file.name + '" — ' + String((e && e.message) || e);
+    });
 });
 
 $('missFile').addEventListener('change', function () {
