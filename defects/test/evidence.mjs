@@ -187,37 +187,36 @@ const e = await entry();
   // whole photograph and is exactly wrong once there is padding — it would not
   // throw, it would put the box in the wrong place. So the mapping is checked
   // against the geometry the app actually used.
-  // Build 56 crops the road band rather than letterboxing, so the inverse is
-  // an unscale plus the crop's own offset. Computed here the way the app
-  // computes it, so the assertion tracks the geometry rather than a constant.
-  const top = Math.round(e.imgH * 0.35), bot = Math.round(e.imgH * 0.92);
-  const band = bot - top;
-  const side = Math.min(e.imgW, band);
-  const cropX = Math.round((e.imgW - side) / 2);
-  const cropY = Math.max(0, Math.min(Math.round(top + (band - side) / 2),
-                                     Math.max(0, e.imgH - side)));
-  const s = 640 / side;
+  // Read out of the app's own fit rather than recomputed from a formula that
+  // has to be kept in step with it. Three preprocessings in three builds have
+  // each broken a hand-written inverse here; the fit is the one thing that
+  // tracks whichever is current.
+  const fit = await page.evaluate(([w, h]) =>
+    squareFrame(document.getElementById('shot'), w, h).fit, [e.imgW, e.imgH]);
   const near = (a, b) => Math.abs(a - b) < 0.01;
-  ok(near(e.detBoxImage.x, cropX + e.detBox.x / s) &&
-     near(e.detBoxImage.y, cropY + e.detBox.y / s) &&
-     near(e.detBoxImage.w, e.detBox.w / s),
-     'detBoxImage is detBox unscaled and put back at the crop\'s offset: ' +
+  ok(near(e.detBoxImage.x, fit.cropX + (e.detBox.x - fit.padX) / fit.sx) &&
+     near(e.detBoxImage.y, fit.cropY + (e.detBox.y - fit.padY) / fit.sy) &&
+     near(e.detBoxImage.w, e.detBox.w / fit.sx) &&
+     near(e.detBoxImage.h, e.detBox.h / fit.sy),
+     'detBoxImage is detBox put back through the fit the app actually used: ' +
      JSON.stringify(e.detBoxImage));
   ok(e.detBoxImage.x >= 0 && e.detBoxImage.y >= 0 &&
      e.detBoxImage.x + e.detBoxImage.w <= e.imgW + 1 &&
      e.detBoxImage.y + e.detBoxImage.h <= e.imgH + 1,
      'and it lands inside the image rather than off the edge of it');
-  ok(cropY > 1 && side < e.imgW,
-     'the crop really is a window into the frame, so the mapping is doing ' +
-     'something a plain multiply could not: ' + side + '² at ' + cropX + ',' + cropY);
-  // This stubbed box deliberately straddles the bottom pad, which a real
-  // detection can also do — the model is shown the bars and may draw across
-  // them. Mapped back it would run past the bottom of the photograph, so it is
-  // clamped to the picture: the part over padding was never photographed.
-  ok(e.detBoxImage.y + e.detBoxImage.h <= e.imgH + 0.01,
-     'a box straddling the padding is clamped to the image rather than mapped ' +
-     'off the bottom of it: y ' + Math.round(e.detBoxImage.y) + ' + h ' +
-     Math.round(e.detBoxImage.h) + ' against ' + e.imgH);
+  ok(Math.abs(fit.sx - fit.sy) > 0.01,
+     'the two axes really do scale differently under the stretch, which is why ' +
+     'the mapped box is needed at all: x×' + fit.sx.toFixed(3) +
+     ' y×' + fit.sy.toFixed(3));
+  // The clamp still matters even without padding: a preprocessing that ever
+  // pads or crops again can put a box partly outside the photograph, and a box
+  // drawn off the edge of the evidence is worse than one that stops at it.
+  ok(e.detBoxImage.y + e.detBoxImage.h <= e.imgH + 0.01 &&
+     e.detBoxImage.x + e.detBoxImage.w <= e.imgW + 0.01,
+     'and the mapped box is clamped inside the photograph: ' +
+     Math.round(e.detBoxImage.x + e.detBoxImage.w) + '×' +
+     Math.round(e.detBoxImage.y + e.detBoxImage.h) + ' against ' +
+     e.imgW + '×' + e.imgH);
 }
 
 // ============================== 6. the frame is released, and nothing leaks

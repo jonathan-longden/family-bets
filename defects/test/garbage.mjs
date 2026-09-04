@@ -66,7 +66,7 @@ ok(await page.textContent('#hudCount') === '0 logged', 'and writes down nothing 
 
 // --- a sound find still logs ---
 await page.evaluate(() => { window.__hits = [{ class: 'pothole', confidence: 0.82,
-  bbox: { x: 300, y: 300, width: 300, height: 225 } }]; });
+  bbox: { x: 300, y: 300, width: 400, height: 300 } }]; });
 await page.waitForFunction(() => document.getElementById('hudCount').textContent === '1 logged',
   null, { timeout: 15000 });
 ok(true, 'a sound find is still logged');

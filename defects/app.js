@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-04 · 56';
+var BUILD = '2026-09-04 · 57';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -258,64 +258,58 @@ var RF_SIZE = 640;      // what the model was trained on, and what it is given
 
    It also makes everything downstream agree: the boxes, the shadow test and the
    share of the frame are all in this one 640 by 640 space. */
-/* The frame the model is shown: a ROAD CROP, square, then scaled.
+/* The frame the model is shown: STRETCHED to the square.
 
-   It stretched until build 55, letterboxed until 56, and neither was right for
-   a 2340x1080 frame. The stretch put a 2.17x distortion through the model. The
-   letterbox fixed the shape and paid for it in resolution: preserving the ratio
-   means scaling both axes by the SMALLER factor, so the road lost more than
-   half its vertical detail and 54% of the square was padding the model still
-   had to process.
+   This has been round the houses, and the field data settled it. Build 55
+   letterboxed, 56 cropped the road band, and 57 is back to the stretch — not
+   because the arithmetic behind the crop was wrong, but because the arithmetic
+   was answering the wrong question.
 
-   A square crop of the road band is the only variant that improves both axes at
-   once — on 2340x1080, x3.80 horizontally and x1.76 vertically against the
-   stretch, with no distortion and no padding. A 0.3 m pothole at 15 m goes from
-   about 11 x 3 px in the tensor to 42 x 6, across the 8 px stride in both
-   directions for the first time.
+   On a real frame the four preprocessings ran side by side through the same
+   weights, and the stretch won by a distance:
 
-   What it costs is field of view: on a 2340-wide frame the crop is about 26% of
-   the width. Verges, kerb lines and anything at the edge of the carriageway are
-   outside the frame the model sees. That is the trade, and the diagnostics say
-   what the crop was so it is never a surprise.
+       A stretch          0.8034   logged
+       D crop + letterbox 0.6814   logged
+       C road crop        0.5950   under the 0.65 bar
+       B letterbox        0.5510   under the bar
 
-   ROAD_TOP and ROAD_BOT are where the road is in a frame taken through a
-   windscreen: below the horizon, above the bonnet. Fractions rather than
-   pixels, so the same numbers work whatever the camera hands over. */
-var ROAD_TOP = 0.35, ROAD_BOT = 0.92;
+   All four found the same defect in the same place, so this is one thing seen
+   four ways rather than four different opinions. The crop puts far more pixels
+   on it — 175 x 87 in the tensor against the stretch's 58 x 41 — and the model
+   is LESS sure of the bigger picture.
 
+   The likely reason is the opposite of what the pixel count suggests. That
+   pothole is wide and flat: 145 x 58 in the photograph, about 2.5:1. The
+   stretch scales y by 0.711 and x by 0.400, squeezing it to roughly 1.4:1 —
+   close to round. The distortion this file spent three builds trying to remove
+   appears to be what makes flat road defects resemble the compact potholes the
+   model was trained on. Preserving the true shape, as the crop does, gives the
+   model something it likes less.
+
+   So: stretched, deliberately, with the evidence written down. The A/B tool is
+   still there, and the wide 2340x1080 case has yet to be run through it.
+
+   `fit` stays, and now carries a scale per axis. It is what everything that
+   turns a model box back into a picture coordinate reads, and keeping it means
+   the next preprocessing question costs a function rather than a rewrite. */
 function squareFrame(source, w, h) {
   var c = document.createElement('canvas');
   c.width = RF_SIZE; c.height = RF_SIZE;
   var ctx = c.getContext('2d', { willReadFrequently: true });
-
-  /* The band, then the largest square that fits inside it. A frame narrower
-     than its own road band — a portrait camera — gives a square limited by the
-     width instead, centred on the band rather than hanging off it. */
-  var top = Math.round(h * ROAD_TOP), bot = Math.round(h * ROAD_BOT);
-  var band = Math.max(1, bot - top);
-  var side = Math.max(1, Math.min(w, band));
-  var cx = Math.round((w - side) / 2);
-  var cy = Math.round(top + (band - side) / 2);
-  cy = Math.max(0, Math.min(cy, Math.max(0, h - side)));
-
-  var s = RF_SIZE / side;
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0, 0, RF_SIZE, RF_SIZE);
-  ctx.drawImage(source, cx, cy, side, side, 0, 0, RF_SIZE, RF_SIZE);
-
+  ctx.drawImage(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE);
   return { canvas: c, ctx: ctx,
-           fit: { s: s, padX: 0, padY: 0, cropX: cx, cropY: cy,
-                  cropW: side, cropH: side, dw: RF_SIZE, dh: RF_SIZE,
-                  srcW: w, srcH: h } };
+           fit: { sx: RF_SIZE / w, sy: RF_SIZE / h, padX: 0, padY: 0,
+                  cropX: 0, cropY: 0, cropW: w, cropH: h,
+                  dw: RF_SIZE, dh: RF_SIZE, srcW: w, srcH: h } };
 }
 
 /* A model box, in the 640 square, back to the coordinates of whatever was
    handed to squareFrame. One function, so there is one place to be right. */
 function fitToSource(box, fit) {
   if (!box || !fit) return null;
-  var x = fit.cropX + (box.x - fit.padX) / fit.s;
-  var y = fit.cropY + (box.y - fit.padY) / fit.s;
-  var w = box.w / fit.s, h = box.h / fit.s;
+  var x = fit.cropX + (box.x - fit.padX) / fit.sx;
+  var y = fit.cropY + (box.y - fit.padY) / fit.sy;
+  var w = box.w / fit.sx, h = box.h / fit.sy;
   /* A box may straddle the padding: the model is shown those bars and is free
      to draw across them. Mapped back, that lands outside the photograph — a
      box starting above row zero, or running past the bottom edge. Clamped to
@@ -2661,8 +2655,8 @@ function look() {
        scale, which makes the ratio the same under all three. It is one rule,
        and it is why entries from before and after this build can still be
        compared. */
-    var fitW = (out.fit && out.fit.s) ? out.fit.s * out.fit.srcW : out.w;
-    var fitH = (out.fit && out.fit.s) ? out.fit.s * out.fit.srcH : out.h;
+    var fitW = (out.fit && out.fit.sx) ? out.fit.sx * out.fit.srcW : out.w;
+    var fitH = (out.fit && out.fit.sy) ? out.fit.sy * out.fit.srcH : out.h;
     var measurable = raw.map(function (p) { return usableFind(p, fitW, fitH); })
                         .filter(Boolean);
     var hits = measurable.filter(function (f) {
@@ -3931,18 +3925,17 @@ function diagLines() {
       (zst.frameRate ? ' @ ' + Math.round(zst.frameRate) : '') +
       (zst.facingMode ? ' · ' + zst.facingMode : ''));
   }
-  /* What the model is actually being shown, which is no longer the whole
-     photograph. A crop is the kind of thing that must never be a surprise to
-     somebody reading a report and wondering why a verge defect was missed. */
+  /* What the model is actually shown. The whole frame, stretched — so the one
+     thing worth saying is how much that distorts it. */
   if (zv && zv.videoWidth) {
     var cf = squareFrame(zv, zv.videoWidth, zv.videoHeight).fit;
-    L.push('  crop       ' + cf.cropW + '×' + cf.cropH + ' at ' + cf.cropX + ',' +
-      cf.cropY + '  — ' + Math.round(cf.cropW / zv.videoWidth * 100) + '% of the width, ' +
-      Math.round(cf.cropH / zv.videoHeight * 100) + '% of the height');
-    L.push('             the road band between ' + Math.round(ROAD_TOP * 100) + '% and ' +
-      Math.round(ROAD_BOT * 100) + '% down the frame, squared and scaled ×' +
-      cf.s.toFixed(3) + '.');
-    L.push('             Anything outside it is not shown to the model at all.');
+    L.push('  to model   whole frame, stretched to ' + RF_SIZE + '×' + RF_SIZE +
+      '  (x ×' + cf.sx.toFixed(4) + ', y ×' + cf.sy.toFixed(4) + ')');
+    var sk = cf.sy / cf.sx;
+    L.push('             a round pothole arrives ' + sk.toFixed(2) + '× ' +
+      (sk > 1 ? 'taller than wide' : 'wider than tall') +
+      '. On the frames measured so far that helps rather than hurts —');
+    L.push('             see Preprocessing A/B.');
   }
   L.push('');
   L.push('ZOOM');
@@ -4146,8 +4139,8 @@ function filterTrace(raw, ctx, fit) {
   var trace = [], kept = [];
   /* The same rule the survey uses: the whole photograph at the crop's scale,
      so a share here means what a share there means. */
-  var fitW = (fit && fit.s) ? fit.s * fit.srcW : RF_SIZE;
-  var fitH = (fit && fit.s) ? fit.s * fit.srcH : RF_SIZE;
+  var fitW = (fit && fit.sx) ? fit.sx * fit.srcW : RF_SIZE;
+  var fitH = (fit && fit.sy) ? fit.sy * fit.srcH : RF_SIZE;
   raw.forEach(function (p, i) {
     var f = usableFind(p, fitW, fitH);
     if (!f) {
@@ -5722,12 +5715,14 @@ function canvasCtx(c) {
 var MISS_AB = [
   { key: 'A', name: 'STRETCH (what the survey does now)', how: 'stretch' },
   { key: 'B', name: 'LETTERBOX', how: 'letterbox' },
-  { key: 'C', name: 'ROAD CROP, square (what the survey does now)', how: 'cropSquare' },
+  { key: 'C', name: 'ROAD CROP, square', how: 'cropSquare' },
   { key: 'D', name: 'ROAD CROP + LETTERBOX', how: 'cropLetterbox' }
 ];
-/* ROAD_TOP and ROAD_BOT are declared with squareFrame, which is where they
-   matter: the A/B's crop variants must use the same band the survey does, or
-   the comparison would be against a crop production never makes. */
+/* Where the road is in a frame taken through a windscreen: below the horizon,
+   above the bonnet. Fractions rather than pixels, so the same numbers work
+   whatever the camera hands over. Only the A/B's crop variants use them —
+   production stretches and takes the whole frame. */
+var ROAD_TOP = 0.35, ROAD_BOT = 0.92;
 
 /* One variant's 640 square, and the transform that undoes it.
    A box at (tx, ty) in the tensor came from
@@ -5842,12 +5837,9 @@ function runMiss(source, w, h, label) {
   var sq = squareFrame(source, w, h);
   /* The survey's own geometry, handed to the report so its boxes can be put
      back on the photograph exactly the way the evidence box is. */
-  var shape = { how: 'cropSquare', srcW: w, srcH: h,
-                cropX: sq.fit.cropX, cropY: sq.fit.cropY,
-                cropW: sq.fit.cropW, cropH: sq.fit.cropH,
-                sx: sq.fit.s, sy: sq.fit.s,
-                padX: sq.fit.padX, padY: sq.fit.padY,
-                used: (sq.fit.dw * sq.fit.dh) / (RF_SIZE * RF_SIZE) };
+  var shape = { how: 'stretch', srcW: w, srcH: h,
+                cropX: 0, cropY: 0, cropW: w, cropH: h,
+                sx: sq.fit.sx, sy: sq.fit.sy, padX: 0, padY: 0, used: 1 };
   return loadBenchTf().then(function (tf) {
     /* The session the survey itself uses when there is one, so this reports on
        the same weights on the same backend rather than on a second setup that
@@ -5935,10 +5927,38 @@ function missOne(r) {
   f('model dimensions', r.inW + ' × ' + r.inH);
   f('tensor handed over', (r.inShape || []).join(' × ') + '  (NCHW)');
   f('preprocessing time', r.msPre + ' ms');
-  f('method', 'STRETCH, not crop or letterbox');
-  f('scale x', '×' + (r.inW / r.srcW).toFixed(4));
-  f('scale y', '×' + (r.inH / r.srcH).toFixed(4));
-  var skew = (r.inH / r.srcH) / (r.inW / r.srcW);
+  /* From the shape that was actually used, never assumed.
+  
+     This block said "STRETCH" under every variant of the A/B, including the
+     crop and both letterboxes, and printed the stretch's own scale factors
+     beside them. Four reports describing a preprocessing none of them had
+     performed — and the summary table above them, which does read the shape,
+     disagreed with all four. A diagnostic that misreports its own method is
+     worse than no diagnostic: it is the reason this report exists, applied to
+     the report itself. */
+  var sh = r.shape;
+  var sX = sh ? sh.sx : r.inW / r.srcW;
+  var sY = sh ? sh.sy : r.inH / r.srcH;
+  f('method', !sh ? 'STRETCH, not crop or letterbox'
+    : sh.how === 'stretch' ? 'STRETCH — each axis scaled on its own'
+    : sh.how === 'letterbox' ? 'LETTERBOX — one scale, padded to the square'
+    : sh.how === 'cropSquare' ? 'ROAD CROP — a square cut from the road band, then scaled'
+    : sh.how === 'cropLetterbox' ? 'ROAD CROP + LETTERBOX — the road band, padded to the square'
+    : String(sh.how));
+  if (sh && (sh.cropW !== sh.srcW || sh.cropH !== sh.srcH)) {
+    f('crop taken', sh.cropW + ' × ' + sh.cropH + ' at ' + Math.round(sh.cropX) +
+      ',' + Math.round(sh.cropY) + '  (' +
+      Math.round(sh.cropW / sh.srcW * 100) + '% of the width, ' +
+      Math.round(sh.cropH / sh.srcH * 100) + '% of the height)');
+  }
+  if (sh && (sh.padX > 0.5 || sh.padY > 0.5)) {
+    f('padding', Math.round(sh.padX) + ' px each side, ' +
+      Math.round(sh.padY) + ' px top and bottom  (' +
+      Math.round((1 - sh.used) * 100) + '% of the square is padding)');
+  }
+  f('scale x', '×' + sX.toFixed(4));
+  f('scale y', '×' + sY.toFixed(4));
+  var skew = sY / sX;
   f('shape distortion', Math.abs(skew - 1) < 0.005
     ? 'none — the axes scale equally'
     : 'a round pothole arrives ' + skew.toFixed(2) + '× ' +
@@ -6228,7 +6248,7 @@ function missAB() {
   var pad = function (t, n) { t = String(t); while (t.length < n) t += ' '; return t; };
   var bars = [0.05, 0.10, 0.25, 0.40, 0.50, 0.65];
 
-  L.push('PREPROCESSING A/B  (diagnostic — production crops the road since build 56)');
+  L.push('PREPROCESSING A/B  (diagnostic — production stretches)');
   L.push('  ' + runs[0].srcW + ' × ' + runs[0].srcH + ' source, aspect ' +
     (runs[0].srcW / runs[0].srcH).toFixed(3));
   L.push('');

@@ -172,8 +172,13 @@ const runOn = async (anchors) => {
   ok(/IMAGE[\s\S]*?width:\s+\d+[\s\S]*?height:\s+\d+/.test(t),
      'the image block reports its own dimensions: ' +
      (t.match(/IMAGE\n[^\n]*\n[^\n]*/) || [''])[0].replace(/\n/g, ' | '));
-  ok(/method:\s+STRETCH, not crop or letterbox/.test(t),
-     'the report says the frame is stretched rather than cropped');
+  // Read off the shape the run actually used, not a hardcoded string. The old
+  // wording was printed under every variant of the A/B including the crop and
+  // both letterboxes — four reports describing a method none of them had
+  // performed.
+  ok(/method:\s+STRETCH — each axis scaled on its own/.test(t),
+     'the report says which preprocessing it really did: ' +
+     (t.match(/method:[^\n]*/) || [''])[0].trim());
   ok(/preprocessing time:\s+\d+ ms/.test(t),
      'preprocessing is timed on its own, apart from inference: ' +
      (t.match(/preprocessing time:[^\n]*/) || [''])[0]);

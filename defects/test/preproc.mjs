@@ -165,15 +165,15 @@ await settled(page);
                             code.indexOf('function fitToSource'));
   // Build 55: production letterboxes. The variants above are still measured
   // against each other, but A is now history rather than what the survey does.
-  ok(/ROAD_TOP/.test(square) && /ROAD_BOT/.test(square),
-     'squareFrame takes the road band — below the horizon, above the bonnet');
-  ok(/Math\.min\(w, band\)/.test(square),
-     'and the largest square that fits inside it, so there is no distortion ' +
-     'and no padding');
-  ok(/drawImage\(source, cx, cy, side, side, 0, 0, RF_SIZE, RF_SIZE\)/.test(square),
-     'drawn from that crop to the whole square');
-  ok(!/drawImage\(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE\)/.test(square),
-     'and the stretch is gone from it entirely');
+  // Build 57: back to the stretch, on the field evidence rather than on the
+  // arithmetic. The crop puts more pixels on a defect and the model is less
+  // sure of it — 0.595 against 0.8034 on the same frame, same weights.
+  ok(/drawImage\(source, 0, 0, w, h, 0, 0, RF_SIZE, RF_SIZE\)/.test(square),
+     'squareFrame stretches the whole frame into the square');
+  ok(!/ROAD_TOP/.test(square) && !/padX: \(/.test(square),
+     'with no crop and no padding in it');
+  ok(/sx: RF_SIZE \/ w, sy: RF_SIZE \/ h/.test(square),
+     'and a scale per axis in the fit, which is what makes the two different');
   const look = code.slice(code.indexOf('function look()'), code.indexOf('function logFind'));
   ok(/squareFrame\(shot,/.test(look) && !/missVariant/.test(look),
      'the survey loop still calls squareFrame, not a variant');
@@ -188,7 +188,7 @@ await settled(page);
      [after.conf, after.score, after.size].join(', '));
 }
 
-// ============ 4. a real object's share — and so its priority — did not move
+// ============ 4. a real object's share — and so its priority — never moves
 //
 // The claim that made this change safe to deploy. Share drives bandFor(), which
 // drives the priority a survey writes down, so if letterboxing changed it then
@@ -221,11 +221,63 @@ await settled(page);
              oldBand: bandFor(oldShare), newBand: bandFor(newShare) };
   });
   ok(Math.abs(r.oldShare - r.newShare) < 1e-9,
-     'the same real object measures the same share under both preprocessings: ' +
-     r.oldShare.toFixed(6) + ' against ' + r.newShare.toFixed(6));
+     'the same real object measures the same share under a stretch and a ' +
+     'letterbox: ' + r.oldShare.toFixed(6) + ' against ' + r.newShare.toFixed(6));
   ok(JSON.stringify(r.oldBand) === JSON.stringify(r.newBand),
      'so it falls in the same band, and the priority a survey writes down does ' +
      'not move across this build: ' + (r.newBand && r.newBand.word));
+}
+
+// ============ 5. each variant's report describes the preprocessing it did
+//
+// Every per-variant report said "STRETCH" and printed the stretch's own scale
+// factors — under the crop and both letterboxes as well. Four reports
+// describing a method none of them used, while the summary table above them,
+// which does read the shape, disagreed with all four.
+{
+  const t = await page.evaluate(() => {
+    const mk = (how) => {
+      const c = document.createElement('canvas');
+      c.width = 1600; c.height = 900;
+      const x = c.getContext('2d');
+      x.fillStyle = '#777'; x.fillRect(0, 0, 1600, 900);
+      const v = missVariant(c, 1600, 900, how);
+      // Only the report is under test here, so the analysis is stubbed down to
+      // the fields missOne reads.
+      window.missRuns = [{
+        at: new Date().toISOString(), label: 'x · y · z',
+        srcW: 1600, srcH: 900, inW: 640, inH: 640, msPre: 1, inShape: [1, 3, 640, 640],
+        shape: v.shape, rawShape: [1, 6, 8400], numBoxes: 8400, numClasses: 2,
+        classNames: ['manhole', 'pothole'], min: 0, max: 1, sane: true, ms: 1,
+        backend: 'cpu', floor: 0.05, steps: [], sweep: [], sweepFrom: 0.4,
+        best: [null, null], per: [[], []], perTotal: [0, 0], nmsIn: 8400, kept: [],
+        thresholds: { score: 0.5, iou: 0.5, maxBoxes: 20, survey: 0.65 }
+      }];
+      return missLines();
+    };
+    return { stretch: mk('stretch'), letterbox: mk('letterbox'),
+             crop: mk('cropSquare'), cropbox: mk('cropLetterbox') };
+  });
+
+  ok(/method:\s+STRETCH/.test(t.stretch) && /scale x:\s+×0\.4000/.test(t.stretch) &&
+     /scale y:\s+×0\.7111/.test(t.stretch),
+     'the stretch reports itself as a stretch, with its two different scales');
+  ok(/method:\s+LETTERBOX/.test(t.letterbox) && /scale y:\s+×0\.4000/.test(t.letterbox),
+     'the letterbox reports itself as a letterbox, scaling both axes the same');
+  ok(/padding:[^\n]*% of the square is padding/.test(t.letterbox),
+     'and says how much of the square it filled with nothing: ' +
+     (t.letterbox.match(/padding:[^\n]*/) || [''])[0].trim());
+  ok(/method:\s+ROAD CROP — a square/.test(t.crop),
+     'the crop reports itself as a crop');
+  ok(/crop taken:[^\n]*% of the width/.test(t.crop),
+     'and what it cut out: ' + (t.crop.match(/crop taken:[^\n]*/) || [''])[0].trim());
+  ok(!/method:\s+STRETCH/.test(t.crop) && !/method:\s+STRETCH/.test(t.letterbox) &&
+     !/method:\s+STRETCH/.test(t.cropbox),
+     'and nothing that is not a stretch calls itself one');
+  ok(/shape distortion:\s+none/.test(t.crop) &&
+     /shape distortion:[^\n]*1\.78×/.test(t.stretch),
+     'with distortion computed from the scales that were really used');
+  await page.evaluate(() => { window.missRuns = []; window.missResult = null; });
 }
 
 console.log(fails.length ? '\nFAILURES: ' + fails.length : '\nall passed');
