@@ -246,7 +246,17 @@ knows, and pulling it out of Settings stops everything.
 - **Saving for.** An optional label and target, which is what the trophy fills
   towards. Without one it fills through the current hundred.
 - **Scores.** The free TheSportsDB test key is used unless you paste your own.
-  If results stop arriving, that is the first thing to change.
+  Everyone shares that free key and what it serves can be days behind the
+  football, which is what makes the trophy look asleep when it is only being
+  told nothing. Your own key (a few pounds a month on their Patreon) is not
+  served from that cache. **Test this key** names the latest match the key in
+  the box can see, and how long ago it was — so a key can be judged on what it
+  actually knows rather than on hope.
+
+  There is no BBC Sport equivalent to switch to: the BBC has no public API and
+  no key to sign up for, and their pages are not a data source. The realistic
+  alternatives are football-data.org or API-Football, both of which discourage
+  calls from a web page, so either would have to go through the worker.
 - **Notifications.** Optional, and only fire when the app is open — see below.
 - **Export / import.** Everything lives in this browser and nowhere else.
   Nothing is backed up for you, so export before changing phones.
@@ -288,10 +298,10 @@ the browser has never seen. It leaves the trophy, the results and the bank
 link alone — they are not part of the app's copy. The build the phone is
 running is printed just above that button, and in the footer.
 
-The stylesheet and the script are also asked for by version (`app.js?v=21`).
+The stylesheet and the script are also asked for by version (`app.js?v=22`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=21`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=22`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 

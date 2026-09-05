@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=21">
+<link rel="stylesheet" href="styles.css?v=22">
 </head>
 <body>
 
@@ -247,9 +247,16 @@
       <label class="lbl">TheSportsDB API key
         <input type="text" id="apiKey" placeholder="123" autocomplete="off">
       </label>
-      <p class="hint">The free test key works for a bit of use. If results stop coming, put your own key here
-        (thesportsdb.com). Results are never trusted while a match is still on — a win counts once the match
-        is finished.</p>
+      <div class="row">
+        <button type="button" class="secondary" id="keyTestBtn">Test this key</button>
+        <span class="hint" id="keyTestOut"></span>
+      </div>
+      <p class="hint">Everyone shares the free test key, and what it serves can be days behind the football —
+        which is what makes the trophy look asleep when it is only being told nothing. Your own key
+        (thesportsdb.com, a few pounds a month on their Patreon) is not served from that shared cache.
+        Paste it here and test it: the answer names the latest match that key can see, so you can tell at a
+        glance whether it is current. Results are never trusted while a match is still on — a win counts
+        once the match is finished.</p>
       <label class="check"><input type="checkbox" id="notifyOn"> Tell me when a win goes in</label>
     </fieldset>
 
@@ -341,6 +348,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>

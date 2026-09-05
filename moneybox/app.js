@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-31 · 21';
+var BUILD = '2026-08-31 · 22';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -1583,6 +1583,7 @@ $('settingsBtn').addEventListener('click', function () {
   $('hookAuto').checked = !!state.hook.auto;
   $('apiKey').value = state.apiKey;
   $('soundMode').value = (state.sound && state.sound.mode) || 'cannon';
+  $('keyTestOut').textContent = '';
   showSoundName();
   $('notifyOn').checked = !!state.notify;
   $('teamCurrent').textContent = 'Currently following ' + state.team.name + '.';
@@ -1753,6 +1754,31 @@ $('updateBtn').addEventListener('click', function () {
   Promise.all(jobs).catch(function () {}).then(function () {
     location.replace(location.pathname + '?fresh=' + Date.now());
   });
+});
+
+/* Paste a key, press the button, be told what that key can actually see. The
+   whole argument of the last few days was whether the app or the feed was
+   behind, and a key is worth exactly what its freshest match says it is. */
+$('keyTestBtn').addEventListener('click', function () {
+  var key = ($('apiKey').value || '').trim() || FREE_KEY;
+  var out = $('keyTestOut');
+  out.textContent = 'Asking…';
+  fetchJson(API + key + '/eventslast.php?id=' + encodeURIComponent(state.team.id))
+    .then(function (data) {
+      var rows = (data && (data.results || data.events)) || [];
+      if (!rows.length) throw new Error('that key answered, but with no matches');
+      var matches = rows.map(function (ev) { return normalise(ev); })
+        .filter(function (m) { return m.result; })
+        .sort(function (a, b) { return (b.kickoff || 0) - (a.kickoff || 0); });
+      if (!matches.length) throw new Error('that key answered, but with no results yet');
+      var newest = matches[0];
+      var days = newest.kickoff ? Math.floor((Date.now() - newest.kickoff) / 86400000) : null;
+      out.textContent = 'Works. Latest it can see: ' + describe(newest) +
+        (days === null ? '' : days <= 0 ? ' — today.' : days === 1 ? ' — yesterday.' : ' — ' + days + ' days ago.');
+    })
+    .catch(function (err) {
+      out.textContent = String(err.message || err);
+    });
 });
 
 $('feedPeekBtn').addEventListener('click', function () {
