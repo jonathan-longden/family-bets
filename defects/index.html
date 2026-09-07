@@ -300,6 +300,7 @@
         <input type="file" id="missFile" accept="image/*" multiple hidden>
         <label class="btn ghost" for="abFile" id="abFileLabel">Preprocessing A/B</label>
         <input type="file" id="abFile" accept="image/*" hidden>
+        <button class="btn ghost" id="bAbCam">A/B the camera</button>
       </div>
       <span class="hint"><b>Why was this missed?</b> takes a photograph of a road the survey
         drove past without logging, and reports what every stage did to it: the raw output
@@ -318,6 +319,14 @@
       <div class="tshot" id="tShotWrap" hidden>
         <img id="tShot" alt="The 640 by 640 frame that was actually analysed">
         <span class="cap">what the model was shown</span>
+      </div>
+      <div class="tshot" id="abShotWrap" hidden>
+        <img id="abShot" alt="The photograph with each variant's strongest box drawn on it">
+        <span class="cap">strongest candidate per variant, on the original —
+          <b style="color:#e5484d">A</b> <b style="color:#3b82f6">B</b>
+          <b style="color:#22c55e">C</b> <b style="color:#f59e0b">D</b>.
+          Boxes stacked on one spot are four preprocessings agreeing about one
+          thing; boxes scattered across the frame are texture.</span>
       </div>
       <pre class="diag" id="frameText" hidden></pre>
     </div>

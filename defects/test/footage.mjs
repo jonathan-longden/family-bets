@@ -113,6 +113,22 @@ const openDiag = async () => {
   ok(/Recording \d\d:\d\d/.test(during.text),
      'and the elapsed time is on screen: ' + during.text.split('\n')[0]);
 
+  // The record on disk keeps up with the recording, rather than saying 00:00
+  // and 0 B until it stops. A phone that locks or loses the tab mid-drive
+  // leaves the chunks on disk and the record behind them; if that record still
+  // read "empty", the footage would be deleted by the person who made it.
+  const live = await page.evaluate(async (id) => {
+    const rows = await allFootage();
+    const m = rows.filter((r) => r.id === id)[0];
+    return m ? { ms: m.ms, bytes: m.bytes, chunks: m.chunks } : null;
+  }, mid.id);
+  ok(live && live.bytes > 0,
+     'while still recording, the stored record already carries real bytes: ' +
+     (live && live.bytes));
+  ok(live && live.ms > 0 && live.chunks > 0,
+     'and a real duration and chunk count: ' + (live && live.ms) + ' ms in ' +
+     (live && live.chunks) + ' chunks');
+
   const id = mid.id;
   await page.click('#bFootStop');
   await page.waitForFunction(() => window.foot && !window.foot.on, null, { timeout: 10000 });
