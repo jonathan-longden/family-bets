@@ -194,6 +194,33 @@ await openLog(page);
 ok(await page.textContent('#cnt') === '2', 'the remaining finds survive a reload');
 ok(/1 correction kept/.test(await page.textContent('#wrongCount')), 'and so does the correction');
 
+// The survey's own diagnostic fills in the first eight tensor values. It never
+// did — only the frame test set them — so the diagnostics screen printed
+// "First eight: ." for every real look: an empty list and a stray full stop,
+// on the one line that settled the channels-last argument.
+{
+  const d = await page.evaluate(() => {
+    const r = { firstEight: [1.25, 2.5, 3.75, 5, 6.25, 7.5, 8.75, 10],
+                rawShape: [1, 6, 8400] };
+    window.lastDiag = { rawShape: r.rawShape, afterTranspose: [1, 8400, 6],
+                        readAs: { boxes: 8400, classes: 2 },
+                        firstEight: r.firstEight };
+    return describeDiag(window.lastDiag);
+  });
+  ok(/First eight: 1\.25, 2\.5/.test(d),
+     'the tensor line carries the numbers themselves: ' + d.slice(-60));
+  const none = await page.evaluate(() => describeDiag({
+    rawShape: [1, 6, 8400], afterTranspose: [1, 8400, 6],
+    readAs: { boxes: 8400, classes: 2 } }));
+  ok(/were not recorded on this run/.test(none) && !/First eight: \./.test(none),
+     'and a run without them says so, rather than printing an empty list and a ' +
+     'full stop: ' + none.slice(-70));
+
+  const src = await (await fetch(B + 'app.js')).text();
+  ok(/firstEight: Array\.prototype\.slice\.call\(data, 0, 8\)/.test(src),
+     'the survey path fills them in from the transposed tensor it already has');
+}
+
 await browser.close();
 console.log(fails.length ? '\n' + fails.length + ' FAILED' : '\nall passed');
 process.exit(fails.length ? 1 : 0);

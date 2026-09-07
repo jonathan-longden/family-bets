@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-04 · 58';
+var BUILD = '2026-09-07 · 59';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -1926,7 +1926,9 @@ function describeDiag(d) {
   return 'Output ' + raw + (d.outputs > 1 ? ' (' + d.outputs + ' outputs)' : '') +
          ', transposed to ' + shape(d.afterTranspose) +
          ', read as ' + d.readAs.boxes + ' boxes × ' + d.readAs.classes + ' classes' +
-         '. First eight: ' + (d.firstEight || []).map(round4).join(', ') + '.';
+         (d.firstEight && d.firstEight.length
+           ? '. First eight: ' + d.firstEight.map(round4).join(', ') + '.'
+           : '. The first eight values were not recorded on this run.');
 }
 
 var lastRaw = null;
@@ -5312,6 +5314,12 @@ function infOnce(tf, model, source) {
       return tf.setBackend(was).then(function () {
         return { preds: preds, sane: sane, min: lo, max: hi, rawShape: rawShape,
                  best: best, perClass: perClass,
+                 /* The first eight values off the transposed tensor. They are
+                    what settled the channels-last argument, and the diagnostics
+                    have been printing "First eight: ." — an empty list and a
+                    stray full stop — because the survey path never filled them
+                    in. Only the frame test did. */
+                 firstEight: Array.prototype.slice.call(data, 0, 8),
                  msExecute: msExecute, msDecode: msDecode };
       });
     });
@@ -5440,6 +5448,7 @@ function surveyEngine() {
           afterTranspose: r.rawShape ? [r.rawShape[0], r.rawShape[2], r.rawShape[1]] : null,
           readAs: { boxes: r.rawShape ? r.rawShape[2] : null,
                     classes: r.rawShape ? r.rawShape[1] - 4 : null },
+          firstEight: r.firstEight || null,
           imageDims: [RF_SIZE, RF_SIZE],
           layoutUsed: 'native', layoutNative: 'NCHW', layoutProbe: null,
           precision: { tried: [{ how: 'as loaded', backend: s.backend,
@@ -6526,6 +6535,16 @@ function footStart() {
       var seq = foot.seq++;
       foot.bytes += ev.data.size;
       meta.bytes = foot.bytes; meta.chunks = foot.seq;
+      meta.ms = Date.now() - foot.startedAt;
+      /* Written with every chunk, not only at stop.
+      
+         The record used to be saved once at the start and once at the end, so
+         a recording in progress listed itself as "00:00 · 0 B" — and a phone
+         that locked, ran out of memory or lost the tab mid-drive left that
+         record behind for good. The chunks were all there and playable; the
+         row above them said the recording was empty, which is the way to get
+         a morning's footage deleted by the person who made it. */
+      putFootMeta(meta).catch(function () { /* the chunk write is the one that matters */ });
       putFootChunk({ key: id + ':' + String(seq).padStart(6, '0'),
                      rec: id, seq: seq, bytes: ev.data.size, blob: ev.data })
         .catch(function (e) {
