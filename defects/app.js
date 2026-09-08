@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-07 · 59';
+var BUILD = '2026-09-07 · 60';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -5850,10 +5850,42 @@ var abUrl = null;
    taken at 4×. */
 var abZoom = null;
 
+/* The order the variants actually ran in, and whether a warm-up came first.
+   Read by the report; empty until an A/B has run. */
+var abRan = [];
+var abWarmed = false;
+
+/* Fisher-Yates. The A/B ran A, B, C, D every time, so any warm-up cost or
+   thermal drift landed on the same variants in the same order on every run —
+   A always paying the cold-start, D always running on the hottest chip. That
+   is a systematic bias, not noise: it does not average out over repeats, and a
+   controlled experiment built on it would inherit it. */
+function abShuffle(list) {
+  var a = list.slice();
+  for (var i = a.length - 1; i > 0; i--) {
+    var j = Math.floor(Math.random() * (i + 1));
+    var t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+/* Execution order is the truth of what happened and is kept; reading order is
+   A, B, C, D so two reports can be compared line against line. Sorting a copy
+   rather than missRuns itself keeps both. */
+function abKeyIndex(r) {
+  var k = String(r.label).split(' · ')[0];
+  for (var i = 0; i < MISS_AB.length; i++) if (MISS_AB[i].key === k) return i;
+  return 99;
+}
+function abSorted(runs) {
+  return runs.slice().sort(function (a, b) { return abKeyIndex(a) - abKeyIndex(b); });
+}
+
 function runMissAB(source, w, h, label) {
   var st = $('tState');
   busy(true);
-  missRuns = []; missResult = null; paintFrameTest();
+  missRuns = []; missResult = null; abRan = []; abWarmed = false;
+  paintFrameTest();
   if ($('abShotWrap')) $('abShotWrap').hidden = true;
   st.textContent = 'Bringing the model up…';
   return loadBenchTf().then(function (tf) {
@@ -5861,25 +5893,42 @@ function runMissAB(source, w, h, label) {
       ? Promise.resolve(infSession)
       : infCapabilities(tf).then(function () { return infPick(tf); });
     return have.then(function (sess) {
+      var order = abShuffle(MISS_AB);
       var i = 0;
+
+      /* One inference thrown away before any variant is measured, so whichever
+         variant the shuffle puts first is not the one paying for a cold graph.
+         It is discarded rather than recorded — it exists to be wasted. Nothing
+         outside this function sees it, and production inference is untouched. */
+      function warm() {
+        st.textContent = 'Warming up — this run is discarded…';
+        var built = missVariant(source, w, h, 'stretch');
+        return missAnalyse(sess.tf, sess.model, built.canvas,
+                           'warm-up · discarded', w, h, built.shape)
+          .then(function () { abWarmed = true; },
+                function () { abWarmed = false; });   // a failed warm-up is not fatal
+      }
+
       function step() {
-        if (i >= MISS_AB.length) return Promise.resolve();
-        var v = MISS_AB[i];
-        st.textContent = 'Variant ' + v.key + ' of ' + MISS_AB.length + ': ' +
-          v.name + '…';
+        if (i >= order.length) return Promise.resolve();
+        var v = order[i];
+        st.textContent = 'Variant ' + v.key + ', ' + (i + 1) + ' of ' +
+          order.length + ': ' + v.name + '…';
         var built = missVariant(source, w, h, v.how);
         return missAnalyse(sess.tf, sess.model, built.canvas,
                            v.key + ' · ' + v.name + ' · ' + label, w, h,
                            built.shape)
           .then(function (r) {
             r.zoom = abZoom;
+            r.ranAt = i + 1;
             missRuns.push(r);
+            abRan.push(v.key);
             paintFrameTest();
             i++;
             return step();
           });
       }
-      return step();
+      return warm().then(step);
     });
   }).then(function () {
     paintFrameTest(); paintDiag();
@@ -5979,7 +6028,9 @@ function missOne(r) {
   var bestOf = function (i) { return (i >= 0 && r.best[i]) ? r.best[i] : null; };
 
   L.push('MISS ANALYSIS  (diagnostic only — nothing here changes the survey)');
-  L.push('  ' + r.label + ', ' + r.at);
+  L.push('  ' + r.label + ', ' + r.at +
+    (r.ranAt ? '  [ran ' + r.ranAt + (r.ranAt === 1 ? 'st' : r.ranAt === 2 ? 'nd'
+      : r.ranAt === 3 ? 'rd' : 'th') + ']' : ''));
   L.push('');
 
   L.push('IMAGE');
@@ -6310,7 +6361,7 @@ function missTable() {
    stage do"; this answers the only question being asked — which preprocessing
    gets the most out of this picture, and is the box it found on the defect. */
 function missAB() {
-  var runs = missRuns.filter(function (r) { return r.shape && r.shape.ab; });
+  var runs = abSorted(missRuns.filter(function (r) { return r.shape && r.shape.ab; }));
   if (runs.length < 2) return '';
   var L = [];
   var pad = function (t, n) { t = String(t); while (t.length < n) t += ' '; return t; };
@@ -6326,6 +6377,16 @@ function missAB() {
   L.push('  ' + (runs[0].zoom == null
     ? 'from a file — the zoom it was taken at is not recorded in this report'
     : 'camera frame at ' + runs[0].zoom + '× zoom'));
+  /* The rows below read A, B, C, D so two reports can be compared line against
+     line. They did not RUN in that order, and which order they ran in is the
+     thing this line exists to record: a fixed order put the cold-start on A
+     every time and ran D on the hottest chip every time, which is a systematic
+     bias rather than noise. */
+  L.push('  ran in the order ' + (abRan.length ? abRan.join(', ') : 'not recorded') +
+    ' — shuffled, so no variant always pays the cold start');
+  L.push('  ' + (abWarmed
+    ? 'one warm-up inference was run first and discarded'
+    : 'NO warm-up ran — the first variant may carry a cold-start cost'));
   L.push('');
   var head = pad('variant', 24) + pad('crop', 12) + pad('scale x', 10) +
     pad('scale y', 10) + pad('distort', 9) + pad('used', 7) + pad('best pot', 10) +
@@ -6393,7 +6454,7 @@ function missAB() {
 function missLines() {
   if (!missRuns.length) return missOne(missResult);
   var ab = missAB();
-  if (ab) return [ab].concat(missRuns.map(missOne))
+  if (ab) return [ab].concat(abSorted(missRuns).map(missOne))
     .filter(Boolean).join('\n\n' + new Array(72).join('=') + '\n\n');
   return [missTable()].concat(missRuns.map(missOne))
     .filter(Boolean).join('\n\n' + new Array(72).join('=') + '\n\n');
