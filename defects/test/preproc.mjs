@@ -33,6 +33,10 @@ await page.waitForFunction(() => document.getElementById('badge').textContent ==
   null, { timeout: 15000 });
 await settled(page);
 
+// What the wanted zoom is before any of this runs. The A/B must not move it,
+// and that is the property — not whichever number it happens to be set to.
+const zoomAtStart = await page.evaluate(() => window.ZOOM_WANT);
+
 // ============ 1. the geometry of each variant, on the real frame size
 {
   const g = await page.evaluate(() => {
@@ -478,14 +482,21 @@ await settled(page);
   ok(!/abShuffle|abWarmed/.test(once),
      'and production inference is untouched by any of it');
 
+  // Zoom is compared against what it was BEFORE this suite ran, not against a
+  // literal. Pinning the number made this a test of ZOOM_WANT's value rather
+  // than of the A/B leaving it alone, so changing the diagnostic zoom from 4 to
+  // 2 failed an assertion about something that had not moved.
   const after = await page.evaluate(() => ({
     conf: window.SURVEY_CONF, score: window.RF_SCORE, size: window.RF_SIZE,
     ms: window.SURVEY_MS, zoom: window.ZOOM_WANT, active: window.ACTIVE_MODEL
   }));
   ok(after.conf === 0.65 && after.score === 0.5 && after.size === 640 &&
-     after.ms === 1200 && after.zoom === 4 && after.active === 'yolov8n-t3',
-     'thresholds, input size, cadence, zoom and model all unchanged: ' +
-     [after.conf, after.score, after.size, after.ms, after.zoom].join(', '));
+     after.ms === 1200 && after.active === 'yolov8n-t3',
+     'thresholds, input size, cadence and model all unchanged: ' +
+     [after.conf, after.score, after.size, after.ms].join(', '));
+  ok(after.zoom === zoomAtStart,
+     'and the A/B left the wanted zoom exactly as it found it: ' +
+     zoomAtStart + '× before, ' + after.zoom + '× after');
 }
 
 console.log(fails.length ? '\nFAILURES: ' + fails.length : '\nall passed');

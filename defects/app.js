@@ -14,7 +14,7 @@ var $ = function (id) { return document.getElementById(id); };
 /* Printed in the footer. Without it there is no way to tell from the phone
    whether a fix has actually arrived or a stale copy is being served, which is
    a question that otherwise costs a round trip to answer. Bump it on release. */
-var BUILD = '2026-09-07 · 60';
+var BUILD = '2026-09-07 · 61';
 
 var STALE_MS = 30000;   // a fix older than this is called out, not trusted quietly
 var POOR_ACC = 25;      // metres; wider than this and you cannot find the defect again
@@ -756,8 +756,19 @@ $('hudSurface').addEventListener('click', function () {
 /* The zoom the survey wants. One constant, because the number appears on a
    button, in the diagnostics, in what is asked of the camera and in what the
    tests check — and four of those drifting apart is how a screen ends up
-   claiming 4x while the camera is at 2. */
-var ZOOM_WANT = 4;
+   claiming one figure while the camera is at another.
+
+   Was 4 until build 61. Four times showed no consistent benefit on the frames
+   measured: on the one scene taken at both, every preprocessing scored LOWER at
+   4x than at 1x, and the stretch collapsed from 0.5886 to 0.1050. Two is the
+   moderate step that has not been tried, and the comparison worth having is
+   1x against 2x rather than 1x against a magnification that appears to hurt.
+
+   Changing this number changes what the camera is set to when it opens, so it
+   is what a survey captures at as well as what the A/B runs at — there is one
+   zoom, not a separate diagnostic one. Everything about HOW zoom is applied is
+   unchanged: the camera track, at open, reported honestly, never a crop. */
+var ZOOM_WANT = 2;
 
 var zoom = { supported: false, requested: ZOOM_WANT, actual: null, min: null,
              max: null, step: null, why: 'not looked at yet', asked: null };
@@ -926,11 +937,13 @@ async function openCamera(byTap) {
     paintRec();          // the strip has to hear about the camera too
     paintSpace();
     footPaint();         // recording needs a stream, so the button follows it
-    /* 4× is what the survey wants, so the camera is asked for it as it opens
-       rather than waiting for somebody to remember a button at the roadside.
-       On a camera with no zoom this does nothing at all and says so; on one
-       whose range stops short it goes as far as it goes and reports the number
-       it reached. It never pretends. */
+    /* ZOOM_WANT is asked for as the camera opens rather than waiting for
+       somebody to remember a button at the roadside. Named rather than
+       written out, because the number has changed once already and a comment
+       stating the old one is worse than no comment at all.
+       On a camera with no zoom this does nothing and says so; on one whose
+       range stops short it goes as far as it goes and reports the number it
+       reached. It never pretends. */
     zoomProbe();
     paintZoom();
     if (zoom.supported) zoomApply(ZOOM_WANT);
@@ -5846,8 +5859,8 @@ var abUrl = null;
 
 /* Null for a picked file, a number for a camera frame. Set by the caller
    rather than read here, because only the caller knows where the pixels came
-   from — and a file that happens to be open while the camera is at 4× was not
-   taken at 4×. */
+   from — and a file that happens to be open while the camera is zoomed was not
+   taken zoomed. */
 var abZoom = null;
 
 /* The order the variants actually ran in, and whether a warm-up came first.
@@ -6371,9 +6384,9 @@ function missAB() {
   L.push('  ' + runs[0].srcW + ' × ' + runs[0].srcH + ' source, aspect ' +
     (runs[0].srcW / runs[0].srcH).toFixed(3));
   /* Zoom belongs in the header because it acts UPSTREAM of every variant. A
-     frame taken at 4× has the defect four times bigger before any of this
-     starts, so comparing a 4× run against a 1× run is comparing two things at
-     once. Only a camera frame can know; a picked file cannot. */
+     frame taken zoomed has the defect that much bigger before any of this
+     starts, so comparing a zoomed run against a 1× run is comparing two things
+     at once. Only a camera frame can know; a picked file cannot. */
   L.push('  ' + (runs[0].zoom == null
     ? 'from a file — the zoom it was taken at is not recorded in this report'
     : 'camera frame at ' + runs[0].zoom + '× zoom'));
