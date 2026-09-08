@@ -43,3 +43,20 @@ outside/mobile/.env.*
 *.app.zip
 
 .DS_Store
+
+# V2 training dataset payload. The registers (sessions.csv, sources.csv) ARE
+# committed — they are the part worth reviewing in a diff. The photographs are
+# not: pages.yml publishes this repository as-is, so a committed road picture
+# is a public download of somebody's number plate. See training/README.md.
+training/dataset/images/**
+training/dataset/labels/**
+training/dataset/incoming/**
+# The split directories themselves stay in git, or the negation below cannot
+# reach inside them: git will not re-include a file whose parent it excluded.
+!training/dataset/images/*/
+!training/dataset/labels/*/
+!training/dataset/**/.gitkeep
+training/build/
+training/test/report/
+__pycache__/
+*.pyc
