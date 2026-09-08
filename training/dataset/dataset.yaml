@@ -1,0 +1,19 @@
+# Ultralytics dataset config for the Defect Log V2 detector.
+#
+# The class order is NOT a preference. The shipped application decodes channel
+# 4 of the YOLO head as manhole and channel 5 as pothole (defects/app.js,
+# missAnalyse and the survey path both). A model trained with these swapped
+# loads cleanly, runs at full speed, and calls every pothole a manhole.
+# tools/dl.py validate fails if this block changes.
+#
+# path is relative to this file, so the dataset directory can be moved or kept
+# outside the repository without editing anything.
+
+path: .
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: manhole
+  1: pothole
