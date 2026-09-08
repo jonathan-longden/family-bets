@@ -367,6 +367,127 @@ await settled(page);
      'and the camera button reads the zoom actually applied to the track');
 }
 
+// ============ 8. the variants do not always run in the same order
+//
+// A, B, C, D every time meant A always paid the cold start and D always ran on
+// the hottest chip. That is a systematic bias, not noise: it does not average
+// out over repeats, and a controlled experiment built on it would inherit it.
+{
+  // Deterministic shuffles, so the property is checked rather than sampled.
+  const perms = await page.evaluate(() => {
+    const real = Math.random;
+    const out = [];
+    try {
+      // Drive Fisher-Yates to a known permutation, then to identity.
+      let feed = [], k = 0;
+      Math.random = () => feed[k++ % feed.length];
+      feed = [0, 0, 0]; k = 0;
+      out.push(abShuffle(MISS_AB).map((v) => v.key).join(''));
+      feed = [0.99, 0.99, 0.99]; k = 0;
+      out.push(abShuffle(MISS_AB).map((v) => v.key).join(''));
+    } finally { Math.random = real; }
+    return out;
+  });
+  ok(perms[0] !== perms[1],
+     'the shuffle really reorders — two different draws give two orders: ' +
+     perms.join(' and '));
+  perms.forEach((p) => {
+    ok(p.split('').sort().join('') === 'ABCD',
+       'and every order is a permutation of all four, none dropped or repeated: ' + p);
+  });
+
+  const untouched = await page.evaluate(() => MISS_AB.map((v) => v.key).join(''));
+  ok(untouched === 'ABCD',
+     'while MISS_AB itself is left in order — the shuffle works on a copy: ' + untouched);
+}
+
+// ============ 9. the report reads A, B, C, D whatever the order was
+{
+  const t = await page.evaluate(() => {
+    const mk = (key, conf) => ({
+      label: key + ' · name · f.jpg', srcW: 1600, srcH: 900, zoom: null,
+      shape: { ab: true, how: 'stretch', srcW: 1600, srcH: 900, cropX: 0, cropY: 0,
+               cropW: 1600, cropH: 900, sx: 0.4, sy: 0.711, padX: 0, padY: 0, used: 1 },
+      classNames: ['manhole', 'pothole'], per: [[], []], perTotal: [0, 0],
+      best: [null, { conf: conf }], kept: [], steps: [], floor: 0.05,
+      thresholds: { score: 0.5, iou: 0.5, maxBoxes: 20, survey: 0.65 }
+    });
+    // Pushed in the order they "ran": C, A, D, B.
+    window.missRuns = [mk('C', 0.1), mk('A', 0.2), mk('D', 0.3), mk('B', 0.4)];
+    window.abRan = ['C', 'A', 'D', 'B'];
+    window.abWarmed = true;
+    const out = missAB();
+    window.missRuns = []; window.abRan = []; window.abWarmed = false;
+    return out;
+  });
+  // The first four are the summary table; the candidate and box sections
+  // repeat the same order below it, which is why this takes a slice rather
+  // than the whole match list.
+  const rows = (t.match(/^  ([ABCD]) /gm) || []).map((x) => x.trim());
+  ok(rows.slice(0, 4).join('') === 'ABCD',
+     'the table reads A, B, C, D even though they ran C, A, D, B: ' +
+     rows.slice(0, 4).join(''));
+  ok(rows.length >= 8 && rows.join('') === 'ABCD'.repeat(rows.length / 4),
+     'and every section below it reads the same way: ' + rows.join(''));
+  ok(/ran in the order C, A, D, B/.test(t),
+     'and the order they really ran in is on the report: ' +
+     (t.match(/ran in the order[^\n]*/) || [''])[0]);
+  ok(/warm-up inference was run first and discarded/.test(t),
+     'with the warm-up recorded: ' + (t.match(/warm-up[^\n]*/) || [''])[0]);
+
+  const cold = await page.evaluate(() => {
+    window.missRuns = [1, 2].map((n) => ({
+      label: (n === 1 ? 'A' : 'B') + ' · name · f', srcW: 1600, srcH: 900, zoom: null,
+      shape: { ab: true, how: 'stretch', srcW: 1600, srcH: 900, cropX: 0, cropY: 0,
+               cropW: 1600, cropH: 900, sx: 0.4, sy: 0.711, padX: 0, padY: 0, used: 1 },
+      classNames: ['manhole', 'pothole'], per: [[], []], perTotal: [0, 0],
+      best: [null, null], kept: [], steps: [], floor: 0.05,
+      thresholds: { score: 0.5, iou: 0.5, maxBoxes: 20, survey: 0.65 }
+    }));
+    window.abRan = ['A', 'B']; window.abWarmed = false;
+    const out = missAB();
+    window.missRuns = []; window.abRan = [];
+    return out;
+  });
+  ok(/NO warm-up ran/.test(cold),
+     'and a run whose warm-up failed says so, rather than staying quiet about ' +
+     'a cold first variant: ' + (cold.match(/NO warm-up[^\n]*/) || [''])[0]);
+}
+
+// ============ 10. the warm-up is discarded, and production is untouched
+{
+  const src = await (await fetch(B + 'app.js')).text();
+  const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  // Scoped to runMissAB alone. An end anchor naming a function that does not
+  // exist gives indexOf -1, and slice(start, -1) is most of the file — which
+  // quietly counted a push belonging to runMiss.
+  const abStart = code.indexOf('function runMissAB');
+  const abEnd = code.indexOf('function runMiss(source', abStart + 10);
+  ok(abStart > 0 && abEnd > abStart, 'runMissAB can be isolated in the source');
+  const ab = code.slice(abStart, abEnd);
+  ok(/warm-up · discarded/.test(ab),
+     'the warm-up run is labelled as discarded');
+  ok(!/missRuns\.push\(r\)[\s\S]{0,40}warm/.test(ab) &&
+     (ab.match(/missRuns\.push/g) || []).length === 1,
+     'and pushed nowhere — there is exactly one place a result is recorded, ' +
+     'and the warm-up is not it');
+  const look = code.slice(code.indexOf('function look()'), code.indexOf('function logFind'));
+  ok(!/abShuffle|warm|abRan/.test(look),
+     'the survey loop knows nothing about shuffling or warming up');
+  const once = code.slice(code.indexOf('function infOnce'), code.indexOf('function infDispose'));
+  ok(!/abShuffle|abWarmed/.test(once),
+     'and production inference is untouched by any of it');
+
+  const after = await page.evaluate(() => ({
+    conf: window.SURVEY_CONF, score: window.RF_SCORE, size: window.RF_SIZE,
+    ms: window.SURVEY_MS, zoom: window.ZOOM_WANT, active: window.ACTIVE_MODEL
+  }));
+  ok(after.conf === 0.65 && after.score === 0.5 && after.size === 640 &&
+     after.ms === 1200 && after.zoom === 4 && after.active === 'yolov8n-t3',
+     'thresholds, input size, cadence, zoom and model all unchanged: ' +
+     [after.conf, after.score, after.size, after.ms, after.zoom].join(', '));
+}
+
 console.log(fails.length ? '\nFAILURES: ' + fails.length : '\nall passed');
 await browser.close();
 process.exit(fails.length ? 1 : 0);
