@@ -1200,7 +1200,7 @@ value it held before any of this, and passed.
 The A/B tool remains, and the wide 2340×1080 case — the frame that was actually
 missed — has yet to be run through it.
 
-## Four times, at the camera rather than afterwards
+## Two times, at the camera rather than afterwards
 
 
 At 34 mph a pothole is in frame for about one look, and at 15 m it is roughly
@@ -1229,27 +1229,33 @@ nothing with it — and that must not read as success:
 
 ```
   supported  yes
-  requested  4×  (asked the camera for 2.5, the nearest it allows)
-  actual     2.5×
+  requested  2×  (asked the camera for 1.5, the nearest it allows)
+  actual     1.5×
   min        1
-  max        2.5
+  max        1.5
   step       0.1
 ```
 
 Four outcomes are told apart rather than collapsed into "zoom failed": the
 browser has no `getCapabilities`; `getCapabilities` throws; the camera reports no
 `zoom` capability; and the camera accepted the request and settled somewhere
-else. A range that stops short of 4 is asked for its own maximum rather than
-refused for asking too much, and a step of 0.75 is snapped to rather than sending
-a value the camera would reject. Where the camera cannot reach 4×, the number on
-the screen is the one it did reach — never the one it was asked for.
+else. A range that stops short of the wanted zoom is asked for its own maximum rather
+than refused for asking too much, and a step of 0.75 is snapped to rather than
+sending a value the camera would reject. Where the camera cannot reach it, the
+number on the screen is the one it did reach — never the one it was asked for.
 
-4× is what the survey wants, so it is asked for as the camera opens rather than
-waiting for somebody to remember a button at the roadside; `ZOOM_WANT` is the one
-constant it comes from, because a number living in a button, a diagnostic, a
-request and a test is how a screen ends up claiming 4× while the camera is at 2.
-Where zoom is unsupported nothing is sent at all, the buttons are disabled, and
-the screen says **4× zoom unavailable on this camera**. Nothing is faked with a CSS transform, and nothing
+`ZOOM_WANT` is asked for as the camera opens rather than waiting for somebody to
+remember a button at the roadside, and it is the one constant every mention comes
+from — a number living in a button, a diagnostic, a request and a test is how a
+screen ends up claiming one figure while the camera is at another. Where zoom is
+unsupported nothing is sent at all, the buttons are disabled, and the screen says
+so.
+
+**It was 4× until build 61.** Four showed no consistent benefit on the frames
+measured: on the one scene captured at both, every preprocessing scored lower at
+4× than at 1×, and the stretch collapsed from 0.5886 to 0.1050. Two is the
+moderate step that has not been tried, and 1× against 2× is the comparison worth
+having. Only the number changed — the mechanism is the same. Nothing is faked with a CSS transform, and nothing
 is faked by cropping the model input.
 
 The applied zoom goes on every observation and in the footage sidecar, because a

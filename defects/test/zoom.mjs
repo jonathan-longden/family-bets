@@ -1,4 +1,4 @@
-// 4x zoom, at the camera track and nowhere else.
+// 2x zoom, at the camera track and nowhere else.
 //
 // At 34 mph a pothole is in frame for about one look, and at 15 m it is roughly
 // eleven pixels wide and one and a half tall in the tensor. Zoom is the one
@@ -83,17 +83,19 @@ const state = () => page.evaluate(() => ({
   ok(!s.pillsHidden && !s.d1 && !s.d2, 'and the 1×/2× control is offered');
 
   await page.click('#zoomIn');
-  await page.waitForFunction(() => window.zoom.actual === 4, null, { timeout: 5000 });
+  await page.waitForFunction(() => window.zoom.actual === 2, null, { timeout: 5000 });
   s = await state();
-  ok(s.applied[s.applied.length - 1].advanced[0].zoom === 4,
-     'pressing 4× asks the TRACK for 4, through applyConstraints: ' +
+  ok(s.applied[s.applied.length - 1].advanced[0].zoom === 2,
+     'pressing 2× asks the TRACK for 2, through applyConstraints: ' +
      JSON.stringify(s.applied[s.applied.length - 1]));
-  ok(s.z.actual === 4,
+  ok(s.z.actual === 2,
      'and the result is read back from getSettings rather than assumed: actual ' +
      s.z.actual);
   ok(s.z.why === null, 'with nothing to complain about');
-  ok(s.p2 === 'true', 'the 4× button shows as the pressed one');
-  ok(s.z.requested === 4, 'and the requested value is 4, not the old 2: ' + s.z.requested);
+  ok(s.p2 === 'true', 'the 2× button shows as the pressed one');
+  ok(s.z.requested === 2,
+     'and the requested value is 2 — four showed no consistent benefit on the ' +
+     'frames measured: ' + s.z.requested);
 
   await page.click('#zoom1');
   await page.waitForFunction(() => window.zoom.actual === 1, null, { timeout: 5000 });
@@ -103,22 +105,22 @@ const state = () => page.evaluate(() => ({
 
 // ============ 2. 2x is outside what this camera can do
 {
-  await fake({ zoom: { min: 1, max: 2.5, step: 0.1 } }, { startZoom: 1 });
+  await fake({ zoom: { min: 1, max: 1.5, step: 0.1 } }, { startZoom: 1 });
   await page.evaluate(() => { zoomProbe(); paintZoom(); });
   await page.click('#zoomIn');
-  await page.waitForFunction(() => window.zoom.actual === 2.5, null, { timeout: 5000 });
+  await page.waitForFunction(() => window.zoom.actual === 1.5, null, { timeout: 5000 });
   const s = await state();
-  ok(s.applied[s.applied.length - 1].advanced[0].zoom === 2.5,
-     'a camera that stops at 2.5 is asked for 2.5, not refused for asking 4: ' +
+  ok(s.applied[s.applied.length - 1].advanced[0].zoom === 1.5,
+     'a camera that stops at 1.5 is asked for 1.5, not refused for asking 2: ' +
      s.applied[s.applied.length - 1].advanced[0].zoom);
-  ok(s.z.requested === 4 && s.z.asked === 2.5,
+  ok(s.z.requested === 2 && s.z.asked === 1.5,
      'the report keeps both numbers apart — requested ' + s.z.requested +
      ', asked ' + s.z.asked);
-  ok(s.z.actual === 2.5,
+  ok(s.z.actual === 1.5,
      'and the actual is the number the camera reached, never the one it was ' +
      'asked for: ' + s.z.actual);
-  ok(!/4/.test(s.note) || /2\.5/.test(s.note),
-     'the screen does not claim 4× was applied: ' + s.note);
+  ok(!/\b2×/.test(s.note) || /1\.5/.test(s.note),
+     'the screen does not claim 2× was applied: ' + s.note);
 }
 
 // ============ 3. the step is respected
@@ -130,7 +132,7 @@ const state = () => page.evaluate(() => ({
     null, { timeout: 5000 });
   const s = await state();
   const asked = s.applied[s.applied.length - 1].advanced[0].zoom;
-  ok(asked === 4 || asked === 3.25 || asked === 4.75,
+  ok(asked === 1.75 || asked === 2.5,
      'a step of 0.75 is snapped to rather than sending a value the camera would ' +
      'reject: ' + asked);
   ok(String(asked).length <= 6,
@@ -145,7 +147,7 @@ const state = () => page.evaluate(() => ({
   ok(s.z.supported === false, 'a camera with no zoom capability is not claimed to have one');
   ok(/no zoom capability/.test(s.z.why), 'and says which fault it is: ' + s.z.why);
   ok(s.d1 && s.d2, 'the buttons are disabled rather than pretending to work');
-  ok(/4× zoom unavailable/.test(s.note),
+  ok(/2× zoom unavailable/.test(s.note),
      'with it said in as many words on the screen: ' + s.note);
 }
 
@@ -190,10 +192,10 @@ const state = () => page.evaluate(() => ({
   await page.click('#zoomIn');
   await page.waitForFunction(() => /settled/.test(window.zoom.why || ''), null, { timeout: 5000 });
   const s = await state();
-  ok(/asked for 4 and the camera settled at 1/.test(s.z.why),
+  ok(/asked for 2 and the camera settled at 1/.test(s.z.why),
      'a request accepted and ignored is reported as what it is: ' + s.z.why);
   ok(s.z.actual === 1, 'with the actual value, not the requested one: ' + s.z.actual);
-  ok(s.p2 === 'false', 'and the 4× button does not show as achieved');
+  ok(s.p2 === 'false', 'and the 2× button does not show as achieved');
 }
 
 // ============ 8. the diagnostics block
@@ -201,15 +203,15 @@ const state = () => page.evaluate(() => ({
   await fake({ zoom: { min: 1, max: 8, step: 0.1 } }, { startZoom: 1 });
   await page.evaluate(() => { zoomProbe(); paintZoom(); });
   await page.click('#zoomIn');
-  await page.waitForFunction(() => window.zoom.actual === 4, null, { timeout: 5000 });
+  await page.waitForFunction(() => window.zoom.actual === 2, null, { timeout: 5000 });
   if (await page.isVisible('#menu')) await page.click('#bMenu');
   await page.click('#bMenu'); await page.click('#mDiag');
   await page.waitForSelector('#p-diag:not([hidden])');
   const t = await page.textContent('#diagText');
   ok(/ZOOM/.test(t), 'the diagnostics carry a zoom block');
   ok(/supported\s+yes/.test(t), 'supported: ' + (t.match(/supported\s+[^\n]*/) || [''])[0].trim());
-  ok(/requested\s+4×/.test(t), 'requested: ' + (t.match(/requested\s+[^\n]*/) || [''])[0].trim());
-  ok(/actual\s+4×/.test(t), 'actual: ' + (t.match(/actual\s+[^\n]*/) || [''])[0].trim());
+  ok(/requested\s+2×/.test(t), 'requested: ' + (t.match(/requested\s+[^\n]*/) || [''])[0].trim());
+  ok(/actual\s+2×/.test(t), 'actual: ' + (t.match(/actual\s+[^\n]*/) || [''])[0].trim());
   ok(/min\s+1/.test(t) && /max\s+8/.test(t) && /step\s+0\.1/.test(t),
      'min, max and step are all reported');
   ok(/CAMERA[\s\S]*?resolution\s+\d+ × \d+/.test(t),
@@ -254,7 +256,7 @@ const state = () => page.evaluate(() => ({
 
 // ============ 11. an entry records what the camera was doing
 {
-  await fake({ zoom: { min: 1, max: 8, step: 0.1 } }, { startZoom: 4 });
+  await fake({ zoom: { min: 1, max: 8, step: 0.1 } }, { startZoom: 2 });
   await page.evaluate(() => { zoomProbe(); paintZoom(); });
   await page.evaluate(() => {
     window.__hits = [];
@@ -270,7 +272,7 @@ const state = () => page.evaluate(() => ({
   });
   await page.waitForFunction(() => S.items.length > 0, null, { timeout: 30000 });
   const e = await page.evaluate(() => S.items[0]);
-  ok(e.zoom === 4,
+  ok(e.zoom === 2,
      'a find carries the zoom the camera was at when the frame was taken: ' + e.zoom);
   ok(e.imgW > 0 && e.detBox && e.modelKey,
      'alongside everything it carried before — the evidence frame is unchanged');
@@ -284,13 +286,14 @@ const state = () => page.evaluate(() => ({
 {
   const src = await (await fetch(B + 'app.js')).text();
   const code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  ok(/var ZOOM_WANT = 4;/.test(code),
+  ok(/var ZOOM_WANT = 2;/.test(code),
      'the wanted zoom is one constant, so the button, the diagnostics, the ' +
      'request and the tests cannot drift apart');
   ok(/if \(zoom\.supported\) zoomApply\(ZOOM_WANT\)/.test(code),
      'and it is applied as the camera opens, guarded on support');
   ok(!/zoomApply\(2\)|zoomApply\(4\)/.test(code),
-     'with no hardcoded number anywhere that could disagree with it');
+     'with no hardcoded number anywhere that could disagree with it — only ' +
+     'zoomApply(1) for the off position and zoomApply(ZOOM_WANT) for the on one');
 
   // A camera with no zoom must come out of openCamera untouched.
   await fake({ width: { min: 1, max: 1920 } });
@@ -306,8 +309,8 @@ const state = () => page.evaluate(() => ({
   ok(before.supported === false && s.applied.length === 0,
      'a camera with no zoom is never sent a constraint at all: ' +
      s.applied.length + ' calls');
-  ok(/4× zoom unavailable/.test(s.note),
-     'and the screen says so rather than showing a 4× that never happened: ' + s.note);
+  ok(/2× zoom unavailable/.test(s.note),
+     'and the screen says so rather than showing a 2× that never happened: ' + s.note);
 }
 
 console.log(fails.length ? '\nFAILURES: ' + fails.length : '\nall passed');
