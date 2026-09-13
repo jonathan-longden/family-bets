@@ -1,4 +1,5 @@
 session_id,split,protected,road,location,captured_on,camera,source_id,notes
-insp-2026-09-03,hold,no,residential street incl. Maplebeck Road,Nottinghamshire,2026-09-03,handheld phone,own-inspection-2026,paint-marked; urban residential; morning; dry
-insp-2026-09-04,hold,no,rural A-road and lanes,Nottinghamshire,2026-09-04,handheld phone,own-inspection-2026,paint-marked; rural; wet; edge-of-carriageway defects
-insp-2026-09-07,hold,no,rural lane and Fairdene Drive,Nottinghamshire,2026-09-07,handheld phone,own-inspection-2026,paint-marked; mixed sun and deep shadow
+insp-2026-09-03,hold,no,residential street incl. Maplebeck Road,Nottinghamshire,2026-09-03,handheld phone,own-inspection-2026,paint-marked (0.10-0.31% of road pixels); urban residential; morning; dry; see triage.csv
+insp-2026-09-04,hold,no,rural A-road and lanes,Nottinghamshire,2026-09-04,handheld phone,own-inspection-2026,paint-marked (0.02-0.65% of road pixels); rural; wet; edge-of-carriageway defects; see triage.csv
+insp-2026-09-07,hold,no,rural lane and Fairdene Drive,Nottinghamshire,2026-09-07,handheld phone,own-inspection-2026,paint-marked (0.15-0.37% of road pixels); mixed sun and deep shadow; see triage.csv
+crop-insp-2026-09,hold,no,derived regions; see crops.csv for the source frame of each,Nottinghamshire,2026-09-03/04/07,handheld phone (cropped),own-inspection-2026-crops,Six hard negatives and one positive cut from the marked frames. Every crop scans clean for paint. On hold until the crops have been looked at.

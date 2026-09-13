@@ -1,0 +1,8 @@
+crop_id,source_image,x0,y0,x1,y1,kind,confuser,note
+ironwork-01,2026-09-07T0857.jpg,0.083,0.333,0.500,0.667,negative,gully grating and inspection cover,Kerb line and footway crossing blocks in frame too. The confusion the survey most often logs.
+shade-01,2026-09-07T0708.jpg,0.333,0.580,0.917,0.917,negative,dappled tree shade on sound road,The hardest false positive there is: shade looks exactly like a hole.
+wet-01,2026-09-04T0940.jpg,0.000,0.417,0.417,0.800,negative,wet coarse surface and white lane line,Rain-darkened patches on sound A-road surface.
+leaves-01,2026-09-07T0706.jpg,0.000,0.500,0.500,0.917,negative,leaves in the channel and a patch repair,Low autumn sun across the kerb line.
+kerb-01,2026-09-03T0645.jpg,0.000,0.417,0.333,0.750,negative,kerb channel with weeds and old patches,Urban residential; sound running surface beside a repaired area.
+cracking-01,2026-09-03T0648.jpg,0.000,0.417,0.460,0.833,negative,cracking and worn white markings,Surface crazed and lining broken up but no material lost.
+pothole-01,2026-09-04T1101a.jpg,0.250,0.250,0.917,0.917,positive,,The one unpainted pothole in the whole set. Water-filled edge failure with a clean broken lip. Walking distance so the defect is far larger in frame than a driving camera sees.

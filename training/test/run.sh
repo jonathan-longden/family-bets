@@ -9,7 +9,7 @@
 set -u
 cd "$(dirname "$0")"
 
-ALL="labels sessions config validate dupes metrics build ingest cli"
+ALL="labels sessions config validate dupes metrics build ingest crops cli"
 SUITES=${*:-$ALL}
 
 mkdir -p report

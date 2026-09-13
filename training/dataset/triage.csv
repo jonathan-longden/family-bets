@@ -1,0 +1,17 @@
+image,session,road_paint_pct,verdict,contributes,reason
+2026-09-03T0645.jpg,insp-2026-09-03,0.126,hold,hard-negative crop kerb-01,Yellow brackets ring every defect. Left of frame is sound kerb channel with weeds and old patches.
+2026-09-03T0646.jpg,insp-2026-09-03,0.309,hold,,Yellow brackets directly around the potholes across the whole running surface. No clean region.
+2026-09-03T0647.jpg,insp-2026-09-03,0.144,hold,,Long run of connected marked potholes. No clean region wide enough to crop.
+2026-09-03T0648.jpg,insp-2026-09-03,0.096,hold,hard-negative crop cracking-01,Junction with worn lining and crazing. Marked defect sits right of centre; left half is clean.
+2026-09-04T0940.jpg,insp-2026-09-04,0.647,hold,hard-negative crop wet-01,Marked pothole bottom centre. Surveyor in orange inflates the raw paint figure. Left of frame is clean wet surface.
+2026-09-04T1054.jpg,insp-2026-09-04,0.087,hold,,Edge failure with yellow marks right of frame. Remaining road too narrow to crop wide.
+2026-09-04T1055.jpg,insp-2026-09-04,0.021,hold,,White brackets around the edge failure. Van and surveyor occupy most of the frame.
+2026-09-04T1057.jpg,insp-2026-09-04,0.053,hold,,Long edge failure with white brackets running the length of the clean area.
+2026-09-04T1059.jpg,insp-2026-09-04,0.147,hold,,White brackets plus yellow arrows and a painted 2 across the running surface.
+2026-09-04T1100.jpg,insp-2026-09-04,0.094,hold,,Water-filled edge pothole with white brackets and a yellow T mark nearby.
+2026-09-04T1101a.jpg,insp-2026-09-04,0.106,hold,positive crop pothole-01,THE ONE UNPAINTED POTHOLE. Close-up of a water-filled edge failure with a clean broken lip. Paint only at the left margin.
+2026-09-04T1101b.jpg,insp-2026-09-04,0.063,hold,,White brackets around the defect and a measuring device on the verge.
+2026-09-07T0706.jpg,insp-2026-09-07,0.148,hold,hard-negative crop leaves-01,Orange rings around three potholes on the right. Left of frame is leaves in the channel and a patch.
+2026-09-07T0707.jpg,insp-2026-09-07,0.168,hold,,Yellow rings around several potholes across the whole visible carriageway.
+2026-09-07T0708.jpg,insp-2026-09-07,0.368,hold,hard-negative crop shade-01,Best dappled shade in the set. Marks are confined to the upper left; below y=0.58 the frame scans at exactly zero paint.
+2026-09-07T0857.jpg,insp-2026-09-07,0.216,hold,hard-negative crop ironwork-01,Marked defect bottom right. Left centre holds a gully grating and an inspection cover with no defect and no paint.

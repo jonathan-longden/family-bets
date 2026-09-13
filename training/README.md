@@ -26,10 +26,14 @@ training/
     EVALUATION.md        baseline vs V2, on the gold test set
     HARD_NEGATIVES.md    turning the model's own mistakes into training data
     LICENSING.md         where every image came from and what we may do with it
+    TRIAGE-2026-09.md    what the September inspection photographs can and
+                         cannot be used for, and why
   dataset/
     dataset.yaml         class names and split paths
     sessions.csv         every recording session, and its split   (committed)
     sources.csv          every source, and its licence            (committed)
+    triage.csv           per-image verdict on what we have so far (committed)
+    crops.csv            the regions cut out of paint-marked frames(committed)
     incoming/            unlabelled images waiting for a human    (not committed)
     images/{train,val,test}/                                      (not committed)
     labels/{train,val,test}/                                      (not committed)
@@ -38,7 +42,7 @@ training/
     predict_ultralytics.py   a .pt to a predictions file
     dlkit/               the toolkit dl.py is built from
   test/
-    run.sh               123 tests, standard library only
+    run.sh               145 tests, standard library only
 ```
 
 ### The pixels are not in git, on purpose
@@ -67,6 +71,7 @@ cd training
 ./tools/dl.py validate      # every check; exit 1 on any error
 ./tools/dl.py report        # what is in the dataset
 ./tools/dl.py ingest <session>
+./tools/dl.py crops         # cut clean regions out of paint-marked frames
 ./tools/dl.py build --commercial
 ./tools/dl.py evaluate preds-v2.json
 ./tools/dl.py compare preds-baseline.json preds-v2.json
@@ -228,6 +233,6 @@ tell you that.
 cd training/test && ./run.sh
 ```
 
-123 tests over the parser, the register, the config, every validator finding,
+145 tests over the parser, the register, the config, every validator finding,
 duplicate detection, the metrics, the build and the command line. Standard
 library, no install.

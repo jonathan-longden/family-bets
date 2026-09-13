@@ -21,6 +21,7 @@ nobody runs.
 | `test_metrics` | recall, precision, false positives per image, detection rate, baseline vs candidate |
 | `test_build` | what a build refuses, and what `--commercial` and `--pothole-only` change |
 | `test_ingest` | intake, renaming, and the guards that stop a half-labelled batch |
+| `test_crops` | cutting clean regions out of paint-marked frames, and the paint detector itself |
 | `test_cli` | `dl.py` end to end: exit codes and output |
 
 ## How the fixtures work

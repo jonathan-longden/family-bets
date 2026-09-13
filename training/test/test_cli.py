@@ -138,6 +138,67 @@ class BuildTest(unittest.TestCase):
             self.assertIn('0=manhole, 1=pothole', out)
 
 
+class CropsTest(unittest.TestCase):
+    """The safety property: reporting never writes."""
+
+    def setUp(self):
+        """Probe the import the CODE uses, not a lookalike in this process.
+
+        dl.py returns 2 when dlkit.crops cannot import Pillow, and every
+        assertion below checks an exit code — so an unavailable Pillow used to
+        surface as three failed assertions rather than a skip, which reads
+        like a logic bug and is not one.
+        """
+        from dlkit import crops as crops_mod
+        try:
+            crops_mod.cut([], '/nonexistent')
+        except RuntimeError as e:
+            self.skipTest(str(e))
+
+    def spec(self, d):
+        from PIL import Image
+        Image.new('RGB', (400, 300), (110, 110, 112)).save(
+            d.path('incoming', 'src.png'))
+        d.write('crops.csv',
+                'crop_id,source_image,x0,y0,x1,y1,kind,confuser,note\n'
+                'a-01,src.png,0.0,0.0,0.6,1.0,negative,shade,\n')
+
+    def test_without_confirm_it_reports_and_writes_nothing(self):
+        with harness.Dataset() as d:
+            clean(d)
+            self.spec(d)
+            rc, out = run('--root', d.root, 'crops')
+            self.assertEqual(rc, 0)
+            self.assertIn('Nothing written', out)
+            self.assertIn('1 clean, 0 refused', out)
+            self.assertFalse(os.path.exists(
+                d.path('incoming', 'crop-insp-2026-09__a-01.jpg')))
+
+    def test_with_confirm_it_writes(self):
+        with harness.Dataset() as d:
+            clean(d)
+            self.spec(d)
+            rc, out = run('--root', d.root, 'crops', '--confirm',
+                          '--session', 'crop-x')
+            self.assertEqual(rc, 0)
+            self.assertIn('empty label written', out)
+            self.assertTrue(os.path.exists(d.path('incoming', 'crop-x__a-01.jpg')))
+
+    def test_it_refuses_to_write_while_a_crop_is_unclean(self):
+        from PIL import Image
+        with harness.Dataset() as d:
+            clean(d)
+            self.spec(d)
+            im = Image.new('RGB', (400, 300), (110, 110, 112))
+            for y in range(20, 120):
+                for x in range(20, 120):
+                    im.putpixel((x, y), (240, 205, 20))
+            im.save(d.path('incoming', 'src.png'))
+            rc, out = run('--root', d.root, 'crops', '--confirm')
+            self.assertEqual(rc, 1)
+            self.assertIn('refusing to write', out)
+
+
 class IngestTest(unittest.TestCase):
     def test_a_dry_run_changes_nothing(self):
         with harness.Dataset() as d:

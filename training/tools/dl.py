@@ -4,6 +4,7 @@
     ./dl.py validate                 every check; exit 1 on any error
     ./dl.py report                   what is in the dataset
     ./dl.py ingest <session>         move labelled images out of incoming/
+    ./dl.py crops                    cut the approved crops out of incoming/
     ./dl.py build                    a training-ready copy, or refuse
     ./dl.py evaluate <preds.json>    score one model on the gold test set
     ./dl.py compare <base> <cand>    baseline against candidate, same truth
@@ -18,8 +19,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from dlkit import (build as build_mod, config, ingest as ingest_mod, labels,
-                   metrics, report, sessions, validate)
+from dlkit import (build as build_mod, config, crops as crops_mod,
+                   ingest as ingest_mod, labels, metrics, report, sessions,
+                   validate)
 
 
 def _validate(args):
@@ -68,6 +70,59 @@ def _ingest(args):
     n = ingest_mod.apply(moves, copy=args.copy)
     print('\n%d image(s) and their labels %s'
           % (n, 'copied' if args.copy else 'moved'))
+    return 0
+
+
+def _crops(args):
+    """Cut the regions named in crops.csv out of the paint-marked originals.
+
+    Everything is checked before anything is written, and a crop that still
+    contains survey paint is refused rather than warned about — the whole
+    point of the exercise is that the paint does not reach the model.
+    """
+    root = config.root(args.root)
+    P = config.paths(root)
+    spec = os.path.join(root, 'crops.csv')
+    rows, errs = crops_mod.read_spec(spec)
+    for e in errs:
+        print('SPEC ERROR  ' + e)
+    if errs or not rows:
+        return 1
+    try:
+        cuts = crops_mod.cut(rows, P['incoming'])
+    except RuntimeError as e:
+        print(str(e))
+        return 2
+
+    print('%-14s %-10s %11s %9s  %s'
+          % ('crop', 'kind', 'size', 'paint', 'verdict'))
+    for c in cuts:
+        print('%-14s %-10s %11s %8.4f%%  %s'
+              % (c.row['crop_id'], c.row['kind'],
+                 '%dx%d' % c.size if c.size else '-',
+                 (c.paint or 0) * 100,
+                 'clean' if not c.problems else '; '.join(c.problems)))
+    bad = [c for c in cuts if c.problems]
+    good = [c for c in cuts if not c.problems]
+    print('\n%d clean, %d refused' % (len(good), len(bad)))
+    if not args.confirm:
+        print('\nNothing written. Every crop above has to be looked at by a '
+              'human before\nit becomes a label — the paint scan proves there '
+              'is no marking, not that\nthere is no pothole. Re-run with '
+              '--confirm once you have seen them.')
+        return 0
+    if bad and not args.force:
+        print('\nrefusing to write while any crop is unclean. --force to '
+              'write only the clean ones.')
+        return 1
+    written = crops_mod.write(good, P['incoming'], P['incoming'], args.session)
+    print('')
+    for path, kind in written:
+        print('  %s  (%s%s)' % (os.path.basename(path), kind,
+                                ', empty label written' if kind == 'negative'
+                                else ', NEEDS A BOX DRAWN'))
+    print('\n%d crop(s) into incoming/. The positives still need labelling by '
+          'hand.' % len(written))
     return 0
 
 
@@ -233,6 +288,15 @@ def main(argv=None):
     i.add_argument('--dry-run', action='store_true')
     i.add_argument('--force', action='store_true')
     i.set_defaults(fn=_ingest)
+
+    cr = sub.add_parser('crops', help='cut the approved crops out of incoming/')
+    cr.add_argument('--session', default='crop-insp-2026-09',
+                    help='session the crops belong to; must be registered')
+    cr.add_argument('--confirm', action='store_true',
+                    help='actually write them. Without this it only reports.')
+    cr.add_argument('--force', action='store_true',
+                    help='write the clean ones even if others were refused')
+    cr.set_defaults(fn=_crops)
 
     b = sub.add_parser('build', help='a training-ready copy, or refuse')
     b.add_argument('--out')
