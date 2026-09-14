@@ -352,9 +352,22 @@ async function main() {
     return out;
   }, { start });
 
-  ok('a sunny morning gets a sunny morning line', /MORNING|SUNSHINE|GORGEOUS/.test(voice.morningSun.text), voice.morningSun.text);
+  /* These used to match on particular words, which only worked while each bank
+     held three lines. The banks are much larger now, so the assertions test
+     what actually matters — that the app picked the right situation and the
+     right time of day — and the "never contradicts" checks below carry the
+     rest. Matching exact wording would only test that nobody wrote new jokes. */
+  eq('a sunny morning knows it is morning', voice.morningSun.slot, 'morning');
   eq('and it knows why it said it', voice.morningSun.kind, 'glorious');
-  ok('rain gets a rain line', voice.rain.kind === 'rain', voice.rain.kind + ' / ' + voice.rain.text);
+  ok('the line is a real sentence', voice.morningSun.text.length > 12, voice.morningSun.text);
+
+  /* A wet day may be plain rain or a full washout; both are rain kinds and
+     both are better answers than the other banks. What it must never be is
+     anything dry. */
+  ok('rain gets a rain line',
+    ['rain', 'lightRain', 'heavyRain', 'longWetDay', 'showers', 'drizzle', 'downpour',
+      'unexpectedRain'].indexOf(voice.rain.kind) >= 0,
+    voice.rain.kind + ' / ' + voice.rain.text);
   ok('and never claims the sun is out', !/SUN|SUNSHINE|LOVELY|GORGEOUS/.test(voice.rain.text), voice.rain.text);
   ok('grey gets a grey line', voice.grey.kind === 'grey', voice.grey.text);
   ok('grey never claims the sun is out', !/SUN|BLUE SKY/.test(voice.grey.text), voice.grey.text);
@@ -376,6 +389,135 @@ async function main() {
   ok('swearing is seasoning, not the meal',
     voice.swearyShare > 0.05 && voice.swearyShare < 0.5,
     Math.round(voice.swearyShare * 100) + '% of lines swear');
+
+  /* ------------------------------------------------- suite: the library itself */
+
+  /* The library is the product now, so its shape is worth asserting directly:
+     enough lines that the app does not repeat itself, enough per situation to
+     rotate, and no two situations quietly sharing the same joke. */
+
+  console.log('\nthe size and shape of the library');
+  const library = await page.evaluate(() => {
+    const banks = window.Voice.banks;
+    const groups = { LINES: banks.LINES, MOMENTS: banks.MOMENTS, TOMORROW: banks.TOMORROW,
+      DAY_LINES: banks.DAY_LINES };
+    const out = { total: 0, situations: 0, thin: [], dupes: [], byGroup: {} };
+    const seenSweary = {};
+
+    Object.keys(groups).forEach(g => {
+      const group = groups[g];
+      let n = 0;
+      Object.keys(group).forEach(key => {
+        n += group[key].length;
+        group[key].forEach(pair => {
+          const first = pair[0];
+          /* The same sentence in two different situations means one of them is
+             being said about weather it was not written for. */
+          const where = g + '.' + key;
+          if (seenSweary[first] && seenSweary[first] !== where) {
+            out.dupes.push(first + '  (' + seenSweary[first] + ' + ' + where + ')');
+          }
+          seenSweary[first] = where;
+        });
+      });
+      out.byGroup[g] = n;
+      out.total += n;
+      out.situations += Object.keys(group).length;
+    });
+
+    /* The situations a normal week actually lands on, which are the ones that
+       have to carry real variety rather than a token two lines. */
+    ['glorious', 'rain', 'grey', 'cloud', 'cold', 'hot', 'showers', 'mild', 'changeable',
+      'thunder', 'snow', 'freezing', 'gale', 'windy', 'fog', 'drizzle', 'downpour',
+      'scorching', 'warm', 'pleasant', 'chilly', 'crisp', 'heavyRain', 'night'
+    ].forEach(k => {
+      const bank = banks.LINES[k];
+      if (!bank) out.thin.push(k + ': MISSING');
+      else if (bank.length < 12) out.thin.push(k + ': only ' + bank.length);
+    });
+
+    return out;
+  });
+
+  ok('the library is substantial', library.total >= 500, library.total + ' pairs');
+  ok('across a lot of situations', library.situations >= 90, library.situations + ' situations');
+  ok('every everyday situation has real variety', library.thin.length === 0, library.thin.join(' | '));
+  ok('and no line is reused across two situations', library.dupes.length === 0,
+    library.dupes.slice(0, 4).join(' | '));
+  console.log('    ' + JSON.stringify(library.byGroup) + ', ' + library.total + ' pairs total');
+
+  /* ---------------------------------------- suite: the line never contradicts */
+
+  /* The rule the whole voice hangs on. Every case below is weather plus a word
+     that would be a lie about it. */
+
+  console.log('\nthe line never contradicts the weather');
+  const honest = await page.evaluate(({ start }) => {
+    const V = window.Voice;
+    const S = { units: 'metric', ampm: false, sweary: true };
+    const midnight = Math.floor(start / 86400) * 86400;
+
+    function say(hour, over, dayOver) {
+      const hours = [];
+      for (let i = 0; i < 30; i++) {
+        hours.push(Object.assign({
+          t: midnight + (hour + i) * 3600, temp: 15, feels: 15, humidity: 60,
+          prob: 0, mm: 0, code: 3, wind: 10, gust: 15, visibility: 20000, day: 1
+        }, over));
+      }
+      const days = [];
+      for (let i = 0; i < 15; i++) {
+        days.push(Object.assign({
+          t: midnight + i * 86400, code: 3, max: 15, min: 8, feelsMax: 14,
+          sunrise: midnight + i * 86400 + 6 * 3600, sunset: midnight + i * 86400 + 20 * 3600,
+          prob: 20, mm: 0, wind: 15, gust: 25, uv: 3
+        }, dayOver || {}));
+      }
+      const f = { offset: 0, fetchedAt: start, place: {}, hours: hours, days: days };
+      f.current = Object.assign({}, hours[0]);
+      /* Every hour of the day, every day of a month — if a contradiction can
+         be reached by the selector at all, this finds it. */
+      const said = [];
+      for (let d = 0; d < 30; d++) {
+        for (let h = 0; h < 24; h++) {
+          const at = midnight + d * 86400 + h * 3600;
+          const shifted = Object.assign({}, f, {
+            hours: hours.map(x => Object.assign({}, x, { t: x.t + d * 86400 }))
+          });
+          said.push(V.headline(shifted, S, at).text);
+        }
+      }
+      return said;
+    }
+
+    /* Claims that the sun is out, rather than any mention of the word. "THE
+       SUN HAS CLOCKED OFF" mentions the sun in order to say it is missing,
+       which is exactly the honesty this test exists to protect. */
+    const SUNNY = /SUNSHINE|SUNNY|BLUE SKY|GLORIOUS|GORGEOUS|LOVELY DAY|SUN IS (OUT|SHOWING)|SUN HAS (COME|GOT)/;
+    const HOT = /BOILING|ROASTING|BAKING|SCORCH|HEATWAVE|TOO HOT/;
+    const COLD = /FREEZING|BALTIC|SUB-ZERO|BITTER/;
+    const DRY = /\bDRY\b|NO RAIN/;
+
+    return {
+      rain: say(13, { code: 63, mm: 3, prob: 95 }, { code: 63, prob: 95 })
+        .filter(t => SUNNY.test(t) || DRY.test(t)),
+      freezing: say(9, { code: 3, temp: 3, feels: -4 }, { max: 1, min: -6 })
+        .filter(t => HOT.test(t)),
+      scorching: say(14, { code: 0, temp: 34, feels: 35 }, { code: 0, max: 35, min: 22 })
+        .filter(t => COLD.test(t)),
+      snow: say(9, { code: 73, mm: 4, prob: 95 }, { code: 73, prob: 95 })
+        .filter(t => SUNNY.test(t) || HOT.test(t)),
+      grey: say(11, { code: 3 }, { code: 3 }).filter(t => SUNNY.test(t)),
+      night: say(23, { code: 0, day: 0 }, { code: 0 }).filter(t => SUNNY.test(t))
+    };
+  }, { start });
+
+  eq('no sunny or dry line during heavy rain', honest.rain, []);
+  eq('no hot line when it is minus four', honest.freezing, []);
+  eq('no cold line when it is thirty-five', honest.scorching, []);
+  eq('no sunny or hot line during snow', honest.snow, []);
+  eq('no sunny line under an overcast sky', honest.grey, []);
+  eq('and the sun is never out at eleven at night', honest.night, []);
 
   /* --------------------------------------------------------- suite: moments */
 
