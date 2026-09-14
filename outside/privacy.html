@@ -76,9 +76,13 @@
   <ul>
     <li>The app asks for location permission only when you tap <strong>Use where I am</strong>, and
       it explains why before the phone's own prompt appears.</li>
-    <li>Coordinates are <strong>rounded to four decimal places</strong> — roughly eleven metres —
-      before they are stored or sent anywhere. The forecast is the same either way, so the extra
-      precision would be nothing but a more exact record of where you live.</li>
+    <li>The app asks the phone for <strong>approximate location only</strong>. On Android the
+      precise-location permission is not in the app at all, so it cannot be granted; on iOS the app
+      asks with reduced accuracy, which is why the prompt shows <em>Precise: Off</em>. The operating
+      system therefore never hands this app a precise position in the first place.</li>
+    <li>Whatever it is given is then <strong>rounded to four decimal places</strong> — roughly
+      eleven metres — before it is stored or sent anywhere. The forecast is the same either way, so
+      the extra precision would be nothing but a more exact record of where you live.</li>
     <li>The rounded coordinates are saved on your device so the app knows where to look next time,
       and are sent to the weather service with each forecast request.</li>
     <li><strong>Refusing is fine.</strong> The app works fully without location permission — search

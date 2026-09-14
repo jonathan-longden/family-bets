@@ -432,7 +432,25 @@ dialog.sheet::backdrop { background: rgba(3, 8, 20, .66); backdrop-filter: blur(
   vertical-align: middle;
 }
 
+/* Edit mode. The five tools used to sit on the name's line, which on a 320px
+   phone left about seven characters of it — "Newca…" and "Llanfai…" are not
+   a list you can pick from. So while Edit is on the row wraps: the name keeps
+   the full width it has the rest of the time, and the tools drop onto a line
+   of their own underneath, where there is room for them to be proper targets
+   rather than 30px slivers. */
 .places--managing .place-read { display: none; }
+.places--managing .place-row { flex-wrap: wrap; }
+.places--managing .place-go { flex: 1 0 100%; padding-bottom: 8px; }
+.places--managing .place-tools {
+  flex: 1 0 100%;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 8px 8px;
+  border-top: 1px solid rgba(255, 255, 255, .07);
+  padding-top: 6px;
+}
+.places--managing .place-tool { flex: 1; width: auto; max-width: 64px; height: 42px; }
+
 .place-tools { display: flex; align-items: center; gap: 2px; padding-right: 6px; }
 .place-tool {
   background: none;

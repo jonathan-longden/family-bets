@@ -1437,6 +1437,456 @@ async function main() {
   ok('and it says how old it is rather than pretending',
     /updated|ago|just now/i.test(offline.foot), offline.foot);
 
+  /* ------------------------------------------- suite: switching mid-request */
+
+  /* The critical one. Somebody taps through three places faster than the
+     network answers, and the replies come back in the wrong order. A forecast
+     for one place must never, ever appear under another — it is the kind of
+     bug nobody reports because it just looks like the weather was wrong.
+
+     Every response here is held until the test releases it, so the ordering
+     is deliberate rather than a matter of luck. */
+
+  console.log('\nswitching while the network is still thinking');
+
+  const held = new Map();
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', async route => {
+    const lat = Math.round(Number(new URL(route.request().url()).searchParams.get('latitude')) * 100);
+    const temp = lat === 5390 ? 19 : (lat === 5348 ? 11 : 24);
+    /* Park the request. The test decides when — and in what order — it lands. */
+    await new Promise(release => held.set(lat, () => {
+      const one = makeForecast(start, { hourAt: () => ({ t: temp, f: temp, c: 0, p: 0 }),
+        dayAt: () => ({ max: temp + 1, min: temp - 6, c: 0, p: 10 }), current: { t: temp, f: temp, c: 0 } });
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(one) })
+        .then(release, release);
+    }));
+  });
+
+  /* Three places, no caches, so each one must go to the network. */
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.evaluate(() => {
+    localStorage.setItem('weatherApp.v1', JSON.stringify({
+      v: 2, sweary: true, asked: true, units: 'metric',
+      places: [
+        { id: 'pA', name: 'Ilkley', label: '', where: '', lat: 53.9, lon: -1.8 },
+        { id: 'pB', name: 'Manchester', label: '', where: '', lat: 53.48, lon: -2.24 },
+        { id: 'pC', name: 'Penzance', label: '', where: '', lat: 50.12, lon: -5.54 }
+      ],
+      selected: 'pA', startup: null, caches: {}
+    }));
+  });
+  await page.reload();
+  await page.waitForSelector('#placeName');
+  await page.waitForTimeout(400);
+
+  /* Ilkley is in the air. Switch to Manchester, then Penzance, without
+     letting anything answer. */
+  await page.evaluate(() => {
+    const rows = () => document.querySelectorAll('#placeList .place-row .place-go');
+    document.getElementById('placeBtn').click();
+    return new Promise(r => setTimeout(r, 60)).then(() => rows()[1].click());
+  });
+  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    document.getElementById('placeBtn').click();
+    return new Promise(r => setTimeout(r, 60)).then(() =>
+      document.querySelectorAll('#placeList .place-row .place-go')[2].click());
+  });
+  await page.waitForTimeout(250);
+
+  const onPenzance = await page.textContent('#placeName');
+  eq('the screen follows the taps, not the network', onPenzance, 'Penzance');
+  ok('all three requests went out — no location was starved', held.size === 3,
+    'in flight: ' + held.size);
+
+  /* Now answer in the most awkward order possible: the two places the user
+     has left, last one first, and the place they are actually on at the end. */
+  held.get(5390)();                       /* Ilkley, long abandoned */
+  await page.waitForTimeout(200);
+  const afterIlkley = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent,
+    hero: !document.getElementById('hero').hidden
+  }));
+  eq('a late reply for a place you left does not steal the header',
+    afterIlkley.header, 'Penzance');
+  ok('nor does it put its temperature on the screen', afterIlkley.temp !== '19',
+    'showing ' + afterIlkley.temp);
+
+  held.get(5348)();                       /* Manchester, also abandoned */
+  await page.waitForTimeout(200);
+  const afterManchester = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent
+  }));
+  eq('and neither does the second one', afterManchester.header, 'Penzance');
+  ok('still not showing somebody else weather', afterManchester.temp !== '11',
+    'showing ' + afterManchester.temp);
+
+  held.get(5012)();                       /* Penzance, the one on screen */
+  await page.waitForTimeout(400);
+  const settled = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return {
+      header: document.getElementById('placeName').textContent,
+      temp: document.getElementById('nowTemp').textContent,
+      cachedA: s.caches.pA && Math.round(s.caches.pA.forecast.current.temp),
+      cachedB: s.caches.pB && Math.round(s.caches.pB.forecast.current.temp),
+      cachedC: s.caches.pC && Math.round(s.caches.pC.forecast.current.temp)
+    };
+  });
+  eq('the place on screen shows its own weather', settled.temp, '24');
+  eq('and it is still the place you chose', settled.header, 'Penzance');
+
+  /* The abandoned replies were not thrown away — they went to their own
+     place, which is what makes switching back instant. */
+  eq('the late reply was filed under its own place', settled.cachedA, 19);
+  eq('and so was the other one', settled.cachedB, 11);
+  eq('and the current one under its own', settled.cachedC, 24);
+
+  /* Switching back is now instant and correct, from cache. */
+  await page.evaluate(() => {
+    document.getElementById('placeBtn').click();
+    return new Promise(r => setTimeout(r, 60)).then(() =>
+      document.querySelectorAll('#placeList .place-row .place-go')[1].click());
+  });
+  await page.waitForTimeout(300);
+  const backToManchester = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent
+  }));
+  eq('switching back shows the right place', backToManchester.header, 'Manchester');
+  eq('with the right weather', backToManchester.temp, '11');
+
+  /* A failure for one place must not put an error over another that is fine. */
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const lat = Math.round(Number(new URL(route.request().url()).searchParams.get('latitude')) * 100);
+    if (lat === 5390) return route.abort();
+    const one = makeForecast(start, { hourAt: () => ({ t: 11, f: 11, c: 0, p: 0 }),
+      dayAt: () => ({ max: 12, min: 5, c: 0, p: 10 }), current: { t: 11, f: 11, c: 0 } });
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(one) });
+  });
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.caches.pA.forecast.fetchedAt -= 7200;   /* Ilkley is stale and will fail */
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.evaluate(() => {
+    document.getElementById('placeBtn').click();
+    return new Promise(r => setTimeout(r, 60)).then(() =>
+      document.querySelectorAll('#placeList .place-row .place-go')[0].click());
+  });
+  await page.waitForTimeout(500);
+  const oneFailed = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent,
+    hero: !document.getElementById('hero').hidden,
+    trouble: !document.getElementById('trouble').hidden
+  }));
+  eq('a place whose refresh fails still shows its saved forecast', oneFailed.temp, '19');
+  ok('and is not replaced by an error card', oneFailed.hero && !oneFailed.trouble,
+    JSON.stringify(oneFailed));
+
+  await page.evaluate(() => {
+    document.getElementById('placeBtn').click();
+    return new Promise(r => setTimeout(r, 60)).then(() =>
+      document.querySelectorAll('#placeList .place-row .place-go')[1].click());
+  });
+  await page.waitForTimeout(400);
+  const otherStillFine = await page.evaluate(() => ({
+    temp: document.getElementById('nowTemp').textContent,
+    trouble: !document.getElementById('trouble').hidden
+  }));
+  eq('and the one that works is unaffected by the one that does not',
+    otherStillFine.temp, '11');
+  ok('with no error carried across to it', !otherStillFine.trouble);
+
+  /* ------------------------------------------ suite: locations at the edges */
+
+  /* The awkward counts and the awkward deletions. None of these are things
+     people do often; all of them are things that leave the app pointing at
+     nothing if they are got wrong. */
+
+  console.log('\nlocations, at the edges');
+
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const url = new URL(route.request().url());
+    const lat = Math.round(Number(url.searchParams.get('latitude')) * 100);
+    const temp = lat === 5390 ? 19 : (lat === 5348 ? 11 : 24);
+    route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify(makeForecast(start, { hourAt: () => ({ t: temp, f: temp, c: 0, p: 0 }),
+        dayAt: () => ({ max: temp + 1, min: temp - 6, c: 0, p: 10 }), current: { t: temp, f: temp, c: 0 } })) });
+  });
+
+  /* Nowhere saved at all: the app has to ask rather than show an empty sky. */
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.waitForSelector('#setup:not([hidden])');
+  const none = await page.evaluate(() => ({
+    setup: !document.getElementById('setup').hidden,
+    hero: !document.getElementById('hero').hidden
+  }));
+  ok('with nowhere saved the app asks for somewhere', none.setup);
+  ok('and does not draw a forecast it has not got', !none.hero);
+
+  /* One place, and you delete it. The app must go back to asking, not sit on
+     a screen with no location behind it. */
+  await addTown('Ilkley');
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  page.once('dialog', d => d.accept());
+  await page.click('#placeList .place-row:nth-child(1) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(250);
+  const emptied = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { places: s.places.length, selected: s.selected, caches: Object.keys(s.caches).length,
+      setup: !document.getElementById('setup').hidden,
+      empty: !document.getElementById('placeEmpty').hidden };
+  });
+  eq('deleting the only place empties the list', emptied.places, 0);
+  eq('nothing is left selected', emptied.selected, null);
+  eq('and no forecast is kept for it', emptied.caches, 0);
+  ok('the app goes back to asking where you are', emptied.setup);
+  ok('and the list says so rather than showing nothing', emptied.empty);
+
+  /* Deleting the place you are looking at right now. */
+  await page.click('#placeSheet [data-close]');
+  await page.reload();
+  await page.waitForSelector('#setup:not([hidden])');
+  await addTown('Ilkley');
+  await addTown('Manchester');
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  page.once('dialog', d => d.accept());
+  /* Manchester was added last, so it is the one on screen. */
+  await page.click('#placeList .place-row:nth-child(2) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(400);
+  const deletedCurrent = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { header: document.getElementById('placeName').textContent,
+      temp: document.getElementById('nowTemp').textContent,
+      selected: s.selected === s.places[0].id, hero: !document.getElementById('hero').hidden };
+  });
+  eq('deleting the place you are on moves you to another', deletedCurrent.header, 'Ilkley');
+  eq('showing that place own weather, not the deleted one', deletedCurrent.temp, '19');
+  ok('and the selection follows', deletedCurrent.selected);
+  ok('the screen keeps working throughout', deletedCurrent.hero);
+
+  /* Deleting the pinned default. The pin has to go with it — a startup
+     pointing at a place that no longer exists is a launch into nothing. */
+  await page.click('#placeSheet [data-close]');
+  await page.waitForTimeout(100);
+  await addTown('Penzance');
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  await page.click('#placeList .place-row:nth-child(2) .place-tool[aria-label^="Always open"]');
+  await page.waitForTimeout(150);
+  ok('a default is pinned to start with',
+    await page.evaluate(() => !!JSON.parse(localStorage.getItem('weatherApp.v1')).startup));
+  page.once('dialog', d => d.accept());
+  await page.click('#placeList .place-row:nth-child(2) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(250);
+  const deletedDefault = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { startup: s.startup, dangling: s.startup && !s.places.some(p => p.id === s.startup),
+      hint: document.getElementById('startupHint').textContent };
+  });
+  eq('deleting the default unpins it', deletedDefault.startup, null);
+  ok('rather than leaving the app opening on nothing', !deletedDefault.dangling);
+  ok('and the hint goes back to where you were last',
+    /last/i.test(deletedDefault.hint), deletedDefault.hint);
+
+  /* The same coordinates under a different name. One place, renamed — not a
+     second row showing identical weather. */
+  await page.click('#placeSheet [data-close]');
+  await page.waitForTimeout(100);
+  await addTown('Ilkley', 'Home');
+  const sameSpot = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { count: s.places.length, names: s.places.map(p => p.label || p.name),
+      header: document.getElementById('placeName').textContent };
+  });
+  eq('the same coordinates twice stay one place', sameSpot.count, 1);
+  eq('and take the name you gave them', sameSpot.names, ['Home']);
+  eq('and that is where you end up', sameSpot.header, 'Home');
+
+  /* Edit mode on the narrowest phone in circulation. Five tools used to share
+     the name's line here, which left about seven characters of it: "Newca…"
+     and "Llanfai…" are not a list anyone can choose from. */
+  await page.setViewportSize({ width: 320, height: 720 });
+  await addTown('Manchester');
+  await addTown('Penzance', 'Somewhere with a very long name indeed');
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.waitForTimeout(150);
+  /* How much room the name has when the list is just a list. Edit mode must
+     not take any of it away. */
+  const roomNormally = await page.evaluate(
+    () => document.querySelector('#placeList .place-id b').clientWidth);
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(200);
+  const narrow = await page.evaluate(() => {
+    const names = [...document.querySelectorAll('#placeList .place-id b')];
+    const tools = [...document.querySelectorAll('#placeList .place-tool')];
+    const sheet = document.querySelector('#placeSheet .sheet-in');
+    const clipped = n => n.scrollWidth > n.clientWidth + 1;
+    return {
+      /* Real town names, which have to fit. */
+      clipped: names.filter(n => n.textContent.length <= 20 && clipped(n)).map(n => n.textContent),
+      room: names[0].clientWidth,
+      /* Something nobody can fit is ellipsised, but the row still says where
+         it really is on the line underneath. */
+      longOne: (() => {
+        const row = names.find(n => n.textContent.length > 20);
+        return row && row.closest('.place-row').querySelector('.place-where').textContent;
+      })(),
+      small: tools.filter(t => { const b = t.getBoundingClientRect(); return b.width < 40 || b.height < 40; }).length,
+      tools: tools.length,
+      sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      scrolls: sheet.scrollHeight > 0
+    };
+  });
+  eq('at 320px Edit still shows real place names in full', narrow.clipped, []);
+  ok('the name gets the whole row rather than what the tools leave it',
+    narrow.room >= roomNormally, narrow.room + 'px in Edit vs ' + roomNormally + 'px out of it');
+  ok('a name too long for any phone still says where it really is',
+    /Penzance/.test(narrow.longOne || ''), String(narrow.longOne));
+  ok('the tools are all still there', narrow.tools >= 15, String(narrow.tools));
+  eq('and every one of them is a real target', narrow.small, 0);
+  eq('nothing pushes the page sideways', narrow.sideways, 0);
+  ok('the sheet scrolls rather than hiding the buttons', narrow.scrolls);
+  await page.click('#placeSheet [data-close]');
+  await page.setViewportSize({ width: 430, height: 900 });
+
+  /* ------------------------------------------------ suite: one at a time */
+
+  /* Saving five places must not mean five requests every time the app opens.
+     The list is drawn from what is already on the phone, and only the place
+     you are actually looking at is ever askedFor about. */
+
+  console.log('\nonly the place you are looking at');
+
+  let askedFor = [];
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const url = new URL(route.request().url());
+    const lat = Math.round(Number(url.searchParams.get('latitude')) * 100);
+    askedFor.push(lat);
+    const temp = lat === 5390 ? 19 : (lat === 5348 ? 11 : 24);
+    route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify(makeForecast(start, { hourAt: () => ({ t: temp, f: temp, c: 0, p: 0 }),
+        dayAt: () => ({ max: temp + 1, min: temp - 6, c: 0, p: 10 }), current: { t: temp, f: temp, c: 0 } })) });
+  });
+
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.waitForSelector('#setup:not([hidden])');
+  await addTown('Ilkley');
+  await addTown('Manchester');
+  await addTown('Penzance');
+  await page.click('#placeSheet [data-close]').catch(() => {});
+
+  /* Every place now has a fresh forecast. Reload with all three saved. */
+  askedFor = [];
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  await page.waitForTimeout(500);
+  eq('opening the app with three places saved asks about none of them',
+    askedFor.length, 0);
+
+  /* Opening the list is a read of what is already there. */
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.waitForTimeout(400);
+  const listRows = await page.$$eval('#placeList .place-row', els => els.length);
+  eq('the list still shows all three', listRows, 3);
+  eq('and drew them without asking the network anything', askedFor.length, 0);
+
+  /* Now age one place out. Only that one should be askedFor about. */
+  await page.click('#placeSheet [data-close]');
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    Object.keys(s.caches).forEach(id => {
+      s.caches[id].forecast.fetchedAt -= 4 * 3600;
+    });
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  askedFor = [];
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  await page.waitForTimeout(600);
+  eq('with every copy stale it still asks about exactly one place',
+    askedFor.length, 1);
+  eq('and that one is the place on the screen', askedFor[0], 5012);
+
+  /* Switching asks about the place you switched to, and nothing else. */
+  askedFor = [];
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#placeList .place-row:nth-child(1) .place-go');
+  await page.waitForTimeout(600);
+  eq('switching asks about one place', askedFor.length, 1);
+  eq('the one you switched to', askedFor[0], 5390);
+
+  /* A reply that lands after you have deleted the place it was for. The
+     forecast must not be filed under a place the user has removed. */
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.waitForSelector('#setup:not([hidden])');
+  await addTown('Ilkley');
+  await addTown('Manchester');
+
+  const lateHeld = new Map();
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const url = new URL(route.request().url());
+    const lat = Math.round(Number(url.searchParams.get('latitude')) * 100);
+    const temp = lat === 5390 ? 19 : 11;
+    lateHeld.set(lat, () => route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify(makeForecast(start, { hourAt: () => ({ t: temp, f: temp, c: 0, p: 0 }),
+        dayAt: () => ({ max: temp + 1, min: temp - 6, c: 0, p: 10 }), current: { t: temp, f: temp, c: 0 } })) }));
+  });
+
+  /* Select Ilkley, throw away every cached copy, and reload: the app asks for
+     Ilkley's forecast on startup and the route above holds the answer. Then
+     Ilkley is deleted while that request is still in the air. */
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.selected = s.places[0].id;
+    s.caches = {};
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.goto(base + 'index.html');
+  await page.waitForTimeout(400);
+
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  page.once('dialog', d => d.accept());
+  await page.click('#placeList .place-row:nth-child(1) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(200);
+  for (const release of lateHeld.values()) release();
+  await page.waitForTimeout(500);
+
+  const afterLate = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { places: s.places.map(p => p.name), ghosts: Object.keys(s.caches)
+      .filter(id => !s.places.some(p => p.id === id)) };
+  });
+  eq('the deleted place stays deleted', afterLate.places, ['Manchester']);
+  eq('and its late forecast is not quietly filed away', afterLate.ghosts, []);
+
   /* An existing user's saved town has to survive the upgrade to multiple
      places. This is the exact shape the previous version left behind. */
   await context.unroute('https://api.open-meteo.com/**');

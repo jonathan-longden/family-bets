@@ -34,7 +34,12 @@ var TICK_MS = 5 * 60 * 1000;
 
 var state = null;
 var forecast = null;
-var fetching = false;
+/* Which places have a request in the air, by id. It has to be per place
+   rather than one flag: with a single flag, switching from London to
+   Manchester while London was still loading made Manchester's request return
+   immediately and silently, and the new location sat empty until the next
+   five-minute tick. */
+var inFlight = {};
 var lastError = '';
 var changeLines = [];
 
@@ -362,9 +367,9 @@ function fresh() {
 
 function refresh(force) {
   var here = place();
-  if (!here || fetching) return Promise.resolve();
+  if (!here || inFlight[here.id]) return Promise.resolve();
   if (!force && fresh()) return Promise.resolve();
-  fetching = true;
+  inFlight[here.id] = true;
   /* Which place this request was for. By the time it answers the user may
      have switched to another one, and dropping a London forecast into a
      Manchester screen would be the worst kind of bug: quiet, and wrong. */
@@ -374,6 +379,14 @@ function refresh(force) {
     if (!r.ok) throw new Error('the forecast service answered ' + r.status);
     return r.json();
   }).then(function (json) {
+    delete inFlight[forId];
+
+    /* The place may have been deleted while this was in the air. Filing the
+       forecast now would put the weather for somewhere the user has removed
+       back into storage — exactly the lie removePlace() promises not to tell —
+       so the answer is dropped on the floor instead. */
+    if (!findPlace(forId)) return;
+
     var next = W.parse(json, here);
     var now = Math.floor(Date.now() / 1000);
     var slot = cacheOf(forId);
@@ -387,7 +400,6 @@ function refresh(force) {
     state.caches[forId] = { forecast: next, previous: previous };
     lastError = '';
     save();
-    fetching = false;
 
     /* Only take over the screen if this is still the place on it. The forecast
        is saved either way, so a switch away and back shows it immediately. */
@@ -397,7 +409,10 @@ function refresh(force) {
     }
     render();
   }).catch(function (err) {
-    fetching = false;
+    delete inFlight[forId];
+    /* An error belongs to the place that caused it. A failure fetching London
+       must not put an error card over a Manchester screen that is showing a
+       perfectly good forecast. */
     if (state.selected === forId) lastError = String((err && err.message) || err);
     render();
   });
@@ -425,6 +440,13 @@ function render() {
     $('troubleWhy').textContent = 'It said: ' + lastError;
   }
 
+  /* The list, if it happens to be open — a rename or a reorder should show up
+     under the finger that did it. It is drawn before the early return below
+     because it does not need a forecast to be right: deleting your last
+     location leaves nothing to draw on the screen behind, and the list still
+     has to stop showing the row that has just gone. */
+  if ($('placeSheet').open) renderPlaces();
+
   if (!have) {
     $('alerts').hidden = true;
     $('moments').hidden = true;
@@ -446,9 +468,6 @@ function render() {
   renderFoot(now);
   paintSky(W.now(forecast, now));
   updateBadge();
-  /* The list, if it happens to be open — a rename or a reorder should show up
-     under the finger that did it. */
-  if ($('placeSheet').open) renderPlaces();
 }
 
 function renderHero(now) {
@@ -745,7 +764,8 @@ function openDay(day, index, conf, now) {
 
 function renderFoot(now) {
   var bits = [];
-  if (fetching) bits.push('Checking…');
+  /* "Checking" is about the place on screen, not about any request anywhere. */
+  if (inFlight[state.selected]) bits.push('Checking…');
   else if (forecast) bits.push(ageText());
   if (lastError && forecast) bits.push('using the last forecast we managed to grab');
   $('footStatus').textContent = bits.join(' · ');
