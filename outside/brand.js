@@ -22,7 +22,7 @@
     tagline: "A proper weather app that tells you exactly what the sky is doing, then takes the mickey out of it.",
 
     version: "1.0.0",
-    build: "6",
+    build: "7",
 
     /* For the share card, where the joke belongs to the weather rather than
        the app: a quiet signature rather than a shout. */

@@ -373,6 +373,82 @@ dialog.sheet::backdrop { background: rgba(3, 8, 20, .66); backdrop-filter: blur(
   gap: 13px;
   color: var(--ink);
 }
+/* -------------------------------------------------------- your locations */
+
+/* A list you switch with, not an admin screen. Each row is one big target
+   carrying that place's own weather; the tidying controls only exist while
+   Edit is on. */
+.places { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+
+.place-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .05);
+  overflow: hidden;
+}
+.place-row.is-current {
+  border-color: rgba(255, 203, 61, .45);
+  background: linear-gradient(100deg, rgba(255, 203, 61, .14), rgba(255, 203, 61, .04));
+}
+
+.place-go {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: 0;
+  padding: 12px 14px;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.place-id { display: flex; flex-direction: column; min-width: 0; }
+.place-id b { font-size: 1.02rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-where {
+  color: var(--dimmer);
+  font-size: .76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.place-read { display: flex; align-items: center; gap: 8px; flex: none; }
+.place-read b { font-size: 1.15rem; font-weight: 800; }
+.place-icon { font-size: 1.2rem; line-height: 1; }
+.place-age { color: var(--dimmer); font-size: .72rem; font-weight: 700; }
+
+/* The current one gets a pin, so the list says where you are without colour
+   having to carry the meaning on its own. */
+.place-row.is-current .place-id b::before {
+  content: "◉ ";
+  color: var(--sun);
+  font-size: .7em;
+  vertical-align: middle;
+}
+
+.places--managing .place-read { display: none; }
+.place-tools { display: flex; align-items: center; gap: 2px; padding-right: 6px; }
+.place-tool {
+  background: none;
+  border: 0;
+  color: var(--dim);
+  width: 30px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: .9rem;
+  cursor: pointer;
+}
+.place-tool:hover { background: rgba(255, 255, 255, .08); }
+.place-tool[disabled] { opacity: .25; cursor: default; }
+.place-tool--on { color: var(--sun); }
+.place-tool--danger { color: #ff8f8f; }
+
 /* The location explainer. Bigger type than the other sheets and no jokes in
    it: this is the one screen where the app is asking for something rather than
    giving something, and it should read like a straight answer. */

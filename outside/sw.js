@@ -9,17 +9,17 @@
    because cache-first with nothing behind it is how a phone ends up running
    last month's app forever. */
 
-const CACHE_NAME = 'weather-v6';
+const CACHE_NAME = 'weather-v7';
 const NETWORK_WAIT_MS = 2500;
 const FILES_TO_CACHE = [
   './',
   './index.html',
-  './styles.css?v=6',
-  './brand.js?v=6',
-  './weather.js?v=6',
-  './voice.js?v=6',
-  './app.js?v=6',
-  './native.js?v=6',
+  './styles.css?v=7',
+  './brand.js?v=7',
+  './weather.js?v=7',
+  './voice.js?v=7',
+  './app.js?v=7',
+  './native.js?v=7',
   './privacy.html',
   './manifest.json',
   './icon-192.png',

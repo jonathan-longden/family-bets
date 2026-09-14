@@ -1155,7 +1155,7 @@ async function main() {
   console.log('\nwhen it goes wrong');
   await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
-    s.cache = null;
+    s.caches = {};
     localStorage.setItem('weatherApp.v1', JSON.stringify(s));
   });
   await context.unroute('https://api.open-meteo.com/**');
@@ -1182,7 +1182,7 @@ async function main() {
   await page.waitForSelector('#hero:not([hidden])', { timeout: 5000 });
   await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
-    s.cache.fetchedAt -= 3600;
+    s.caches[s.selected].forecast.fetchedAt -= 3600;
     localStorage.setItem('weatherApp.v1', JSON.stringify(s));
   });
   await context.unroute('https://api.open-meteo.com/**');
@@ -1216,12 +1216,269 @@ async function main() {
   await page.waitForSelector('.result');
   await page.click('.result');
   await page.waitForSelector('#hero:not([hidden])', { timeout: 5000 });
-  const searched = await page.evaluate(() => ({
-    place: document.getElementById('placeName').textContent,
-    saved: JSON.parse(localStorage.getItem('weatherApp.v1')).place.name
-  }));
+  const searched = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return {
+      place: document.getElementById('placeName').textContent,
+      saved: s.places[0].name,
+      selected: s.selected === s.places[0].id,
+      count: s.places.length
+    };
+  });
   eq('the chosen place is used', searched.place, 'Ilkley');
   eq('and remembered', searched.saved, 'Ilkley');
+  ok('and it is the one selected', searched.selected);
+  eq('the first search saves exactly one place', searched.count, 1);
+
+  /* ------------------------------------------------ suite: saved locations */
+
+  /* Everything here is driven through the actual UI rather than by poking at
+     state, because "does the list work" and "does the object change" are
+     different questions and only one of them matters to a user. */
+
+  console.log('\nmore than one place');
+
+  /* Each place gets a forecast of its own, so a wrong temperature on a row is
+     a real bug rather than a stub artefact. */
+  const byPlace = { Ilkley: 19, Manchester: 11, Penzance: 24 };
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const url = new URL(route.request().url());
+    const lat = Math.round(Number(url.searchParams.get('latitude')) * 100);
+    /* The geocoding stub below hands out a different latitude per town. */
+    const temp = lat === 5390 ? byPlace.Ilkley : (lat === 5348 ? byPlace.Manchester : byPlace.Penzance);
+    const one = makeForecast(start, { hourAt: () => ({ t: temp, f: temp, c: 0, p: 0 }),
+      dayAt: () => ({ max: temp + 1, min: temp - 6, c: 0, p: 10 }), current: { t: temp, f: temp, c: 0 } });
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(one) });
+  });
+  await context.unroute('https://geocoding-api.open-meteo.com/**');
+  await context.route('https://geocoding-api.open-meteo.com/**', route => {
+    const q = new URL(route.request().url()).searchParams.get('name');
+    const towns = {
+      Ilkley: { name: 'Ilkley', latitude: 53.9, longitude: -1.8, admin1: 'England', country: 'UK' },
+      Manchester: { name: 'Manchester', latitude: 53.48, longitude: -2.24, admin1: 'England', country: 'UK' },
+      Penzance: { name: 'Penzance', latitude: 50.12, longitude: -5.54, admin1: 'England', country: 'UK' }
+    };
+    route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ results: towns[q] ? [towns[q]] : [] }) });
+  });
+
+  async function addTown(name, label) {
+    await page.click('#placeBtn');
+    await page.waitForTimeout(80);
+    /* With places already saved the header opens the list, so go via Add. */
+    if (await page.isVisible('#addPlaceBtn')) await page.click('#addPlaceBtn');
+    await page.waitForSelector('#searchSheet[open]');
+    await page.fill('#placeQuery', name);
+    if (label) await page.fill('#placeLabel', label);
+    await page.press('#placeQuery', 'Enter');
+    await page.waitForSelector('.result');
+    await page.click('.result');
+    await page.waitForTimeout(250);
+  }
+
+  const rows = () => page.$$eval('#placeList .place-row',
+    els => els.map(e => ({
+      name: e.querySelector('.place-id b').textContent,
+      under: e.querySelector('.place-where').textContent,
+      read: e.querySelector('.place-read').textContent,
+      current: e.classList.contains('is-current')
+    })));
+
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.waitForSelector('#setup:not([hidden])');
+
+  await addTown('Ilkley');
+  await addTown('Manchester');
+  await addTown('Penzance', "Nan's");
+
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.waitForTimeout(150);
+  let list = await rows();
+
+  eq('three places are saved', list.length, 3);
+  eq('in the order they were added', list.map(r => r.name), ['Ilkley', 'Manchester', "Nan's"]);
+  ok('a custom name keeps the real one underneath', /Penzance/.test(list[2].under), list[2].under);
+  ok('the one you are on is marked', list[2].current && !list[0].current,
+    JSON.stringify(list.map(r => r.current)));
+  ok('every row shows its own temperature',
+    /19/.test(list[0].read) && /11/.test(list[1].read) && /24/.test(list[2].read),
+    list.map(r => r.name + '=' + r.read).join(', '));
+
+  /* Switching is the thing people do daily, so it has to be one tap and it
+     has to bring the whole screen with it. */
+  await page.click('#placeList .place-row:nth-child(2) .place-go');
+  await page.waitForTimeout(300);
+  const switched = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent,
+    shout: document.getElementById('shout').textContent,
+    days: document.querySelectorAll('.daylist .day').length,
+    hours: document.querySelectorAll('.hr').length,
+    tomorrow: document.getElementById('tomHigh').textContent,
+    sheetShut: !document.getElementById('placeSheet').open
+  }));
+  eq('switching changes the header', switched.header, 'Manchester');
+  eq('and the temperature', switched.temp, '11');
+  ok('and the headline is for the new place', switched.shout.length > 5, switched.shout);
+  eq('the fifteen days come with it', switched.days, 15);
+  eq('so do the hours', switched.hours, 24);
+  ok('and tomorrow', switched.tomorrow !== '—', switched.tomorrow);
+  ok('the sheet gets out of the way', switched.sheetShut);
+
+  /* Everything must survive a restart — this is the whole point of saving. */
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  const afterReload = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return {
+      header: document.getElementById('placeName').textContent,
+      count: s.places.length,
+      names: s.places.map(p => p.label || p.name),
+      cached: Object.keys(s.caches).length
+    };
+  });
+  eq('the places survive a restart', afterReload.count, 3);
+  eq('with their names', afterReload.names, ['Ilkley', 'Manchester', "Nan's"]);
+  eq('and the app opens where you left off', afterReload.header, 'Manchester');
+  eq('each place has its own cached forecast', afterReload.cached, 3);
+
+  /* Rename, reorder, default, delete — all behind Edit. */
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+
+  await page.click('#placeList .place-row:nth-child(1) .place-tool[aria-label^="Rename"]');
+  await page.waitForSelector('#renameSheet[open]');
+  await page.fill('#renameInput', 'Home');
+  await page.click('#renameForm button[type="submit"]');
+  await page.waitForTimeout(150);
+  list = await rows();
+  eq('renaming shows the new name', list[0].name, 'Home');
+  ok('and keeps the real place underneath', /Ilkley/.test(list[0].under), list[0].under);
+
+  await page.click('#placeList .place-row:nth-child(3) .place-tool[aria-label^="Move"][aria-label$="up"]');
+  await page.waitForTimeout(150);
+  list = await rows();
+  eq('reordering moves it up', list.map(r => r.name), ['Home', "Nan's", 'Manchester']);
+
+  await page.click('#placeList .place-row:nth-child(1) .place-tool[aria-label^="Always open"]');
+  await page.waitForTimeout(150);
+  const pinned = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { startup: s.startup, hint: document.getElementById('startupHint').textContent };
+  });
+  ok('a default can be pinned', !!pinned.startup);
+  ok('and the sheet says which', /Home/.test(pinned.hint), pinned.hint);
+
+  /* A pinned default beats "where I was last" on the next launch. */
+  await page.click('#placeList .place-row:nth-child(3) .place-go');
+  await page.waitForTimeout(250);
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  eq('and it opens there next time, not where you were',
+    await page.textContent('#placeName'), 'Home');
+
+  /* Deleting takes the place and its forecast, and never leaves the app
+     pointing at something that is gone. */
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  page.once('dialog', d => d.accept());
+  await page.click('#placeList .place-row:nth-child(2) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(200);
+  const afterDelete = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { names: s.places.map(p => p.label || p.name), cached: Object.keys(s.caches).length,
+      selectedExists: s.places.some(p => p.id === s.selected) };
+  });
+  eq('deleting removes the row', afterDelete.names, ['Home', 'Manchester']);
+  eq('and its cached forecast with it', afterDelete.cached, 2);
+  ok('and never leaves a dangling selection', afterDelete.selectedExists);
+
+  /* Saving the same place twice is a mistake the app should absorb quietly
+     rather than a second identical row for the user to tidy up. */
+  await page.click('#placeSheet [data-close]');
+  await addTown('Manchester');
+  const deduped = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { count: s.places.length, header: document.getElementById('placeName').textContent };
+  });
+  eq('adding somewhere twice does not duplicate it', deduped.count, 2);
+  eq('it just goes there', deduped.header, 'Manchester');
+
+  /* Offline: switching still works, because each place has its own copy. */
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => route.abort());
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.waitForTimeout(150);
+  const offlineRows = await rows();
+  ok('the saved places still show their weather with no signal',
+    /19/.test(offlineRows[0].read) && /11/.test(offlineRows[1].read),
+    offlineRows.map(r => r.name + '=' + r.read).join(', '));
+  await page.click('#placeList .place-row:nth-child(2) .place-go');
+  await page.waitForTimeout(300);
+  const offline = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent,
+    foot: document.getElementById('footStatus').textContent,
+    heroShown: !document.getElementById('hero').hidden
+  }));
+  eq('switching offline still works', offline.header, 'Manchester');
+  eq('and shows that place cached forecast', offline.temp, '11');
+  ok('the weather is drawn, not hidden', offline.heroShown);
+  ok('and it says how old it is rather than pretending',
+    /updated|ago|just now/i.test(offline.foot), offline.foot);
+
+  /* An existing user's saved town has to survive the upgrade to multiple
+     places. This is the exact shape the previous version left behind. */
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(stub) });
+  });
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.evaluate(() => localStorage.setItem('weatherApp.v1', JSON.stringify({
+    v: 1,
+    place: { name: 'Ilkley', where: 'England', lat: 53.9, lon: -1.8 },
+    units: 'imperial', ampm: true, sweary: false, animate: false, badge: false, asked: true,
+    cache: null, previous: null
+  })));
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])', { timeout: 5000 });
+  const migrated = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return {
+      header: document.getElementById('placeName').textContent,
+      count: s.places.length,
+      selected: !!s.places.find(p => p.id === s.selected),
+      units: s.units, ampm: s.ampm, sweary: s.sweary, asked: s.asked,
+      gone: s.place === undefined
+    };
+  });
+  eq('an old single-place install keeps its town', migrated.header, 'Ilkley');
+  eq('as the first saved location', migrated.count, 1);
+  ok('and it is selected', migrated.selected);
+  ok('every other setting comes across too',
+    migrated.units === 'imperial' && migrated.ampm === true && migrated.sweary === false &&
+    migrated.asked === true, JSON.stringify(migrated));
+  ok('and the old single-place field is not left lying about', migrated.gone);
+
+  /* Put the settings back for the suites that follow. */
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.units = 'metric'; s.ampm = false; s.sweary = true; s.animate = true; s.badge = true;
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])', { timeout: 5000 });
 
   /* --------------------------------------------- suite: asking for location */
 
@@ -1421,7 +1678,7 @@ async function main() {
   await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
     s.badge = true;
-    s.cache.fetchedAt -= 4 * 3600;          /* four hours old */
+    s.caches[s.selected].forecast.fetchedAt -= 4 * 3600;   /* four hours old */
     localStorage.setItem('weatherApp.v1', JSON.stringify(s));
   });
   await context.unroute('https://api.open-meteo.com/**');
@@ -1466,7 +1723,7 @@ async function main() {
   });
   await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
-    delete s.cache;
+    s.caches = {};
     localStorage.setItem('weatherApp.v1', JSON.stringify(s));
   });
   await page.reload();
