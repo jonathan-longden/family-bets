@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Blooming Weather">
-<link rel="stylesheet" href="styles.css?v=6">
+<link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
 
@@ -151,11 +151,33 @@
 
 </div>
 
-<!-- ------------------------------------------------------------ place sheet -->
-<dialog class="sheet" id="placeSheet" aria-label="Choose a location">
+<!-- -------------------------------------------------------- your locations -->
+<!-- The list is the feature. Every saved place shows its own temperature and
+     sky straight from its own cached forecast, so the sheet is useful at a
+     glance and works with no signal. Managing them is behind Edit, because
+     switching is the thing people do every day and tidying is not. -->
+<dialog class="sheet" id="placeSheet" aria-label="Your locations">
+  <div class="sheet-in">
+    <div class="sheet-head">
+      <h2>Your locations</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+    </div>
+    <ul class="places" id="placeList"></ul>
+    <p class="hint" id="placeEmpty" hidden>Nowhere saved yet. Add somewhere and it will be here
+      next time.</p>
+    <div class="row">
+      <button class="primary" type="button" id="addPlaceBtn">+ Add location</button>
+      <button class="ghost" type="button" id="managePlacesBtn" aria-pressed="false">Edit</button>
+    </div>
+    <p class="hint" id="startupHint"></p>
+  </div>
+</dialog>
+
+<!-- ----------------------------------------------------------- add a place -->
+<dialog class="sheet" id="searchSheet" aria-label="Add a location">
   <form class="sheet-in" id="placeForm">
     <div class="sheet-head">
-      <h2>Where to?</h2>
+      <h2>Add a location</h2>
       <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
     </div>
     <div class="row">
@@ -163,11 +185,32 @@
              aria-label="Search for a town or city">
       <button class="secondary" type="submit">Find</button>
     </div>
+    <label class="lbl">Call it something else <span class="hint">optional</span>
+      <input type="text" id="placeLabel" placeholder="Home, Work, Mum's" autocomplete="off"
+             aria-label="Your own name for this location">
+    </label>
     <p class="hint" id="placeOut" role="status"></p>
     <ul class="results" id="placeResults"></ul>
     <div class="sheet-foot">
       <button class="ghost" type="button" data-close>Cancel</button>
       <button class="secondary" type="button" id="hereBtn">Use where I am</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ------------------------------------------------------------- rename one -->
+<dialog class="sheet" id="renameSheet" aria-label="Rename this location">
+  <form class="sheet-in" id="renameForm">
+    <div class="sheet-head">
+      <h2>Call it what you like</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Close">✕</button>
+    </div>
+    <p class="hint" id="renameWhat"></p>
+    <input type="text" id="renameInput" autocomplete="off" placeholder="Home, Work, Mum's"
+           aria-label="Your own name for this location">
+    <div class="sheet-foot">
+      <button class="ghost" type="button" data-close>Cancel</button>
+      <button class="primary" type="submit">Save</button>
     </div>
   </form>
 </dialog>
@@ -195,7 +238,7 @@
       <button class="primary" type="button" id="askYesBtn">Use my location</button>
       <button class="ghost" type="button" data-close>Not now</button>
     </div>
-    <p class="hint"><a href="privacy.html" target="_blank" rel="noopener">The whole privacy
+    <p class="hint"><a href="privacy.html">The whole privacy
       policy</a>, which is shorter than most.</p>
   </form>
 </dialog>
@@ -282,7 +325,7 @@
     <p><b>No signal?</b> It shows the last forecast it managed to get, with the time it got it, rather than
       pretending that is the weather now.</p>
     <p><b>What it knows about you.</b> Nothing. No account, no analytics, no advertising, no server
-      of ours for anything to sit on. <a href="privacy.html" target="_blank" rel="noopener">The
+      of ours for anything to sit on. <a href="privacy.html">The
       privacy policy</a> says so at greater length, and is still short.</p>
     <p class="hint" id="aboutBuild"></p>
   </form>
@@ -319,10 +362,10 @@
   </form>
 </dialog>
 
-<script src="brand.js?v=6"></script>
-<script src="weather.js?v=6"></script>
-<script src="voice.js?v=6"></script>
-<script src="native.js?v=6"></script>
-<script src="app.js?v=6"></script>
+<script src="brand.js?v=7"></script>
+<script src="weather.js?v=7"></script>
+<script src="voice.js?v=7"></script>
+<script src="native.js?v=7"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

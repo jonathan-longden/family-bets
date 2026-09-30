@@ -185,10 +185,24 @@
     };
   }
 
-  /* The plugin and the browser report a refusal differently. The app only
-     needs to know refused from failed, so both are flattened to that. */
+  /* The plugin and the browser report failures differently, and the app only
+     needs to know which of three things went wrong, because each one has a
+     different thing to say about it:
+
+       0  this device cannot do location at all
+       1  the user, or the system, said no
+       3  location is switched off for the whole phone
+       2  anything else — no fix, timed out, Play Services in a mood
+
+     Three is worth separating from two: "could not work out where you are" is
+     useless advice when the real answer is a toggle in the phone's settings.
+     The Geolocation plugin rejects checkPermissions outright in that case, so
+     without this it would land in the generic bucket. */
   function normalise(err) {
     var message = String((err && err.message) || err || '');
+    if (/not enabled|turned off|location services/i.test(message)) {
+      return { code: 3, message: message };
+    }
     var denied = (err && err.code === 1) || /denied|permission/i.test(message);
     return { code: denied ? 1 : 2, message: message };
   }

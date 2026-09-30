@@ -34,7 +34,12 @@ var TICK_MS = 5 * 60 * 1000;
 
 var state = null;
 var forecast = null;
-var fetching = false;
+/* Which places have a request in the air, by id. It has to be per place
+   rather than one flag: with a single flag, switching from London to
+   Manchester while London was still loading made Manchester's request return
+   immediately and silently, and the new location sat empty until the next
+   five-minute tick. */
+var inFlight = {};
 var lastError = '';
 var changeLines = [];
 
@@ -42,8 +47,18 @@ var changeLines = [];
 
 function defaults() {
   return {
-    v: 1,
-    place: null,
+    v: 2,
+    /* Every place the user has saved, in the order they want to see them.
+       Each one holds only what a forecast needs and a person needs to
+       recognise it: an id, a name, an optional name of their own, roughly
+       where in the world it is, and coordinates rounded to about eleven
+       metres. Nothing else about a place is any of the app's business. */
+    places: [],
+    /* Which one is on screen, by id. */
+    selected: null,
+    /* Which one to open on, by id. Null means "wherever I was last", which is
+       what most people actually want and so is the default. */
+    startup: null,
     units: 'metric',
     ampm: false,
     /* On, because that is the app. */
@@ -55,11 +70,19 @@ function defaults() {
     /* Whether the location explainer has been through once. It is an
        explanation, not a reminder — showing it twice would make it nagging. */
     asked: false,
-    cache: null,
-    /* A small summary of the forecast before this one, so the app can say what
-       has actually changed rather than guess. */
-    previous: null
+    /* One forecast per place, keyed by id, so a location that cannot be
+       refreshed does not take the others down with it. Each entry also keeps
+       a small summary of the forecast before it, which is what lets the app
+       say what has changed rather than guess. */
+    caches: {}
   };
+}
+
+/* Ids only have to be unique on this phone and never leave it, so they are
+   the coordinates and a counter rather than anything clever. Readable in a
+   debugger, and stable across a rename. */
+function placeId(p) {
+  return 'p' + Math.round(p.lat * 10000) + '_' + Math.round(p.lon * 10000);
 }
 
 function load() {
@@ -70,12 +93,13 @@ function load() {
   /* A phone that had an earlier version of this app is carrying its saved
      state around. Take the location out of it — that is worth keeping — and
      bin the rest. */
+  var rescued = null;
   if (!raw) {
     for (var i = 0; i < OLD_KEYS.length; i++) {
       try {
         var old = JSON.parse(localStorage.getItem(OLD_KEYS[i]) || 'null');
         if (old && old.place) {
-          state.place = old.place;
+          rescued = old.place;
           if (old.units) state.units = old.units;
           if (typeof old.ampm === 'boolean') state.ampm = old.ampm;
           if (typeof old.sweary === 'boolean') state.sweary = old.sweary;
@@ -94,9 +118,66 @@ function load() {
         state[k] = saved[k];
       }
     }
+    /* Everything before this version knew about exactly one place. Carry it
+       across as the first saved location, with its forecast, so nobody opens
+       the app after an update to find their town has gone. */
+    if (saved.place && !state.places.length) {
+      rescued = saved.place;
+      if (saved.cache || saved.previous) {
+        state.caches[placeId(saved.place)] = { forecast: saved.cache || null, previous: saved.previous || null };
+      }
+    }
   }
-  if (state.cache) forecast = state.cache;
+
+  if (rescued && !state.places.length) {
+    state.places = [normalisePlace(rescued)];
+    state.selected = state.places[0].id;
+  }
+
+  /* Anything saved by a version that did not have ids, or hand-edited into an
+     odd shape by an import, is made safe here rather than halfway down a
+     render. */
+  state.places = (state.places || []).filter(function (p) {
+    return p && isFinite(p.lat) && isFinite(p.lon);
+  }).map(normalisePlace);
+  if (!state.caches || typeof state.caches !== 'object') state.caches = {};
+
+  /* Open where the user asked to, or where they were last, and fall back to
+     the first saved place if either has since been deleted. */
+  var wanted = state.startup && findPlace(state.startup) ? state.startup : state.selected;
+  if (!findPlace(wanted)) wanted = state.places.length ? state.places[0].id : null;
+  state.selected = wanted;
+
+  forecast = cacheOf(state.selected).forecast || null;
 }
+
+function normalisePlace(p) {
+  return {
+    id: p.id || placeId(p),
+    name: p.name || 'Somewhere',
+    /* What the user called it, if they called it anything. */
+    label: p.label || '',
+    where: p.where || '',
+    lat: p.lat,
+    lon: p.lon
+  };
+}
+
+function findPlace(id) {
+  for (var i = 0; i < (state.places || []).length; i++) {
+    if (state.places[i].id === id) return state.places[i];
+  }
+  return null;
+}
+
+/* The place on screen. Everything that used to read state.place reads this. */
+function place() { return findPlace(state.selected); }
+
+/* What a place is called, which is the user's own name for it where they gave
+   one and the name it came with otherwise. */
+function placeName(p) { return (p && (p.label || p.name)) || 'Pick a place'; }
+
+function cacheOf(id) { return (state.caches && state.caches[id]) || {}; }
 
 function save() {
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* full or private */ }
@@ -128,8 +209,10 @@ function useHere(outEl) {
   if (outEl) outEl.textContent = 'Asking the phone where it is…';
 
   N.locate().then(function (where) {
-    setPlace({ name: 'Where you are', lat: where.lat, lon: where.lon });
+    addPlace({ name: 'Where you are', lat: where.lat, lon: where.lon }, ($('placeLabel') || {}).value);
     if (outEl) outEl.textContent = '';
+    if ($('placeLabel')) $('placeLabel').value = '';
+    closeSheet($('searchSheet'));
     closeSheet($('placeSheet'));
   }, function (err) {
     if (!outEl) return;
@@ -139,23 +222,100 @@ function useHere(outEl) {
       outEl.textContent = 'This device will not say where it is. Search for a town instead.';
     } else if (err && err.code === 1) {
       outEl.textContent = 'No location, then — that is fine. Search for a town instead.';
+    } else if (err && err.code === 3) {
+      outEl.textContent = 'Location is switched off on this phone, in its own settings. ' +
+        'Turn it on there, or search for a town.';
     } else {
       outEl.textContent = 'Could not work out where you are. Search for a town instead.';
     }
   });
 }
 
-function setPlace(place) {
-  state.place = place;
-  state.cache = null;
-  /* A new place makes the old forecast's memory meaningless. */
-  state.previous = null;
-  forecast = null;
+/* ------------------------------------------------------- the saved places */
+
+/* Add a place and go to it. Somewhere already saved is switched to rather
+   than saved twice: coordinates are rounded to four decimals before an id is
+   made from them, so "Manchester" searched twice, or tapped once and then
+   found again by GPS a street away, is the same place. Saving it twice would
+   mean two rows, two forecasts and two of everything to tidy up. */
+function addPlace(incoming, label) {
+  var p = normalisePlace(incoming);
+  if (label) p.label = label;
+
+  var already = findPlace(p.id);
+  if (already) {
+    /* A name the user typed is worth keeping even when the place is not new. */
+    if (label) { already.label = label; save(); }
+    selectPlace(already.id);
+    return already;
+  }
+
+  state.places.push(p);
+  save();
+  selectPlace(p.id);
+  return p;
+}
+
+/* Switch to a saved place. Its own cached forecast comes up immediately —
+   which is what makes switching feel instant, and what lets it work with no
+   signal at all — and then it refreshes if that copy is old. */
+function selectPlace(id) {
+  if (!findPlace(id)) return;
+  state.selected = id;
+  forecast = cacheOf(id).forecast || null;
   lastError = '';
   changeLines = [];
+  skyPainted = '';
   save();
   render();
-  refresh(true);
+  refresh(false);
+}
+
+function renamePlace(id, label) {
+  var p = findPlace(id);
+  if (!p) return;
+  /* Clearing the custom name falls back to the name it arrived with rather
+     than leaving a row with nothing on it. */
+  p.label = (label || '').trim();
+  save();
+  render();
+}
+
+function removePlace(id) {
+  state.places = state.places.filter(function (p) { return p.id !== id; });
+  /* Its forecast goes with it. Keeping the weather for a place the user has
+     deleted would be a small, quiet lie about what this app stores. */
+  if (state.caches) delete state.caches[id];
+  if (state.startup === id) state.startup = null;
+
+  if (state.selected === id) {
+    state.selected = state.places.length ? state.places[0].id : null;
+    forecast = cacheOf(state.selected).forecast || null;
+    lastError = '';
+    changeLines = [];
+  }
+  save();
+  render();
+  if (state.selected) refresh(false);
+}
+
+function movePlace(id, by) {
+  var from = -1;
+  for (var i = 0; i < state.places.length; i++) if (state.places[i].id === id) from = i;
+  var to = from + by;
+  if (from < 0 || to < 0 || to >= state.places.length) return;
+  var moved = state.places.splice(from, 1)[0];
+  state.places.splice(to, 0, moved);
+  save();
+  render();
+}
+
+/* Null means "open where I was last", which stays the default because it is
+   what most people want. Naming one pins the app to it instead. */
+function setStartup(id) {
+  state.startup = state.startup === id ? null : id;
+  save();
+  render();
 }
 
 function searchPlaces(query) {
@@ -171,22 +331,24 @@ function searchPlaces(query) {
     var found = (json && json.results) || [];
     if (!found.length) { out.textContent = 'Nothing by that name.'; return; }
     out.textContent = '';
-    found.forEach(function (place) {
+    found.forEach(function (found) {
       var li = document.createElement('li');
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'result';
-      var where = [place.admin1, place.country].filter(Boolean).join(', ');
+      var where = [found.admin1, found.country].filter(Boolean).join(', ');
       btn.innerHTML = '<b></b><span></span>';
-      btn.firstChild.textContent = place.name;
+      btn.firstChild.textContent = found.name;
       btn.lastChild.textContent = where;
       btn.addEventListener('click', function () {
-        setPlace({
-          name: place.name,
+        addPlace({
+          name: found.name,
           where: where,
-          lat: Math.round(place.latitude * 10000) / 10000,
-          lon: Math.round(place.longitude * 10000) / 10000
-        });
+          lat: Math.round(found.latitude * 10000) / 10000,
+          lon: Math.round(found.longitude * 10000) / 10000
+        }, $('placeLabel').value.trim());
+        $('placeLabel').value = '';
+        closeSheet($('searchSheet'));
         closeSheet($('placeSheet'));
       });
       li.appendChild(btn);
@@ -204,33 +366,54 @@ function fresh() {
 }
 
 function refresh(force) {
-  if (!state.place || fetching) return Promise.resolve();
+  var here = place();
+  if (!here || inFlight[here.id]) return Promise.resolve();
   if (!force && fresh()) return Promise.resolve();
-  fetching = true;
+  inFlight[here.id] = true;
+  /* Which place this request was for. By the time it answers the user may
+     have switched to another one, and dropping a London forecast into a
+     Manchester screen would be the worst kind of bug: quiet, and wrong. */
+  var forId = here.id;
   render();
-  return fetch(W.forecastUrl(state.place, W.DAYS)).then(function (r) {
+  return fetch(W.forecastUrl(here, W.DAYS)).then(function (r) {
     if (!r.ok) throw new Error('the forecast service answered ' + r.status);
     return r.json();
   }).then(function (json) {
-    var next = W.parse(json, state.place);
+    delete inFlight[forId];
+
+    /* The place may have been deleted while this was in the air. Filing the
+       forecast now would put the weather for somewhere the user has removed
+       back into storage — exactly the lie removePlace() promises not to tell —
+       so the answer is dropped on the floor instead. */
+    if (!findPlace(forId)) return;
+
+    var next = W.parse(json, here);
     var now = Math.floor(Date.now() / 1000);
+    var slot = cacheOf(forId);
 
-    /* What has changed since the last one this phone saw. Nothing is claimed
-       when there is nothing to compare against. */
-    changeLines = V.changeLines(W.changes(state.previous, next, now), state);
-    if (!state.previous || next.fetchedAt - state.previous.at >= 3600) {
-      state.previous = W.snapshot(next);
-    }
+    /* What has changed since the last one this phone saw, for this place.
+       Nothing is claimed when there is nothing to compare against. */
+    var previous = slot.previous || null;
+    var lines = V.changeLines(W.changes(previous, next, now), state);
+    if (!previous || next.fetchedAt - previous.at >= 3600) previous = W.snapshot(next);
 
-    forecast = next;
-    state.cache = forecast;
+    state.caches[forId] = { forecast: next, previous: previous };
     lastError = '';
     save();
-    fetching = false;
+
+    /* Only take over the screen if this is still the place on it. The forecast
+       is saved either way, so a switch away and back shows it immediately. */
+    if (state.selected === forId) {
+      forecast = next;
+      changeLines = lines;
+    }
     render();
   }).catch(function (err) {
-    fetching = false;
-    lastError = String((err && err.message) || err);
+    delete inFlight[forId];
+    /* An error belongs to the place that caused it. A failure fetching London
+       must not put an error card over a Manchester screen that is showing a
+       perfectly good forecast. */
+    if (state.selected === forId) lastError = String((err && err.message) || err);
     render();
   });
 }
@@ -241,21 +424,28 @@ function render() {
   var now = Math.floor(Date.now() / 1000);
 
   document.title = BRAND.name;
-  $('placeName').textContent = state.place ? state.place.name : 'Pick a place';
-  $('setup').hidden = !!state.place;
-  if (!state.place) $('setupTitle').textContent = V.noPlace(state);
+  $('placeName').textContent = placeName(place());
+  $('setup').hidden = !!place();
+  if (!place()) $('setupTitle').textContent = V.noPlace(state);
 
-  var have = !!(state.place && forecast);
+  var have = !!(place() && forecast);
   ['hero', 'briefCard', 'factCard', 'stripCard', 'todayCard', 'tomorrowCard', 'daysCard'].forEach(function (id) {
     $(id).hidden = !have;
   });
   $('shareBtn').hidden = !have;
-  $('trouble').hidden = !(state.place && !forecast && lastError);
+  $('trouble').hidden = !(place() && !forecast && lastError);
 
   if (!$('trouble').hidden) {
     $('troubleLine').textContent = V.error(state, Math.floor(now / 600));
     $('troubleWhy').textContent = 'It said: ' + lastError;
   }
+
+  /* The list, if it happens to be open — a rename or a reorder should show up
+     under the finger that did it. It is drawn before the early return below
+     because it does not need a forecast to be right: deleting your last
+     location leaves nothing to draw on the screen behind, and the list still
+     has to stop showing the row that has just gone. */
+  if ($('placeSheet').open) renderPlaces();
 
   if (!have) {
     $('alerts').hidden = true;
@@ -574,7 +764,8 @@ function openDay(day, index, conf, now) {
 
 function renderFoot(now) {
   var bits = [];
-  if (fetching) bits.push('Checking…');
+  /* "Checking" is about the place on screen, not about any request anywhere. */
+  if (inFlight[state.selected]) bits.push('Checking…');
   else if (forecast) bits.push(ageText());
   if (lastError && forecast) bits.push('using the last forecast we managed to grab');
   $('footStatus').textContent = bits.join(' · ');
@@ -583,6 +774,144 @@ function renderFoot(now) {
 function ageText() {
   var age = Math.round((Date.now() / 1000 - forecast.fetchedAt) / 60);
   return age < 1 ? 'Updated just now' : (age < 60 ? 'Updated ' + age + ' min ago' : 'Updated ' + Math.round(age / 60) + ' h ago');
+}
+
+/* --------------------------------------------------------- the place list */
+
+/* Whether the list is in tidying mode. Deliberately not saved: it is a state
+   of mind for ten seconds, not a setting. */
+var managing = false;
+
+/* Each row carries that place's own weather, read from that place's own
+   cache. No request is made to draw this list, which is why it opens
+   instantly and still works in a tunnel. */
+function renderPlaces() {
+  var list = $('placeList');
+  list.innerHTML = '';
+  /* While tidying, the temperature makes way for the controls — on a narrow
+     phone there is not room for both, and somebody reordering their list is
+     not checking the weather at that moment. */
+  list.className = 'places' + (managing ? ' places--managing' : '');
+  $('placeEmpty').hidden = !!state.places.length;
+  $('managePlacesBtn').hidden = !state.places.length;
+  $('managePlacesBtn').textContent = managing ? 'Done' : 'Edit';
+  $('managePlacesBtn').setAttribute('aria-pressed', managing ? 'true' : 'false');
+  $('startupHint').textContent = state.places.length
+    ? (state.startup && findPlace(state.startup)
+      ? 'Opens on ' + placeName(findPlace(state.startup)) + '. Tap the pin in Edit to change it.'
+      : 'Opens wherever you were last. Tap a pin in Edit to always open somewhere.')
+    : '';
+
+  state.places.forEach(function (p, index) {
+    var li = document.createElement('li');
+    li.className = 'place-row' + (p.id === state.selected ? ' is-current' : '');
+
+    var go = document.createElement('button');
+    go.type = 'button';
+    go.className = 'place-go';
+    go.setAttribute('aria-current', p.id === state.selected ? 'true' : 'false');
+
+    var left = document.createElement('span');
+    left.className = 'place-id';
+    var nameEl = document.createElement('b');
+    nameEl.textContent = placeName(p);
+    var whereEl = document.createElement('span');
+    whereEl.className = 'place-where';
+    /* The real place name underneath a nickname, so "Mum's" is still findable
+       as Macclesfield six months later. */
+    whereEl.textContent = [p.label ? p.name : '', p.where].filter(Boolean).join(' · ');
+    left.appendChild(nameEl);
+    left.appendChild(whereEl);
+
+    var read = document.createElement('span');
+    read.className = 'place-read';
+    var cached = cacheOf(p.id).forecast;
+    if (cached) {
+      var at = Math.floor(Date.now() / 1000);
+      var n = W.now(cached, at);
+      var temp = document.createElement('b');
+      temp.textContent = W.temp(n.temp, state.units);
+      var icon = document.createElement('span');
+      icon.className = 'place-icon';
+      icon.textContent = W.icon({ code: n.code, feels: n.feels, mm: n.mm, prob: n.prob,
+        gust: n.gust, day: n.day });
+      read.appendChild(temp);
+      read.appendChild(icon);
+      /* An old forecast says so here too. A row that looks live and is four
+         hours out of date is the kind of small lie this app does not tell. */
+      var age = Math.round((Date.now() / 1000 - cached.fetchedAt) / 60);
+      if (age >= 60) {
+        var old = document.createElement('span');
+        old.className = 'place-age';
+        old.textContent = Math.round(age / 60) + 'h ago';
+        read.appendChild(old);
+      }
+    } else {
+      var none = document.createElement('span');
+      none.className = 'place-age';
+      none.textContent = '—';
+      read.appendChild(none);
+    }
+
+    go.appendChild(left);
+    go.appendChild(read);
+    go.addEventListener('click', function () {
+      selectPlace(p.id);
+      closeSheet($('placeSheet'));
+    });
+    li.appendChild(go);
+
+    if (managing) {
+      var tools = document.createElement('span');
+      tools.className = 'place-tools';
+      tools.appendChild(tool('◎', 'Always open on ' + placeName(p),
+        state.startup === p.id ? 'on' : '', function () { setStartup(p.id); }));
+      tools.appendChild(tool('✎', 'Rename ' + placeName(p), '', function () { askRename(p.id); }));
+      tools.appendChild(tool('▲', 'Move ' + placeName(p) + ' up', index === 0 ? 'off' : '',
+        function () { movePlace(p.id, -1); }));
+      tools.appendChild(tool('▼', 'Move ' + placeName(p) + ' down',
+        index === state.places.length - 1 ? 'off' : '', function () { movePlace(p.id, 1); }));
+      tools.appendChild(tool('✕', 'Remove ' + placeName(p), 'danger', function () {
+        if (confirm('Remove ' + placeName(p) + '?')) removePlace(p.id);
+      }));
+      li.appendChild(tools);
+    }
+
+    list.appendChild(li);
+  });
+}
+
+function tool(glyph, label, mod, onClick) {
+  var b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'place-tool' + (mod ? ' place-tool--' + mod : '');
+  b.textContent = glyph;
+  b.setAttribute('aria-label', label);
+  b.title = label;
+  if (mod === 'off') b.disabled = true;
+  b.addEventListener('click', onClick);
+  return b;
+}
+
+function openSearch() {
+  $('placeOut').textContent = '';
+  $('placeResults').innerHTML = '';
+  $('placeQuery').value = '';
+  $('placeLabel').value = '';
+  openSheet($('searchSheet'));
+  setTimeout(function () { $('placeQuery').focus(); }, 60);
+}
+
+var renaming = null;
+
+function askRename(id) {
+  var p = findPlace(id);
+  if (!p) return;
+  renaming = id;
+  $('renameWhat').textContent = 'Saved as ' + p.name + (p.where ? ', ' + p.where : '') + '.';
+  $('renameInput').value = p.label || '';
+  openSheet($('renameSheet'));
+  setTimeout(function () { $('renameInput').focus(); }, 60);
 }
 
 /* ------------------------------------------------------------- the app icon */
@@ -600,7 +929,7 @@ function updateBadge() {
   if (!navigator.setAppBadge || !navigator.clearAppBadge) return;
   var drop = function () { navigator.clearAppBadge().catch(function () {}); };
 
-  if (!state.badge || !state.place || !forecast) return drop();
+  if (!state.badge || !place() || !forecast) return drop();
   if (Date.now() - forecast.fetchedAt * 1000 > BADGE_STALE_MS) return drop();
 
   var n = W.now(forecast, Math.floor(Date.now() / 1000));
@@ -733,7 +1062,7 @@ function drawShareCard() {
   ctx.textAlign = 'left';
   ctx.fillStyle = '#aebbdc';
   ctx.font = '600 44px ui-rounded, system-ui, sans-serif';
-  ctx.fillText((state.place.name || '').toUpperCase(), 90, 170);
+  ctx.fillText(placeName(place()).toUpperCase(), 90, 170);
 
   ctx.fillStyle = '#ffffff';
   ctx.font = '800 250px ui-rounded, system-ui, sans-serif';
@@ -788,7 +1117,7 @@ function shareText() {
   var now = Math.floor(Date.now() / 1000);
   var n = W.now(forecast, now);
   var today = forecast.days[W.todayIndex(forecast, now)];
-  return state.place.name + ': ' + W.temp(n.temp, state.units) + ', ' + W.skyName(n.code).toLowerCase() +
+  return placeName(place()) + ': ' + W.temp(n.temp, state.units) + ', ' + W.skyName(n.code).toLowerCase() +
     '. ' + V.headline(forecast, state, now).text +
     ' (High ' + W.temp(today.max, state.units) + ' · Low ' + W.temp(today.min, state.units) +
     ' · ' + (today.prob === null ? 'rain unknown' : today.prob + '% rain) ') +
@@ -819,7 +1148,7 @@ function wireShare() {
      In a browser navigator.share does that job directly. */
   $('shareGoBtn').addEventListener('click', function () {
     var out = $('shareOut');
-    var name = (state.place.name || 'weather').replace(/\s+/g, '-').toLowerCase() + '-weather.png';
+    var name = placeName(place()).replace(/\s+/g, '-').toLowerCase() + '-weather.png';
 
     canvasBlob(drawShareCard()).then(function (blob) {
       if (N.is) return N.share(shareText(), blob, name);
@@ -857,7 +1186,7 @@ function saveCard(blob, out) {
   var url = URL.createObjectURL(blob);
   var a = document.createElement('a');
   a.href = url;
-  a.download = (state.place.name || 'weather').replace(/\s+/g, '-').toLowerCase() + '-weather.png';
+  a.download = placeName(place()).replace(/\s+/g, '-').toLowerCase() + '-weather.png';
   a.click();
   setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
   out.textContent = 'Saved to your downloads.';
@@ -900,16 +1229,31 @@ function syncSettings() {
 /* ----------------------------------------------------------------- the wiring */
 
 function wire() {
+  /* The header opens the list of saved places. Somebody with nowhere saved
+     goes straight to the search, because a list of nothing is not a screen
+     worth making anyone tap through. */
   $('placeBtn').addEventListener('click', function () {
-    $('placeOut').textContent = '';
-    $('placeResults').innerHTML = '';
-    $('placeQuery').value = '';
+    if (!state.places.length) { openSearch(); return; }
+    managing = false;
+    renderPlaces();
     openSheet($('placeSheet'));
-    setTimeout(function () { $('placeQuery').focus(); }, 60);
   });
+  $('addPlaceBtn').addEventListener('click', openSearch);
+  $('managePlacesBtn').addEventListener('click', function () {
+    managing = !managing;
+    renderPlaces();
+  });
+
   $('placeForm').addEventListener('submit', function (e) {
     e.preventDefault();
     searchPlaces($('placeQuery').value.trim());
+  });
+  $('renameForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (renaming) renamePlace(renaming, $('renameInput').value);
+    renaming = null;
+    closeSheet($('renameSheet'));
+    renderPlaces();
   });
   $('hereBtn').addEventListener('click', function () { askHere($('placeOut')); });
   $('useHereBtn').addEventListener('click', function () { askHere($('setupOut')); });
@@ -962,7 +1306,7 @@ function wire() {
     file.text().then(function (text) {
       var incoming = JSON.parse(text);
       state = Object.assign(defaults(), incoming);
-      forecast = state.cache || null;
+      forecast = cacheOf(state.selected).forecast || null;
       save(); syncSettings(); render(); refresh(true);
     }).catch(function () { alert('That file is not a settings export from this app.'); });
   });
