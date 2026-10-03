@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ten a Win">
-<link rel="stylesheet" href="styles.css?v=22">
+<link rel="stylesheet" href="styles.css?v=23">
 </head>
 <body>
 
@@ -261,6 +261,26 @@
     </fieldset>
 
     <fieldset class="fs">
+      <legend>sportsapi (live scores)</legend>
+      <p class="hint">A second opinion for the hour after a match, which is exactly when the other feed is
+        still catching up. Its endpoint is live scores, so it sees matches being played now — open the app at
+        full time and the tenner goes in there and then. It does not replace the other feed, which is the one
+        that knows about the season, the table and the fixtures.</p>
+      <label class="lbl">Secret key
+        <input type="password" id="saKey" autocomplete="off" placeholder="sk_live_…">
+      </label>
+      <label class="check"><input type="checkbox" id="saOn"> Ask it on every check</label>
+      <div class="row">
+        <button type="button" class="secondary" id="saTestBtn">Test this key</button>
+        <span class="hint" id="saTestOut"></span>
+      </div>
+      <p class="hint"><b>This is a secret key.</b> It is kept in this phone's storage and nowhere else — never
+        in the app's code, which anyone can read, and never on a server of mine. Anyone holding this phone can
+        read it, which is the trade for not running a server. If that is not a trade you want, leave it empty
+        and the app carries on with the other feed.</p>
+    </fieldset>
+
+    <fieldset class="fs">
       <legend>What it can see</legend>
       <p class="hint">When the app and the television disagree, this says which of them is behind. It asks each
         results feed separately and shows what came back, then every match it can find for your club with what
@@ -348,6 +368,6 @@
   </form>
 </dialog>
 
-<script src="app.js?v=22"></script>
+<script src="app.js?v=23"></script>
 </body>
 </html>
