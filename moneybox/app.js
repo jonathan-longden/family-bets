@@ -18,7 +18,7 @@ var $ = function (id) { return document.getElementById(id); };
 
 /* Printed in the footer, so the phone can say which copy it is running
    without a round trip to find out. Bump it on release. */
-var BUILD = '2026-08-31 · 22';
+var BUILD = '2026-10-03 · 23';
 
 var STORE_KEY = 'tenAWin.v1';
 
@@ -50,6 +50,7 @@ function freshState() {
     seen: {},                              // eventId -> entry id, or 'skip'
     hook: { url: '', headerName: '', headerValue: '', auto: true },
     sound: { mode: 'cannon', name: '' },
+    sportsapi: { key: '', on: true },
     league: { id: '4328', name: 'English Premier League' },
     tableOpen: true,
     tableChosen: false,
@@ -879,6 +880,119 @@ function fireHook(entry) {
     });
 }
 
+// ------------------------------------------------------------ the sportsapi
+
+/* A second opinion, for the hour after a match.
+
+   sportsapi's documented endpoint is livescores: the matches being played
+   right now. That is the opposite of what a moneybox usually wants — it wants
+   yesterday — but it is precisely the half the other feed is worst at, because
+   a match that finished an hour ago is exactly what a shared cache has not got
+   yet. Open the app at full time and the tenner goes in there and then.
+
+   It is a second opinion rather than a replacement: TheSportsDB still knows
+   about the season, the table and the fixtures. Anything found here is matched
+   against what is already in the trophy before a penny is added, so two feeds
+   numbering the same fixture differently cannot pay for it twice.
+
+   The key is a secret one. It lives in this phone's storage and nowhere else —
+   not in the app's code, which is a public repository, and not on any server
+   of mine. Anyone holding the phone can read it: that is the trade for not
+   running a server, and it is said plainly in the settings. */
+
+var SPORTSAPI = 'https://api.sportsapi.app';
+var SA_FINISHED = ['finished', 'ended', 'ft', 'aet', 'ap', 'after extra time', 'penalties', 'awarded'];
+var SA_NOT_ON = ['notstarted', 'not started', 'ns', 'postponed', 'canceled', 'cancelled', 'delayed'];
+
+function sportsapiReady() {
+  return !!(state.sportsapi.key && state.sportsapi.on);
+}
+
+function sportsapiFetch(path, key) {
+  var token = (key || state.sportsapi.key || '').trim();
+  return fetch(SPORTSAPI + path, {
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/json' }
+  }).then(function (res) {
+    return res.text().then(function (text) {
+      var data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (e) { data = null; }
+      if (!res.ok) {
+        var said = data && (data.message || data.error);
+        throw new Error(said || ('sportsapi answered ' + res.status));
+      }
+      return data;
+    });
+  }).catch(function (err) {
+    /* The same refusal Starling gave, named rather than reported as a dead
+       network, because they look identical from inside a page. */
+    if (err instanceof TypeError) {
+      throw new Error('the browser would not let the app call sportsapi from this page');
+    }
+    throw err;
+  });
+}
+
+function saName(side) {
+  return String((side && (side.name || side.shortName)) || '').trim();
+}
+
+function saScore(side) {
+  if (!side) return null;
+  var v = side.current !== undefined ? side.current : (side.display !== undefined ? side.display : null);
+  return (v === null || v === '') ? null : num(v);
+}
+
+function saIsUs(name) {
+  var mine = (state.team.name || '').toLowerCase();
+  var theirs = String(name || '').toLowerCase();
+  if (!mine || !theirs) return false;
+  return theirs === mine || theirs.indexOf(mine) === 0 || mine.indexOf(theirs) === 0;
+}
+
+/* Their shape turned into ours, so that nothing downstream — the banking, the
+   ledger, the de-duplication — can tell which feed a match arrived on. */
+function saNormalise(row) {
+  var home = saName(row.home), away = saName(row.away);
+  var weAreHome = saIsUs(home);
+  if (!weAreHome && !saIsUs(away)) return null;
+
+  var hs = saScore(row.homeScore), as = saScore(row.awayScore);
+  var ours = weAreHome ? hs : as;
+  var theirs = weAreHome ? as : hs;
+  var status = String((row.status && (row.status.type || row.status.description)) || '').trim();
+  var word = status.toLowerCase();
+  var kickoff = row.startTimestamp ? Number(row.startTimestamp) * 1000 : null;
+  if (!kickoff || !isFinite(kickoff)) kickoff = null;
+
+  return {
+    id: 'sa-' + (row.id || (home + '|' + away)),
+    when: new Date(kickoff || Date.now()).toISOString(),
+    kickoff: kickoff || Date.now(),
+    competition: (row.tournament && (row.tournament.name || row.tournament.uniqueName)) || '',
+    opponent: weAreHome ? away : home,
+    venue: weAreHome ? 'H' : 'A',
+    ours: ours,
+    theirs: theirs,
+    score: (ours === null || theirs === null) ? '' : ours + '-' + theirs,
+    result: (ours === null || theirs === null) ? null : (ours > theirs ? 'W' : (ours < theirs ? 'L' : 'D')),
+    status: status,
+    /* Only this feed's own word counts. There is no two-and-a-half-hour clock
+       rule to fall back on here the way there is with the other one: this
+       endpoint holds matches that are still being played by definition, so
+       assuming one is over because it kicked off three hours ago would bank a
+       win at 2-1 with an equaliser still to come. */
+    finished: ours !== null && theirs !== null && SA_NOT_ON.indexOf(word) === -1 &&
+      SA_FINISHED.some(function (w) { return word === w || word.indexOf(w) !== -1; })
+  };
+}
+
+function sportsapiMatches(key) {
+  return sportsapiFetch('/v2/livescores?sport=football', key).then(function (data) {
+    var rows = (data && (data.data || data.results || data.matches)) || [];
+    return rows.map(saNormalise).filter(Boolean);
+  });
+}
+
 // -------------------------------------------------------------- the checks
 
 var checking = false;
@@ -896,6 +1010,7 @@ function checkNow(manual) {
     matches.sort(function (a, b) { return (a.kickoff || 0) - (b.kickoff || 0); });
 
     var credited = 0, added = 0, read = 0, matched = 0, newest = null, playing = null;
+    var live = null, liveError = null;
     matches.forEach(function (m) {
       /* A match with a score that is not over yet is the other reason a win
          can look missing, so it is held on to and named rather than passed
@@ -910,6 +1025,26 @@ function checkNow(manual) {
       else matched++;   // it was already in, put there by hand
     });
 
+    /* The second opinion is asked after the first has had its say, so that a
+       match both of them know about is already banked under the other feed's
+       id and arrives here as a match we have rather than a match we owe. */
+    return (sportsapiReady() ? sportsapiMatches().catch(function (err) { liveError = err; return []; })
+                             : Promise.resolve([]))
+      .then(function (liveRows) {
+        liveRows.forEach(function (m) {
+          if (!m.result) return;
+          if (!m.finished) { live = m; return; }
+          read++;
+          if (!newest || (m.kickoff || 0) > (newest.kickoff || 0)) newest = m;
+          if (state.seen[m.id]) return;
+          var entry = bank(m, 'sportsapi');
+          if (entry) { added++; credited += entry.amount; }
+          else matched++;
+        });
+        return finishCheck();
+      });
+
+    function finishCheck() {
     state.lastCheck = Date.now();
     save();
     render();
@@ -919,11 +1054,21 @@ function checkNow(manual) {
     refreshTable(manual || added > 0);
 
     if (added === 0) {
-      if (playing) {
+      if (live) {
+        setStatus(scoreline(live) + ' is on now — it counts at full time.', 'ok');
+      } else if (playing) {
         setStatus(scoreline(playing) + ' is still on — it counts at full time.', 'ok');
+      } else if (liveError) {
+        setStatus('Up to date as far as the other feed goes. sportsapi said: ' +
+          (liveError.message || liveError), 'err');
       } else if (matched) {
-        setStatus('The feed has caught up with ' + (matched === 1 ? 'a match' : matched + ' matches') +
-          ' you added by hand — no double counting.', 'ok');
+        /* This covers two cases that look the same from here: a match you
+           typed in yourself that a feed has now caught up with, and a match
+           both feeds reported under their own different ids. Either way the
+           honest sentence is the same one, and it is not "added by hand",
+           which was a lie in the second case. */
+        setStatus('Matched ' + (matched === 1 ? 'a match' : matched + ' matches') +
+          ' already in the trophy — counted once, not twice.', 'ok');
       } else if (newest) {
         /* Naming the last match it could see is what makes "up to date"
            checkable: if that is Saturday and today is Monday, the feed is
@@ -934,8 +1079,10 @@ function checkNow(manual) {
       }
     } else {
       var word = added === 1 ? 'match' : 'matches';
-      setStatus(added + ' new ' + word + ', ' + money(credited) + ' in.', 'ok');
+      setStatus(added + ' new ' + word + ', ' + money(credited) + ' in.' +
+        (live ? ' ' + scoreline(live) + ' is on now.' : ''), 'ok');
       if (credited > 0) celebrate();
+    }
     }
   }).catch(function (err) {
     setStatus('Could not read the results — ' + (err.message || err) + '. Add it by hand if you like.', 'err');
@@ -965,7 +1112,18 @@ function alreadyByHand(m) {
   if (!opponent) return null;
   for (var i = 0; i < state.entries.length; i++) {
     var e = state.entries[i];
-    if (e.kind !== 'in' || e.source !== 'manual' || e.eventId) continue;
+    if (e.kind !== 'in') continue;
+    /* A line already carrying this very match is the same match. A line
+       carrying a different id for it is exactly what we are hunting: two feeds
+       number the same fixture differently and neither knows the other exists,
+       so without this the second one to arrive pays for it again. */
+    if (e.eventId && e.eventId === m.id) return e;
+    /* Two ids from the same feed that are not equal are two different
+       matches, and no amount of opponent-and-date guessing should override
+       that. Only a line from a different feed — or one typed in by hand, which
+       has no id at all — is a candidate for being the same fixture. */
+    var fromSportsapi = function (id) { return String(id || '').indexOf('sa-') === 0; };
+    if (e.eventId && fromSportsapi(e.eventId) === fromSportsapi(m.id)) continue;
     if ((e.opponent || '').trim().toLowerCase() !== opponent) continue;
     var theirs = Date.parse(e.when || e.at);
     if (!when || !theirs || Math.abs(theirs - when) > 36 * 60 * 60 * 1000) continue;
@@ -975,9 +1133,9 @@ function alreadyByHand(m) {
 }
 
 function bank(m, source) {
-  var byHand = source === 'auto' ? alreadyByHand(m) : null;
+  var byHand = source === 'manual' ? null : alreadyByHand(m);
   if (byHand) {
-    byHand.eventId = m.id || '';
+    if (!byHand.eventId) byHand.eventId = m.id || '';
     if (m.score && !byHand.score) byHand.score = m.score;
     if (m.competition) byHand.competition = m.competition;
     if (m.id) state.seen[m.id] = byHand.id;
@@ -1584,6 +1742,9 @@ $('settingsBtn').addEventListener('click', function () {
   $('apiKey').value = state.apiKey;
   $('soundMode').value = (state.sound && state.sound.mode) || 'cannon';
   $('keyTestOut').textContent = '';
+  $('saKey').value = state.sportsapi.key;
+  $('saOn').checked = !!state.sportsapi.on;
+  $('saTestOut').textContent = '';
   showSoundName();
   $('notifyOn').checked = !!state.notify;
   $('teamCurrent').textContent = 'Currently following ' + state.team.name + '.';
@@ -1759,6 +1920,27 @@ $('updateBtn').addEventListener('click', function () {
 /* Paste a key, press the button, be told what that key can actually see. The
    whole argument of the last few days was whether the app or the feed was
    behind, and a key is worth exactly what its freshest match says it is. */
+bindSetting('saKey', function (el) { state.sportsapi.key = el.value.trim(); });
+bindSetting('saOn', function (el) { state.sportsapi.on = el.checked; });
+
+$('saTestBtn').addEventListener('click', function () {
+  var key = ($('saKey').value || '').trim();
+  var out = $('saTestOut');
+  if (!key) { out.textContent = 'Paste a key first.'; return; }
+  out.textContent = 'Asking…';
+  sportsapiMatches(key).then(function (mine) {
+    if (!mine.length) {
+      out.textContent = 'The key works. No ' + state.team.name + ' match on right now.';
+      return;
+    }
+    var m = mine[0];
+    out.textContent = 'The key works. ' + scoreline(m) + ' — the feed calls that "' +
+      (m.status || 'nothing') + '", so it ' + (m.finished ? 'would count now.' : 'counts at full time.');
+  }).catch(function (err) {
+    out.textContent = String(err.message || err);
+  });
+});
+
 $('keyTestBtn').addEventListener('click', function () {
   var key = ($('apiKey').value || '').trim() || FREE_KEY;
   var out = $('keyTestOut');

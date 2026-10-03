@@ -132,6 +132,31 @@ because a page that is shut gets no time to run. And phones will not make a
 sound until the person has touched the screen, so a win found on the way in
 is held and fired on your first tap rather than being swallowed.
 
+## sportsapi: a second opinion
+
+The other feed is at its worst in the hour after a match, which is exactly the
+hour you care about. sportsapi's documented endpoint is live scores — the
+matches being played now — so it covers that hour and nothing else: open the
+app at full time and the tenner goes in there and then.
+
+It is a second opinion, not a replacement. TheSportsDB still knows about the
+season, the table and the fixtures. Anything sportsapi reports is matched
+against what is already in the trophy before a penny is added, so the same
+fixture arriving from both feeds under two different ids is counted once —
+there is a test for exactly that.
+
+**Settings → sportsapi**: paste the key, **Test this key**. The answer names
+whatever match of yours it can see and what the feed calls it, so you know
+whether it would count now or at full time.
+
+**The key is a secret one, and it lives on the phone.** Not in this repository,
+which anyone can read, and not on any server of mine. Anyone holding the phone
+can read it out of the browser's storage — that is the trade for not running a
+server, and if it is not a trade you want, leave the box empty and nothing
+changes. There is also a real chance the browser refuses the call outright, the
+way Starling did; if so the setting says exactly that rather than failing
+quietly.
+
 ## When the app and the television disagree
 
 A results feed that has not caught up looks exactly like a broken app from the
@@ -298,10 +323,10 @@ the browser has never seen. It leaves the trophy, the results and the bank
 link alone — they are not part of the app's copy. The build the phone is
 running is printed just above that button, and in the footer.
 
-The stylesheet and the script are also asked for by version (`app.js?v=22`).
+The stylesheet and the script are also asked for by version (`app.js?v=23`).
 That is what lets a phone still holding the old cache-first worker escape it:
 those URLs are not in its cache, so it has no choice but to go to the network.
-**A phone stuck on an old copy should be opened once at `…/moneybox/?v=22`** —
+**A phone stuck on an old copy should be opened once at `…/moneybox/?v=23`** —
 after that it is on the new worker and updates arrive on their own. Bump the
 version in `index.html` and `sw.js` together on a release.
 
