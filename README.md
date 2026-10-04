@@ -31,8 +31,10 @@ pot live, connect it to a free Firebase Realtime Database.
 >   ten-foot interface: paste an M3U link, open a playlist file or sign in
 >   with Xtream credentials, and watch — or pick from a built-in catalogue
 >   of free public channel lists. A hub with a live hero, a proper channel
->   browser, remote-friendly focus, favourites and thousands of channels
->   without a stutter — all in one HTML file.
+>   browser, separate Live TV, Movies and Series tabs that know the
+>   difference between a film channel and a film, remote-friendly focus,
+>   favourites and thousands of channels without a stutter — all in one
+>   HTML file.
 > - **[Fucking Weather](outside/)** (`/outside/`) — a proper weather app
 >   that tells you exactly what the sky is doing, then takes the mickey
 >   out of it: now, hour by hour, today's best and worst bits, tomorrow,
