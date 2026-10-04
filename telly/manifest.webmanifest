@@ -1,0 +1,18 @@
+{
+  "name": "Telly — IPTV player",
+  "short_name": "Telly",
+  "description": "A ten-foot IPTV player: live channels, films and series from your own playlist.",
+  "start_url": ".",
+  "scope": ".",
+  "id": "/family-bets/telly/",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#06070a",
+  "theme_color": "#06070a",
+  "categories": ["entertainment", "video"],
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
