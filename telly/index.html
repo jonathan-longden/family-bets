@@ -34,6 +34,7 @@
   --r-xl:34px; --r-lg:26px; --r-md:18px; --r-sm:12px;
   --pad:clamp(16px,2.6vw,52px);
   --gap:clamp(12px,1.3vw,22px);
+  --rail-w:0px;
   --rowH:72px; --grpH:50px;
   --chrome-h:clamp(58px,6.4vh,86px);
 
@@ -140,11 +141,38 @@ h1,h2,h3,p{margin:0}
 .iconbtn:hover{color:var(--txt)}
 
 /* ---------------- stage & screens ---------------- */
+/* ---------------- side rail ----------------
+   A standing list of sections down the left, so the thing you want is one
+   press away in landscape rather than a scroll. It only appears where
+   there is width to spare; on a phone the top chrome still does the job. */
+#rail{
+  position:fixed;z-index:8;left:0;top:0;bottom:0;width:var(--rail-w);
+  display:none;flex-direction:column;gap:4px;
+  padding:calc(var(--chrome-h) + var(--safe-t) + 14px) 10px calc(14px + var(--safe-b)) calc(10px + var(--safe-l));
+  background:linear-gradient(to right,rgba(6,7,10,.96),rgba(6,7,10,.74));
+  border-right:1px solid var(--line);
+  backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+}
+.nv{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  padding:11px 13px;border-radius:14px;border:1px solid transparent;background:transparent;
+  color:var(--dim);font-size:clamp(12px,.86vw,15px);font-weight:600;
+}
+.nv .ic{font-size:clamp(16px,1.2vw,21px);flex:0 0 auto}
+.nv .nvt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nv:hover{background:var(--glass);color:var(--txt)}
+.nv.on{background:var(--gold-dim);border-color:rgba(231,193,122,.34);color:var(--gold)}
+.nv.on .ic{color:var(--gold)}
+@media (min-width:900px) and (orientation:landscape){
+  :root{--rail-w:clamp(150px,13vw,230px)}
+  #rail{display:flex}
+}
+
 #stage{position:fixed;inset:0;z-index:6}
 .screen{
   position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;
   -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
-  padding:calc(var(--chrome-h) + var(--safe-t) + clamp(8px,1.4vh,26px)) calc(var(--pad) + var(--safe-r)) calc(var(--pad) + var(--safe-b)) calc(var(--pad) + var(--safe-l));
+  padding:calc(var(--chrome-h) + var(--safe-t) + clamp(8px,1.4vh,26px)) calc(var(--pad) + var(--safe-r)) calc(var(--pad) + var(--safe-b)) calc(var(--pad) + var(--safe-l) + var(--rail-w));
   opacity:0;visibility:hidden;
   transition:opacity .34s var(--ease),visibility 0s linear .34s;
 }
@@ -154,22 +182,22 @@ h1,h2,h3,p{margin:0}
    player slot — those must keep still so the player can glide to them. */
 @keyframes rise{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:none}}
 @keyframes fadein{from{opacity:0}to{opacity:1}}
-.screen.on .card,.screen.on .opt,.screen.on .spanel,.screen.on .tile,
+.screen.on .sect,.screen.on .opt,.screen.on .spanel,.screen.on .tile,
 .screen.on .pcard,.screen.on .grow,.screen.on .pl-head,.screen.on .empty{
   animation:rise .5s var(--ease) backwards;
 }
 .screen.on .hero,.screen.on .panel,.screen.on .form{animation:fadein .4s ease backwards}
 .screen.on .hero-in{animation:rise .6s var(--ease) .05s backwards}
-.cards .card:nth-child(1),.opts .opt:nth-child(1){animation-delay:.03s}
-.cards .card:nth-child(2),.opts .opt:nth-child(2){animation-delay:.06s}
-.cards .card:nth-child(3),.opts .opt:nth-child(3){animation-delay:.09s}
-.cards .card:nth-child(4){animation-delay:.12s}
-.cards .card:nth-child(5){animation-delay:.15s}
-.cards .card:nth-child(6){animation-delay:.18s}
-.cards .card:nth-child(7){animation-delay:.21s}
-.cards .card:nth-child(8){animation-delay:.24s}
-.cards .card:nth-child(9){animation-delay:.27s}
-.cards .card:nth-child(10){animation-delay:.30s}
+.sections .sect:nth-child(1),.opts .opt:nth-child(1){animation-delay:.03s}
+.sections .sect:nth-child(2),.opts .opt:nth-child(2){animation-delay:.06s}
+.sections .sect:nth-child(3),.opts .opt:nth-child(3){animation-delay:.09s}
+.sections .sect:nth-child(4){animation-delay:.12s}
+.sections .sect:nth-child(5){animation-delay:.15s}
+.sections .sect:nth-child(6){animation-delay:.18s}
+.sections .sect:nth-child(7){animation-delay:.21s}
+.sections .sect:nth-child(8){animation-delay:.24s}
+.sections .sect:nth-child(9){animation-delay:.27s}
+.sections .sect:nth-child(10){animation-delay:.30s}
 .screen::-webkit-scrollbar{width:8px}
 .screen::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:99px}
 
@@ -182,7 +210,7 @@ h1,h2,h3,p{margin:0}
   border-color:transparent;z-index:4;
 }
 .f.kfocus{transform:translateY(-3px) scale(1.022)}
-.card.f.kfocus,.opt.f.kfocus{transform:translateY(-6px) scale(1.035)}
+.sect.f.kfocus,.opt.f.kfocus{transform:translateY(-6px) scale(1.035)}
 .row.f.kfocus,.cat.f.kfocus{transform:none;box-shadow:inset 0 0 0 2px var(--gold),0 0 0 1px rgba(231,193,122,.2)}
 
 /* ---------------- home: hero ---------------- */
@@ -195,6 +223,10 @@ h1,h2,h3,p{margin:0}
   box-shadow:0 40px 120px -40px rgba(0,0,0,.95);
   isolation:isolate;
 }
+#heroArt{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;
+  transition:opacity .5s var(--ease)}
+/* A playing channel is the backdrop; the artwork is only for when there isn't one. */
+.hero.hasvideo #heroArt{opacity:0}
 .hero .scrim{
   position:absolute;inset:0;pointer-events:none;z-index:1;
   background:
@@ -259,49 +291,42 @@ h1,h2,h3,p{margin:0}
 }
 .sec-h h2{font-size:clamp(13px,1vw,17px);letter-spacing:.24em;text-transform:uppercase;font-weight:700;color:var(--dim)}
 .sec-h span{color:var(--faint);font-size:clamp(11px,.82vw,14px)}
-.cards{display:grid;grid-template-columns:repeat(6,1fr);gap:var(--gap)}
-.card{
-  position:relative;overflow:hidden;border-radius:var(--r-lg);padding:clamp(14px,1.4vw,26px);
-  background:linear-gradient(160deg,rgba(255,255,255,.075),rgba(255,255,255,.028));
-  border:1px solid var(--line);text-align:left;
-  display:flex;flex-direction:column;justify-content:space-between;gap:clamp(14px,2vh,28px);
-  min-height:clamp(112px,13vh,168px);
+/* ---------------- home: section tiles ----------------
+   Big, flat, obvious: the thing you came to open, one press away. */
+.sections{display:grid;gap:var(--gap);
+  grid-template-columns:repeat(auto-fit,minmax(clamp(150px,13vw,230px),1fr))}
+.sect{
+  position:relative;overflow:hidden;border-radius:var(--r-lg);
+  padding:clamp(14px,1.4vw,24px);text-align:left;
+  display:flex;flex-direction:column;gap:6px;
+  min-height:clamp(118px,15vh,186px);
+  background:linear-gradient(160deg,rgba(255,255,255,.085),rgba(255,255,255,.03));
+  border:1px solid var(--line);
   box-shadow:0 20px 50px -30px rgba(0,0,0,.9);
 }
-.card::after{
+.sect::after{
   content:"";position:absolute;inset:0;opacity:0;transition:opacity .35s var(--ease);
-  background:radial-gradient(120% 90% at 12% 0%,rgba(231,193,122,.20),transparent 58%);
+  background:radial-gradient(120% 90% at 14% 0%,rgba(231,193,122,.22),transparent 58%);
 }
-.card:hover::after,.card.kfocus::after,.card:focus-visible::after{opacity:1}
-.card .ic{font-size:clamp(22px,1.9vw,34px);color:var(--gold);stroke-width:1.4}
-.card .lbl{font-size:clamp(15px,1.25vw,24px);font-weight:650;letter-spacing:-.01em;line-height:1.15}
-.card .sub{color:var(--faint);font-size:clamp(11px,.82vw,14px);margin-top:4px;font-weight:500}
-.card.big{grid-column:span 2;grid-row:span 2;min-height:clamp(200px,28vh,340px)}
-.card.big .ic{font-size:clamp(30px,2.6vw,46px)}
-.card.big .lbl{font-size:clamp(22px,2.1vw,38px)}
-.card.wide{grid-column:span 2}
-.card.one{grid-column:span 1}
-.card .corner{
-  position:absolute;top:clamp(12px,1.2vw,20px);right:clamp(12px,1.2vw,20px);
-  font-size:clamp(10px,.72vw,12px);letter-spacing:.14em;text-transform:uppercase;
-  color:var(--faint);font-weight:600;
+.sect:hover::after,.sect.kfocus::after,.sect:focus-visible::after{opacity:1}
+.sect .si{
+  width:clamp(36px,3vw,52px);height:clamp(36px,3vw,52px);border-radius:14px;
+  display:grid;place-items:center;margin-bottom:auto;
+  background:var(--gold-dim);border:1px solid rgba(231,193,122,.26);
 }
-.minirail{display:flex;gap:8px;flex-wrap:wrap;max-width:82%}
+.sect .si .ic{font-size:clamp(17px,1.4vw,25px);color:var(--gold);stroke-width:1.5}
+.sect .st{font-size:clamp(15px,1.25vw,23px);font-weight:650;letter-spacing:-.01em;line-height:1.15}
+.sect .ss{color:var(--faint);font-size:clamp(11px,.8vw,14px);font-weight:500;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.minirail{display:flex;gap:7px;flex-wrap:wrap;max-width:88%;margin-bottom:6px}
 .minirail .mt{
-  width:clamp(38px,3.4vw,56px);height:clamp(38px,3.4vw,56px);border-radius:12px;flex:0 0 auto;
+  width:clamp(30px,2.6vw,44px);height:clamp(30px,2.6vw,44px);border-radius:10px;flex:0 0 auto;
   background:rgba(255,255,255,.06);border:1px solid var(--line);overflow:hidden;
-  display:grid;place-items:center;font-size:clamp(10px,.72vw,13px);font-weight:700;color:var(--faint);
+  display:grid;place-items:center;font-size:clamp(9px,.64vw,12px);font-weight:700;color:var(--faint);
 }
-.minirail .mt img{width:100%;height:100%;object-fit:contain;padding:5px}
-.card.big .art{
-  position:absolute;right:-6%;bottom:-14%;opacity:.10;color:var(--gold);
-  width:clamp(150px,15vw,300px);height:clamp(150px,15vw,300px);
-  pointer-events:none;stroke-width:1;
-}
-.card.big{justify-content:flex-end}
-.card.big > .ic:not(.art){position:absolute;top:clamp(14px,1.4vw,26px);left:clamp(14px,1.4vw,26px)}
+.minirail .mt img{width:100%;height:100%;object-fit:contain;padding:4px}
 
-/* ---------------- home: recents rail ---------------- */
+/* ---------------- home: thumbnail rails ---------------- */
 .rail{display:flex;gap:var(--gap);overflow-x:auto;padding:4px 2px 10px;scroll-snap-type:x proximity;scrollbar-width:none}
 .rail::-webkit-scrollbar{display:none}
 .tile{
@@ -314,9 +339,23 @@ h1,h2,h3,p{margin:0}
   font-size:clamp(16px,1.4vw,24px);font-weight:700;color:var(--faint);overflow:hidden;position:relative;
 }
 .tile .thumb img{width:74%;height:74%;object-fit:contain}
+/* A poster rail shows artwork, so the image fills its tile rather than
+   sitting inside it like a logo. */
+.posterrail .tile{width:clamp(104px,9vw,168px)}
+.posterrail .tile .thumb{aspect-ratio:2/3}
+.posterrail .tile .thumb img{width:100%;height:100%;object-fit:cover}
 .tile .cap{padding:10px 12px 12px}
 .tile .cap b{display:block;font-weight:600;font-size:clamp(12px,.9vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile .cap i{display:block;font-style:normal;color:var(--faint);font-size:clamp(10px,.74vw,12px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+
+/* Older Smart TV browsers have no aspect-ratio. Without this the thumbs
+   collapse to zero height and the grid looks empty rather than wrong. */
+@supports not (aspect-ratio: 1 / 1){
+  .tile .thumb,.pcard .thumb,.pcard.poster .thumb,.posterrail .tile .thumb,.showart .box{
+    height:0;padding-top:62.5%;position:relative}
+  .posterrail .tile .thumb,.pcard.poster .thumb,.showart .box{padding-top:150%}
+  .tile .thumb>*,.pcard .thumb>*,.showart .box>*{position:absolute;inset:0;margin:auto}
+}
 
 /* ---------------- live tv ---------------- */
 #live{display:grid;gap:var(--gap);grid-template-columns:clamp(190px,17vw,300px) minmax(0,1fr) clamp(300px,26vw,460px);align-items:start;height:100%}
@@ -440,6 +479,11 @@ h1,h2,h3,p{margin:0}
 .pcard .cap b{display:block;font-weight:600;font-size:clamp(12px,.92vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pcard .cap i{font-style:normal;color:var(--faint);font-size:clamp(10px,.76vw,12px);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
 .pcard .fav{position:absolute;top:8px;right:8px;color:var(--gold);font-size:16px;text-shadow:0 2px 8px #000}
+
+.colnote{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 clamp(14px,2vh,22px);
+  padding:12px 16px;border-radius:14px;background:var(--glass);border:1px solid var(--line);
+  color:var(--dim);font-size:clamp(11px,.84vw,14px)}
+.colnote span{min-width:0;flex:1}
 
 /* ---------------- poster wall (films and series) ----------------
    A channel is a logo on a tile; a film is artwork. Posters are 2:3,
@@ -811,6 +855,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5 8 12l7 7"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
   <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9.5v10h13v-10"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 1 0-5.7-5.7l-1.6 1.6"/><path d="M13.5 10.5a4 4 0 0 0-5.7 0L5 13.3a4 4 0 1 0 5.7 5.7l1.6-1.6"/></symbol>
   <symbol id="i-file" viewBox="0 0 24 24"><path d="M13.5 3.2H7A2 2 0 0 0 5 5.2v13.6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.7z"/><path d="M13.5 3.2v5.5H19"/></symbol>
@@ -846,11 +891,59 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   </div>
 </header>
 
+<!-- The side rail: every section, one press away, in landscape. -->
+<nav id="rail" aria-label="Sections">
+  <button class="nv f" data-f data-go="home"><svg class="ic"><use href="#i-home"/></svg><span class="nvt">Home</span></button>
+  <button class="nv f" data-f data-go="live"><svg class="ic"><use href="#i-live"/></svg><span class="nvt">Live TV</span></button>
+  <button class="nv f" data-f data-go="movies"><svg class="ic"><use href="#i-movies"/></svg><span class="nvt">Movies</span></button>
+  <button class="nv f" data-f data-go="series"><svg class="ic"><use href="#i-series"/></svg><span class="nvt">Series</span></button>
+  <button class="nv f" data-f data-go="favourites"><svg class="ic"><use href="#i-star"/></svg><span class="nvt">Favourites</span></button>
+  <button class="nv f" data-f data-go="guide"><svg class="ic"><use href="#i-guide"/></svg><span class="nvt">TV Guide</span></button>
+  <button class="nv f" data-f data-go="recent"><svg class="ic"><use href="#i-clock"/></svg><span class="nvt">Recent</span></button>
+  <div style="flex:1"></div>
+  <button class="nv f" data-f data-go="playlist"><svg class="ic"><use href="#i-plus"/></svg><span class="nvt">Add playlist</span></button>
+  <button class="nv f" data-f data-go="settings"><svg class="ic"><use href="#i-settings"/></svg><span class="nvt">Settings</span></button>
+</nav>
+
 <main id="stage">
 
   <!-- ============ HOME ============ -->
   <section class="screen" id="home" data-screen="home">
     <div class="hero" id="heroPanel">
+      <!-- Original artwork: a dusk ridge line drawn from gradients and four
+           paths, in Telly's own palette. It is vector, so it costs a couple
+           of kilobytes, needs no network and stays sharp on a 4K panel.
+           It hides the moment a channel is playing behind it. -->
+      <svg id="heroArt" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        <defs>
+          <linearGradient id="haSky" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#0a1020"/>
+            <stop offset="46%" stop-color="#1d2440"/>
+            <stop offset="74%" stop-color="#5b4766"/>
+            <stop offset="100%" stop-color="#b9794f"/>
+          </linearGradient>
+          <radialGradient id="haSun" cx="72%" cy="80%" r="42%">
+            <stop offset="0%" stop-color="#ffd9a0" stop-opacity=".95"/>
+            <stop offset="42%" stop-color="#e7a860" stop-opacity=".40"/>
+            <stop offset="100%" stop-color="#e7a860" stop-opacity="0"/>
+          </radialGradient>
+          <linearGradient id="haFar" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#4a4062"/><stop offset="100%" stop-color="#2d2a46"/>
+          </linearGradient>
+          <linearGradient id="haMid" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#2a2740"/><stop offset="100%" stop-color="#191a2c"/>
+          </linearGradient>
+          <linearGradient id="haNear" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#14151f"/><stop offset="100%" stop-color="#08090e"/>
+          </linearGradient>
+        </defs>
+        <rect width="1600" height="900" fill="url(#haSky)"/>
+        <circle cx="1152" cy="720" r="430" fill="url(#haSun)"/>
+        <path d="M0 614 L186 486 L322 574 L470 440 L612 560 L742 470 L900 598 L1046 512 L1210 606 L1360 520 L1600 628 L1600 900 L0 900Z" fill="url(#haFar)" opacity=".92"/>
+        <path d="M0 702 L148 620 L300 698 L452 586 L628 690 L790 616 L948 712 L1118 628 L1290 716 L1452 650 L1600 724 L1600 900 L0 900Z" fill="url(#haMid)" opacity=".96"/>
+        <rect y="690" width="1600" height="120" fill="#b9794f" opacity=".07"/>
+        <path d="M0 806 L210 742 L404 812 L600 750 L812 824 L1010 760 L1222 830 L1420 768 L1600 826 L1600 900 L0 900Z" fill="url(#haNear)"/>
+      </svg>
       <div id="slotHero" style="position:absolute;inset:0"></div>
       <div class="scrim"></div>
       <div class="hero-in">
@@ -872,56 +965,52 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
       </div>
     </div>
 
-    <div>
-      <div class="sec-h"><h2>Explore</h2><span id="exploreSub"></span></div>
-      <div class="cards">
-        <button class="card big f" data-f data-go="live">
-          <svg class="ic"><use href="#i-live"/></svg>
-          <div class="minirail" id="liveRail"></div>
-          <div><div class="lbl">Live TV</div><div class="sub" id="cLive">No playlist</div></div>
-        </button>
-        <button class="card wide f" data-f data-go="guide">
-          <svg class="ic"><use href="#i-guide"/></svg>
-          <div><div class="lbl">TV Guide</div><div class="sub" id="cGuide">Line-up</div></div>
-        </button>
-        <button class="card wide f" data-f data-go="favourites">
-          <svg class="ic"><use href="#i-star"/></svg>
-          <div><div class="lbl">Favourites</div><div class="sub" id="cFav">None yet</div></div>
-        </button>
-        <button class="card one f" data-f data-go="movies">
-          <svg class="ic"><use href="#i-movies"/></svg>
-          <div><div class="lbl">Movies</div><div class="sub" id="cMovies">—</div></div>
-        </button>
-        <button class="card one f" data-f data-go="series">
-          <svg class="ic"><use href="#i-series"/></svg>
-          <div><div class="lbl">Series</div><div class="sub" id="cSeries">—</div></div>
-        </button>
-        <button class="card wide f" data-f data-go="recent">
-          <svg class="ic"><use href="#i-clock"/></svg>
-          <div><div class="lbl">Recently watched</div><div class="sub" id="cRecent">Nothing yet</div></div>
-        </button>
-        <button class="card one f" data-f data-go="catchup">
-          <svg class="ic"><use href="#i-catchup"/></svg>
-          <div><div class="lbl">Catch Up</div><div class="sub">Not in playlist</div></div>
-        </button>
-        <button class="card one f" data-f data-go="recordings">
-          <svg class="ic"><use href="#i-rec"/></svg>
-          <div><div class="lbl">Recordings</div><div class="sub">Server feature</div></div>
-        </button>
-        <button class="card one f" data-f data-go="settings">
-          <svg class="ic"><use href="#i-settings"/></svg>
-          <div><div class="lbl">Settings</div><div class="sub">Playlist &amp; display</div></div>
-        </button>
-        <button class="card one f" data-f data-go="playlist">
-          <svg class="ic"><use href="#i-plus"/></svg>
-          <div><div class="lbl">Add playlist</div><div class="sub">URL · File · Xtream</div></div>
-        </button>
-      </div>
+    <div class="sections">
+      <button class="sect f" data-f data-go="live">
+        <span class="si"><svg class="ic"><use href="#i-live"/></svg></span>
+        <span class="st">Live TV</span><span class="ss" id="cLive">No playlist</span>
+        <span class="minirail" id="liveRail"></span>
+      </button>
+      <button class="sect f" data-f data-go="movies">
+        <span class="si"><svg class="ic"><use href="#i-movies"/></svg></span>
+        <span class="st">Movies</span><span class="ss" id="cMovies">—</span>
+      </button>
+      <button class="sect f" data-f data-go="series">
+        <span class="si"><svg class="ic"><use href="#i-series"/></svg></span>
+        <span class="st">Series</span><span class="ss" id="cSeries">—</span>
+      </button>
+      <button class="sect f" data-f data-go="favourites">
+        <span class="si"><svg class="ic"><use href="#i-star"/></svg></span>
+        <span class="st">Favourites</span><span class="ss" id="cFav">None yet</span>
+      </button>
+      <button class="sect f" data-f data-go="guide">
+        <span class="si"><svg class="ic"><use href="#i-guide"/></svg></span>
+        <span class="st">TV Guide</span><span class="ss" id="cGuide">Line-up</span>
+      </button>
+      <button class="sect f" data-f data-go="playlist">
+        <span class="si"><svg class="ic"><use href="#i-plus"/></svg></span>
+        <span class="st">Add playlist</span><span class="ss" id="exploreSub">URL · File · Xtream</span>
+      </button>
     </div>
 
     <div id="recentWrap" hidden>
-      <div class="sec-h"><h2>Jump back in</h2></div>
+      <div class="sec-h"><h2>Jump back in</h2><span id="cRecent"></span></div>
       <div class="rail" id="recentRail"></div>
+    </div>
+
+    <div id="filmWrap" hidden>
+      <div class="sec-h"><h2 id="filmHead">Films</h2><span id="filmMore"></span></div>
+      <div class="rail posterrail" id="filmRail"></div>
+    </div>
+
+    <div id="showWrap" hidden>
+      <div class="sec-h"><h2 id="showHead">Series</h2><span id="showMore"></span></div>
+      <div class="rail posterrail" id="showRail"></div>
+    </div>
+
+    <div id="chanWrap" hidden>
+      <div class="sec-h"><h2>Channels</h2><span id="chanMore"></span></div>
+      <div class="rail" id="chanRail"></div>
     </div>
   </section>
 
@@ -987,6 +1076,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <!-- ============ COLLECTION (movies / series / favourites / recent) ============ -->
   <section class="screen" id="collection" data-screen="collection">
     <div class="sec-h"><h2 id="colTitle">Collection</h2><span id="colSub"></span></div>
+    <div class="colnote" id="colNote" hidden><span id="colNoteText"></span><button class="btn f" data-f id="colNoteGo"></button></div>
     <div class="grid" id="colGrid"></div>
     <div class="empty" id="colEmpty" hidden></div>
     <div style="display:flex;justify-content:center;padding:24px 0">
@@ -2012,6 +2102,10 @@ function go(name, opts){
   $('#crumb').innerHTML = screenName === 'home' ? '<span class="cur">Home</span>'
     : '<span>Home</span><span class="sep">›</span><span class="cur">' + escapeHtml(label) + '</span>';
 
+  /* The rail shows where you are. "movies" and "series" both land on the
+     collection screen, so match on the name asked for, not the screen. */
+  $$('#rail .nv').forEach(b => b.classList.toggle('on', b.dataset.go === name));
+
   placePlayer();
   placeSoon();
   if (!opts.keepFocus) focusFirst(screenName);
@@ -2073,6 +2167,66 @@ function refreshHome(){
       : state.source.type === 'url' ? 'Playlist URL' : state.source.name || 'Local file')
     : 'No playlist yet';
   renderRecents();
+  renderHomeRails();
+}
+
+/* The home screen is the thing you look at first, so it shows what is
+   actually in the source rather than describing it: a rail of films, a rail
+   of series, a rail of channels, each one a thumbnail you can press. */
+function railTile(item, opts){
+  const b = document.createElement('button');
+  b.className = 'tile f'; b.dataset.f = '';
+  b.innerHTML = '<div class="thumb"></div><div class="cap"><b></b><i></i></div>';
+  fillLogo(b.querySelector('.thumb'), item);
+  b.querySelector('b').textContent = item.name;
+  b.querySelector('i').textContent = opts.sub(item);
+  b.onclick = opts.open;
+  return b;
+}
+
+function fillRail(wrapId, railId, moreId, list, total, opts){
+  const wrap = $(wrapId), rail = $(railId), more = moreId ? $(moreId) : null;
+  if (!wrap || !rail) return;
+  if (opts.poster !== undefined) rail.classList.toggle('posterrail', !!opts.poster);
+  wrap.hidden = list.length === 0;
+  rail.innerHTML = '';
+  if (!list.length) return;
+  if (more) more.textContent = total > list.length
+    ? fmt(list.length) + ' of ' + fmt(total) : fmt(total);
+  const frag = document.createDocumentFragment();
+  list.forEach(item => frag.appendChild(railTile(item, {
+    sub: opts.sub,
+    open: () => opts.open(item)
+  })));
+  rail.appendChild(frag);
+}
+
+function renderHomeRails(){
+  /* Same rule as the tabs: show the film and box-set channels when there is
+     no library, and say so in the heading rather than leaving a gap. */
+  const fc = filmChannels(), sc = seriesChannels();
+  const filmList = state.movies.length ? state.movies : fc;
+  const showList = state.series.length ? state.series : sc;
+  $('#filmHead').textContent = state.movies.length ? 'Films' : 'Film channels';
+  $('#showHead').textContent = state.series.length ? 'Series' : 'Series channels';
+
+  fillRail('#filmWrap', '#filmRail', '#filmMore', filmList.slice(0, 18), filmList.length, {
+    poster: !!state.movies.length,
+    sub: m => m.year ? String(m.year) + ' · ' + m.group : m.group,
+    open: m => state.movies.length ? openTitle(m) : (play(m), go('live'))
+  });
+  fillRail('#showWrap', '#showRail', '#showMore', showList.slice(0, 18), showList.length, {
+    poster: !!state.series.length,
+    sub: sh => sh.episodes ? fmt(sh.episodes.length) + (sh.episodes.length === 1 ? ' episode' : ' episodes') : sh.group,
+    open: sh => state.series.length ? openTitle(sh) : (play(sh), go('live'))
+  });
+  /* Favourites first, because those are the channels somebody chose. */
+  const favs = state.channels.filter(c => state.favs.has(c.id));
+  const rest = state.channels.filter(c => !state.favs.has(c.id));
+  fillRail('#chanWrap', '#chanRail', '#chanMore', favs.concat(rest).slice(0, 18), state.channels.length, {
+    sub: c => c.group,
+    open: c => { play(c); go('live'); }
+  });
 }
 
 function renderRecents(){
@@ -2197,9 +2351,19 @@ function collectionList(kind){
   if (kind === 'recent'){
     return state.recent.map(id => channelById(id) || onDemandItem(id)).filter(Boolean);
   }
-  if (kind === 'movies') return state.movies;
-  if (kind === 'series') return state.series;
+  /* No on-demand library? Then show the channels that run films or box sets
+     round the clock. They are not the same thing and the note above the grid
+     says so — but a tab that explains why it is empty, on a source holding
+     178 film channels, is a worse answer than showing the 178. */
+  if (kind === 'movies') return state.movies.length ? state.movies : filmChannels();
+  if (kind === 'series') return state.series.length ? state.series : seriesChannels();
   return [];
+}
+
+/* True when the list is channels standing in for a library Telly does not have. */
+function colIsFallback(){
+  return (state.colKind === 'movies' && !state.movies.length && filmChannels().length > 0) ||
+         (state.colKind === 'series' && !state.series.length && seriesChannels().length > 0);
 }
 
 function openCollection(kind){
@@ -2211,42 +2375,44 @@ function openCollection(kind){
   const noun = kind === 'movies' ? ['film', 'films']
     : kind === 'series' ? ['series', 'series']
     : ['channel', 'channels'];
+  const fallback = colIsFallback();
+  const unit = fallback ? ['channel', 'channels'] : noun;
   $('#colSub').textContent = state.colList.length
-    ? fmt(state.colList.length) + ' ' + (state.colList.length === 1 ? noun[0] : noun[1]) : '';
+    ? fmt(state.colList.length) + ' ' + (state.colList.length === 1 ? unit[0] : unit[1]) : '';
   $('#colGrid').innerHTML = '';
+
+  /* One line above the grid, not a page instead of it. */
+  const note = $('#colNote');
+  if (fallback){
+    const section = kind === 'movies' ? FILM_SECTION : SERIES_SECTION;
+    $('#colNoteText').textContent = 'This source has no on-demand ' +
+      (kind === 'movies' ? 'films' : 'series') + ', so these are its round-the-clock ' +
+      (kind === 'movies' ? 'film' : 'box-set') + ' channels — you watch what is on rather than picking.';
+    const b = $('#colNoteGo');
+    b.innerHTML = svg('i-live') + 'See them in Live TV';
+    b.onclick = () => { selectCat(section); go('live'); };
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
+
   const none = state.colList.length === 0;
   $('#colEmpty').hidden = !none;
   $('#colGrid').hidden = none;
   if (none){
-    const linear = kind === 'movies' ? filmChannels().length
-      : kind === 'series' ? seriesChannels().length : 0;
     const thing = kind === 'movies' ? 'films' : 'series';
-    const section = kind === 'movies' ? FILM_SECTION : SERIES_SECTION;
-
     const why = kind === 'favourites'
       ? 'Star a channel anywhere in Telly and it appears here, and at the top of the channel list.'
       : kind === 'recent'
       ? 'Channels you watch show up here so you can jump straight back in.'
       : !state.channels.length && !state.movies.length && !state.series.length
       ? 'Load a playlist first — Telly does not come with any channels.'
-      : linear
-      ? 'This tab is for ' + thing + ' you pick and play, the way a streaming service works. ' +
-        'This source has none — but it does have ' + fmt(linear) + ' round-the-clock ' +
-        (kind === 'movies' ? 'film' : 'box-set') + ' channel' + (linear === 1 ? '' : 's') +
-        ', which are channels rather than titles. They are in Live TV under “' + section + '”.'
-      : 'This tab is for ' + thing + ' you pick and play. Free channel lists carry live streams ' +
-        'only, so there are none here. An Xtream account with a ' +
+      : 'This tab is for ' + thing + ' you pick and play. This source carries live streams only, ' +
+        'and none of its categories look like ' + thing + ' either. An Xtream account with a ' +
         (kind === 'movies' ? 'film' : 'series') + ' library fills this tab from the server.';
 
     $('#colEmpty').innerHTML = '<div class="big">' + svg(kind === 'favourites' ? 'i-star' : kind === 'recent' ? 'i-clock' : KIND[kind].icon) +
       '</div><h3>Nothing to show</h3><p>' + why + '</p>';
-    if (linear){
-      const b = document.createElement('button');
-      b.className = 'btn gold f'; b.dataset.f = '';
-      b.innerHTML = svg('i-live') + 'Open ' + section.toLowerCase();
-      b.onclick = () => { selectCat(section); go('live'); };
-      $('#colEmpty').appendChild(b);
-    }
     $('#colMore').hidden = true;
     return;
   }
@@ -2397,7 +2563,10 @@ function moreCollection(){
   const grid = $('#colGrid');
   /* Films and series are artwork, so they get the poster wall. Channels are
      logos, which do not survive being cropped to 2:3, so they keep tiles. */
-  const posters = state.colKind === 'movies' || state.colKind === 'series';
+  const fallback = colIsFallback();
+  // channels standing in for a library are still channels: logo tiles, and
+  // pressing one plays it rather than opening a title screen it does not have
+  const posters = (state.colKind === 'movies' || state.colKind === 'series') && !fallback;
   grid.classList.toggle('posters', posters);
   const chunk = state.colList.slice(state.colShown, state.colShown + 60);
   const frag = document.createDocumentFragment();
@@ -2421,7 +2590,7 @@ function moreCollection(){
     }
     b.querySelector('b').textContent = ch.name;
 
-    const isShow = state.colKind === 'series';
+    const isShow = state.colKind === 'series' && !fallback;
     if (posters){
       const play = document.createElement('span');
       play.className = 'pplay';
@@ -2643,7 +2812,12 @@ function placeSoon(ms){
   placeRaf = requestAnimationFrame(tick);
 }
 
-function setPlayerLive(on){ layer.classList.toggle('live', on); placePlayer(); }
+function setPlayerLive(on){
+  layer.classList.toggle('live', on);
+  // the hero's own artwork is for when there is nothing playing behind it
+  $('#heroPanel').classList.toggle('hasvideo', on);
+  placePlayer();
+}
 
 function setFull(on){
   if (placeRaf){ cancelAnimationFrame(placeRaf); placeRaf = 0; }   // stop the follow loop fighting the switch

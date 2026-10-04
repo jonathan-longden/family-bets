@@ -59,6 +59,28 @@ Both network options need the server to allow cross-origin requests, since
 the browser fetches the playlist directly. If a server refuses, save the
 playlist and use the File option, which always works.
 
+## The home screen
+
+A side rail down the left carries every section — Home, Live TV, Movies,
+Series, Favourites, TV Guide, Recent, Add playlist, Settings — so the thing
+you want is one press away instead of a scroll. It appears only where there
+is width for it; on a phone the top bar still does the job and the content
+keeps the full screen.
+
+Below the hero: six section tiles, each counting what is actually loaded, and
+then rails of real thumbnails — films, series and channels, favourites first.
+Every thumbnail is a button that opens that title. Cards for features the
+playlist does not have are gone from the home screen rather than sitting
+there saying "Not in playlist".
+
+The hero's backdrop is drawn, not downloaded: an SVG dusk ridge line in
+Telly's own palette, a couple of kilobytes, no network request, sharp on a 4K
+panel. It fades out the moment a channel is playing behind it.
+
+Older Smart TV browsers have no `aspect-ratio`. Without a fallback the
+thumbnails collapse to nothing and a full library looks like an empty one, so
+there is one.
+
 ## Channels, films and series are three different things
 
 A channel showing a film is not a film. FilmRise Movies plays whatever it is
@@ -110,9 +132,15 @@ feature films held by the Internet Archive, indexed as M3U by
 [streamfeeds](https://streamfeeds.github.io/web/) and split by language.
 Those are films, so they fill the Movies tab and leave Live TV empty.
 
-Channel lists carry live streams only, so with one of those loaded the Movies
-and Series tabs are empty — and say why, pointing at the film channels in
-Live TV instead of sitting blank.
+With a channel list loaded, the Movies and Series tabs show that source's
+film and box-set channels instead, under one line saying what they are and a
+way through to Live TV. They are counted as channels and drawn as logo tiles,
+and pressing one plays it — they are not titles and are not pretended to be.
+A tab that explains why it is empty, on a source holding 178 film channels, is
+a worse answer than showing the 178.
+
+Only when a source has neither a library nor any channel that looks like one
+does the tab say there is nothing.
 
 On-demand titles play from the start and seek, so they are never labelled
 "Live". A container a browser will not open — `.mkv`, `.avi` and the rest —
