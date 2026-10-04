@@ -177,9 +177,34 @@ body.playing #backdrop{opacity:.12}
 .nv:hover{background:var(--glass);color:var(--txt)}
 .nv.on{background:var(--gold-dim);border-color:rgba(231,193,122,.34);color:var(--gold)}
 .nv.on .ic{color:var(--gold)}
-@media (min-width:900px) and (orientation:landscape){
-  :root{--rail-w:clamp(150px,13vw,230px)}
+@media (orientation:landscape){
+  :root{--rail-w:clamp(132px,13vw,230px)}
   #rail{display:flex}
+}
+/* the secondary half of the rail, below the six the layout leads with */
+.nvgap{height:1px;background:var(--line);margin:10px 6px}
+.nv.sm{padding:9px 13px;font-size:clamp(11px,.78vw,13px);color:var(--faint)}
+.nv.sm .ic{font-size:clamp(14px,1vw,18px)}
+.nv.sm:hover{color:var(--txt)}
+
+/* ---------------- landscape only ----------------
+   Portrait gets one screen: turn it round. Everything behind it keeps its
+   state, so rotating back lands exactly where you were. */
+#rotate{
+  position:fixed;inset:0;z-index:40;display:none;
+  flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  text-align:center;padding:32px;background:var(--ink);
+}
+#rotate > .ic{font-size:64px;color:var(--gold);stroke-width:1.3;
+  animation:tilt 2.6s var(--ease) infinite}
+@keyframes tilt{0%,55%,100%{transform:rotate(0)}25%,45%{transform:rotate(-90deg)}}
+.no-motion #rotate > .ic{animation:none}
+#rotate h2{font-size:clamp(20px,5vw,30px);font-weight:700;letter-spacing:-.01em}
+#rotate p{color:var(--dim);font-size:clamp(13px,3.4vw,16px);max-width:34ch;line-height:1.55}
+@media (orientation:portrait){
+  #rotate{display:flex}
+  /* nothing behind it should be reachable, or focus lands off-screen */
+  #chrome,#stage,#rail,#playerLayer,#backdrop{visibility:hidden}
 }
 
 #stage{position:fixed;inset:0;z-index:6}
@@ -307,8 +332,7 @@ body.playing #backdrop{opacity:.12}
 .sec-h span{color:var(--faint);font-size:clamp(11px,.82vw,14px)}
 /* ---------------- home: section tiles ----------------
    Big, flat, obvious: the thing you came to open, one press away. */
-.sections{display:grid;gap:var(--gap);
-  grid-template-columns:repeat(auto-fit,minmax(clamp(150px,13vw,230px),1fr))}
+.sections{display:grid;gap:var(--gap);grid-template-columns:repeat(5,minmax(0,1fr))}
 /* Each section carries its own colour, so the row reads at ten feet as five
    destinations rather than five grey rectangles. The hues are deep enough to
    sit in a dark room without glowing. */
@@ -1081,14 +1105,24 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <button class="nv f" data-f data-go="movies"><svg class="ic"><use href="#i-movies"/></svg><span class="nvt">Movies</span></button>
   <button class="nv f" data-f data-go="series"><svg class="ic"><use href="#i-series"/></svg><span class="nvt">Series</span></button>
   <button class="nv f" data-f data-go="sport"><svg class="ic"><use href="#i-sport"/></svg><span class="nvt">Sport</span></button>
-  <button class="nv f" data-f data-go="news"><svg class="ic"><use href="#i-news"/></svg><span class="nvt">News</span></button>
-  <button class="nv f" data-f data-go="favourites"><svg class="ic"><use href="#i-star"/></svg><span class="nvt">Favourites</span></button>
-  <button class="nv f" data-f data-go="guide"><svg class="ic"><use href="#i-guide"/></svg><span class="nvt">TV Guide</span></button>
-  <button class="nv f" data-f data-go="recent"><svg class="ic"><use href="#i-clock"/></svg><span class="nvt">Recent</span></button>
-  <div style="flex:1"></div>
-  <button class="nv f" data-f data-go="playlist"><svg class="ic"><use href="#i-plus"/></svg><span class="nvt">Add playlist</span></button>
   <button class="nv f" data-f data-go="settings"><svg class="ic"><use href="#i-settings"/></svg><span class="nvt">Settings</span></button>
+  <div class="nvgap"></div>
+  <button class="nv sm f" data-f data-go="news"><svg class="ic"><use href="#i-news"/></svg><span class="nvt">News</span></button>
+  <button class="nv sm f" data-f data-go="favourites"><svg class="ic"><use href="#i-star"/></svg><span class="nvt">Favourites</span></button>
+  <button class="nv sm f" data-f data-go="guide"><svg class="ic"><use href="#i-guide"/></svg><span class="nvt">TV Guide</span></button>
+  <button class="nv sm f" data-f data-go="recent"><svg class="ic"><use href="#i-clock"/></svg><span class="nvt">Recent</span></button>
+  <div style="flex:1"></div>
+  <button class="nv sm f" data-f data-go="playlist"><svg class="ic"><use href="#i-plus"/></svg><span class="nvt">Add playlist</span></button>
 </nav>
+
+<!-- Landscape only: this is a ten-foot layout, and squeezed into a portrait
+     phone it is neither that nor a good phone app. -->
+<div id="rotate" aria-live="polite">
+  <svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="7" width="17" height="10" rx="2.2"/><path d="M8 3.5h8M8 20.5h8"/></svg>
+  <h2>Turn your device sideways</h2>
+  <p>Telly is built for a landscape screen — a television, a tablet on its side, or a phone turned round.</p>
+  <button class="btn gold f" data-f id="goFull"><svg class="ic"><use href="#i-expand"/></svg>Full screen</button>
+</div>
 
 <main id="stage">
 
@@ -1145,18 +1179,16 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <span class="si"><svg class="ic"><use href="#i-news"/></svg></span>
         <span class="st">News</span><span class="ss" id="cNews">—</span>
       </button>
-      <button class="sect f" data-f data-go="favourites">
-        <span class="si"><svg class="ic"><use href="#i-star"/></svg></span>
-        <span class="st">Favourites</span><span class="ss" id="cFav">None yet</span>
-      </button>
-      <button class="sect f" data-f data-go="guide">
-        <span class="si"><svg class="ic"><use href="#i-guide"/></svg></span>
-        <span class="st">TV Guide</span><span class="ss" id="cGuide">Line-up</span>
-      </button>
-      <button class="sect f" data-f data-go="playlist">
-        <span class="si"><svg class="ic"><use href="#i-plus"/></svg></span>
-        <span class="st">Add playlist</span><span class="ss" id="exploreSub">URL · File · Xtream</span>
-      </button>
+    </div>
+
+    <!-- The one rail the reference shows: whatever is worth opening first. -->
+    <div id="popWrap" hidden>
+      <div class="sec-h"><h2>Popular Now</h2><span id="popMore"></span></div>
+      <div class="rail" id="popRail"></div>
+    </div>
+
+    <div hidden>
+      <span id="cFav"></span><span id="cGuide"></span><span id="exploreSub"></span>
     </div>
 
     <div id="recentWrap" hidden>
@@ -2330,6 +2362,19 @@ function setScene(key){
   if (hero) hero.setAttribute('href', '#sc-' + want);
 }
 
+/* Orientation can only be locked from fullscreen, and only on the browsers
+   that implement it. Try, and never let a refusal throw. */
+async function goFullscreen(){
+  try {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) await req.call(el);
+    if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
+  } catch(e){ /* a desktop browser, or a refusal: the rotate screen still asks */ }
+}
+const fullBtn = $('#goFull');
+if (fullBtn) fullBtn.onclick = goFullscreen;
+
 function back(){
   if (state.full){ setFull(false); return; }
   if (state.screen === 'home'){ return; }
@@ -2422,7 +2467,43 @@ function fillRail(wrapId, railId, moreId, list, total, opts){
   rail.appendChild(frag);
 }
 
+/* The one rail the layout leads with: whatever is worth opening first.
+   Favourites, then what was watched recently, then films, then the channel
+   list — deduplicated, because a favourite you watched an hour ago should
+   take one slot, not three. */
+function renderPopRail(){
+  const seen = new Set(), pick = [];
+  const take = (list, open, sub) => {
+    for (const it of list){
+      if (pick.length >= 18) return;
+      if (seen.has(it.id)) continue;
+      seen.add(it.id);
+      pick.push({ it, open, sub });
+    }
+  };
+  const playIt = it => { play(it); go('live'); };
+  take(state.channels.filter(c => state.favs.has(c.id)), playIt, c => 'Favourite · ' + c.group);
+  take(state.recent.map(id => channelById(id) || onDemandItem(id)).filter(Boolean),
+       it => (isOnDemand(it) ? openTitle(it) : playIt(it)), it => 'Watched · ' + it.group);
+  take(state.movies, it => openTitle(it), m => m.year ? String(m.year) + ' · ' + m.group : m.group);
+  take(state.series, it => openTitle(it),
+       sh => sh.episodes ? fmt(sh.episodes.length) + ' episodes' : sh.group);
+  take(state.channels, playIt, c => c.group);
+
+  const wrap = $('#popWrap'), rail = $('#popRail');
+  wrap.hidden = pick.length === 0;
+  rail.innerHTML = '';
+  if (!pick.length) return;
+  $('#popMore').textContent = fmt(pick.length);
+  const frag = document.createDocumentFragment();
+  pick.forEach(row => frag.appendChild(railTile(row.it, {
+    sub: row.sub, open: () => row.open(row.it)
+  })));
+  rail.appendChild(frag);
+}
+
 function renderHomeRails(){
+  renderPopRail();
   /* Same rule as the tabs: show the film and box-set channels when there is
      no library, and say so in the heading rather than leaving a gap. */
   const fc = filmChannels(), sc = seriesChannels();

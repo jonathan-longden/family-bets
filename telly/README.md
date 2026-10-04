@@ -59,18 +59,31 @@ Both network options need the server to allow cross-origin requests, since
 the browser fetches the playlist directly. If a server refuses, save the
 playlist and use the File option, which always works.
 
+## Landscape only
+
+Telly is a ten-foot layout: a rail down one side, a banner, a row of
+sections, rails of artwork. Squeezed into a portrait phone it is neither that
+nor a good phone app, so portrait gets one screen asking you to turn the
+device round, with a full-screen button — which on a phone is also the only
+way a browser will let the orientation be locked at all.
+
+Nothing is torn down behind it. Turning the device back lands exactly where
+you were.
+
 ## The home screen
 
-A side rail down the left carries every section — Home, Live TV, Movies,
-Series, Favourites, TV Guide, Recent, Add playlist, Settings — so the thing
-you want is one press away instead of a scroll. It appears only where there
-is width for it; on a phone the top bar still does the job and the content
-keeps the full screen.
+A side rail down the left leads with Home, Live TV, Movies, Series, Sport and
+Settings, with News, Favourites, TV Guide, Recent and Add playlist below a
+divider — everything one press away instead of a scroll. It shows in any
+landscape window, a phone on its side included.
 
-Below the hero: eight section tiles — Live TV, Movies, Series, Sport, News,
-Favourites, TV Guide, Add playlist — each in its own colour so the row reads
-as destinations at ten feet rather than as a grid of grey rectangles, and each
-counting what is actually loaded. Then rails of real thumbnails — films, series and channels, favourites first.
+Below the hero: one row of five section tiles — Live TV, Movies, Series,
+Sport, News — each in its own colour so the row reads as destinations at ten
+feet rather than as a grid of grey rectangles, and each counting what is
+actually loaded. Then **Popular Now**: favourites first, then what you watched
+recently, then films, then series, then the channel list, deduplicated so a
+favourite you watched an hour ago takes one slot rather than three. Then rails
+of real thumbnails — films, series and channels, favourites first.
 Every thumbnail is a button that opens that title. Cards for features the
 playlist does not have are gone from the home screen rather than sitting
 there saying "Not in playlist".
