@@ -67,8 +67,10 @@ you want is one press away instead of a scroll. It appears only where there
 is width for it; on a phone the top bar still does the job and the content
 keeps the full screen.
 
-Below the hero: six section tiles, each counting what is actually loaded, and
-then rails of real thumbnails — films, series and channels, favourites first.
+Below the hero: eight section tiles — Live TV, Movies, Series, Sport, News,
+Favourites, TV Guide, Add playlist — each in its own colour so the row reads
+as destinations at ten feet rather than as a grid of grey rectangles, and each
+counting what is actually loaded. Then rails of real thumbnails — films, series and channels, favourites first.
 Every thumbnail is a button that opens that title. Cards for features the
 playlist does not have are gone from the home screen rather than sitting
 there saying "Not in playlist".
@@ -105,11 +107,19 @@ film is worse than a missing row.
 
 So:
 
-- **Live TV** holds every channel, and the ones that run films or box sets
-  round the clock get two headings of their own — **Film channels** and
-  **Series channels** — pinned above the rest and listed in the sidebar.
-  They still appear under their own group titles further down, exactly as a
-  favourite does.
+- **Live TV** holds every channel, and four headings Telly works out rather
+  than reads sit pinned above the rest and in the sidebar: **Film channels**,
+  **Series channels**, **Sport** and **News**. Channels still appear under
+  their own group titles further down, exactly as a favourite does, and one
+  channel can be in two of these — Sky Sports News is both.
+
+  Film and series are read from the group title. Sport and news are read from
+  the group title *and* the channel name, because a provider that files Sky
+  Sports under "UK | ENTERTAINMENT" has still named it, and a section that
+  misses it is worse than no section.
+
+  Sport and News are not screens of their own: pressing either opens Live TV
+  already filtered.
 - **Movies** holds films you choose and play, with a year where the source
   gives one or the title carries one.
 - **Series** holds shows. Opening one lists its seasons and episodes; Xtream

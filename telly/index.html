@@ -218,7 +218,7 @@ h1,h2,h3,p{margin:0}
 #home > *{flex:0 0 auto}
 .hero{
   position:relative;border-radius:var(--r-xl);overflow:hidden;
-  min-height:clamp(280px,46vh,560px);display:flex;align-items:flex-end;
+  min-height:clamp(190px,32vh,380px);display:flex;align-items:flex-end;
   border:1px solid var(--line);background:transparent;
   box-shadow:0 40px 120px -40px rgba(0,0,0,.95);
   isolation:isolate;
@@ -295,29 +295,46 @@ h1,h2,h3,p{margin:0}
    Big, flat, obvious: the thing you came to open, one press away. */
 .sections{display:grid;gap:var(--gap);
   grid-template-columns:repeat(auto-fit,minmax(clamp(150px,13vw,230px),1fr))}
+/* Each section carries its own colour, so the row reads at ten feet as five
+   destinations rather than five grey rectangles. The hues are deep enough to
+   sit in a dark room without glowing. */
 .sect{
+  --accent:#e7c17a; --accent-2:#b98c3e;
   position:relative;overflow:hidden;border-radius:var(--r-lg);
   padding:clamp(14px,1.4vw,24px);text-align:left;
   display:flex;flex-direction:column;gap:6px;
   min-height:clamp(118px,15vh,186px);
-  background:linear-gradient(160deg,rgba(255,255,255,.085),rgba(255,255,255,.03));
-  border:1px solid var(--line);
+  background:linear-gradient(155deg,var(--accent),var(--accent-2));
+  border:1px solid rgba(255,255,255,.14);
   box-shadow:0 20px 50px -30px rgba(0,0,0,.9);
+  color:#fff;
 }
+.sect[data-go="live"]   {--accent:#2f6df6; --accent-2:#1b3f9e}
+.sect[data-go="movies"] {--accent:#e0384a; --accent-2:#8f1d2c}
+.sect[data-go="series"] {--accent:#1f9d5a; --accent-2:#11603a}
+.sect[data-go="sport"]  {--accent:#f08a1d; --accent-2:#9c5207}
+.sect[data-go="news"]   {--accent:#8048e0; --accent-2:#4a248c}
+.sect[data-go="favourites"]{--accent:#d8a33c; --accent-2:#8a6113}
+.sect[data-go="guide"]  {--accent:#2b8fa8; --accent-2:#145668}
+.sect[data-go="playlist"]{--accent:#4a5465; --accent-2:#272d38}
+/* A sheen that lifts on focus, rather than a colour change that would
+   undo the point of giving each one a colour. */
 .sect::after{
   content:"";position:absolute;inset:0;opacity:0;transition:opacity .35s var(--ease);
-  background:radial-gradient(120% 90% at 14% 0%,rgba(231,193,122,.22),transparent 58%);
+  background:linear-gradient(155deg,rgba(255,255,255,.26),transparent 62%);
 }
 .sect:hover::after,.sect.kfocus::after,.sect:focus-visible::after{opacity:1}
 .sect .si{
-  width:clamp(36px,3vw,52px);height:clamp(36px,3vw,52px);border-radius:14px;
+  width:clamp(36px,3vw,52px);height:clamp(36px,3vw,52px);border-radius:50%;
   display:grid;place-items:center;margin-bottom:auto;
-  background:var(--gold-dim);border:1px solid rgba(231,193,122,.26);
+  background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);
 }
-.sect .si .ic{font-size:clamp(17px,1.4vw,25px);color:var(--gold);stroke-width:1.5}
-.sect .st{font-size:clamp(15px,1.25vw,23px);font-weight:650;letter-spacing:-.01em;line-height:1.15}
-.sect .ss{color:var(--faint);font-size:clamp(11px,.8vw,14px);font-weight:500;
+.sect .si .ic{font-size:clamp(17px,1.4vw,25px);color:#fff;stroke-width:1.6}
+.sect .st{font-size:clamp(15px,1.25vw,23px);font-weight:700;letter-spacing:-.01em;line-height:1.15;
+  text-shadow:0 1px 10px rgba(0,0,0,.3)}
+.sect .ss{color:rgba(255,255,255,.82);font-size:clamp(11px,.8vw,14px);font-weight:500;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sect .minirail .mt{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.22);color:#fff}
 .minirail{display:flex;gap:7px;flex-wrap:wrap;max-width:88%;margin-bottom:6px}
 .minirail .mt{
   width:clamp(30px,2.6vw,44px);height:clamp(30px,2.6vw,44px);border-radius:10px;flex:0 0 auto;
@@ -856,6 +873,8 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
   <symbol id="i-chev-l" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></symbol>
   <symbol id="i-home" viewBox="0 0 24 24"><path d="M3.5 10.5 12 3.5l8.5 7"/><path d="M5.5 9.5v10h13v-10"/></symbol>
+  <symbol id="i-sport" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.6"/><path d="M12 3.4v17.2M3.4 12h17.2"/><path d="M5.9 5.9c3.4 3.4 8.8 3.4 12.2 0M5.9 18.1c3.4-3.4 8.8-3.4 12.2 0"/></symbol>
+  <symbol id="i-news" viewBox="0 0 24 24"><path d="M4 5.5h13v13H4z"/><path d="M17 9h3v7.5a2 2 0 0 1-2 2"/><path d="M7 9h7M7 12.5h7M7 15.5h4"/></symbol>
   <symbol id="i-down" viewBox="0 0 24 24"><path d="m5 9 7 7 7-7"/></symbol>
   <symbol id="i-link" viewBox="0 0 24 24"><path d="M10.5 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 1 0-5.7-5.7l-1.6 1.6"/><path d="M13.5 10.5a4 4 0 0 0-5.7 0L5 13.3a4 4 0 1 0 5.7 5.7l1.6-1.6"/></symbol>
   <symbol id="i-file" viewBox="0 0 24 24"><path d="M13.5 3.2H7A2 2 0 0 0 5 5.2v13.6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.7z"/><path d="M13.5 3.2v5.5H19"/></symbol>
@@ -897,6 +916,8 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <button class="nv f" data-f data-go="live"><svg class="ic"><use href="#i-live"/></svg><span class="nvt">Live TV</span></button>
   <button class="nv f" data-f data-go="movies"><svg class="ic"><use href="#i-movies"/></svg><span class="nvt">Movies</span></button>
   <button class="nv f" data-f data-go="series"><svg class="ic"><use href="#i-series"/></svg><span class="nvt">Series</span></button>
+  <button class="nv f" data-f data-go="sport"><svg class="ic"><use href="#i-sport"/></svg><span class="nvt">Sport</span></button>
+  <button class="nv f" data-f data-go="news"><svg class="ic"><use href="#i-news"/></svg><span class="nvt">News</span></button>
   <button class="nv f" data-f data-go="favourites"><svg class="ic"><use href="#i-star"/></svg><span class="nvt">Favourites</span></button>
   <button class="nv f" data-f data-go="guide"><svg class="ic"><use href="#i-guide"/></svg><span class="nvt">TV Guide</span></button>
   <button class="nv f" data-f data-go="recent"><svg class="ic"><use href="#i-clock"/></svg><span class="nvt">Recent</span></button>
@@ -978,6 +999,14 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
       <button class="sect f" data-f data-go="series">
         <span class="si"><svg class="ic"><use href="#i-series"/></svg></span>
         <span class="st">Series</span><span class="ss" id="cSeries">—</span>
+      </button>
+      <button class="sect f" data-f data-go="sport">
+        <span class="si"><svg class="ic"><use href="#i-sport"/></svg></span>
+        <span class="st">Sport</span><span class="ss" id="cSport">—</span>
+      </button>
+      <button class="sect f" data-f data-go="news">
+        <span class="si"><svg class="ic"><use href="#i-news"/></svg></span>
+        <span class="st">News</span><span class="ss" id="cNews">—</span>
       </button>
       <button class="sect f" data-f data-go="favourites">
         <span class="si"><svg class="ic"><use href="#i-star"/></svg></span>
@@ -1336,7 +1365,7 @@ const state = {
   epgUrl: '', screen: 'home', full: false, colKind: 'favourites', colShown: 0, colList: [],
   /* On demand, kept apart from the channels: a film you pick is not a
      channel that happens to be showing a film. */
-  movies: [], series: [], show: null, showSeason: null
+  movies: [], series: [], show: null, showSeason: null, navKey: 'home'
 };
 let H_CH = 72, H_GRP = 50;
 
@@ -1551,11 +1580,35 @@ function splitSources(items){
    is where they belong and where they were impossible to find before. */
 const LIVE_FILM = /movie|film|cinema|kino|pelicul/i;
 const LIVE_SERIES = /serie|box ?set|drama|sitcom|tv ?show/i;
+const LIVE_SPORT = /sport|football|soccer|fussball|futbol|calcio|racing|f1|golf|tennis|cricket|rugby|boxing|ufc|wwe|nfl|nba|nhl|mlb|espn|dazn|bein|eurosport|sky ?sp/i;
+const LIVE_NEWS = /news|noticias|nachrichten|actualit|journal|cnn|bbc ?news|sky ?news|al ?jazeera|euronews|msnbc|fox ?news/i;
 const FILM_SECTION = 'Film channels';
 const SERIES_SECTION = 'Series channels';
+const SPORT_SECTION = 'Sport';
+const NEWS_SECTION = 'News';
 
 function isFilmChannel(c){ return LIVE_FILM.test(c.group) && !LIVE_SERIES.test(c.group); }
 function isSeriesChannel(c){ return LIVE_SERIES.test(c.group); }
+/* Sport and news are read from the group title and the channel name both —
+   a provider that files Sky Sports under "UK | ENTERTAINMENT" still has it
+   named, and a section that misses it is worse than no section. */
+function isSportChannel(c){ return LIVE_SPORT.test(c.group) || LIVE_SPORT.test(c.name); }
+function isNewsChannel(c){ return LIVE_NEWS.test(c.group) || LIVE_NEWS.test(c.name); }
+
+/* Headings Telly works out rather than reads: a channel keeps its own group
+   as well, exactly as a favourite appears twice. One row here is one
+   section — in the sidebar, in the pinned list, in the guide and on home. */
+const SECTIONS = [
+  { key: FILM_SECTION,   icon:'i-movies', test: isFilmChannel },
+  { key: SERIES_SECTION, icon:'i-series', test: isSeriesChannel },
+  { key: SPORT_SECTION,  icon:'i-sport',  test: isSportChannel },
+  { key: NEWS_SECTION,   icon:'i-news',   test: isNewsChannel }
+];
+const sectionByKey = (k) => SECTIONS.find(x => x.key === k) || null;
+function sectionChannels(key){
+  const sec = sectionByKey(key);
+  return sec ? state.channels.filter(sec.test) : [];
+}
 
 /* ================================================================
    XTREAM CODES — unchanged logic
@@ -1760,7 +1813,7 @@ function setChannels(chans){
   const order = [], seen = new Set();
   for (const c of chans) if (!seen.has(c.group)){ seen.add(c.group); order.push(c.group); }
   state.groups = order;
-  const synthetic = state.cat === FILM_SECTION || state.cat === SERIES_SECTION;
+  const synthetic = !!sectionByKey(state.cat);
   if (state.cat !== 'all' && state.cat !== 'fav' && !synthetic && !seen.has(state.cat)) state.cat = 'all';
   renderCategories();
   rebuild(true);
@@ -1796,11 +1849,10 @@ function rebuild(resetScroll){
   const rows = [], byGroup = new Map(), favs = [];
   let matched = 0;
 
-  const film = [], ser = [];
+  const bySection = new Map(SECTIONS.map(sec => [sec.key, []]));
   const inCat = (c) =>
     state.cat === 'all' || state.cat === 'fav' ? true
-    : state.cat === FILM_SECTION ? isFilmChannel(c)
-    : state.cat === SERIES_SECTION ? isSeriesChannel(c)
+    : sectionByKey(state.cat) ? sectionByKey(state.cat).test(c)
     : c.group === state.cat;
 
   for (const c of state.channels){
@@ -1809,8 +1861,9 @@ function rebuild(resetScroll){
     if (state.cat === 'fav' && !state.favs.has(c.id)) continue;
     matched++;
     if (state.favs.has(c.id)) favs.push(c);
-    if (isFilmChannel(c)) film.push(c);
-    else if (isSeriesChannel(c)) ser.push(c);
+    /* A channel can be in more than one of these — Sky Sports News is both —
+       and that is fine: each section is its own heading. */
+    for (const sec of SECTIONS) if (sec.test(c)) bySection.get(sec.key).push(c);
     let arr = byGroup.get(c.group);
     if (!arr){ arr = []; byGroup.set(c.group, arr); }
     arr.push(c);
@@ -1828,14 +1881,12 @@ function rebuild(resetScroll){
     /* Film and box-set channels pinned above the rest. They are still
        channels and still appear under their own group titles further
        down, exactly as a favourite does. */
-    pushGroup(FILM_SECTION, film, false);
-    pushGroup(SERIES_SECTION, ser, false);
+    SECTIONS.forEach(sec => pushGroup(sec.key, bySection.get(sec.key), false));
     for (const g of state.groups) pushGroup(g, byGroup.get(g), false);
   } else {
     // a single category is already one heading in the sidebar: show it flat
     const list = state.cat === 'fav' ? favs
-      : state.cat === FILM_SECTION ? film
-      : state.cat === SERIES_SECTION ? ser
+      : sectionByKey(state.cat) ? (bySection.get(state.cat) || [])
       : (byGroup.get(state.cat) || []);
     for (const c of list) rows.push({ t:'c', c, fav:state.cat === 'fav' });
   }
@@ -2000,9 +2051,10 @@ function renderCategories(){
   /* Channels that run films or box sets round the clock, gathered under
      one heading. The Movies and Series tabs are for titles you choose;
      these are channels, so they live here. */
-  const film = filmChannels(), ser = seriesChannels();
-  if (film.length) mk(FILM_SECTION, FILM_SECTION, 'i-movies', film.length);
-  if (ser.length) mk(SERIES_SECTION, SERIES_SECTION, 'i-series', ser.length);
+  SECTIONS.forEach(sec => {
+    const n = sectionChannels(sec.key).length;
+    if (n) mk(sec.key, sec.key, sec.icon, n);
+  });
   const counts = new Map();
   for (const c of state.channels) counts.set(c.group, (counts.get(c.group) || 0) + 1);
   for (const g of state.groups) mk(g, g, 'i-tv', counts.get(g));
@@ -2086,6 +2138,17 @@ const TITLES = {
 
 function go(name, opts){
   opts = opts || {};
+  /* Sport and News are headings Telly works out from the channels, so they
+     open Live TV already filtered rather than being screens of their own. */
+  if (name === 'sport' || name === 'news'){
+    selectCat(name === 'sport' ? SPORT_SECTION : NEWS_SECTION);
+    go('live');
+    // after the inner go, which would otherwise light up Live TV instead
+    state.navKey = name;
+    $$('#rail .nv').forEach(b => b.classList.toggle('on', b.dataset.go === name));
+    return;
+  }
+  state.navKey = name;
   const screenName = ['movies','series','favourites','recent'].includes(name) ? 'collection'
                    : ['catchup','recordings'].includes(name) ? 'shelf' : name;
 
@@ -2104,7 +2167,7 @@ function go(name, opts){
 
   /* The rail shows where you are. "movies" and "series" both land on the
      collection screen, so match on the name asked for, not the screen. */
-  $$('#rail .nv').forEach(b => b.classList.toggle('on', b.dataset.go === name));
+  $$('#rail .nv').forEach(b => b.classList.toggle('on', b.dataset.go === state.navKey));
 
   placePlayer();
   placeSoon();
@@ -2147,6 +2210,9 @@ function refreshHome(){
   $('#cSeries').textContent = ns ? fmt(ns) + (ns === 1 ? ' series' : ' series')
     : sc ? fmt(sc) + ' box-set channel' + (sc === 1 ? '' : 's') + ' in Live TV'
     : 'No on-demand series';
+  const sp = sectionChannels(SPORT_SECTION).length, nw = sectionChannels(NEWS_SECTION).length;
+  $('#cSport').textContent = sp ? fmt(sp) + ' channel' + (sp === 1 ? '' : 's') : 'None found';
+  $('#cNews').textContent = nw ? fmt(nw) + ' channel' + (nw === 1 ? '' : 's') : 'None found';
   $('#cRecent').textContent = state.recent.length
     ? fmt(state.recent.length) + (state.recent.length === 1 ? ' channel' : ' channels') : 'Nothing yet';
   const rail = $('#liveRail');
@@ -2644,8 +2710,7 @@ function renderGuide(){
      synthetic ones, which are not real group titles. */
   const pool =
     state.cat === 'all' || state.cat === 'fav' ? state.channels
-    : state.cat === FILM_SECTION ? filmChannels()
-    : state.cat === SERIES_SECTION ? seriesChannels()
+    : sectionByKey(state.cat) ? sectionChannels(state.cat)
     : state.channels.filter(c => c.group === state.cat);
   const list = pool.slice(0, 40);
   if (!list.length){
