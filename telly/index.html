@@ -480,6 +480,11 @@ h1,h2,h3,p{margin:0}
 .pcard .cap i{font-style:normal;color:var(--faint);font-size:clamp(10px,.76vw,12px);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
 .pcard .fav{position:absolute;top:8px;right:8px;color:var(--gold);font-size:16px;text-shadow:0 2px 8px #000}
 
+.colnote{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:0 0 clamp(14px,2vh,22px);
+  padding:12px 16px;border-radius:14px;background:var(--glass);border:1px solid var(--line);
+  color:var(--dim);font-size:clamp(11px,.84vw,14px)}
+.colnote span{min-width:0;flex:1}
+
 /* ---------------- poster wall (films and series) ----------------
    A channel is a logo on a tile; a film is artwork. Posters are 2:3,
    fill their tile, and carry their title over a scrim rather than under
@@ -994,12 +999,12 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
     </div>
 
     <div id="filmWrap" hidden>
-      <div class="sec-h"><h2>Films</h2><span id="filmMore"></span></div>
+      <div class="sec-h"><h2 id="filmHead">Films</h2><span id="filmMore"></span></div>
       <div class="rail posterrail" id="filmRail"></div>
     </div>
 
     <div id="showWrap" hidden>
-      <div class="sec-h"><h2>Series</h2><span id="showMore"></span></div>
+      <div class="sec-h"><h2 id="showHead">Series</h2><span id="showMore"></span></div>
       <div class="rail posterrail" id="showRail"></div>
     </div>
 
@@ -1071,6 +1076,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <!-- ============ COLLECTION (movies / series / favourites / recent) ============ -->
   <section class="screen" id="collection" data-screen="collection">
     <div class="sec-h"><h2 id="colTitle">Collection</h2><span id="colSub"></span></div>
+    <div class="colnote" id="colNote" hidden><span id="colNoteText"></span><button class="btn f" data-f id="colNoteGo"></button></div>
     <div class="grid" id="colGrid"></div>
     <div class="empty" id="colEmpty" hidden></div>
     <div style="display:flex;justify-content:center;padding:24px 0">
@@ -2181,6 +2187,7 @@ function railTile(item, opts){
 function fillRail(wrapId, railId, moreId, list, total, opts){
   const wrap = $(wrapId), rail = $(railId), more = moreId ? $(moreId) : null;
   if (!wrap || !rail) return;
+  if (opts.poster !== undefined) rail.classList.toggle('posterrail', !!opts.poster);
   wrap.hidden = list.length === 0;
   rail.innerHTML = '';
   if (!list.length) return;
@@ -2195,13 +2202,23 @@ function fillRail(wrapId, railId, moreId, list, total, opts){
 }
 
 function renderHomeRails(){
-  fillRail('#filmWrap', '#filmRail', '#filmMore', state.movies.slice(0, 18), state.movies.length, {
+  /* Same rule as the tabs: show the film and box-set channels when there is
+     no library, and say so in the heading rather than leaving a gap. */
+  const fc = filmChannels(), sc = seriesChannels();
+  const filmList = state.movies.length ? state.movies : fc;
+  const showList = state.series.length ? state.series : sc;
+  $('#filmHead').textContent = state.movies.length ? 'Films' : 'Film channels';
+  $('#showHead').textContent = state.series.length ? 'Series' : 'Series channels';
+
+  fillRail('#filmWrap', '#filmRail', '#filmMore', filmList.slice(0, 18), filmList.length, {
+    poster: !!state.movies.length,
     sub: m => m.year ? String(m.year) + ' · ' + m.group : m.group,
-    open: m => openTitle(m)
+    open: m => state.movies.length ? openTitle(m) : (play(m), go('live'))
   });
-  fillRail('#showWrap', '#showRail', '#showMore', state.series.slice(0, 18), state.series.length, {
+  fillRail('#showWrap', '#showRail', '#showMore', showList.slice(0, 18), showList.length, {
+    poster: !!state.series.length,
     sub: sh => sh.episodes ? fmt(sh.episodes.length) + (sh.episodes.length === 1 ? ' episode' : ' episodes') : sh.group,
-    open: sh => openTitle(sh)
+    open: sh => state.series.length ? openTitle(sh) : (play(sh), go('live'))
   });
   /* Favourites first, because those are the channels somebody chose. */
   const favs = state.channels.filter(c => state.favs.has(c.id));
@@ -2334,9 +2351,19 @@ function collectionList(kind){
   if (kind === 'recent'){
     return state.recent.map(id => channelById(id) || onDemandItem(id)).filter(Boolean);
   }
-  if (kind === 'movies') return state.movies;
-  if (kind === 'series') return state.series;
+  /* No on-demand library? Then show the channels that run films or box sets
+     round the clock. They are not the same thing and the note above the grid
+     says so — but a tab that explains why it is empty, on a source holding
+     178 film channels, is a worse answer than showing the 178. */
+  if (kind === 'movies') return state.movies.length ? state.movies : filmChannels();
+  if (kind === 'series') return state.series.length ? state.series : seriesChannels();
   return [];
+}
+
+/* True when the list is channels standing in for a library Telly does not have. */
+function colIsFallback(){
+  return (state.colKind === 'movies' && !state.movies.length && filmChannels().length > 0) ||
+         (state.colKind === 'series' && !state.series.length && seriesChannels().length > 0);
 }
 
 function openCollection(kind){
@@ -2348,42 +2375,44 @@ function openCollection(kind){
   const noun = kind === 'movies' ? ['film', 'films']
     : kind === 'series' ? ['series', 'series']
     : ['channel', 'channels'];
+  const fallback = colIsFallback();
+  const unit = fallback ? ['channel', 'channels'] : noun;
   $('#colSub').textContent = state.colList.length
-    ? fmt(state.colList.length) + ' ' + (state.colList.length === 1 ? noun[0] : noun[1]) : '';
+    ? fmt(state.colList.length) + ' ' + (state.colList.length === 1 ? unit[0] : unit[1]) : '';
   $('#colGrid').innerHTML = '';
+
+  /* One line above the grid, not a page instead of it. */
+  const note = $('#colNote');
+  if (fallback){
+    const section = kind === 'movies' ? FILM_SECTION : SERIES_SECTION;
+    $('#colNoteText').textContent = 'This source has no on-demand ' +
+      (kind === 'movies' ? 'films' : 'series') + ', so these are its round-the-clock ' +
+      (kind === 'movies' ? 'film' : 'box-set') + ' channels — you watch what is on rather than picking.';
+    const b = $('#colNoteGo');
+    b.innerHTML = svg('i-live') + 'See them in Live TV';
+    b.onclick = () => { selectCat(section); go('live'); };
+    note.hidden = false;
+  } else {
+    note.hidden = true;
+  }
+
   const none = state.colList.length === 0;
   $('#colEmpty').hidden = !none;
   $('#colGrid').hidden = none;
   if (none){
-    const linear = kind === 'movies' ? filmChannels().length
-      : kind === 'series' ? seriesChannels().length : 0;
     const thing = kind === 'movies' ? 'films' : 'series';
-    const section = kind === 'movies' ? FILM_SECTION : SERIES_SECTION;
-
     const why = kind === 'favourites'
       ? 'Star a channel anywhere in Telly and it appears here, and at the top of the channel list.'
       : kind === 'recent'
       ? 'Channels you watch show up here so you can jump straight back in.'
       : !state.channels.length && !state.movies.length && !state.series.length
       ? 'Load a playlist first — Telly does not come with any channels.'
-      : linear
-      ? 'This tab is for ' + thing + ' you pick and play, the way a streaming service works. ' +
-        'This source has none — but it does have ' + fmt(linear) + ' round-the-clock ' +
-        (kind === 'movies' ? 'film' : 'box-set') + ' channel' + (linear === 1 ? '' : 's') +
-        ', which are channels rather than titles. They are in Live TV under “' + section + '”.'
-      : 'This tab is for ' + thing + ' you pick and play. Free channel lists carry live streams ' +
-        'only, so there are none here. An Xtream account with a ' +
+      : 'This tab is for ' + thing + ' you pick and play. This source carries live streams only, ' +
+        'and none of its categories look like ' + thing + ' either. An Xtream account with a ' +
         (kind === 'movies' ? 'film' : 'series') + ' library fills this tab from the server.';
 
     $('#colEmpty').innerHTML = '<div class="big">' + svg(kind === 'favourites' ? 'i-star' : kind === 'recent' ? 'i-clock' : KIND[kind].icon) +
       '</div><h3>Nothing to show</h3><p>' + why + '</p>';
-    if (linear){
-      const b = document.createElement('button');
-      b.className = 'btn gold f'; b.dataset.f = '';
-      b.innerHTML = svg('i-live') + 'Open ' + section.toLowerCase();
-      b.onclick = () => { selectCat(section); go('live'); };
-      $('#colEmpty').appendChild(b);
-    }
     $('#colMore').hidden = true;
     return;
   }
@@ -2534,7 +2563,10 @@ function moreCollection(){
   const grid = $('#colGrid');
   /* Films and series are artwork, so they get the poster wall. Channels are
      logos, which do not survive being cropped to 2:3, so they keep tiles. */
-  const posters = state.colKind === 'movies' || state.colKind === 'series';
+  const fallback = colIsFallback();
+  // channels standing in for a library are still channels: logo tiles, and
+  // pressing one plays it rather than opening a title screen it does not have
+  const posters = (state.colKind === 'movies' || state.colKind === 'series') && !fallback;
   grid.classList.toggle('posters', posters);
   const chunk = state.colList.slice(state.colShown, state.colShown + 60);
   const frag = document.createDocumentFragment();
@@ -2558,7 +2590,7 @@ function moreCollection(){
     }
     b.querySelector('b').textContent = ch.name;
 
-    const isShow = state.colKind === 'series';
+    const isShow = state.colKind === 'series' && !fallback;
     if (posters){
       const play = document.createElement('span');
       play.className = 'pplay';

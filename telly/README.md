@@ -132,9 +132,15 @@ feature films held by the Internet Archive, indexed as M3U by
 [streamfeeds](https://streamfeeds.github.io/web/) and split by language.
 Those are films, so they fill the Movies tab and leave Live TV empty.
 
-Channel lists carry live streams only, so with one of those loaded the Movies
-and Series tabs are empty — and say why, pointing at the film channels in
-Live TV instead of sitting blank.
+With a channel list loaded, the Movies and Series tabs show that source's
+film and box-set channels instead, under one line saying what they are and a
+way through to Live TV. They are counted as channels and drawn as logo tiles,
+and pressing one plays it — they are not titles and are not pretended to be.
+A tab that explains why it is empty, on a source holding 178 film channels, is
+a worse answer than showing the 178.
+
+Only when a source has neither a library nor any channel that looks like one
+does the tab say there is nothing.
 
 On-demand titles play from the start and seek, so they are never labelled
 "Live". A container a browser will not open — `.mkv`, `.avi` and the rest —
