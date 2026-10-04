@@ -51,13 +51,51 @@ existed.
 - **M3U URL** — a link to an `.m3u` / `.m3u8` playlist.
 - **File** — a `.m3u` from the device. It never leaves the device.
 - **Xtream** — server URL, username and password. Telly calls
-  `player_api.php` for the live categories and channels and builds the
-  stream URLs itself.
+  `player_api.php` for the live categories and channels, for the film
+  library and for the series library, and builds the stream URLs itself.
 - **Free channels** — a catalogue of public playlists, one tap each.
 
 Both network options need the server to allow cross-origin requests, since
 the browser fetches the playlist directly. If a server refuses, save the
 playlist and use the File option, which always works.
+
+## Channels, films and series are three different things
+
+A channel showing a film is not a film. FilmRise Movies plays whatever it is
+playing and you cannot choose; a film library is a list of titles you pick
+from. Telly keeps them apart, and it does not decide by reading group titles —
+a group called "VOD Movies (EN)" is full of channels, and calling them films
+is what filled the Movies tab with television. It decides by what the address
+is:
+
+| Address | Treated as |
+|---|---|
+| `.m3u8`, `.ts`, anything streamed | a **channel** → Live TV |
+| `/movie/…` (the Xtream convention) | a **film** → Movies |
+| `/series/…`, or a file whose name carries `S01E02`, `1x02` or `Season 1 Episode 2` | an **episode** → Series |
+| any other video file (`.mp4`, `.mkv`, …) | a **film**, unless its name says episode |
+
+So:
+
+- **Live TV** holds every channel, and the ones that run films or box sets
+  round the clock get two headings of their own — **Film channels** and
+  **Series channels** — pinned above the rest and listed in the sidebar.
+  They still appear under their own group titles further down, exactly as a
+  favourite does.
+- **Movies** holds films you choose and play, with a year where the source
+  gives one or the title carries one.
+- **Series** holds shows. Opening one lists its seasons and episodes; Xtream
+  episodes are fetched when the series is opened, not all up front.
+
+Free channel lists carry live streams only, so their Movies and Series tabs
+are empty — and say why, pointing at the film channels in Live TV instead of
+sitting blank. A film library comes from an Xtream account, or from a
+provider M3U that carries one.
+
+On-demand titles play from the start and seek, so they are never labelled
+"Live". A container a browser will not open — `.mkv`, `.avi` and the rest —
+is refused straight away with the container named, rather than after a
+twenty-second wait.
 
 ## Free channels
 
