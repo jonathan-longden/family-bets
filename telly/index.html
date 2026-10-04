@@ -441,6 +441,42 @@ h1,h2,h3,p{margin:0}
 .pcard .cap i{font-style:normal;color:var(--faint);font-size:clamp(10px,.76vw,12px);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
 .pcard .fav{position:absolute;top:8px;right:8px;color:var(--gold);font-size:16px;text-shadow:0 2px 8px #000}
 
+/* ---------------- poster wall (films and series) ----------------
+   A channel is a logo on a tile; a film is artwork. Posters are 2:3,
+   fill their tile, and carry their title over a scrim rather than under
+   it, so the wall reads as artwork with labels instead of a table. */
+.grid.posters{grid-template-columns:repeat(auto-fill,minmax(clamp(116px,10.5vw,190px),1fr));
+  gap:clamp(10px,1.1vw,20px)}
+.pcard.poster{border:1px solid var(--line);background:#0c0e14;position:relative;
+  transition:transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease), border-color var(--dur) var(--ease)}
+.pcard.poster .thumb{aspect-ratio:2/3;background:
+  radial-gradient(120% 80% at 50% 0%, rgba(255,255,255,.08), transparent 70%), #0c0e14}
+.pcard.poster .thumb img{width:100%;height:100%;object-fit:cover}
+.pcard.poster .thumb .ini{font-size:clamp(22px,2.2vw,40px);color:#2f3744}
+/* the caption sits on the poster, lifted off it by a scrim */
+.pcard.poster .cap{position:absolute;left:0;right:0;bottom:0;padding:26px 11px 10px;
+  background:linear-gradient(to top, rgba(4,5,8,.94) 18%, rgba(4,5,8,.72) 52%, transparent)}
+.pcard.poster .cap b{font-size:clamp(11px,.84vw,14px);white-space:normal;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.25}
+.pcard.poster .cap i{margin-top:2px;color:var(--dim)}
+.pcard.poster .badge{position:absolute;top:8px;left:8px;padding:3px 8px;border-radius:999px;
+  background:rgba(4,5,8,.72);border:1px solid var(--line-2);color:var(--gold);
+  font-size:clamp(9px,.66vw,11px);font-weight:700;letter-spacing:.04em}
+/* the play affordance appears on the poster you are pointing at or focused on */
+.pcard.poster .pplay{position:absolute;inset:0;display:grid;place-items:center;opacity:0;
+  background:rgba(4,5,8,.42);transition:opacity var(--dur) var(--ease)}
+.pcard.poster .pplay .ic{font-size:clamp(26px,2.6vw,44px);color:#fff;
+  filter:drop-shadow(0 4px 14px rgba(0,0,0,.6))}
+.pcard.poster:hover, .pcard.poster.kfocus{transform:translateY(-6px) scale(1.035);
+  border-color:var(--gold);box-shadow:0 18px 44px -14px rgba(0,0,0,.85), 0 0 0 1px var(--gold-dim)}
+.pcard.poster:hover .pplay, .pcard.poster.kfocus .pplay{opacity:1}
+.no-motion .pcard.poster{transition:none}
+.no-motion .pcard.poster:hover, .no-motion .pcard.poster.kfocus{transform:none}
+
+/* ---------------- one title: art, facts, plot ---------------- */
+.titlemeta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.titleacts{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+
 /* ---------------- guide ---------------- */
 .guide-head{display:flex;align-items:center;gap:14px;margin-bottom:var(--gap);flex-wrap:wrap}
 .gtimeline{display:flex;gap:0;border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--glass)}
@@ -966,6 +1002,11 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
     <div class="showwrap">
       <div class="showart"><div class="box" id="showArt"></div></div>
       <div class="showbody">
+        <div class="titlemeta" id="showMeta"></div>
+        <div class="titleacts" id="showActs" hidden>
+          <button class="btn gold f" data-f id="showPlay"><svg class="ic"><use href="#i-play"/></svg>Play</button>
+          <button class="btn f" data-f id="showFav"><svg class="ic"><use href="#i-star"/></svg><span id="showFavLabel">Favourite</span></button>
+        </div>
         <p id="showPlot" class="showplot" hidden></p>
         <div id="showSeasons" class="segs"></div>
         <div id="showEps"></div>
@@ -973,7 +1014,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
       </div>
     </div>
     <div style="display:flex;gap:10px;padding:18px 0">
-      <button class="btn f" data-f data-go="series"><svg class="ic"><use href="#i-chev-l"/></svg>All series</button>
+      <button class="btn f" data-f id="showBack"><svg class="ic"><use href="#i-chev-l"/></svg><span id="showBackLabel">All series</span></button>
     </div>
   </section>
 
@@ -2198,25 +2239,40 @@ function openCollection(kind){
    fetched the first time a series is opened and then kept. Episodes parsed
    out of an M3U are already there.
    ================================================================ */
-async function openShow(show){
-  state.show = show;
+/* One screen serves both: a film gets art, facts and a Play button, a
+   series gets the same plus its seasons. Keeping them on one screen is
+   what makes Movies and Series feel like one place rather than two. */
+async function openTitle(t){
+  const isSeries = !t.kind || t.kind === 'series' || Array.isArray(t.episodes) || t.seriesId != null;
+  state.show = t;
   state.showSeason = null;
-  $('#showTitle').textContent = show.name;
+  $('#showTitle').textContent = t.name;
   $('#showSub').textContent = '';
-  $('#showPlot').hidden = !show.plot;
-  $('#showPlot').textContent = show.plot || '';
-  fillLogo($('#showArt'), show);
+  $('#showPlot').hidden = !t.plot;
+  $('#showPlot').textContent = t.plot || '';
+  fillLogo($('#showArt'), t);
   $('#showSeasons').innerHTML = '';
   $('#showEps').innerHTML = '';
   $('#showEmpty').hidden = true;
+  $('#showBackLabel').textContent = isSeries ? 'All series' : 'All films';
+  titleMeta(t, isSeries);
   go('show');
 
-  if (!show.episodes && show.seriesId != null){
+  if (!isSeries){
+    // a film is one thing to play, so the screen is art, facts and a button
+    $('#showActs').hidden = false;
+    $('#showSub').textContent = [t.year, t.group].filter(Boolean).join(' · ');
+    syncTitleFav(t);
+    return;
+  }
+
+  $('#showActs').hidden = true;
+  if (!t.episodes && t.seriesId != null){
     $('#showSub').textContent = 'Loading episodes…';
     try {
-      show.episodes = await xcSeriesInfo(show);
+      t.episodes = await xcSeriesInfo(t);
     } catch(e){
-      show.episodes = [];
+      t.episodes = [];
       $('#showSub').textContent = '';
       $('#showEmpty').hidden = false;
       $('#showEmpty').innerHTML = '<div class="big">' + svg('i-warn') +
@@ -2224,10 +2280,51 @@ async function openShow(show){
         escapeHtml(String((e && e.message) || e)) + '</p>';
       return;
     }
-    if (state.show !== show) return;         // opened something else meanwhile
+    if (state.show !== t) return;         // opened something else meanwhile
   }
   renderShow();
 }
+
+function titleMeta(t, isSeries){
+  const wrap = $('#showMeta');
+  wrap.innerHTML = '';
+  const chips = [];
+  chips.push({ cls:'gold', t: isSeries ? 'Series' : 'Film' });
+  if (t.year) chips.push({ cls:'', t: String(t.year) });
+  if (t.rating) chips.push({ cls:'', t: '★ ' + t.rating });
+  if (t.group) chips.push({ cls:'', t: t.group });
+  if (!isSeries){
+    const c = containerOf(t.url);
+    if (c) chips.push({ cls:'', t: c.toUpperCase() });
+    if (deadContainer(t.url)) chips.push({ cls:'live', t: 'Not playable in a browser' });
+    else if (mixedBlocked(t.url)) chips.push({ cls:'live', t: 'Blocked as insecure' });
+  }
+  chips.forEach(c => {
+    const e = document.createElement('span');
+    e.className = 'chip ' + c.cls;
+    e.textContent = c.t;
+    wrap.appendChild(e);
+  });
+}
+
+function syncTitleFav(t){
+  const on = state.favs.has(t.id);
+  $('#showFav').classList.toggle('gold', on);
+  $('#showFavLabel').textContent = on ? 'Remove favourite' : 'Favourite';
+}
+
+$('#showPlay').onclick = () => { const t = state.show; if (t){ play(t); go('live'); } };
+$('#showFav').onclick = () => {
+  const t = state.show;
+  if (!t) return;
+  toggleFav(t.id);
+  syncTitleFav(t);
+};
+$('#showBack').onclick = () => {
+  const t = state.show;
+  const series = !t || !t.kind || t.kind === 'series' || Array.isArray(t.episodes) || t.seriesId != null;
+  go(series ? 'series' : 'movies');
+};
 
 function renderShow(){
   const show = state.show;
@@ -2277,11 +2374,15 @@ function renderShow(){
 
 function moreCollection(){
   const grid = $('#colGrid');
+  /* Films and series are artwork, so they get the poster wall. Channels are
+     logos, which do not survive being cropped to 2:3, so they keep tiles. */
+  const posters = state.colKind === 'movies' || state.colKind === 'series';
+  grid.classList.toggle('posters', posters);
   const chunk = state.colList.slice(state.colShown, state.colShown + 60);
   const frag = document.createDocumentFragment();
   chunk.forEach(ch => {
     const b = document.createElement('button');
-    b.className = 'pcard f'; b.dataset.f = '';
+    b.className = 'pcard f' + (posters ? ' poster' : ''); b.dataset.f = '';
     b.innerHTML = '<div class="thumb"><span class="ini"></span></div><div class="cap"><b></b><i></i></div>';
     const th = b.querySelector('.thumb'), ini = b.querySelector('.ini');
     ini.textContent = initials(ch.name);
@@ -2298,13 +2399,27 @@ function moreCollection(){
       th.appendChild(f);
     }
     b.querySelector('b').textContent = ch.name;
-    /* A series is a thing to open, not a thing to play: its caption says
-       how many episodes, and tapping it lists them. */
+
     const isShow = state.colKind === 'series';
-    b.querySelector('i').textContent = isShow
-      ? (ch.episodes ? fmt(ch.episodes.length) + (ch.episodes.length === 1 ? ' episode' : ' episodes') : ch.group)
-      : (state.colKind === 'movies' && ch.year ? ch.year + ' · ' + ch.group : ch.group);
-    b.onclick = isShow ? () => openShow(ch) : () => { play(ch); go('live'); };
+    if (posters){
+      const play = document.createElement('span');
+      play.className = 'pplay';
+      play.innerHTML = svg(isShow ? 'i-chev' : 'i-play');
+      th.appendChild(play);
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = isShow
+        ? (ch.episodes ? fmt(ch.episodes.length) + ' EP' : 'SERIES')
+        : (ch.year ? String(ch.year) : 'FILM');
+      th.appendChild(badge);
+    }
+
+    /* A series is a thing to open, not a thing to play. A film opens too:
+       its own screen has the artwork, the facts and the button. */
+    b.querySelector('i').textContent = isShow && ch.episodes
+      ? fmt(ch.episodes.length) + (ch.episodes.length === 1 ? ' episode' : ' episodes')
+      : ch.group;
+    b.onclick = posters ? () => openTitle(ch) : () => { play(ch); go('live'); };
     frag.appendChild(b);
   });
   grid.appendChild(frag);
@@ -2934,6 +3049,11 @@ const category = (slug, name, desc) => ({ g:'By category', n:name, d:desc, u:IO 
    live one; this flag is only so the row says so before you tap it. */
 const FTV = 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_';
 const ftv = (file, name, ins) => ({ g:'Free-TV — by country', n:name, d:'Hand-checked free-to-air channels for ' + name, u:FTV + file + '.m3u8', ins:!!ins });
+
+/* Country line-ups for the free ad-supported services. The global lists
+   above are everything at once; these are one country at a time. */
+const BCC = 'https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/';
+const fast = (file, name, desc) => ({ g:'Free services by country', n:name, d:desc, u:BCC + file + '.m3u' });
 const ftvTopic = (file, name, desc, ins) => ({ g:'Free-TV — by topic', n:name, d:desc, u:FTV + file + '.m3u8', ins:!!ins });
 
 const FREE = [
@@ -2981,6 +3101,23 @@ const FREE = [
   { g:'Free ad-supported services', n:'Roku Channel', d:'The Roku Channel live line-up (i.mjh.nz)', u:'https://i.mjh.nz/Roku/all.m3u8' },
   { g:'Free ad-supported services', n:'Stirr', d:'Stirr live channels (i.mjh.nz)', u:'https://i.mjh.nz/Stirr/all.m3u8' },
 
+  /* The same services split by country, which the global lists are not.
+     Generated daily from i.mjh.nz by BuddyChewChew/app-m3u-generator and
+     served from GitHub. Fetched and parsed on 4 October 2026: every one
+     answered, and every stream address in them is https. */
+  fast('plutotv_gb', 'Pluto TV — United Kingdom', '188 channels'),
+  fast('plutotv_us', 'Pluto TV — United States', '427 channels'),
+  fast('plutotv_ca', 'Pluto TV — Canada', '222 channels'),
+  fast('plex_gb', 'Plex — United Kingdom', '363 channels'),
+  fast('plex_us', 'Plex — United States', '693 channels'),
+  fast('plex_ca', 'Plex — Canada', '462 channels'),
+  fast('plex_au', 'Plex — Australia', '287 channels'),
+  fast('plex_nz', 'Plex — New Zealand', '269 channels'),
+  fast('samsungtvplus_gb', 'Samsung TV Plus — United Kingdom', '268 channels'),
+  fast('samsungtvplus_us', 'Samsung TV Plus — United States', '585 channels'),
+  fast('samsungtvplus_ca', 'Samsung TV Plus — Canada', '290 channels'),
+  fast('roku_all', 'Roku Channel — full line-up', '239 channels'),
+
   ftvTopic('zz_movies', 'Film channels', 'Round-the-clock film channels — FilmRise, Pluto, Xumo', 1),
   ftvTopic('zz_vod_it', 'Film and box sets (Italian)', 'Italian on-demand film and series channels'),
   ftvTopic('zz_news_en', 'News, business and weather', 'English-language rolling news, markets and weather'),
@@ -3017,7 +3154,7 @@ const FREE = [
 
 function freeIcon(g){
   if (g === 'By country' || g === 'Free-TV — by country') return 'i-globe';
-  if (g === 'Free ad-supported services') return 'i-tv';
+  if (g === 'Free ad-supported services' || g === 'Free services by country') return 'i-tv';
   return 'i-live';
 }
 

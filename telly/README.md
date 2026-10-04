@@ -87,6 +87,17 @@ So:
 - **Series** holds shows. Opening one lists its seasons and episodes; Xtream
   episodes are fetched when the series is opened, not all up front.
 
+Both are shown as a poster wall: 2:3 artwork that fills its tile, the title
+on a scrim over the bottom of it, a badge with the year or the episode count,
+and a play icon that appears on the one you are pointing at or have focused.
+Channels keep rectangular tiles, because a channel logo does not survive
+being cropped to a poster shape.
+
+Opening a film or a series goes to one screen either way — artwork, the facts
+as chips, a synopsis where the source sends one — and then a Play button for a
+film or the seasons for a series. A film whose container a browser cannot open
+says so on that screen before you press anything.
+
 Free channel lists carry live streams only, so their Movies and Series tabs
 are empty — and say why, pointing at the film channels in Live TV instead of
 sitting blank. A film library comes from an Xtream account, or from a
@@ -99,7 +110,7 @@ twenty-second wait.
 
 ## Free channels
 
-Telly ships a catalogue of 159 public playlists so it is useful with no
+Telly ships a catalogue of 171 public playlists so it is useful with no
 subscription at all: worldwide indexes, countries, genres, the free
 ad-supported services, and Free-TV's own splits. Filter by name or country
 and tap one; it loads exactly like a URL you typed yourself, and the URL is
@@ -120,6 +131,15 @@ error says which. The lists come from:
   documentaries in English and Arabic, and music).
 - [i.mjh.nz](https://i.mjh.nz) — line-ups for the free ad-supported
   services (Pluto TV, Samsung TV Plus, Plex, Roku, Stirr).
+- [BuddyChewChew/app-m3u-generator](https://github.com/BuddyChewChew/app-m3u-generator)
+  — the same services split by country, which the global lists are not: 12
+  line-ups covering the UK, the US, Canada, Australia and New Zealand,
+  regenerated daily from i.mjh.nz. Every one of the twelve was fetched and
+  parsed before being added, and every stream address in them is `https`.
+
+That repository reports Stirr as discontinued. Telly still lists the Stirr
+row, because it could not be checked from here — if it is dead, it will say
+so when you tap it.
 
 Nine of those rows carry a warning, because most of their streams are
 plain `http://` and this page is served over `https://`: the browser will
