@@ -187,7 +187,7 @@ twenty-second wait.
 
 ## Free channels
 
-Telly ships a catalogue of 178 public playlists so it is useful with no
+Telly ships a catalogue of 187 public playlists so it is useful with no
 subscription at all: worldwide indexes, countries, genres, the free
 ad-supported services, and Free-TV's own splits. Filter by name or country
 and tap one; it loads exactly like a URL you typed yourself, and the URL is
@@ -212,9 +212,22 @@ error says which. The lists come from:
   films held by [the Internet Archive](https://archive.org/), indexed as M3U
   and split by language: 4,971 English, 1,393 German, 1,376 Spanish, 905
   Turkish, 281 Japanese, 266 French, 128 Italian. All seven were fetched and
-  counted before being added, and every address in them is `https`. The same
-  project indexes the public broadcasters' media libraries — ARD, ZDF, 3sat,
-  ARTE, SRF, ORF — which are not in Telly yet.
+  counted before being added, and every address in them is `https`.
+
+  The same project indexes the public broadcasters' libraries, and their
+  **films** are here too: ARD (945 German, 738 international), 3sat (996 and
+  413), ZDF (323 and 167), ARTE (186 German, 145 French) and SRF (77) —
+  3,990 films, each list fetched and counted. These are licence-fee
+  television, free to watch and **mostly geo-restricted to the country that
+  paid for it**, so outside Germany, Austria, Switzerland or France a good
+  share will refuse. Every row says so.
+
+  Their **television** is not here, and that is deliberate. Those lists hold
+  281,000 individual programmes with no episode structure at all — not one
+  entry in a sample of 1,231 carried a season or episode marker — so they are
+  neither films nor series as Telly understands them, and adding them would
+  put a quarter of a million one-off programmes in the Movies tab. They need
+  a home of their own first.
 - [BuddyChewChew/app-m3u-generator](https://github.com/BuddyChewChew/app-m3u-generator)
   — the same services split by country, which the global lists are not: 12
   line-ups covering the UK, the US, Canada, Australia and New Zealand,

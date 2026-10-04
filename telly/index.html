@@ -3555,6 +3555,13 @@ const ftv = (file, name, ins) => ({ g:'Free-TV — by country', n:name, d:'Hand-
 const SF = 'https://raw.githubusercontent.com/streamfeeds/web/main/m3u/';
 const films = (file, name, desc) => ({ g:'Films on demand', n:name, d:desc, u:SF + file + '.m3u8' });
 
+/* The public broadcasters' own film libraries — ARD, ZDF, 3sat, ARTE, SRF —
+   indexed by the same project. Licence-fee television, free to watch, and
+   mostly geo-restricted to the country that paid for it: outside Germany,
+   Austria, Switzerland or France a good share of these will refuse. Counted
+   on 4 October 2026. */
+const mv = (file, name, desc) => ({ g:'Broadcaster films', n:name, d:desc, u:SF + file + '.m3u8' });
+
 /* Country line-ups for the free ad-supported services. The global lists
    above are everything at once; these are one country at a time. */
 const BCC = 'https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/';
@@ -3576,6 +3583,16 @@ const FREE = [
   films('jpn-archive-films', 'Public-domain films — Japanese', '281 feature films from the Internet Archive'),
   films('fra-archive-films', 'Public-domain films — French', '266 feature films from the Internet Archive'),
   films('ita-archive-films', 'Public-domain films — Italian', '128 feature films from the Internet Archive'),
+
+  mv('de-deu-ard-films-local-mv', 'ARD — German films', '945 films · geo-restricted to Germany'),
+  mv('de-deu-ard-films-intl-mv', 'ARD — international films', '738 films · geo-restricted to Germany'),
+  mv('de-deu-3sat-films-local-mv', '3sat — German films', '996 films · geo-restricted to DE/AT/CH'),
+  mv('de-deu-3sat-films-intl-mv', '3sat — international films', '413 films · geo-restricted to DE/AT/CH'),
+  mv('de-deu-zdf-films-local-mv', 'ZDF — German films', '323 films · geo-restricted to Germany'),
+  mv('de-deu-zdf-films-intl-mv', 'ZDF — international films', '167 films · geo-restricted to Germany'),
+  mv('de-deu-arte-films-mv', 'ARTE — German', '186 films · mostly DE/FR only'),
+  mv('fr-fra-arte-films-mv', 'ARTE — French', '145 films · mostly DE/FR only'),
+  mv('ch-deu-srf-films-mv', 'SRF — Swiss German', '77 films · geo-restricted to Switzerland'),
 
   country('uk','United Kingdom'), country('ie','Ireland'), country('us','United States'),
   country('ca','Canada'), country('fr','France'), country('de','Germany'),
@@ -3666,7 +3683,7 @@ const FREE = [
 ];
 
 function freeIcon(g){
-  if (g === 'Films on demand') return 'i-movies';
+  if (g === 'Films on demand' || g === 'Broadcaster films') return 'i-movies';
   if (g === 'By country' || g === 'Free-TV — by country') return 'i-globe';
   if (g === 'Free ad-supported services' || g === 'Free services by country') return 'i-tv';
   return 'i-live';
