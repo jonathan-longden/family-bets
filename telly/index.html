@@ -1320,6 +1320,10 @@ function parseM3U(text){
       pending = null; extgrp = '';
       continue;
     }
+    if (isImageAddr(line)){        // a poster where a film should be
+      pending = null; extgrp = '';
+      continue;
+    }
 
     const url = line;
     const meta = pending || { name: safeName(url), tvgId:'', logo:'', group:'' };
@@ -1360,6 +1364,19 @@ const VOD_FILE = /\.(mp4|mkv|avi|m4v|mov|flv|wmv|mpg|mpeg|webm|ogv|3gp)(\?|#|$)/
 const XC_MOVIE = /\/movie\//i;
 const XC_SERIES = /\/series\//i;
 
+/* The Internet Archive serves a file by asking for a format rather than by
+   naming it: /download/{item}/format=MPEG4 picks the item's MPEG-4 and
+   redirects to it. There is no extension to read, but a format selector on
+   a download path is every bit as much a statement that this is one file
+   rather than a stream — so it counts, and the rule stays about addresses. */
+const IA_FILE = /\/download\/[^/]+\/format=/i;
+
+/* Pictures are not streams. Feeds get this wrong — a handful of the
+   Archive film lists point an entry at format=Thumbnail — and a poster
+   masquerading as a film is worse than a missing row. */
+const IMAGE_ADDR = /(\.(jpe?g|png|gif|webp|bmp|svg|avif)(\?|#|$)|\/format=Thumbnail(\?|#|$))/i;
+function isImageAddr(u){ return IMAGE_ADDR.test(u); }
+
 /* Series Name S01 E02 / S01E02 / 1x02 / Season 1 Episode 2, at the end of
    a title. Captures the name, the season and the episode. */
 const EP_MARK = new RegExp(
@@ -1379,7 +1396,7 @@ function yearIn(name){
 function odKind(url){
   if (XC_SERIES.test(url)) return 'episode';
   if (XC_MOVIE.test(url)) return 'movie';
-  if (VOD_FILE.test(url)) return 'file';
+  if (VOD_FILE.test(url) || IA_FILE.test(url)) return 'file';
   return 'live';
 }
 
@@ -2019,7 +2036,11 @@ $('#plCancel').onclick = () => go(state.channels.length ? 'home' : 'home');
    ================================================================ */
 function refreshHome(){
   const n = state.channels.length;
-  $('#cLive').textContent = n ? fmt(n) + ' channels · ' + state.groups.length + ' categories' : 'No playlist loaded';
+  /* "No playlist loaded" is a lie when a film library is loaded and simply
+     has no channels in it, which is exactly what the Archive lists are. */
+  $('#cLive').textContent = n ? fmt(n) + ' channels · ' + state.groups.length + ' categories'
+    : (state.movies.length || state.series.length) ? 'No channels in this source'
+    : 'No playlist loaded';
   $('#cFav').textContent = state.favs.size ? fmt(state.favs.size) + ' saved' : 'None yet';
   $('#cGuide').textContent = state.epgUrl ? 'EPG source detected' : 'Channel line-up';
   /* Titles, not channels. When a source has none, the card points at the
@@ -3050,6 +3071,14 @@ const category = (slug, name, desc) => ({ g:'By category', n:name, d:desc, u:IO 
 const FTV = 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_';
 const ftv = (file, name, ins) => ({ g:'Free-TV — by country', n:name, d:'Hand-checked free-to-air channels for ' + name, u:FTV + file + '.m3u8', ins:!!ins });
 
+/* Public-domain feature films held by the Internet Archive, indexed as M3U
+   by streamfeeds. These are the first rows in the catalogue that are films
+   rather than channels: titles you pick, which is what the Movies tab is
+   for. Counted on 4 October 2026; the lists are rebuilt daily.
+     https://streamfeeds.github.io/web/  ·  https://archive.org/ */
+const SF = 'https://raw.githubusercontent.com/streamfeeds/web/main/m3u/';
+const films = (file, name, desc) => ({ g:'Films on demand', n:name, d:desc, u:SF + file + '.m3u8' });
+
 /* Country line-ups for the free ad-supported services. The global lists
    above are everything at once; these are one country at a time. */
 const BCC = 'https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/';
@@ -3063,6 +3092,14 @@ const FREE = [
   { g:'Everything', n:'Grouped by language', d:'The same list, with language group titles', u:IO + 'index.language.m3u' },
   { g:'Everything', n:'Free-TV curated list', d:'A smaller hand-checked selection — split up further below (Free-TV/IPTV)',
     u:'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8' },
+
+  films('eng-archive-films', 'Public-domain films — English', '4,971 feature films from the Internet Archive'),
+  films('spa-archive-films', 'Public-domain films — Spanish', '1,376 feature films from the Internet Archive'),
+  films('deu-archive-films', 'Public-domain films — German', '1,393 feature films from the Internet Archive'),
+  films('tur-archive-films', 'Public-domain films — Turkish', '905 feature films from the Internet Archive'),
+  films('jpn-archive-films', 'Public-domain films — Japanese', '281 feature films from the Internet Archive'),
+  films('fra-archive-films', 'Public-domain films — French', '266 feature films from the Internet Archive'),
+  films('ita-archive-films', 'Public-domain films — Italian', '128 feature films from the Internet Archive'),
 
   country('uk','United Kingdom'), country('ie','Ireland'), country('us','United States'),
   country('ca','Canada'), country('fr','France'), country('de','Germany'),
@@ -3153,6 +3190,7 @@ const FREE = [
 ];
 
 function freeIcon(g){
+  if (g === 'Films on demand') return 'i-movies';
   if (g === 'By country' || g === 'Free-TV — by country') return 'i-globe';
   if (g === 'Free ad-supported services' || g === 'Free services by country') return 'i-tv';
   return 'i-live';
