@@ -67,15 +67,32 @@ you want is one press away instead of a scroll. It appears only where there
 is width for it; on a phone the top bar still does the job and the content
 keeps the full screen.
 
-Below the hero: six section tiles, each counting what is actually loaded, and
-then rails of real thumbnails — films, series and channels, favourites first.
+Below the hero: eight section tiles — Live TV, Movies, Series, Sport, News,
+Favourites, TV Guide, Add playlist — each in its own colour so the row reads
+as destinations at ten feet rather than as a grid of grey rectangles, and each
+counting what is actually loaded. Then rails of real thumbnails — films, series and channels, favourites first.
 Every thumbnail is a button that opens that title. Cards for features the
 playlist does not have are gone from the home screen rather than sitting
 there saying "Not in playlist".
 
-The hero's backdrop is drawn, not downloaded: an SVG dusk ridge line in
-Telly's own palette, a couple of kilobytes, no network request, sharp on a 4K
-panel. It fades out the moment a channel is playing behind it.
+## Backdrops
+
+Six scenes, drawn rather than downloaded — a ridge line at dusk, a signal
+going out over a horizon, a projector beam opening across a dark room, lit
+windows after dark, floodlight pools over a pitch, and a wireframe globe. All
+of it is gradients and paths in Telly's own palette: original work, no
+photograph, no third party's artwork, nothing fetched over the network. The
+whole set costs a few kilobytes and stays sharp on a 4K panel.
+
+Each one belongs to a section, and the scene cross-fades as you move between
+them — the ridge on Home, the signal on Live TV and the guide, the projector
+on Movies and Series, the floodlights on Sport, the globe on News. Anything
+without a scene of its own keeps the ridge rather than flicking to blank.
+
+They are drawn once as symbols and used twice: faintly behind every screen,
+and at full strength behind the hero. A picture playing always wins — the
+hero's art fades right out and the backdrop drops back, so neither is ever
+competing with what you are watching.
 
 Older Smart TV browsers have no `aspect-ratio`. Without a fallback the
 thumbnails collapse to nothing and a full library looks like an empty one, so
@@ -105,11 +122,19 @@ film is worse than a missing row.
 
 So:
 
-- **Live TV** holds every channel, and the ones that run films or box sets
-  round the clock get two headings of their own — **Film channels** and
-  **Series channels** — pinned above the rest and listed in the sidebar.
-  They still appear under their own group titles further down, exactly as a
-  favourite does.
+- **Live TV** holds every channel, and four headings Telly works out rather
+  than reads sit pinned above the rest and in the sidebar: **Film channels**,
+  **Series channels**, **Sport** and **News**. Channels still appear under
+  their own group titles further down, exactly as a favourite does, and one
+  channel can be in two of these — Sky Sports News is both.
+
+  Film and series are read from the group title. Sport and news are read from
+  the group title *and* the channel name, because a provider that files Sky
+  Sports under "UK | ENTERTAINMENT" has still named it, and a section that
+  misses it is worse than no section.
+
+  Sport and News are not screens of their own: pressing either opens Live TV
+  already filtered.
 - **Movies** holds films you choose and play, with a year where the source
   gives one or the title carries one.
 - **Series** holds shows. Opening one lists its seasons and episodes; Xtream
