@@ -153,7 +153,6 @@ body.playing #backdrop{opacity:.12}
 .no-motion #backdrop{transition:none}
 #backdrop::after{content:"";position:absolute;inset:0;
   background:radial-gradient(130% 100% at 50% 0%,transparent 10%,rgba(6,7,10,.72) 72%,rgba(6,7,10,.92) 100%)}
-#heroArt{transition:opacity .5s var(--ease)}
 
 /* ---------------- side rail ----------------
    A standing list of sections down the left, so the thing you want is one
@@ -166,7 +165,13 @@ body.playing #backdrop{opacity:.12}
   background:linear-gradient(to right,rgba(6,7,10,.96),rgba(6,7,10,.74));
   border-right:1px solid var(--line);
   backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+  /* A phone on its side is about 400px tall. Ten items do not fit, and an
+     item you cannot reach is worse than one you have to scroll to. */
+  overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;
 }
+#rail::-webkit-scrollbar{display:none}
+/* The spacer only pushes the last items down when there is room to spare. */
+#rail .nvspacer{flex:1 1 auto;min-height:0}
 .nv{
   display:flex;align-items:center;gap:12px;width:100%;text-align:left;
   padding:11px 13px;border-radius:14px;border:1px solid transparent;background:transparent;
@@ -180,6 +185,12 @@ body.playing #backdrop{opacity:.12}
 @media (orientation:landscape){
   :root{--rail-w:clamp(132px,13vw,230px)}
   #rail{display:flex}
+}
+@media (orientation:landscape) and (max-height:520px){
+  #rail{gap:2px}
+  .nv{padding:8px 11px}
+  .nv.sm{padding:7px 11px}
+  .nvgap{margin:6px 6px}
 }
 /* the secondary half of the rail, below the six the layout leads with */
 .nvgap{height:1px;background:var(--line);margin:10px 6px}
@@ -225,8 +236,7 @@ body.playing #backdrop{opacity:.12}
 .screen.on .pcard,.screen.on .grow,.screen.on .pl-head,.screen.on .empty{
   animation:rise .5s var(--ease) backwards;
 }
-.screen.on .hero,.screen.on .panel,.screen.on .form{animation:fadein .4s ease backwards}
-.screen.on .hero-in{animation:rise .6s var(--ease) .05s backwards}
+.screen.on .panel,.screen.on .form{animation:fadein .4s ease backwards}
 .sections .sect:nth-child(1),.opts .opt:nth-child(1){animation-delay:.03s}
 .sections .sect:nth-child(2),.opts .opt:nth-child(2){animation-delay:.06s}
 .sections .sect:nth-child(3),.opts .opt:nth-child(3){animation-delay:.09s}
@@ -252,50 +262,11 @@ body.playing #backdrop{opacity:.12}
 .sect.f.kfocus,.opt.f.kfocus{transform:translateY(-6px) scale(1.035)}
 .row.f.kfocus,.cat.f.kfocus{transform:none;box-shadow:inset 0 0 0 2px var(--gold),0 0 0 1px rgba(231,193,122,.2)}
 
-/* ---------------- home: hero ---------------- */
+/* ---------------- home ---------------- */
 #home{display:flex;flex-direction:column;gap:clamp(16px,2.4vh,34px)}
 #home > *{flex:0 0 auto}
-.hero{
-  position:relative;border-radius:var(--r-xl);overflow:hidden;
-  min-height:clamp(190px,32vh,380px);display:flex;align-items:flex-end;
-  border:1px solid var(--line);background:transparent;
-  box-shadow:0 40px 120px -40px rgba(0,0,0,.95);
-  isolation:isolate;
-}
-#heroArt{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;
-  transition:opacity .5s var(--ease)}
-/* A playing channel is the backdrop; the artwork is only for when there isn't one. */
-.hero.hasvideo #heroArt{opacity:0}
-.hero .scrim{
-  position:absolute;inset:0;pointer-events:none;z-index:1;
-  background:
-    linear-gradient(90deg,rgba(4,5,8,.95) 0%,rgba(4,5,8,.82) 34%,rgba(4,5,8,.25) 62%,rgba(4,5,8,.05) 100%),
-    linear-gradient(0deg,rgba(4,5,8,.92) 0%,rgba(4,5,8,.15) 46%,transparent 70%);
-}
-.hero-in{position:relative;z-index:2;padding:clamp(20px,3vw,52px);max-width:min(720px,62%);width:100%}
-.eyebrow{
-  display:flex;align-items:center;gap:10px;color:var(--gold);
-  font-size:clamp(10px,.78vw,13px);letter-spacing:.28em;text-transform:uppercase;font-weight:700;
-  margin-bottom:clamp(10px,1.4vh,18px);
-}
 .livedot{width:8px;height:8px;border-radius:50%;background:var(--live);box-shadow:0 0 12px var(--live);animation:pulse 2.4s ease-in-out infinite}
-.eyebrow.idle{color:var(--dim)}
-.eyebrow.idle .livedot{background:var(--gold);box-shadow:0 0 12px rgba(231,193,122,.6);animation:none}
 @keyframes pulse{50%{opacity:.35;transform:scale(.8)}}
-.hero-head{display:flex;align-items:center;gap:clamp(12px,1.4vw,22px);margin-bottom:clamp(8px,1.2vh,14px)}
-.hero-logo{
-  width:clamp(56px,5vw,92px);height:clamp(56px,5vw,92px);border-radius:20px;flex:0 0 auto;
-  background:rgba(255,255,255,.06);border:1px solid var(--line);
-  display:grid;place-items:center;overflow:hidden;font-weight:700;color:var(--dim);
-  font-size:clamp(16px,1.5vw,26px);backdrop-filter:blur(8px);
-}
-.hero-logo img{width:100%;height:100%;object-fit:contain;padding:9px}
-#heroName{
-  font-size:clamp(26px,3vw,52px);line-height:1.06;font-weight:700;letter-spacing:-.025em;
-  text-shadow:0 4px 40px rgba(0,0,0,.7);
-  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
-}
-#heroSub{color:var(--dim);font-size:clamp(13px,1.05vw,19px);margin-top:6px}
 .meta{display:flex;flex-wrap:wrap;gap:8px;margin:clamp(12px,1.6vh,20px) 0}
 .chip{
   padding:6px 13px;border-radius:999px;background:var(--glass);border:1px solid var(--line);
@@ -304,9 +275,6 @@ body.playing #backdrop{opacity:.12}
 }
 .chip.live{color:#ffd9dd;border-color:rgba(255,77,94,.4);background:rgba(255,77,94,.13)}
 .chip.gold{color:var(--gold-2);border-color:rgba(231,193,122,.35);background:var(--gold-dim)}
-#heroNote{color:var(--faint);font-size:clamp(12px,.92vw,16px);margin-bottom:clamp(14px,2vh,24px);max-width:46ch}
-#heroNote.warn{color:#ffb3ba}
-.hero-acts{display:flex;flex-wrap:wrap;gap:clamp(8px,.9vw,14px)}
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:10px;
   min-height:clamp(48px,3.6vw,64px);padding:0 clamp(18px,1.6vw,30px);border-radius:999px;
@@ -347,11 +315,11 @@ body.playing #backdrop{opacity:.12}
   box-shadow:0 20px 50px -30px rgba(0,0,0,.9);
   color:#fff;
 }
-.sect[data-go="live"]   {--accent:#2f6df6; --accent-2:#1b3f9e}
-.sect[data-go="movies"] {--accent:#e0384a; --accent-2:#8f1d2c}
-.sect[data-go="series"] {--accent:#1f9d5a; --accent-2:#11603a}
-.sect[data-go="sport"]  {--accent:#f08a1d; --accent-2:#9c5207}
-.sect[data-go="news"]   {--accent:#8048e0; --accent-2:#4a248c}
+.sect[data-go="live"]   {--accent:#27529e; --accent-2:#14295a}
+.sect[data-go="movies"] {--accent:#9c2b3a; --accent-2:#541620}
+.sect[data-go="series"] {--accent:#1d6e45; --accent-2:#0e3a26}
+.sect[data-go="sport"]  {--accent:#a35d14; --accent-2:#5a3108}
+.sect[data-go="news"]   {--accent:#5a3596; --accent-2:#2f1a52}
 .sect[data-go="favourites"]{--accent:#d8a33c; --accent-2:#8a6113}
 .sect[data-go="guide"]  {--accent:#2b8fa8; --accent-2:#145668}
 .sect[data-go="playlist"]{--accent:#4a5465; --accent-2:#272d38}
@@ -359,7 +327,7 @@ body.playing #backdrop{opacity:.12}
    undo the point of giving each one a colour. */
 .sect::after{
   content:"";position:absolute;inset:0;opacity:0;transition:opacity .35s var(--ease);
-  background:linear-gradient(155deg,rgba(255,255,255,.26),transparent 62%);
+  background:linear-gradient(155deg,rgba(255,255,255,.16),transparent 62%);
 }
 .sect:hover::after,.sect.kfocus::after,.sect:focus-visible::after{opacity:1}
 .sect .si{
@@ -372,14 +340,6 @@ body.playing #backdrop{opacity:.12}
   text-shadow:0 1px 10px rgba(0,0,0,.3)}
 .sect .ss{color:rgba(255,255,255,.82);font-size:clamp(11px,.8vw,14px);font-weight:500;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sect .minirail .mt{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.22);color:#fff}
-.minirail{display:flex;gap:7px;flex-wrap:wrap;max-width:88%;margin-bottom:6px}
-.minirail .mt{
-  width:clamp(30px,2.6vw,44px);height:clamp(30px,2.6vw,44px);border-radius:10px;flex:0 0 auto;
-  background:rgba(255,255,255,.06);border:1px solid var(--line);overflow:hidden;
-  display:grid;place-items:center;font-size:clamp(9px,.64vw,12px);font-weight:700;color:var(--faint);
-}
-.minirail .mt img{width:100%;height:100%;object-fit:contain;padding:4px}
 
 /* ---------------- home: thumbnail rails ---------------- */
 .rail{display:flex;gap:var(--gap);overflow-x:auto;padding:4px 2px 10px;scroll-snap-type:x proximity;scrollbar-width:none}
@@ -800,20 +760,14 @@ video{width:100%;height:100%;display:block;background:transparent;object-fit:con
 @keyframes spin{to{transform:rotate(360deg)}}
 
 @media (min-width:861px){
-  #playerLayer.mode-hero #overlay{align-items:flex-end;text-align:right;padding-right:clamp(24px,4vw,72px)}
-  #playerLayer.mode-hero #ovBtns{justify-content:flex-end}
 }
 
-#playerLayer.mode-hero #overlay,#playerLayer.mode-preview #overlay{pointer-events:none}
-#playerLayer.mode-hero #ovBtns,#playerLayer.mode-preview #ovBtns{display:none}
+#playerLayer.mode-preview #overlay{pointer-events:none}
+#playerLayer.mode-preview #ovBtns{display:none}
 #playerLayer.mode-mini #ovMsg,#playerLayer.mode-mini #ovSub{display:none}
 #playerLayer.mode-mini #overlay{gap:8px;padding:8px;background:rgba(4,5,8,.6)}
 #playerLayer.mode-mini #ovBtns .btn{min-height:34px;padding:0 14px;font-size:12px}
 #playerLayer.mode-mini #ovIcon{font-size:20px}
-@media (min-width:861px){ #playerLayer.mode-hero #pposter{padding-left:26%} }
-#playerLayer.mode-hero #overlay[data-kind="idle"]{background:linear-gradient(90deg,transparent 30%,rgba(4,5,8,.5))}
-#playerLayer.mode-hero #overlay[data-kind="idle"] #ovMsg,
-#playerLayer.mode-hero #overlay[data-kind="idle"] #ovSub{display:none}
 
 /* toast */
 #toast{
@@ -836,22 +790,12 @@ video{width:100%;height:100%;display:block;background:transparent;object-fit:con
   #live{grid-template-columns:clamp(170px,20vw,230px) minmax(0,1fr)}
   #live .col-prev{display:none}
   .col-mobile-player{display:block}
-  .cards{grid-template-columns:repeat(4,1fr)}
-  .card.big{grid-column:span 2;grid-row:span 2}
-  .hero-in{max-width:78%}
 }
 @media (max-width:860px){
   :root{--rowH:68px;--grpH:44px;--r-xl:24px;--r-lg:20px}
   #crumb{display:none}
-  .cards{grid-template-columns:repeat(2,1fr)}
-  .card.big{grid-column:span 2;grid-row:span 1;min-height:clamp(150px,20vh,220px)}
-  .card.wide{grid-column:span 2}
-  .card.one{grid-column:span 1}
   .opts{grid-template-columns:1fr}
-  .hero{min-height:0;flex-direction:column;align-items:stretch}
-  .hero .scrim{display:none}
-  .hero-in{max-width:100%;padding:18px}
-  #slotHero{position:relative!important;inset:auto!important;flex:0 0 auto;
+  #slotPreviewMobile{position:relative!important;inset:auto!important;flex:0 0 auto;
             width:100%;height:auto;aspect-ratio:16/9;
             border-radius:var(--r-xl) var(--r-xl) 0 0;overflow:hidden}
   .pill span{display:none}
@@ -872,7 +816,6 @@ video{width:100%;height:100%;display:block;background:transparent;object-fit:con
 
 @media (orientation:landscape) and (max-height:520px){
   :root{--chrome-h:50px;--rowH:60px;--grpH:40px}
-  .hero{min-height:0}
   #live{flex-direction:row;display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}
   .col-mobile-player{display:block}
 }
@@ -1110,7 +1053,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <button class="nv sm f" data-f data-go="news"><svg class="ic"><use href="#i-news"/></svg><span class="nvt">News</span></button>
   <button class="nv sm f" data-f data-go="favourites"><svg class="ic"><use href="#i-star"/></svg><span class="nvt">Favourites</span></button>
   <button class="nv sm f" data-f data-go="guide"><svg class="ic"><use href="#i-guide"/></svg><span class="nvt">TV Guide</span></button>
-  <div style="flex:1"></div>
+  <div class="nvspacer"></div>
   <button class="nv sm f" data-f data-go="playlist"><svg class="ic"><use href="#i-plus"/></svg><span class="nvt">Add playlist</span></button>
 </nav>
 
@@ -1127,40 +1070,10 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
 
   <!-- ============ HOME ============ -->
   <section class="screen" id="home" data-screen="home">
-    <div class="hero" id="heroPanel">
-      <!-- Original artwork: a dusk ridge line drawn from gradients and four
-           paths, in Telly's own palette. It is vector, so it costs a couple
-           of kilobytes, needs no network and stays sharp on a 4K panel.
-           It hides the moment a channel is playing behind it. -->
-      <svg id="heroArt" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-        <use id="heroScene" href="#sc-home"/>
-      </svg>
-      <div id="slotHero" style="position:absolute;inset:0"></div>
-      <div class="scrim"></div>
-      <div class="hero-in">
-        <div class="eyebrow"><span class="livedot"></span><span id="heroEyebrow">Ready to watch</span></div>
-        <div class="hero-head">
-          <div class="hero-logo" id="heroLogo"></div>
-          <div style="min-width:0">
-            <h1 id="heroName">No channel selected</h1>
-            <div id="heroSub">Load a playlist to begin</div>
-          </div>
-        </div>
-        <div class="meta" id="heroMeta"></div>
-        <p id="heroNote">Telly plays your own IPTV playlist. Nothing is included.</p>
-        <div class="hero-acts">
-          <button class="btn gold f" data-f id="heroPlay"><svg class="ic"><use href="#i-play"/></svg><span id="heroPlayLabel">Watch now</span></button>
-          <button class="btn f" data-f id="heroFav"><svg class="ic"><use href="#i-star"/></svg>Favourite</button>
-          <button class="btn f" data-f id="heroBrowse"><svg class="ic"><use href="#i-live"/></svg>Browse channels</button>
-        </div>
-      </div>
-    </div>
-
     <div class="sections">
       <button class="sect f" data-f data-go="live">
         <span class="si"><svg class="ic"><use href="#i-live"/></svg></span>
         <span class="st">Live TV</span><span class="ss" id="cLive">No playlist</span>
-        <span class="minirail" id="liveRail"></span>
       </button>
       <button class="sect f" data-f data-go="movies">
         <span class="si"><svg class="ic"><use href="#i-movies"/></svg></span>
@@ -1444,7 +1357,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   </section>
 </main>
 
-<div id="playerLayer" class="mode-hero">
+<div id="playerLayer" class="mode-preview">
   <div id="pposter"><div class="pblur"></div><div class="pini"></div></div>
   <video id="video" playsinline webkit-playsinline preload="none"></video>
   <div id="pchrome">
@@ -1526,7 +1439,7 @@ const state = {
   epgUrl: '', screen: 'home', full: false, colKind: 'favourites', colShown: 0, colList: [],
   /* On demand, kept apart from the channels: a film you pick is not a
      channel that happens to be showing a film. */
-  movies: [], series: [], show: null, showSeason: null, navKey: 'home'
+  movies: [], series: [], show: null, showSeason: null, navKey: 'home', failed: false
 };
 let H_CH = 72, H_GRP = 50;
 
@@ -2257,17 +2170,12 @@ function toggleFav(id){
 
 function syncAction(){
   const ch = channelById(state.currentId);
-  const failed = $('#heroNote').classList.contains('warn');
-  $('#heroPlayLabel').textContent = !ch ? 'Choose a channel'
-    : failed ? 'Try again'
-    : (!video.paused && video.readyState > 2) ? 'Back to the player'
-    : 'Watch now';
-  $('#pvRetry').hidden = !(ch && failed);   // added alongside, not instead of, full screen
+  $('#pvRetry').hidden = !(ch && state.failed);
 }
 
 function syncFavButtons(){
   const on = !!state.currentId && state.favs.has(state.currentId);
-  [['#heroFav', 'Favourite'], ['#pvFav', 'Favourite']].forEach(([sel, label]) => {
+  [['#pvFav', 'Favourite']].forEach(([sel, label]) => {
     const b = $(sel);
     if (!b) return;
     b.classList.toggle('on', on);
@@ -2349,9 +2257,8 @@ function setScene(key){
   const want = SCENE_FOR[key] || 'home';
   if (want === sceneNow) return;
   sceneNow = want;
-  const back = $('#backScene'), hero = $('#heroScene');
+  const back = $('#backScene');
   if (back) back.setAttribute('href', '#sc-' + want);
-  if (hero) hero.setAttribute('href', '#sc-' + want);
 }
 
 /* Orientation can only be locked from fullscreen, and only on the browsers
@@ -2367,6 +2274,20 @@ async function goFullscreen(){
 const fullBtn = $('#goFull');
 if (fullBtn) fullBtn.onclick = goFullscreen;
 
+/* Both of these need a user gesture — no browser will let a page put itself
+   full screen or turn the handset on page load, and a page that tried would
+   simply be refused. So the first touch does it, once, and then the listener
+   takes itself off. If it is refused anyway, nothing breaks: the rotate
+   screen still asks in portrait and the button is still there. */
+let autoFullTried = false;
+function tryAutoFull(){
+  if (autoFullTried) return;
+  autoFullTried = true;
+  goFullscreen();
+}
+['pointerdown', 'keydown'].forEach(ev =>
+  addEventListener(ev, tryAutoFull, { once:true, passive:true }));
+
 function back(){
   if (state.full){ setFull(false); return; }
   if (state.screen === 'home'){ return; }
@@ -2377,7 +2298,6 @@ $$('[data-go]').forEach(el => { el.onclick = () => go(el.dataset.go); });
 $('#homeBtn').onclick = () => go('home');
 $('#topSettings').onclick = () => go('settings');
 $('#topSearch').onclick = () => { go('live'); setTimeout(() => searchEl.focus(), 260); };
-$('#heroBrowse').onclick = () => go('live');
 $('#plCancel').onclick = () => go(state.channels.length ? 'home' : 'home');
 
 /* ================================================================
@@ -2405,19 +2325,6 @@ function refreshHome(){
   const sp = sectionChannels(SPORT_SECTION).length, nw = sectionChannels(NEWS_SECTION).length;
   $('#cSport').textContent = sp ? fmt(sp) + ' channel' + (sp === 1 ? '' : 's') : 'None found';
   $('#cNews').textContent = nw ? fmt(nw) + ' channel' + (nw === 1 ? '' : 's') : 'None found';
-  const rail = $('#liveRail');
-  if (rail){
-    rail.innerHTML = '';
-    const picks = [];
-    for (const c of state.channels){ if (c.logo) picks.push(c); if (picks.length === 6) break; }
-    if (picks.length < 6) for (const c of state.channels){ if (!c.logo) picks.push(c); if (picks.length === 6) break; }
-    picks.forEach(c => {
-      const d = document.createElement('div');
-      d.className = 'mt';
-      fillLogo(d, c);
-      rail.appendChild(d);
-    });
-  }
   $('#exploreSub').textContent = state.source
     ? (state.source.type === 'xtream' ? 'Xtream · ' + state.source.host
       : state.source.type === 'url' ? 'Playlist URL' : state.source.name || 'Local file')
@@ -2518,57 +2425,6 @@ function renderHomeRails(){
   });
 }
 
-function setHero(ch){
-  const logo = $('#heroLogo');
-  logo.textContent = '';
-  fillLogo(logo, ch);
-  $('#heroName').textContent = ch.kind === 'episode' && ch.epTitle ? ch.epTitle : ch.name;
-  $('#heroSub').textContent = ch.kind === 'episode'
-    ? ch.seriesName + ' · Season ' + ch.season + (ch.episode ? ', episode ' + ch.episode : '')
-    : ch.group;
-  const note = $('#heroNote');
-  if (!note.classList.contains('warn')){
-    note.textContent = isOnDemand(ch)
-      ? 'An on-demand title: it starts from the beginning and you can seek through it.'
-      : state.epgUrl
-      ? 'No programme guide is downloaded — Telly plays the stream this playlist points at.'
-      : 'This playlist carries no programme guide, so there is nothing to show but the stream itself.';
-  }
-  heroMeta(ch);
-  syncFavButtons();
-  syncAction();
-}
-
-function heroMeta(ch){
-  const wrap = $('#heroMeta');
-  wrap.innerHTML = '';
-  const chips = [];
-  const st = statusLabel();
-  chips.push(st === 'Live'
-    ? { cls:'live', html:'<span class="livedot"></span>Live' }
-    : { cls:'', html: st });
-  if (isOnDemand(ch)){
-    chips.push({ cls:'gold', html: ch.kind === 'episode' ? 'Episode' : 'Film' });
-    if (ch.kind === 'episode' && ch.season != null)
-      chips.push({ cls:'', html: 'S' + ch.season + (ch.episode ? ' E' + ch.episode : '') });
-    if (ch.year) chips.push({ cls:'', html: escapeHtml(String(ch.year)) });
-    const c = containerOf(ch.url);
-    if (c) chips.push({ cls:'', html: c.toUpperCase() });
-  } else {
-    chips.push({ cls:'', html: looksLikeHls(ch.url) ? 'HLS stream' : 'Direct stream' });
-  }
-  if (state.favs.has(ch.id)) chips.push({ cls:'gold', html:'Favourite' });
-  if (ch.tvgId) chips.push({ cls:'', html: escapeHtml(ch.tvgId) });
-  const q = currentQuality();
-  if (q) chips.push({ cls:'gold', html:q });
-  chips.forEach(c => {
-    const s = document.createElement('span');
-    s.className = 'chip ' + c.cls;
-    s.innerHTML = c.html;
-    wrap.appendChild(s);
-  });
-}
-
 function statusLabel(){
   const ch = channelById(state.currentId) || onDemandItem(state.currentId);
   if (!ch) return 'Ready';
@@ -2591,13 +2447,6 @@ function currentQuality(){
   return '';
 }
 
-$('#heroPlay').onclick = () => {
-  const ch = channelById(state.currentId) || state.channels[0];
-  if (!ch){ go('playlist'); return; }
-  if (ch.id === state.currentId && !video.paused && video.readyState > 2){ go('live'); return; }
-  play(ch, $('#heroNote').classList.contains('warn'));
-};
-$('#heroFav').onclick = () => { if (state.currentId) toggleFav(state.currentId); };
 $('#pvFav').onclick = () => { if (state.currentId) toggleFav(state.currentId); };
 $('#pvFull').onclick = () => setFull(true);
 $('#pvRetry').onclick = () => { const ch = channelById(state.currentId); if (ch) play(ch, true); };
@@ -3026,7 +2875,6 @@ let placeRaf = 0, placeUntil = 0;
 
 function slotFor(){
   if (state.full) return null;
-  if (state.screen === 'home') return $('#slotHero');
   if (state.screen === 'live'){
     const wide = $('#slotPreview');
     if (wide.offsetParent && wide.getBoundingClientRect().width > 40) return wide;
@@ -3037,7 +2885,7 @@ function slotFor(){
 }
 
 function setMode(m){
-  ['hero','preview','full','mini'].forEach(x => layer.classList.toggle('mode-' + x, x === m));
+  ['preview','full','mini'].forEach(x => layer.classList.toggle('mode-' + x, x === m));
 }
 
 function placePlayer(){
@@ -3046,7 +2894,7 @@ function placePlayer(){
   const slot = slotFor();
   if (slot){
     const r = slot.getBoundingClientRect();
-    setMode(state.screen === 'home' ? 'hero' : 'preview');
+    setMode('preview');
     layer.style.left = r.left + 'px';
     layer.style.top = r.top + 'px';
     layer.style.width = r.width + 'px';
@@ -3079,8 +2927,6 @@ function placeSoon(ms){
 function setPlayerLive(on){
   layer.classList.toggle('live', on);
   document.body.classList.toggle('playing', on);
-  // the hero's own artwork is for when there is nothing playing behind it
-  $('#heroPanel').classList.toggle('hasvideo', on);
   placePlayer();
 }
 
@@ -3122,7 +2968,7 @@ $('#pClose').onclick = (e) => {
 function syncPlayIcon(){ $('#pPlay').innerHTML = svg(video.paused ? 'i-play' : 'i-pause'); }
 video.addEventListener('play', () => { syncPlayIcon(); updateNow(); refreshHeroChips(); });
 video.addEventListener('pause', () => { syncPlayIcon(); updateNow(); refreshHeroChips(); });
-function refreshHeroChips(){ const ch = channelById(state.currentId); if (ch) heroMeta(ch); }
+function refreshHeroChips(){ updateNow(); }
 
 layer.addEventListener('click', (e) => {
   if (e.target.closest('#pctrl') || e.target.closest('#ovBtns')) return;
@@ -3229,9 +3075,7 @@ function looksLikeHls(u){
 function fail(msg, sub, ch){
   teardown();
   showOverlay('i-warn', msg, sub, [{ label:'Try again', icon:'i-refresh', primary:true, onClick:() => play(ch, true) }], 'error');
-  const note = $('#heroNote');
-  note.textContent = msg + ' — ' + sub;
-  note.classList.add('warn');
+  state.failed = true;
   $('#pvEpg').textContent = msg + ' — ' + sub;
   layer.classList.remove('playing');
   updateNow();          // status chips, and the retry affordances in the page itself
@@ -3351,13 +3195,12 @@ function play(ch, isRetry){
     : null;
 
   if (blocker){
-    setHero(ch); setBackdrop(ch); setPoster(ch); repaintRows(); setPlayerLive(true); placeSoon();
+    setBackdrop(ch); setPoster(ch); repaintRows(); setPlayerLive(true); placeSoon();
     fail(blocker.t, blocker.s, ch);
     return;
   }
 
   showSpinner(isRetry ? 'Reconnecting…' : 'Connecting…');   // set first: the status chips read it
-  setHero(ch);
   updateNow();
   setBackdrop(ch);
   setPoster(ch);
@@ -3388,11 +3231,7 @@ video.addEventListener('playing', () => {
   layer.classList.add('playing');
   hideOverlay();
   updateNow();
-  const ch = channelById(state.currentId);
-  if (ch){
-    $('#heroNote').classList.remove('warn');
-    setHero(ch);
-  }
+  state.failed = false;
   refreshSettings();
 });
 video.addEventListener('waiting', () => { if (video.currentTime > 0) showSpinner('Buffering…'); });
@@ -3402,8 +3241,8 @@ video.addEventListener('ended', () => {
   layer.classList.remove('playing');
   showOverlay('i-warn', 'The stream ended', 'A live channel should not run out — the source may have dropped the feed.',
     [{ label:'Try again', icon:'i-refresh', primary:true, onClick:() => play(ch, true) }], 'error');
-  $('#heroNote').textContent = 'The stream ended — the source may have dropped the feed.';
-  $('#heroNote').classList.add('warn');
+  state.failed = true;
+  $('#pvEpg').textContent = 'The stream ended — the source may have dropped the feed.';
   updateNow();
 });
 
@@ -3439,25 +3278,39 @@ function setBackdrop(ch){
   } else art.classList.remove('on');
 }
 
-/* Now-playing surfaces: hero eyebrow, preview panel, player chrome. */
+/* Now-playing surfaces: the preview panel and the player chrome. */
 function updateNow(){
-  const ch = channelById(state.currentId);
+  const ch = channelById(state.currentId) || onDemandItem(state.currentId);
   const playing = ch && !video.paused && video.readyState > 2;
-  $('#heroEyebrow').textContent = !ch ? 'Ready to watch' : playing ? 'Now playing' : 'Selected';
-  $('#heroEyebrow').parentElement.classList.toggle('idle', !playing);
   $('#pTitle').textContent = ch ? ch.name : '';
   $('#pminiName').textContent = ch ? ch.name : '';
   const pvLogo = $('#pvLogo');
   pvLogo.textContent = '';
   if (ch) fillLogo(pvLogo, ch);
-  $('#pvName').textContent = ch ? ch.name : 'Nothing playing';
-  $('#pvGroup').textContent = ch ? ch.group : 'Pick a channel';
+  /* An episode is named for itself and placed by its series; a channel is
+     named for itself and placed by its group. This panel is the only
+     now-playing surface there is, so it carries both. */
+  $('#pvName').textContent = !ch ? 'Nothing playing'
+    : (ch.kind === 'episode' && ch.epTitle) ? ch.epTitle : ch.name;
+  $('#pvGroup').textContent = !ch ? 'Pick a channel'
+    : ch.kind === 'episode'
+      ? ch.seriesName + ' · Season ' + ch.season + (ch.episode ? ', episode ' + ch.episode : '')
+      : ch.group;
   const meta = $('#pvMeta');
   meta.innerHTML = '';
   if (ch){
     const st = statusLabel();
-    const bits = [st === 'Live' ? '<span class="livedot"></span>Live' : st,
-                  looksLikeHls(ch.url) ? 'HLS' : 'Direct'];
+    const bits = [st === 'Live' ? '<span class="livedot"></span>Live' : st];
+    if (isOnDemand(ch)){
+      bits.push(ch.kind === 'episode' ? 'Episode' : 'Film');
+      if (ch.kind === 'episode' && ch.season != null)
+        bits.push('S' + ch.season + (ch.episode ? ' E' + ch.episode : ''));
+      if (ch.year) bits.push(escapeHtml(String(ch.year)));
+      const c = containerOf(ch.url);
+      if (c) bits.push(c.toUpperCase());
+    } else {
+      bits.push(looksLikeHls(ch.url) ? 'HLS' : 'Direct');
+    }
     const q = currentQuality();
     if (q) bits.push(q);
     bits.forEach((b, i) => {
@@ -3466,7 +3319,7 @@ function updateNow(){
       s.innerHTML = b;
       meta.appendChild(s);
     });
-    if (!$('#heroNote').classList.contains('warn')){
+    if (!state.failed){
       $('#pvEpg').textContent = state.epgUrl
         ? 'This playlist names an EPG source, but Telly does not download guide data — only the stream.'
         : 'No programme guide in this playlist. Telly shows what the playlist actually carries.';

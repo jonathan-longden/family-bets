@@ -6,12 +6,10 @@ the whole app is one HTML file plus hls.js from a CDN.
 
 ## The interface
 
-**Home** is a hub, not a menu. A full-bleed hero shows the channel you are
-watching (or the one you left off on) over its own artwork, with the real
-playback state — live, connecting, paused, offline — and one obvious action.
-Below it, a row of five section tiles — Live TV, Movies, Series, Sport, News
-— each in its own colour, and each saying something true about your playlist
-rather than a generic label.
+**Home** opens on what you can watch, not on a panel describing what you
+were watching. A row of five section tiles — Live TV, Movies, Series, Sport,
+News — each in its own colour and each saying something true about your
+playlist, and then the thumbnails: Popular Now, films, series, channels.
 
 **Live TV** is the working screen: categories down the left, the channel
 list in the centre, and a preview player with channel details on the right.
@@ -20,8 +18,9 @@ list, and the layout stacks rather than shrinking.
 
 **The player never moves between elements.** One video element lives in a
 floating layer that measures the slot it should occupy and glides there —
-hero, preview, full screen, or a mini window in the corner when you wander
-off to Settings. Playback is never interrupted by navigating.
+the preview panel on Live TV, full screen, or a mini window in the corner
+when you wander off. Home has no slot, so a channel playing follows you
+there as that mini window. Playback is never interrupted by navigating.
 
 **Add playlist** is a screen, not a modal: three large source cards with
 descriptions, then a spacious form.
@@ -59,8 +58,9 @@ playlist and use the File option, which always works.
 
 ## Landscape only
 
-Telly is a ten-foot layout: a rail down one side, a banner, a row of
-sections, rails of artwork. Squeezed into a portrait phone it is neither that
+Telly is a ten-foot layout: a rail down one side, a row of sections, rails
+of artwork. The rail scrolls, because ten items do not fit on a phone held
+sideways and an item you cannot reach is worse than one you scroll to. Squeezed into a portrait phone it is neither that
 nor a good phone app, so portrait gets one screen asking you to turn the
 device round, with a full-screen button — which on a phone is also the only
 way a browser will let the orientation be locked at all.
@@ -75,7 +75,7 @@ Settings, with News, Favourites, TV Guide and Add playlist below a
 divider — everything one press away instead of a scroll. It shows in any
 landscape window, a phone on its side included.
 
-Below the hero: one row of five section tiles — Live TV, Movies, Series,
+One row of five section tiles — Live TV, Movies, Series,
 Sport, News — each in its own colour so the row reads as destinations at ten
 feet rather than as a grid of grey rectangles, and each counting what is
 actually loaded. Then **Popular Now**: favourites first, then films, then
@@ -99,10 +99,9 @@ them — the ridge on Home, the signal on Live TV and the guide, the projector
 on Movies and Series, the floodlights on Sport, the globe on News. Anything
 without a scene of its own keeps the ridge rather than flicking to blank.
 
-They are drawn once as symbols and used twice: faintly behind every screen,
-and at full strength behind the hero. A picture playing always wins — the
-hero's art fades right out and the backdrop drops back, so neither is ever
-competing with what you are watching.
+They are drawn once as symbols and used behind every screen, faint enough
+to read over. A picture playing wins — the backdrop drops back to a twelfth,
+so it never competes with what you are watching.
 
 Older Smart TV browsers have no `aspect-ratio`. Without a fallback the
 thumbnails collapse to nothing and a full library looks like an empty one, so
