@@ -519,6 +519,12 @@ h1,h2,h3,p{margin:0}
 .frow .fdesc{display:block;color:var(--faint);font-size:clamp(11px,.8vw,13px);margin-top:2px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .frow .fgo{color:var(--gold);font-size:clamp(14px,1.1vw,18px);flex:0 0 auto}
+/* Rows whose streams are mostly http:// — worth saying before the tap, not after */
+.frow .fwarn{display:none;align-items:center;gap:5px;margin-top:4px;min-width:0;
+  color:#ffb3ba;font-size:clamp(10px,.72vw,12px);font-weight:600}
+.frow.insecure .fwarn{display:flex}
+.frow .fwarn .ic{font-size:1em;flex:0 0 auto}
+.frow .fwarn span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .freenone{color:var(--faint);padding:18px 4px;font-size:clamp(12px,.9vw,15px)}
 
 .form{border-radius:var(--r-lg);border:1px solid var(--line);background:rgba(11,13,19,.55);backdrop-filter:blur(20px);padding:clamp(18px,2vw,38px)}
@@ -2462,12 +2468,23 @@ const IO = 'https://iptv-org.github.io/iptv/';
 const country = (code, name) => ({ g:'By country', n:name, d:IO + 'countries/' + code + '.m3u', u:IO + 'countries/' + code + '.m3u' });
 const category = (slug, name, desc) => ({ g:'By category', n:name, d:desc, u:IO + 'categories/' + slug + '.m3u' });
 
+/* Free-TV publishes its hand-checked list as one combined playlist and as a
+   split per group, under playlists/. Same channels, smaller bites.
+     https://github.com/Free-TV/IPTV/tree/master/playlists
+
+   `ins` marks a split measured as majority http:// on 4 October 2026, which a
+   browser on https: refuses outright. The count shown after loading is the
+   live one; this flag is only so the row says so before you tap it. */
+const FTV = 'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlists/playlist_';
+const ftv = (file, name, ins) => ({ g:'Free-TV — by country', n:name, d:'Hand-checked free-to-air channels for ' + name, u:FTV + file + '.m3u8', ins:!!ins });
+const ftvTopic = (file, name, desc, ins) => ({ g:'Free-TV — by topic', n:name, d:desc, u:FTV + file + '.m3u8', ins:!!ins });
+
 const FREE = [
   { g:'Everything', n:'All channels', d:'Every stream iptv-org indexes, worldwide', u:IO + 'index.m3u' },
   { g:'Everything', n:'Grouped by country', d:'The same list, with country group titles', u:IO + 'index.country.m3u' },
   { g:'Everything', n:'Grouped by category', d:'The same list, with genre group titles', u:IO + 'index.category.m3u' },
   { g:'Everything', n:'Grouped by language', d:'The same list, with language group titles', u:IO + 'index.language.m3u' },
-  { g:'Everything', n:'Free-TV curated list', d:'A smaller hand-checked selection (Free-TV/IPTV)',
+  { g:'Everything', n:'Free-TV curated list', d:'A smaller hand-checked selection — split up further below (Free-TV/IPTV)',
     u:'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8' },
 
   country('uk','United Kingdom'), country('ie','Ireland'), country('us','United States'),
@@ -2505,8 +2522,47 @@ const FREE = [
   { g:'Free ad-supported services', n:'Samsung TV Plus', d:'All Samsung TV Plus channels (i.mjh.nz)', u:'https://i.mjh.nz/SamsungTVPlus/all.m3u8' },
   { g:'Free ad-supported services', n:'Plex TV', d:'Plex free live channels (i.mjh.nz)', u:'https://i.mjh.nz/Plex/all.m3u8' },
   { g:'Free ad-supported services', n:'Roku Channel', d:'The Roku Channel live line-up (i.mjh.nz)', u:'https://i.mjh.nz/Roku/all.m3u8' },
-  { g:'Free ad-supported services', n:'Stirr', d:'Stirr live channels (i.mjh.nz)', u:'https://i.mjh.nz/Stirr/all.m3u8' }
+  { g:'Free ad-supported services', n:'Stirr', d:'Stirr live channels (i.mjh.nz)', u:'https://i.mjh.nz/Stirr/all.m3u8' },
+
+  ftvTopic('zz_movies', 'Film channels', 'Round-the-clock film channels — FilmRise, Pluto, Xumo', 1),
+  ftvTopic('zz_vod_it', 'Film and box sets (Italian)', 'Italian on-demand film and series channels'),
+  ftvTopic('zz_news_en', 'News, business and weather', 'English-language rolling news, markets and weather'),
+  ftvTopic('zz_news_ar', 'News (Arabic)', 'Arabic-language rolling news'),
+  ftvTopic('zz_news_es', 'News (Spanish)', 'Spanish-language rolling news'),
+  ftvTopic('zz_documentaries_en', 'Documentaries', 'English-language factual channels'),
+  ftvTopic('zz_documentaries_ar', 'Documentaries (Arabic)', 'Arabic-language factual channels'),
+  ftvTopic('zz_music_en', 'Music', 'English-language music channels'),
+
+  ftv('albania','Albania'), ftv('andorra','Andorra'), ftv('argentina','Argentina'), ftv('armenia','Armenia',1),
+  ftv('australia','Australia'), ftv('austria','Austria'), ftv('azerbaijan','Azerbaijan'), ftv('belarus','Belarus'),
+  ftv('belgium','Belgium'), ftv('bosnia_and_herzegovina','Bosnia and Herzegovina'), ftv('brazil','Brazil'),
+  ftv('bulgaria','Bulgaria'), ftv('canada','Canada'), ftv('chad','Chad',1), ftv('chile','Chile'),
+  ftv('china','China',1), ftv('costa_rica','Costa Rica'), ftv('croatia','Croatia'), ftv('cyprus','Cyprus'),
+  ftv('czech_republic','Czech Republic'), ftv('denmark','Denmark'), ftv('dominican_republic','Dominican Republic'),
+  ftv('egypt','Egypt'), ftv('estonia','Estonia',1), ftv('faroe_islands','Faroe Islands'), ftv('finland','Finland'),
+  ftv('france','France'), ftv('georgia','Georgia'), ftv('germany','Germany'), ftv('greece','Greece'),
+  ftv('greenland','Greenland'), ftv('hong_kong','Hong Kong'), ftv('hungary','Hungary'), ftv('iceland','Iceland'),
+  ftv('india','India'), ftv('indonesia','Indonesia'), ftv('iran','Iran'), ftv('iraq','Iraq'),
+  ftv('ireland','Ireland'), ftv('israel','Israel'), ftv('italy','Italy'), ftv('japan','Japan'),
+  ftv('kazakhstan','Kazakhstan'), ftv('kenya','Kenya'), ftv('korea','Korea'), ftv('kosovo','Kosovo'),
+  ftv('latvia','Latvia'), ftv('lebanon','Lebanon'), ftv('lithuania','Lithuania',1), ftv('luxembourg','Luxembourg'),
+  ftv('macau','Macau'), ftv('malta','Malta'), ftv('mexico','Mexico'), ftv('moldova','Moldova'),
+  ftv('monaco','Monaco'), ftv('mongolia','Mongolia'), ftv('montenegro','Montenegro'), ftv('netherlands','Netherlands'),
+  ftv('nigeria','Nigeria'), ftv('north_korea','North Korea'), ftv('north_macedonia','North Macedonia'),
+  ftv('norway','Norway'), ftv('paraguay','Paraguay'), ftv('peru','Peru',1), ftv('poland','Poland'),
+  ftv('portugal','Portugal'), ftv('qatar','Qatar'), ftv('romania','Romania'), ftv('russia','Russia'),
+  ftv('san_marino','San Marino'), ftv('saudi_arabia','Saudi Arabia'), ftv('serbia','Serbia'),
+  ftv('slovakia','Slovakia'), ftv('slovenia','Slovenia'), ftv('somalia','Somalia'), ftv('spain','Spain'),
+  ftv('sweden','Sweden'), ftv('switzerland','Switzerland',1), ftv('taiwan','Taiwan'), ftv('trinidad','Trinidad'),
+  ftv('turkey','Turkey'), ftv('turkmenistan','Turkmenistan'), ftv('ukraine','Ukraine',1), ftv('united_arab_emirates','United Arab Emirates'),
+  ftv('uk','United Kingdom'), ftv('usa','United States'), ftv('venezuela','Venezuela')
 ];
+
+function freeIcon(g){
+  if (g === 'By country' || g === 'Free-TV — by country') return 'i-globe';
+  if (g === 'Free ad-supported services') return 'i-tv';
+  return 'i-live';
+}
 
 function renderFree(){
   const wrap = $('#freeList');
@@ -2532,13 +2588,22 @@ function renderFree(){
     }
     const b = document.createElement('button');
     b.className = 'frow f';
+    /* Only flag it where the browser is actually the thing in the way. On
+       http: — a phone pointed at a PC, say — these rows play fine. */
+    const insecure = f.ins && location.protocol === 'https:';
+    if (insecure) b.classList.add('insecure');
     b.dataset.f = '';
-    b.innerHTML = svg(f.g === 'By country' ? 'i-globe' : f.g === 'Free ad-supported services' ? 'i-tv' : 'i-live')
-      .replace('class="ic"', 'class="ic fic"') +
-      '<span class="ft"><span class="fname"></span><span class="fdesc"></span></span>' +
+    b.innerHTML = svg(freeIcon(f.g)).replace('class="ic"', 'class="ic fic"') +
+      '<span class="ft"><span class="fname"></span><span class="fdesc"></span>' +
+      (insecure ? '<span class="fwarn">' + svg('i-warn') + '<span></span></span>' : '') +
+      '</span>' +
       svg('i-chev').replace('class="ic"', 'class="ic fgo"');
     b.querySelector('.fname').textContent = f.n;
     b.querySelector('.fdesc').textContent = f.d;
+    if (insecure){
+      b.querySelector('.fwarn span').textContent =
+        'Mostly http:// streams — this browser will block them. The Android app plays them.';
+    }
     b.title = f.u;
     b.onclick = () => loadFree(f);
     frag.appendChild(b);

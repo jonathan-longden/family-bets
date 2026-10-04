@@ -34,6 +34,9 @@ Connect screen.
 
 ## What it does
 
+- **Pick a free playlist** from a catalogue of 159 public lists — the same
+  table the web player carries, generated from it so the two cannot drift.
+  Search it and tap one.
 - **Add a playlist** by M3U URL, by file from the device, or with Xtream
   Codes credentials.
 - **Browse** by category, search by name, and keep favourites.
@@ -42,8 +45,13 @@ Connect screen.
 - Runs on phones, tablets and Android TV — it declares the leanback launcher
   and does not require a touchscreen.
 
-It ships with no channels, exactly like the web version. What you point it at
-is your business; nothing is bundled.
+It ships with no channels, exactly like the web version. The catalogue is a
+list of other people's URLs, not content: picking one fetches it there and
+then. What you point it at is your business; nothing is bundled.
+
+The catalogue is worth more here than in the browser. Free-TV's film channels
+list, for one, is 24 `http://` streams out of 26 — the web player has to
+refuse those, and this one does not.
 
 ## Layout
 
