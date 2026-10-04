@@ -56,17 +56,31 @@ Both network options need the server to allow cross-origin requests, since
 the browser fetches the playlist directly. If a server refuses, save the
 playlist and use the File option, which always works.
 
-## Landscape only
+## Landscape first, never blocked
 
-Telly is a ten-foot layout: a rail down one side, a row of sections, rails
-of artwork. The rail scrolls, because ten items do not fit on a phone held
-sideways and an item you cannot reach is worse than one you scroll to. Squeezed into a portrait phone it is neither that
-nor a good phone app, so portrait gets one screen asking you to turn the
-device round, with a full-screen button — which on a phone is also the only
-way a browser will let the orientation be locked at all.
+Telly is a ten-foot layout: a rail down one side, a row of sections, rails of
+artwork. The rail scrolls, because ten items do not fit on a phone held
+sideways and an item you cannot reach is worse than one you scroll to.
 
-Nothing is torn down behind it. Turning the device back lands exactly where
-you were.
+Landscape is asked for at every level the platform actually allows:
+
+- The **manifest** declares `"display": "fullscreen"` and
+  `"orientation": "landscape"`. Installed to a home screen, the platform
+  honours that and none of the code below runs.
+- In a browser tab, the **first tap** requests fullscreen and then an
+  orientation lock. Neither can happen on load — both need a user gesture,
+  and a page that tried would simply be refused.
+- **Settings** reports what the browser is really doing: installed, full
+  screen or a tab; landscape or portrait; and whether orientation locking
+  exists here at all. With a button to toggle it.
+
+Where the browser refuses, nothing is blocked. **There is no "rotate your
+device" screen.** Portrait keeps the same interface, narrowed: the rail drops
+to icons, the five category cards scroll sideways rather than being squeezed,
+and everything stays reachable.
+
+A browser cannot physically turn a handset. Refusing to render until someone
+does it by hand is not a design.
 
 ## The home screen
 

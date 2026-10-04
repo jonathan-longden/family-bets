@@ -10,6 +10,9 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Telly" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon.svg" />
 <style>
 /* ============================================================
    Telly — cinematic IPTV interface
@@ -173,19 +176,21 @@ body.playing #backdrop{opacity:.12}
 /* The spacer only pushes the last items down when there is room to spare. */
 #rail .nvspacer{flex:1 1 auto;min-height:0}
 .nv{
-  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
-  padding:11px 13px;border-radius:14px;border:1px solid transparent;background:transparent;
-  color:var(--dim);font-size:clamp(12px,.86vw,15px);font-weight:600;
+  display:flex;align-items:center;gap:clamp(10px,.9vw,16px);width:100%;text-align:left;
+  padding:clamp(11px,1.1vh,17px) clamp(13px,1vw,20px);
+  border-radius:16px;border:1px solid transparent;background:transparent;
+  color:var(--dim);font-size:clamp(12px,1vw,19px);font-weight:600;
 }
-.nv .ic{font-size:clamp(16px,1.2vw,21px);flex:0 0 auto}
+.nv .ic{font-size:clamp(16px,1.4vw,26px);flex:0 0 auto}
 .nv .nvt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .nv:hover{background:var(--glass);color:var(--txt)}
-.nv.on{background:var(--gold-dim);border-color:rgba(231,193,122,.34);color:var(--gold)}
+.nv.on{background:var(--gold-dim);border-color:rgba(231,193,122,.38);color:var(--gold);
+  box-shadow:inset 3px 0 0 var(--gold)}
 .nv.on .ic{color:var(--gold)}
 @media (orientation:landscape){
   :root{--rail-w:clamp(132px,13vw,230px)}
-  #rail{display:flex}
 }
+#rail{display:flex}
 @media (orientation:landscape) and (max-height:520px){
   #rail{gap:2px}
   .nv{padding:8px 11px}
@@ -198,24 +203,23 @@ body.playing #backdrop{opacity:.12}
 .nv.sm .ic{font-size:clamp(14px,1vw,18px)}
 .nv.sm:hover{color:var(--txt)}
 
-/* ---------------- landscape only ----------------
-   Portrait gets one screen: turn it round. Everything behind it keeps its
-   state, so rotating back lands exactly where you were. */
-#rotate{
-  position:fixed;inset:0;z-index:40;display:none;
-  flex-direction:column;align-items:center;justify-content:center;gap:14px;
-  text-align:center;padding:32px;background:var(--ink);
-}
-#rotate > .ic{font-size:64px;color:var(--gold);stroke-width:1.3;
-  animation:tilt 2.6s var(--ease) infinite}
-@keyframes tilt{0%,55%,100%{transform:rotate(0)}25%,45%{transform:rotate(-90deg)}}
-.no-motion #rotate > .ic{animation:none}
-#rotate h2{font-size:clamp(20px,5vw,30px);font-weight:700;letter-spacing:-.01em}
-#rotate p{color:var(--dim);font-size:clamp(13px,3.4vw,16px);max-width:34ch;line-height:1.55}
+/* ---------------- portrait ----------------
+   Landscape is what this is for, and the manifest asks for it — but a
+   browser may refuse to turn the handset and no one should be left looking
+   at an instruction instead of their television. So portrait keeps the same
+   layout, narrowed: the rail drops to icons, the category row scrolls
+   sideways rather than squeezing, and everything stays reachable. */
 @media (orientation:portrait){
-  #rotate{display:flex}
-  /* nothing behind it should be reachable, or focus lands off-screen */
-  #chrome,#stage,#rail,#playerLayer,#backdrop{visibility:hidden}
+  :root{--rail-w:64px}
+  #rail{display:flex;gap:2px;padding-left:calc(6px + var(--safe-l));padding-right:6px}
+  .nv{justify-content:center;padding:12px 0}
+  .nv .nvt{display:none}
+  .nvgap{margin:8px 4px}
+  /* five colour cards do not fit across a phone, so they scroll */
+  .sections{display:flex;overflow-x:auto;scroll-snap-type:x proximity;
+    scrollbar-width:none;padding-bottom:4px}
+  .sections::-webkit-scrollbar{display:none}
+  .sect{flex:0 0 clamp(150px,44vw,210px);scroll-snap-align:start}
 }
 
 #stage{position:fixed;inset:0;z-index:6}
@@ -293,11 +297,6 @@ body.playing #backdrop{opacity:.12}
 .btn.sq{padding:0;width:clamp(48px,3.6vw,64px)}
 
 /* ---------------- home: navigation cards ---------------- */
-.sec-h{
-  display:flex;align-items:baseline;gap:14px;margin-bottom:clamp(10px,1.2vh,16px);
-}
-.sec-h h2{font-size:clamp(13px,1vw,17px);letter-spacing:.24em;text-transform:uppercase;font-weight:700;color:var(--dim)}
-.sec-h span{color:var(--faint);font-size:clamp(11px,.82vw,14px)}
 /* ---------------- home: section tiles ----------------
    Big, flat, obvious: the thing you came to open, one press away. */
 .sections{display:grid;gap:var(--gap);grid-template-columns:repeat(5,minmax(0,1fr))}
@@ -305,21 +304,24 @@ body.playing #backdrop{opacity:.12}
    destinations rather than five grey rectangles. The hues are deep enough to
    sit in a dark room without glowing. */
 .sect{
-  --accent:#e7c17a; --accent-2:#b98c3e;
-  position:relative;overflow:hidden;border-radius:var(--r-lg);
-  padding:clamp(14px,1.4vw,24px);text-align:left;
-  display:flex;flex-direction:column;gap:6px;
-  min-height:clamp(118px,15vh,186px);
-  background:linear-gradient(155deg,var(--accent),var(--accent-2));
-  border:1px solid rgba(255,255,255,.14);
-  box-shadow:0 20px 50px -30px rgba(0,0,0,.9);
+  --accent:#e7c17a; --accent-2:#b98c3e; --glow:rgba(231,193,122,.5);
+  position:relative;overflow:hidden;border-radius:clamp(18px,1.6vw,28px);
+  padding:clamp(16px,1.5vw,30px);text-align:left;
+  display:flex;flex-direction:column;gap:clamp(4px,.5vh,10px);
+  min-height:clamp(124px,19vh,230px);
+  background:
+    radial-gradient(130% 100% at 20% 0%, rgba(255,255,255,.22), transparent 58%),
+    linear-gradient(155deg,var(--accent),var(--accent-2));
+  border:1px solid rgba(255,255,255,.16);
+  box-shadow:0 22px 46px -26px rgba(0,0,0,.95), 0 0 0 0 var(--glow);
   color:#fff;
+  transition:transform .32s var(--ease), box-shadow .32s var(--ease);
 }
-.sect[data-go="live"]   {--accent:#27529e; --accent-2:#14295a}
-.sect[data-go="movies"] {--accent:#9c2b3a; --accent-2:#541620}
-.sect[data-go="series"] {--accent:#1d6e45; --accent-2:#0e3a26}
-.sect[data-go="sport"]  {--accent:#a35d14; --accent-2:#5a3108}
-.sect[data-go="news"]   {--accent:#5a3596; --accent-2:#2f1a52}
+.sect[data-go="live"]   {--accent:#2a59ad; --accent-2:#13264f; --glow:rgba(66,122,235,.45)}
+.sect[data-go="movies"] {--accent:#a82f3f; --accent-2:#4e1420; --glow:rgba(226,74,94,.42)}
+.sect[data-go="series"] {--accent:#1f7a4c; --accent-2:#0c3522; --glow:rgba(45,190,124,.40)}
+.sect[data-go="sport"]  {--accent:#b06616; --accent-2:#532d07; --glow:rgba(240,138,29,.42)}
+.sect[data-go="news"]   {--accent:#633aa6; --accent-2:#2b1850; --glow:rgba(150,102,232,.45)}
 .sect[data-go="favourites"]{--accent:#d8a33c; --accent-2:#8a6113}
 .sect[data-go="guide"]  {--accent:#2b8fa8; --accent-2:#145668}
 .sect[data-go="playlist"]{--accent:#4a5465; --accent-2:#272d38}
@@ -330,38 +332,68 @@ body.playing #backdrop{opacity:.12}
   background:linear-gradient(155deg,rgba(255,255,255,.16),transparent 62%);
 }
 .sect:hover::after,.sect.kfocus::after,.sect:focus-visible::after{opacity:1}
-.sect .si{
-  width:clamp(36px,3vw,52px);height:clamp(36px,3vw,52px);border-radius:50%;
-  display:grid;place-items:center;margin-bottom:auto;
-  background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);
+/* Focus lifts the card and lights it in its own colour, so from a sofa you
+   can tell which one you are on without reading anything. */
+.sect:hover,.sect.kfocus,.sect:focus-visible{
+  transform:translateY(-6px) scale(1.03);
+  box-shadow:0 34px 60px -24px rgba(0,0,0,.95), 0 0 0 3px var(--glow), 0 0 42px -4px var(--glow);
 }
-.sect .si .ic{font-size:clamp(17px,1.4vw,25px);color:#fff;stroke-width:1.6}
-.sect .st{font-size:clamp(15px,1.25vw,23px);font-weight:700;letter-spacing:-.01em;line-height:1.15;
-  text-shadow:0 1px 10px rgba(0,0,0,.3)}
-.sect .ss{color:rgba(255,255,255,.82);font-size:clamp(11px,.8vw,14px);font-weight:500;
+.sect .si{
+  width:clamp(42px,3.6vw,70px);height:clamp(42px,3.6vw,70px);border-radius:50%;
+  display:grid;place-items:center;margin-bottom:auto;
+  background:rgba(255,255,255,.22);border:1px solid rgba(255,255,255,.32);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3);
+}
+.sect .si .ic{font-size:clamp(20px,1.7vw,33px);color:#fff;stroke-width:1.6}
+.sect .st{font-size:clamp(16px,1.5vw,30px);font-weight:700;letter-spacing:-.015em;line-height:1.1;
+  text-shadow:0 2px 14px rgba(0,0,0,.35)}
+.sect .ss{color:rgba(255,255,255,.86);font-size:clamp(11px,.92vw,17px);font-weight:500;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.no-motion .sect{transition:none}
+.no-motion .sect:hover,.no-motion .sect.kfocus{transform:none}
 
 /* ---------------- home: thumbnail rails ---------------- */
-.rail{display:flex;gap:var(--gap);overflow-x:auto;padding:4px 2px 10px;scroll-snap-type:x proximity;scrollbar-width:none}
+.rail{display:flex;gap:clamp(12px,1.1vw,24px);overflow-x:auto;
+  padding:clamp(6px,.6vh,12px) 4px clamp(12px,1.4vh,22px);
+  scroll-snap-type:x proximity;scrollbar-width:none;scroll-behavior:smooth}
 .rail::-webkit-scrollbar{display:none}
+.no-motion .rail{scroll-behavior:auto}
 .tile{
-  flex:0 0 auto;width:clamp(130px,12vw,210px);border-radius:var(--r-md);overflow:hidden;
+  flex:0 0 auto;width:clamp(150px,15vw,290px);border-radius:clamp(14px,1.2vw,22px);overflow:hidden;
   background:linear-gradient(160deg,rgba(255,255,255,.075),rgba(255,255,255,.03));
   border:1px solid var(--line);text-align:left;scroll-snap-align:start;
+  /* so a focused tile is never flush against the edge it scrolled to */
+  scroll-margin-inline:clamp(12px,2vw,40px);
+  transition:transform .3s var(--ease), box-shadow .3s var(--ease), border-color .3s var(--ease);
 }
 .tile .thumb{
-  aspect-ratio:16/10;display:grid;place-items:center;background:rgba(0,0,0,.35);
-  font-size:clamp(16px,1.4vw,24px);font-weight:700;color:var(--faint);overflow:hidden;position:relative;
+  aspect-ratio:16/9;display:grid;place-items:center;background:#0c0e14;
+  font-size:clamp(16px,1.6vw,30px);font-weight:700;color:#2f3744;overflow:hidden;position:relative;
 }
 .tile .thumb img{width:74%;height:74%;object-fit:contain}
 /* A poster rail shows artwork, so the image fills its tile rather than
    sitting inside it like a logo. */
-.posterrail .tile{width:clamp(104px,9vw,168px)}
+.posterrail .tile{width:clamp(118px,11vw,210px)}
 .posterrail .tile .thumb{aspect-ratio:2/3}
 .posterrail .tile .thumb img{width:100%;height:100%;object-fit:cover}
-.tile .cap{padding:10px 12px 12px}
-.tile .cap b{display:block;font-weight:600;font-size:clamp(12px,.9vw,15px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tile .cap i{display:block;font-style:normal;color:var(--faint);font-size:clamp(10px,.74vw,12px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.tile .cap{padding:clamp(9px,.9vh,15px) clamp(11px,.9vw,17px) clamp(11px,1.1vh,17px)}
+.tile .cap b{display:block;font-weight:650;font-size:clamp(12px,1vw,19px);line-height:1.25;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .cap i{display:block;font-style:normal;color:var(--faint);font-size:clamp(10px,.82vw,15px);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+/* a third line for whatever the source actually knows */
+.tile .cap em{display:block;font-style:normal;color:var(--gold);font-weight:600;
+  font-size:clamp(9px,.7vw,13px);letter-spacing:.1em;text-transform:uppercase;margin-top:5px}
+.tile:hover,.tile.kfocus,.tile:focus-visible{
+  transform:translateY(-7px) scale(1.04);border-color:var(--gold);
+  box-shadow:0 26px 50px -20px rgba(0,0,0,.95), 0 0 0 2px var(--gold-dim);
+}
+.no-motion .tile{transition:none}
+.no-motion .tile:hover,.no-motion .tile.kfocus{transform:none}
+/* section headings sized for the room, not for a laptop */
+.sec-h{display:flex;align-items:baseline;gap:14px;margin-bottom:clamp(8px,1vh,16px)}
+.sec-h h2{font-size:clamp(15px,1.5vw,28px);font-weight:700;letter-spacing:-.01em}
+.sec-h span{color:var(--faint);font-size:clamp(10px,.82vw,15px);letter-spacing:.12em;text-transform:uppercase;font-weight:600}
 
 /* Older Smart TV browsers have no aspect-ratio. Without this the thumbs
    collapse to zero height and the grid looks empty rather than wrong. */
@@ -1059,13 +1091,6 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
 
 <!-- Landscape only: this is a ten-foot layout, and squeezed into a portrait
      phone it is neither that nor a good phone app. -->
-<div id="rotate" aria-live="polite">
-  <svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="7" width="17" height="10" rx="2.2"/><path d="M8 3.5h8M8 20.5h8"/></svg>
-  <h2>Turn your device sideways</h2>
-  <p>Telly is built for a landscape screen — a television, a tablet on its side, or a phone turned round.</p>
-  <button class="btn gold f" data-f id="goFull"><svg class="ic"><use href="#i-expand"/></svg>Full screen</button>
-</div>
-
 <main id="stage">
 
   <!-- ============ HOME ============ -->
@@ -1241,6 +1266,8 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         </div>
         <div class="kv" style="margin-top:14px"><span>Motion</span><b id="motionState">Full</b></div>
         <button class="btn f" data-f id="setMotion">Toggle reduced motion</button>
+        <div class="kv" style="margin-top:14px"><span>Screen</span><b id="setOrient">—</b></div>
+        <button class="btn f" data-f id="setFull"><svg class="ic"><use href="#i-expand"/></svg><span>Full screen and landscape</span></button>
       </div>
       <div class="spanel">
         <h3>Playback</h3>
@@ -2261,28 +2288,47 @@ function setScene(key){
   if (back) back.setAttribute('href', '#sc-' + want);
 }
 
-/* Orientation can only be locked from fullscreen, and only on the browsers
-   that implement it. Try, and never let a refusal throw. */
-async function goFullscreen(){
-  try {
-    const el = document.documentElement;
-    const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    if (req) await req.call(el);
-    if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
-  } catch(e){ /* a desktop browser, or a refusal: the rotate screen still asks */ }
-}
-const fullBtn = $('#goFull');
-if (fullBtn) fullBtn.onclick = goFullscreen;
+/* FULL SCREEN AND ORIENTATION
 
-/* Both of these need a user gesture — no browser will let a page put itself
-   full screen or turn the handset on page load, and a page that tried would
-   simply be refused. So the first touch does it, once, and then the listener
-   takes itself off. If it is refused anyway, nothing breaks: the rotate
-   screen still asks in portrait and the button is still there. */
+   What is actually possible, rather than what one might wish:
+     · The manifest asks for fullscreen and landscape. Installed as an app,
+       the platform honours that and none of the code below runs at all.
+     · In a browser tab, fullscreen needs a user gesture — a page cannot put
+       itself there on load, and one that tried would simply be refused.
+     · orientation.lock() only works once fullscreen, and only where it is
+       implemented. Desktop browsers and iOS Safari do not have it.
+
+   So: try on the first gesture, accept refusal quietly, and never block the
+   interface on the outcome. Portrait is a narrower layout, not a dead end. */
+async function goFullscreen(){
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  try { if (req) await req.call(el); } catch(e){}
+  try {
+    if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape');
+  } catch(e){}
+  syncFullBtn();
+}
+function exitFullscreen(){
+  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch(e){}
+  try { (document.exitFullscreen || document.webkitExitFullscreen || (()=>{})).call(document); } catch(e){}
+  syncFullBtn();
+}
+function isFull(){ return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+function syncFullBtn(){
+  const b = $('#setFull');
+  if (b) b.lastChild.textContent = isFull() ? 'Leave full screen' : 'Full screen and landscape';
+}
+const fullBtn = $('#setFull');
+if (fullBtn) fullBtn.onclick = () => (isFull() ? exitFullscreen() : goFullscreen());
+addEventListener('fullscreenchange', syncFullBtn);
+
 let autoFullTried = false;
 function tryAutoFull(){
   if (autoFullTried) return;
   autoFullTried = true;
+  // already installed as an app: the manifest did this, leave it alone
+  if (matchMedia('(display-mode: fullscreen)').matches) return;
   goFullscreen();
 }
 ['pointerdown', 'keydown'].forEach(ev =>
@@ -2338,10 +2384,18 @@ function refreshHome(){
 function railTile(item, opts){
   const b = document.createElement('button');
   b.className = 'tile f'; b.dataset.f = '';
-  b.innerHTML = '<div class="thumb"></div><div class="cap"><b></b><i></i></div>';
+  b.innerHTML = '<div class="thumb"></div><div class="cap"><b></b><i></i><em hidden></em></div>';
   fillLogo(b.querySelector('.thumb'), item);
   b.querySelector('b').textContent = item.name;
   b.querySelector('i').textContent = opts.sub(item);
+  /* A third line only where the source actually knows something — a year, a
+     season count, a channel number. An empty line is worse than none. */
+  const tag = opts.tag ? opts.tag(item) : '';
+  if (tag){
+    const em = b.querySelector('em');
+    em.textContent = tag;
+    em.hidden = false;
+  }
   b.onclick = opts.open;
   return b;
 }
@@ -2358,6 +2412,7 @@ function fillRail(wrapId, railId, moreId, list, total, opts){
   const frag = document.createDocumentFragment();
   list.forEach(item => frag.appendChild(railTile(item, {
     sub: opts.sub,
+    tag: opts.tag,
     open: () => opts.open(item)
   })));
   rail.appendChild(frag);
@@ -2391,7 +2446,7 @@ function renderPopRail(){
   $('#popMore').textContent = fmt(pick.length);
   const frag = document.createDocumentFragment();
   pick.forEach(row => frag.appendChild(railTile(row.it, {
-    sub: row.sub, open: () => row.open(row.it)
+    sub: it => it.group, tag: row.sub, open: () => row.open(row.it)
   })));
   rail.appendChild(frag);
 }
@@ -2408,12 +2463,15 @@ function renderHomeRails(){
 
   fillRail('#filmWrap', '#filmRail', '#filmMore', filmList.slice(0, 18), filmList.length, {
     poster: !!state.movies.length,
-    sub: m => m.year ? String(m.year) + ' · ' + m.group : m.group,
+    sub: m => m.group,
+    tag: m => state.movies.length ? (m.year ? String(m.year) : 'Film') : 'Channel',
     open: m => state.movies.length ? openTitle(m) : (play(m), go('live'))
   });
   fillRail('#showWrap', '#showRail', '#showMore', showList.slice(0, 18), showList.length, {
     poster: !!state.series.length,
-    sub: sh => sh.episodes ? fmt(sh.episodes.length) + (sh.episodes.length === 1 ? ' episode' : ' episodes') : sh.group,
+    sub: sh => sh.group,
+    tag: sh => sh.episodes ? fmt(sh.episodes.length) + (sh.episodes.length === 1 ? ' episode' : ' episodes')
+             : state.series.length ? 'Series' : 'Channel',
     open: sh => state.series.length ? openTitle(sh) : (play(sh), go('live'))
   });
   /* Favourites first, because those are the channels somebody chose. */
@@ -2421,6 +2479,7 @@ function renderHomeRails(){
   const rest = state.channels.filter(c => !state.favs.has(c.id));
   fillRail('#chanWrap', '#chanRail', '#chanMore', favs.concat(rest).slice(0, 18), state.channels.length, {
     sub: c => c.group,
+    tag: c => state.favs.has(c.id) ? 'Favourite' : (c.no ? 'Channel ' + c.no : ''),
     open: c => { play(c); go('live'); }
   });
 }
@@ -2823,6 +2882,16 @@ function refreshSettings(){
     : ins ? fmt(ins) + ' of ' + fmt(state.channels.length) + ' channels'
     : 'none';
   $('#motionState').textContent = document.body.classList.contains('no-motion') ? 'Reduced' : 'Full';
+  /* Says what the browser is actually doing, rather than what was asked for. */
+  const installed = matchMedia('(display-mode: fullscreen)').matches ||
+                    matchMedia('(display-mode: standalone)').matches;
+  const land = matchMedia('(orientation: landscape)').matches;
+  const canLock = !!(screen.orientation && screen.orientation.lock);
+  $('#setOrient').textContent =
+    (installed ? 'Installed' : isFull() ? 'Full screen' : 'Browser tab') +
+    ' · ' + (land ? 'landscape' : 'portrait') +
+    (canLock ? '' : ' · no orientation lock here');
+  syncFullBtn();
   const ui = store.get(K.ui, {});
   $$('[data-scale]').forEach(b => b.classList.toggle('on', (ui.scale || 'm') === b.dataset.scale));
 }
@@ -3678,6 +3747,7 @@ function visibleFocusables(){
   const out = [];
   const scope = [];
   scope.push($('#chrome'));
+  scope.push($('#rail'));          // the sidebar is a destination, not scenery
   const cur = $('.screen.on');
   if (cur) scope.push(cur);
   if (state.full || layer.classList.contains('mode-mini')) scope.push(layer);
@@ -3687,7 +3757,11 @@ function visibleFocusables(){
       if (el.disabled || el.hidden) return;
       const r = el.getBoundingClientRect();
       if (r.width < 4 || r.height < 4) return;
-      if (r.bottom < -40 || r.top > innerHeight + 40) return;
+      /* No viewport cull. A rail below the fold used to be invisible to this,
+         so arrowing into one lost the current element, fell through to "the
+         first focusable" and walked off somewhere else entirely. The channel
+         list recycles its rows, so the set here is bounded anyway, and
+         markFocus scrolls whatever wins into view. */
       out.push({ el, r });
     });
   });
@@ -3696,7 +3770,47 @@ function visibleFocusables(){
 
 function markFocus(el){
   $$('.kfocus').forEach(e => e.classList.remove('kfocus'));
-  if (el){ el.classList.add('kfocus'); el.focus({ preventScroll:true }); }
+  if (!el) return;
+  el.classList.add('kfocus');
+  el.focus({ preventScroll:true });
+  bringIntoView(el);
+}
+
+/* Arrow keys are useless if the thing you just focused is off the edge, so
+   scroll it in: along the rail it sits in, down the screen it sits on, and
+   down the sidebar when that is what holds it.
+
+   scrollBy, never `scrollLeft += x`. The rails scroll smoothly, and during
+   an animation scrollLeft reads the value it started from — so a
+   read-modify-write computes every step from a stale base and the moves do
+   not accumulate. scrollBy is relative and the browser composes it with
+   whatever is already in flight. */
+function bringIntoView(el){
+  const behavior = document.body.classList.contains('no-motion') ? 'auto' : 'smooth';
+  const nudge = (box, opts) => { try { box.scrollBy({ behavior, ...opts }); } catch(e){ box.scrollBy(opts.left || 0, opts.top || 0); } };
+
+  const rail = el.closest('.rail');
+  if (rail){
+    const r = el.getBoundingClientRect(), b = rail.getBoundingClientRect();
+    const pad = Math.min(60, b.width * 0.08);
+    if (r.left < b.left + pad) nudge(rail, { left: r.left - (b.left + pad) });
+    else if (r.right > b.right - pad) nudge(rail, { left: r.right - (b.right - pad) });
+  }
+
+  const pane = el.closest('.screen');
+  if (pane && pane.scrollHeight > pane.clientHeight){
+    const r = el.getBoundingClientRect();
+    const top = parseFloat(getComputedStyle(pane).paddingTop) || 0;
+    if (r.top < top) nudge(pane, { top: r.top - top - 12 });
+    else if (r.bottom > innerHeight - 12) nudge(pane, { top: r.bottom - innerHeight + 24 });
+  }
+
+  const nav = el.closest('#rail');
+  if (nav && nav.scrollHeight > nav.clientHeight){
+    const r = el.getBoundingClientRect(), b = nav.getBoundingClientRect();
+    if (r.top < b.top + 8) nudge(nav, { top: r.top - (b.top + 8) });
+    else if (r.bottom > b.bottom - 8) nudge(nav, { top: r.bottom - (b.bottom - 8) });
+  }
 }
 
 function focusFirst(screenName){

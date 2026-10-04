@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Telly's own mark: a screen and a stand, in the app's palette. -->
+  <defs>
+    <linearGradient id="b" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#14161f"/><stop offset="100%" stop-color="#06070a"/>
+    </linearGradient>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f6e2b8"/><stop offset="60%" stop-color="#e7c17a"/><stop offset="100%" stop-color="#b98c3e"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="104" fill="url(#b)"/>
+  <rect x="96" y="134" width="320" height="214" rx="30" fill="none" stroke="url(#g)" stroke-width="26"/>
+  <path d="M196 392h120" stroke="url(#g)" stroke-width="26" stroke-linecap="round"/>
+  <path d="M232 196l84 45-84 45z" fill="url(#g)"/>
+</svg>
