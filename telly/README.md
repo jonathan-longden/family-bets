@@ -74,6 +74,12 @@ is:
 | `/movie/…` (the Xtream convention) | a **film** → Movies |
 | `/series/…`, or a file whose name carries `S01E02`, `1x02` or `Season 1 Episode 2` | an **episode** → Series |
 | any other video file (`.mp4`, `.mkv`, …) | a **film**, unless its name says episode |
+| `/download/{item}/format=…` — the Internet Archive asks for a format rather than naming a file | a **film** |
+| an image (`.jpg`, `.png`, `format=Thumbnail`) | **nothing** — skipped, not listed |
+
+That last row is not hypothetical: a handful of entries in the Archive film
+lists point at a thumbnail instead of a film, and a poster masquerading as a
+film is worse than a missing row.
 
 So:
 
@@ -87,10 +93,26 @@ So:
 - **Series** holds shows. Opening one lists its seasons and episodes; Xtream
   episodes are fetched when the series is opened, not all up front.
 
-Free channel lists carry live streams only, so their Movies and Series tabs
-are empty — and say why, pointing at the film channels in Live TV instead of
-sitting blank. A film library comes from an Xtream account, or from a
-provider M3U that carries one.
+Both are shown as a poster wall: 2:3 artwork that fills its tile, the title
+on a scrim over the bottom of it, a badge with the year or the episode count,
+and a play icon that appears on the one you are pointing at or have focused.
+Channels keep rectangular tiles, because a channel logo does not survive
+being cropped to a poster shape.
+
+Opening a film or a series goes to one screen either way — artwork, the facts
+as chips, a synopsis where the source sends one — and then a Play button for a
+film or the seasons for a series. A film whose container a browser cannot open
+says so on that screen before you press anything.
+
+A film library comes from an Xtream account, from a provider M3U that carries
+one, or from the **Films on demand** rows in the catalogue: 9,322 public-domain
+feature films held by the Internet Archive, indexed as M3U by
+[streamfeeds](https://streamfeeds.github.io/web/) and split by language.
+Those are films, so they fill the Movies tab and leave Live TV empty.
+
+Channel lists carry live streams only, so with one of those loaded the Movies
+and Series tabs are empty — and say why, pointing at the film channels in
+Live TV instead of sitting blank.
 
 On-demand titles play from the start and seek, so they are never labelled
 "Live". A container a browser will not open — `.mkv`, `.avi` and the rest —
@@ -99,7 +121,7 @@ twenty-second wait.
 
 ## Free channels
 
-Telly ships a catalogue of 159 public playlists so it is useful with no
+Telly ships a catalogue of 178 public playlists so it is useful with no
 subscription at all: worldwide indexes, countries, genres, the free
 ad-supported services, and Free-TV's own splits. Filter by name or country
 and tap one; it loads exactly like a URL you typed yourself, and the URL is
@@ -120,6 +142,22 @@ error says which. The lists come from:
   documentaries in English and Arabic, and music).
 - [i.mjh.nz](https://i.mjh.nz) — line-ups for the free ad-supported
   services (Pluto TV, Samsung TV Plus, Plex, Roku, Stirr).
+- [streamfeeds](https://streamfeeds.github.io/web/) — public-domain feature
+  films held by [the Internet Archive](https://archive.org/), indexed as M3U
+  and split by language: 4,971 English, 1,393 German, 1,376 Spanish, 905
+  Turkish, 281 Japanese, 266 French, 128 Italian. All seven were fetched and
+  counted before being added, and every address in them is `https`. The same
+  project indexes the public broadcasters' media libraries — ARD, ZDF, 3sat,
+  ARTE, SRF, ORF — which are not in Telly yet.
+- [BuddyChewChew/app-m3u-generator](https://github.com/BuddyChewChew/app-m3u-generator)
+  — the same services split by country, which the global lists are not: 12
+  line-ups covering the UK, the US, Canada, Australia and New Zealand,
+  regenerated daily from i.mjh.nz. Every one of the twelve was fetched and
+  parsed before being added, and every stream address in them is `https`.
+
+That repository reports Stirr as discontinued. Telly still lists the Stirr
+row, because it could not be checked from here — if it is dead, it will say
+so when you tap it.
 
 Nine of those rows carry a warning, because most of their streams are
 plain `http://` and this page is served over `https://`: the browser will
