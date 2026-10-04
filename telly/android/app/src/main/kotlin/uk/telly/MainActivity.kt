@@ -43,6 +43,8 @@ import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uk.telly.core.Catalogue
+import uk.telly.core.CatalogueEntry
 import uk.telly.core.Channel
 import uk.telly.core.M3u
 import uk.telly.core.Streams
@@ -377,6 +379,7 @@ private fun SourcesScreen(
     val ctx = LocalContext.current
     var tab by remember { mutableStateOf(0) }
     var url by remember { mutableStateOf("") }
+    var search by remember { mutableStateOf("") }
     var host by remember { mutableStateOf("") }
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
@@ -393,14 +396,15 @@ private fun SourcesScreen(
         Text("Add playlist", color = Txt, fontSize = 30.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(6.dp))
         Text(
-            "This is the native player, so http streams and raw MPEG-TS both work — " +
-                "the two things a browser refuses.",
+            "Pick something from the free catalogue, or bring your own. This is the " +
+                "native player, so http streams and raw MPEG-TS both work — the two " +
+                "things a browser refuses.",
             color = Dim, fontSize = 14.sp
         )
         Spacer(Modifier.height(18.dp))
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("M3U URL", "File", "Xtream").forEachIndexed { i, label ->
+            listOf("Free", "M3U URL", "File", "Xtream").forEachIndexed { i, label ->
                 val on = tab == i
                 Box(
                     Modifier
@@ -416,12 +420,19 @@ private fun SourcesScreen(
         Spacer(Modifier.height(18.dp))
 
         when (tab) {
-            0 -> {
+            0 -> CatalogueTab(
+                query = search,
+                onQuery = { search = it },
+                enabled = busy == null,
+                onPick = { onUrl(it.url) },
+                modifier = Modifier.weight(1f)
+            )
+            1 -> {
                 Field("Playlist URL", url, { url = it }, "https://example.com/playlist.m3u")
                 Spacer(Modifier.height(14.dp))
                 GoldButton("Load playlist", enabled = busy == null) { onUrl(url.trim()) }
             }
-            1 -> {
+            2 -> {
                 Text("A playlist saved on this device.", color = Dim, fontSize = 14.sp)
                 Spacer(Modifier.height(14.dp))
                 GoldButton("Choose a file", enabled = busy == null) {
@@ -455,12 +466,84 @@ private fun SourcesScreen(
             ) { Text(message, color = Bad) }
         }
 
-        Spacer(Modifier.weight(1f))
+        // The catalogue already takes the leftover height, so a second
+        // weighted spacer here would halve the list it scrolls in.
+        if (tab != 0) Spacer(Modifier.weight(1f))
         Row {
             if (hasPlaylist) TextButton(onClick = onBack) { Text("Back to channels", color = Gold) }
             TextButton(onClick = onConnectServer) { Text("Connect to a server", color = Gold) }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = onForget) { Text("Forget everything", color = Bad) }
+        }
+    }
+}
+
+/**
+ * The free catalogue: a search box over [Catalogue], grouped under its own
+ * headers, one tap to load. Nothing here is bundled with the app — picking a
+ * row fetches that URL, exactly as typing it into the M3U field would.
+ */
+@Composable
+private fun CatalogueTab(
+    query: String,
+    onQuery: (String) -> Unit,
+    enabled: Boolean,
+    onPick: (CatalogueEntry) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val results = remember(query) { Catalogue.search(query) }
+
+    Column(modifier) {
+        Field("Search the catalogue", query, onQuery, "country, genre, channel…")
+        Spacer(Modifier.height(6.dp))
+        Text(
+            if (results.isEmpty()) "Nothing matches that."
+            else "${results.size} playlist" + (if (results.size == 1) "" else "s") +
+                " from iptv-org, Free-TV and i.mjh.nz.",
+            color = Dim, fontSize = 13.sp
+        )
+        Spacer(Modifier.height(12.dp))
+
+        LazyColumn(
+            Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            var header: String? = null
+            results.forEach { entry ->
+                if (entry.group != header) {
+                    header = entry.group
+                    val title = entry.group
+                    item(key = "g:$title") {
+                        Text(
+                            title.uppercase(),
+                            color = Dim, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp,
+                            modifier = Modifier.padding(top = 10.dp, bottom = 2.dp)
+                        )
+                    }
+                }
+                item(key = entry.url) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Panel)
+                            .border(1.dp, Line, RoundedCornerShape(14.dp))
+                            .clickable(enabled = enabled) { onPick(entry) }
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(entry.name, color = Txt, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                            Text(
+                                entry.detail, color = Dim, fontSize = 13.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text("›", color = Gold, fontSize = 22.sp)
+                    }
+                }
+            }
         }
     }
 }

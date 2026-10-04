@@ -61,10 +61,11 @@ playlist and use the File option, which always works.
 
 ## Free channels
 
-Telly ships a catalogue of 64 public playlists so it is useful with no
-subscription at all: worldwide indexes, 38 countries, 16 genres, and the
-free ad-supported services. Filter by name or country and tap one; it loads
-exactly like a URL you typed yourself, and the URL is on every row.
+Telly ships a catalogue of 159 public playlists so it is useful with no
+subscription at all: worldwide indexes, countries, genres, the free
+ad-supported services, and Free-TV's own splits. Filter by name or country
+and tap one; it loads exactly like a URL you typed yourself, and the URL is
+on every row.
 
 Telly hosts none of these. They are maintained by other people, and each
 one can change, go quiet, or refuse browser requests at any time — the
@@ -72,11 +73,22 @@ error says which. The lists come from:
 
 - [iptv-org/iptv](https://github.com/iptv-org/iptv) — a large index of
   publicly available streams, published as country, category and language
-  playlists.
+  playlists. 38 countries and 16 genres are listed, plus the four
+  worldwide indexes.
 - [Free-TV/IPTV](https://github.com/Free-TV/IPTV) — a smaller, hand-checked
-  selection.
+  selection. The combined list is there, and so is every split the project
+  publishes under `playlists/`: 87 countries and 8 topical lists (film
+  channels, Italian film and box sets, news in English, Arabic and Spanish,
+  documentaries in English and Arabic, and music).
 - [i.mjh.nz](https://i.mjh.nz) — line-ups for the free ad-supported
   services (Pluto TV, Samsung TV Plus, Plex, Roku, Stirr).
+
+Nine of those rows carry a warning, because most of their streams are
+plain `http://` and this page is served over `https://`: the browser will
+refuse them before it asks for anything. Film channels is the worst of
+them — 24 of its 26 channels. They all play in the Android app, which has
+the same catalogue and none of the browser's rules. The count shown after
+a playlist loads is the live one, measured on what actually arrived.
 
 These index free-to-air and free ad-supported channels. Telly will play any
 playlist you point it at, but nothing that requires somebody else's paid
