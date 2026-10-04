@@ -59,6 +59,28 @@ Both network options need the server to allow cross-origin requests, since
 the browser fetches the playlist directly. If a server refuses, save the
 playlist and use the File option, which always works.
 
+## The home screen
+
+A side rail down the left carries every section — Home, Live TV, Movies,
+Series, Favourites, TV Guide, Recent, Add playlist, Settings — so the thing
+you want is one press away instead of a scroll. It appears only where there
+is width for it; on a phone the top bar still does the job and the content
+keeps the full screen.
+
+Below the hero: six section tiles, each counting what is actually loaded, and
+then rails of real thumbnails — films, series and channels, favourites first.
+Every thumbnail is a button that opens that title. Cards for features the
+playlist does not have are gone from the home screen rather than sitting
+there saying "Not in playlist".
+
+The hero's backdrop is drawn, not downloaded: an SVG dusk ridge line in
+Telly's own palette, a couple of kilobytes, no network request, sharp on a 4K
+panel. It fades out the moment a channel is playing behind it.
+
+Older Smart TV browsers have no `aspect-ratio`. Without a fallback the
+thumbnails collapse to nothing and a full library looks like an empty one, so
+there is one.
+
 ## Channels, films and series are three different things
 
 A channel showing a film is not a film. FilmRise Movies plays whatever it is
