@@ -141,6 +141,20 @@ h1,h2,h3,p{margin:0}
 .iconbtn:hover{color:var(--txt)}
 
 /* ---------------- stage & screens ---------------- */
+/* ---------------- backdrops ----------------
+   The scene sits behind every screen, faint enough to read over and strong
+   enough to be felt. It cross-fades when you change section. */
+#backdrop{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden;
+  opacity:.34;transition:opacity .6s var(--ease)}
+#backdrop svg{width:100%;height:100%;display:block;
+  transform:scale(1.06);filter:blur(1px) saturate(1.05)}
+/* A picture playing wins; the scene drops back so it is never competing. */
+body.playing #backdrop{opacity:.12}
+.no-motion #backdrop{transition:none}
+#backdrop::after{content:"";position:absolute;inset:0;
+  background:radial-gradient(130% 100% at 50% 0%,transparent 10%,rgba(6,7,10,.72) 72%,rgba(6,7,10,.92) 100%)}
+#heroArt{transition:opacity .5s var(--ease)}
+
 /* ---------------- side rail ----------------
    A standing list of sections down the left, so the thing you want is one
    press away in landscape rather than a scroll. It only appears where
@@ -911,6 +925,156 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
 </header>
 
 <!-- The side rail: every section, one press away, in landscape. -->
+<!-- ================================================================
+     BACKDROPS
+
+     Six scenes, each built from gradients and paths. Original work: no
+     photograph, no third party's artwork, nothing downloaded. Vector, so
+     the lot costs a few kilobytes and stays sharp on a 4K panel.
+
+     They are symbols, used twice — once at full strength behind the hero,
+     once faintly behind every screen — so the artwork exists once.
+     ================================================================ -->
+<svg id="artDefs" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+  <defs>
+    <!-- home: a ridge line at dusk -->
+    <linearGradient id="g-dusk" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a1020"/><stop offset="46%" stop-color="#1d2440"/>
+      <stop offset="74%" stop-color="#5b4766"/><stop offset="100%" stop-color="#b9794f"/>
+    </linearGradient>
+    <radialGradient id="g-sun" cx="72%" cy="80%" r="42%">
+      <stop offset="0%" stop-color="#ffd9a0" stop-opacity=".95"/>
+      <stop offset="42%" stop-color="#e7a860" stop-opacity=".40"/>
+      <stop offset="100%" stop-color="#e7a860" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="g-far" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#4a4062"/><stop offset="100%" stop-color="#2d2a46"/></linearGradient>
+    <linearGradient id="g-mid" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#2a2740"/><stop offset="100%" stop-color="#191a2c"/></linearGradient>
+    <linearGradient id="g-near" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#14151f"/><stop offset="100%" stop-color="#08090e"/></linearGradient>
+    <symbol id="sc-home" viewBox="0 0 1600 900">
+      <rect width="1600" height="900" fill="url(#g-dusk)"/>
+      <circle cx="1152" cy="720" r="430" fill="url(#g-sun)"/>
+      <path d="M0 614 L186 486 L322 574 L470 440 L612 560 L742 470 L900 598 L1046 512 L1210 606 L1360 520 L1600 628 L1600 900 L0 900Z" fill="url(#g-far)" opacity=".92"/>
+      <path d="M0 702 L148 620 L300 698 L452 586 L628 690 L790 616 L948 712 L1118 628 L1290 716 L1452 650 L1600 724 L1600 900 L0 900Z" fill="url(#g-mid)" opacity=".96"/>
+      <rect y="690" width="1600" height="120" fill="#b9794f" opacity=".07"/>
+      <path d="M0 806 L210 742 L404 812 L600 750 L812 824 L1010 760 L1222 830 L1420 768 L1600 826 L1600 900 L0 900Z" fill="url(#g-near)"/>
+    </symbol>
+
+    <!-- live tv: a signal going out over a dark horizon -->
+    <linearGradient id="g-liveSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#050a18"/><stop offset="60%" stop-color="#0d1a39"/><stop offset="100%" stop-color="#17306b"/>
+    </linearGradient>
+    <radialGradient id="g-liveGlow" cx="50%" cy="86%" r="56%">
+      <stop offset="0%" stop-color="#5b9bff" stop-opacity=".55"/><stop offset="100%" stop-color="#5b9bff" stop-opacity="0"/>
+    </radialGradient>
+    <symbol id="sc-live" viewBox="0 0 1600 900">
+      <rect width="1600" height="900" fill="url(#g-liveSky)"/>
+      <circle cx="800" cy="780" r="520" fill="url(#g-liveGlow)"/>
+      <g fill="none" stroke="#7fb4ff" stroke-linecap="round">
+        <path d="M560 780a260 260 0 0 1 480 0" opacity=".45" stroke-width="6"/>
+        <path d="M430 780a400 400 0 0 1 740 0" opacity=".30" stroke-width="5"/>
+        <path d="M300 780a560 560 0 0 1 1000 0" opacity=".18" stroke-width="4"/>
+        <path d="M160 780a730 730 0 0 1 1280 0" opacity=".10" stroke-width="3"/>
+      </g>
+      <circle cx="800" cy="780" r="16" fill="#cfe2ff"/>
+      <rect y="780" width="1600" height="120" fill="#05070f"/>
+    </symbol>
+
+    <!-- movies: a projector beam opening across a dark room -->
+    <linearGradient id="g-movDark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#140608"/><stop offset="100%" stop-color="#07070c"/>
+    </linearGradient>
+    <linearGradient id="g-beam" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#ffd9b0" stop-opacity=".62"/><stop offset="100%" stop-color="#ff9e6e" stop-opacity="0"/>
+    </linearGradient>
+    <symbol id="sc-movies" viewBox="0 0 1600 900">
+      <rect width="1600" height="900" fill="url(#g-movDark)"/>
+      <path d="M96 450 L1600 96 L1600 804 Z" fill="url(#g-beam)"/>
+      <circle cx="96" cy="450" r="30" fill="#ffe6c8" opacity=".9"/>
+      <circle cx="96" cy="450" r="92" fill="#ffb877" opacity=".16"/>
+      <g fill="#ffd9b0" opacity=".30">
+        <circle cx="520" cy="372" r="4"/><circle cx="760" cy="492" r="3"/><circle cx="980" cy="330" r="5"/>
+        <circle cx="1180" cy="556" r="3"/><circle cx="1362" cy="404" r="4"/><circle cx="640" cy="612" r="3"/>
+      </g>
+      <rect width="1600" height="900" fill="#e0384a" opacity=".05"/>
+    </symbol>
+
+    <!-- series: lit windows, a tower block after dark -->
+    <linearGradient id="g-serSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#04120c"/><stop offset="100%" stop-color="#0a2a1c"/>
+    </linearGradient>
+    <symbol id="sc-series" viewBox="0 0 1600 900">
+      <rect width="1600" height="900" fill="url(#g-serSky)"/>
+      <g fill="#0a1a14">
+        <rect x="120" y="250" width="240" height="650"/><rect x="420" y="150" width="280" height="750"/>
+        <rect x="760" y="330" width="220" height="570"/><rect x="1040" y="200" width="300" height="700"/>
+        <rect x="1400" y="400" width="180" height="500"/>
+      </g>
+      <g fill="#4fe0a0">
+        <rect x="156" y="300" width="36" height="26" opacity=".55"/><rect x="228" y="300" width="36" height="26" opacity=".25"/>
+        <rect x="156" y="380" width="36" height="26" opacity=".30"/><rect x="300" y="380" width="36" height="26" opacity=".60"/>
+        <rect x="456" y="210" width="40" height="28" opacity=".50"/><rect x="546" y="210" width="40" height="28" opacity=".20"/>
+        <rect x="636" y="290" width="40" height="28" opacity=".55"/><rect x="456" y="370" width="40" height="28" opacity=".30"/>
+        <rect x="796" y="390" width="34" height="24" opacity=".45"/><rect x="884" y="470" width="34" height="24" opacity=".25"/>
+        <rect x="1076" y="260" width="42" height="30" opacity=".55"/><rect x="1180" y="260" width="42" height="30" opacity=".22"/>
+        <rect x="1076" y="360" width="42" height="30" opacity=".35"/><rect x="1272" y="440" width="42" height="30" opacity=".50"/>
+        <rect x="1432" y="460" width="36" height="26" opacity=".40"/><rect x="1510" y="540" width="36" height="26" opacity=".25"/>
+      </g>
+      <rect y="820" width="1600" height="80" fill="#030c08"/>
+    </symbol>
+
+    <!-- sport: floodlight pools over a curved pitch -->
+    <linearGradient id="g-spSky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#140a02"/><stop offset="100%" stop-color="#2a1403"/>
+    </linearGradient>
+    <radialGradient id="g-pool" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffc77a" stop-opacity=".46"/><stop offset="100%" stop-color="#ffc77a" stop-opacity="0"/>
+    </radialGradient>
+    <symbol id="sc-sport" viewBox="0 0 1600 900">
+      <rect width="1600" height="900" fill="url(#g-spSky)"/>
+      <ellipse cx="300" cy="700" rx="330" ry="210" fill="url(#g-pool)"/>
+      <ellipse cx="800" cy="650" rx="360" ry="230" fill="url(#g-pool)"/>
+      <ellipse cx="1300" cy="700" rx="330" ry="210" fill="url(#g-pool)"/>
+      <g fill="none" stroke="#f0a84e" opacity=".34" stroke-width="5">
+        <path d="M0 760q800 -150 1600 0"/>
+        <path d="M0 840q800 -150 1600 0"/>
+        <ellipse cx="800" cy="788" rx="150" ry="44"/>
+      </g>
+      <g fill="#2a1403">
+        <rect x="236" y="170" width="16" height="300"/><rect x="1348" y="170" width="16" height="300"/>
+      </g>
+      <g fill="#ffd79a" opacity=".55">
+        <rect x="196" y="140" width="96" height="36" rx="8"/><rect x="1308" y="140" width="96" height="36" rx="8"/>
+      </g>
+    </symbol>
+
+    <!-- news: a wireframe globe -->
+    <linearGradient id="g-nwSky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0c0618"/><stop offset="100%" stop-color="#1b0f33"/>
+    </linearGradient>
+    <radialGradient id="g-nwGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#a97cff" stop-opacity=".34"/><stop offset="100%" stop-color="#a97cff" stop-opacity="0"/>
+    </radialGradient>
+    <symbol id="sc-news" viewBox="0 0 1600 900">
+      <rect width="1600" height="900" fill="url(#g-nwSky)"/>
+      <circle cx="800" cy="450" r="420" fill="url(#g-nwGlow)"/>
+      <g fill="none" stroke="#c9adff" opacity=".40" stroke-width="3">
+        <circle cx="800" cy="450" r="300"/>
+        <ellipse cx="800" cy="450" rx="110" ry="300"/>
+        <ellipse cx="800" cy="450" rx="210" ry="300"/>
+        <path d="M500 450h600M536 330h528M536 570h528M600 240h400M600 660h400"/>
+      </g>
+      <g fill="#e6d8ff" opacity=".7">
+        <circle cx="690" cy="372" r="7"/><circle cx="902" cy="500" r="7"/><circle cx="800" cy="300" r="6"/>
+      </g>
+    </symbol>
+  </defs>
+</svg>
+
+<!-- The same scenes, held faintly behind every screen. -->
+<div id="backdrop" aria-hidden="true">
+  <svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"><use id="backScene" href="#sc-home"/></svg>
+</div>
+
 <nav id="rail" aria-label="Sections">
   <button class="nv f" data-f data-go="home"><svg class="ic"><use href="#i-home"/></svg><span class="nvt">Home</span></button>
   <button class="nv f" data-f data-go="live"><svg class="ic"><use href="#i-live"/></svg><span class="nvt">Live TV</span></button>
@@ -936,34 +1100,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
            of kilobytes, needs no network and stays sharp on a 4K panel.
            It hides the moment a channel is playing behind it. -->
       <svg id="heroArt" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-        <defs>
-          <linearGradient id="haSky" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#0a1020"/>
-            <stop offset="46%" stop-color="#1d2440"/>
-            <stop offset="74%" stop-color="#5b4766"/>
-            <stop offset="100%" stop-color="#b9794f"/>
-          </linearGradient>
-          <radialGradient id="haSun" cx="72%" cy="80%" r="42%">
-            <stop offset="0%" stop-color="#ffd9a0" stop-opacity=".95"/>
-            <stop offset="42%" stop-color="#e7a860" stop-opacity=".40"/>
-            <stop offset="100%" stop-color="#e7a860" stop-opacity="0"/>
-          </radialGradient>
-          <linearGradient id="haFar" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#4a4062"/><stop offset="100%" stop-color="#2d2a46"/>
-          </linearGradient>
-          <linearGradient id="haMid" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#2a2740"/><stop offset="100%" stop-color="#191a2c"/>
-          </linearGradient>
-          <linearGradient id="haNear" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stop-color="#14151f"/><stop offset="100%" stop-color="#08090e"/>
-          </linearGradient>
-        </defs>
-        <rect width="1600" height="900" fill="url(#haSky)"/>
-        <circle cx="1152" cy="720" r="430" fill="url(#haSun)"/>
-        <path d="M0 614 L186 486 L322 574 L470 440 L612 560 L742 470 L900 598 L1046 512 L1210 606 L1360 520 L1600 628 L1600 900 L0 900Z" fill="url(#haFar)" opacity=".92"/>
-        <path d="M0 702 L148 620 L300 698 L452 586 L628 690 L790 616 L948 712 L1118 628 L1290 716 L1452 650 L1600 724 L1600 900 L0 900Z" fill="url(#haMid)" opacity=".96"/>
-        <rect y="690" width="1600" height="120" fill="#b9794f" opacity=".07"/>
-        <path d="M0 806 L210 742 L404 812 L600 750 L812 824 L1010 760 L1222 830 L1420 768 L1600 826 L1600 900 L0 900Z" fill="url(#haNear)"/>
+        <use id="heroScene" href="#sc-home"/>
       </svg>
       <div id="slotHero" style="position:absolute;inset:0"></div>
       <div class="scrim"></div>
@@ -2168,11 +2305,29 @@ function go(name, opts){
   /* The rail shows where you are. "movies" and "series" both land on the
      collection screen, so match on the name asked for, not the screen. */
   $$('#rail .nv').forEach(b => b.classList.toggle('on', b.dataset.go === state.navKey));
+  setScene(state.navKey);
 
   placePlayer();
   placeSoon();
   if (!opts.keepFocus) focusFirst(screenName);
   if (screenName === 'live'){ readMetrics(); rebuild(false); }
+}
+
+/* Which backdrop belongs to where you are. Anything without one of its own
+   keeps the home scene rather than flicking to blank. */
+const SCENE_FOR = {
+  home:'home', live:'live', guide:'live', movies:'movies', series:'movies',
+  sport:'sport', news:'news', favourites:'home', recent:'home',
+  settings:'home', playlist:'home'
+};
+let sceneNow = 'home';
+function setScene(key){
+  const want = SCENE_FOR[key] || 'home';
+  if (want === sceneNow) return;
+  sceneNow = want;
+  const back = $('#backScene'), hero = $('#heroScene');
+  if (back) back.setAttribute('href', '#sc-' + want);
+  if (hero) hero.setAttribute('href', '#sc-' + want);
 }
 
 function back(){
@@ -2879,6 +3034,7 @@ function placeSoon(ms){
 
 function setPlayerLive(on){
   layer.classList.toggle('live', on);
+  document.body.classList.toggle('playing', on);
   // the hero's own artwork is for when there is nothing playing behind it
   $('#heroPanel').classList.toggle('hasvideo', on);
   placePlayer();

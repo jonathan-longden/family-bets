@@ -75,9 +75,24 @@ Every thumbnail is a button that opens that title. Cards for features the
 playlist does not have are gone from the home screen rather than sitting
 there saying "Not in playlist".
 
-The hero's backdrop is drawn, not downloaded: an SVG dusk ridge line in
-Telly's own palette, a couple of kilobytes, no network request, sharp on a 4K
-panel. It fades out the moment a channel is playing behind it.
+## Backdrops
+
+Six scenes, drawn rather than downloaded — a ridge line at dusk, a signal
+going out over a horizon, a projector beam opening across a dark room, lit
+windows after dark, floodlight pools over a pitch, and a wireframe globe. All
+of it is gradients and paths in Telly's own palette: original work, no
+photograph, no third party's artwork, nothing fetched over the network. The
+whole set costs a few kilobytes and stays sharp on a 4K panel.
+
+Each one belongs to a section, and the scene cross-fades as you move between
+them — the ridge on Home, the signal on Live TV and the guide, the projector
+on Movies and Series, the floodlights on Sport, the globe on News. Anything
+without a scene of its own keeps the ridge rather than flicking to blank.
+
+They are drawn once as symbols and used twice: faintly behind every screen,
+and at full strength behind the hero. A picture playing always wins — the
+hero's art fades right out and the backdrop drops back, so neither is ever
+competing with what you are watching.
 
 Older Smart TV browsers have no `aspect-ratio`. Without a fallback the
 thumbnails collapse to nothing and a full library looks like an empty one, so
