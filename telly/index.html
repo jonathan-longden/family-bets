@@ -1110,7 +1110,6 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <button class="nv sm f" data-f data-go="news"><svg class="ic"><use href="#i-news"/></svg><span class="nvt">News</span></button>
   <button class="nv sm f" data-f data-go="favourites"><svg class="ic"><use href="#i-star"/></svg><span class="nvt">Favourites</span></button>
   <button class="nv sm f" data-f data-go="guide"><svg class="ic"><use href="#i-guide"/></svg><span class="nvt">TV Guide</span></button>
-  <button class="nv sm f" data-f data-go="recent"><svg class="ic"><use href="#i-clock"/></svg><span class="nvt">Recent</span></button>
   <div style="flex:1"></div>
   <button class="nv sm f" data-f data-go="playlist"><svg class="ic"><use href="#i-plus"/></svg><span class="nvt">Add playlist</span></button>
 </nav>
@@ -1191,11 +1190,6 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
       <span id="cFav"></span><span id="cGuide"></span><span id="exploreSub"></span>
     </div>
 
-    <div id="recentWrap" hidden>
-      <div class="sec-h"><h2>Jump back in</h2><span id="cRecent"></span></div>
-      <div class="rail" id="recentRail"></div>
-    </div>
-
     <div id="filmWrap" hidden>
       <div class="sec-h"><h2 id="filmHead">Films</h2><span id="filmMore"></span></div>
       <div class="rail posterrail" id="filmRail"></div>
@@ -1271,7 +1265,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
     <div id="guideRows"></div>
   </section>
 
-  <!-- ============ COLLECTION (movies / series / favourites / recent) ============ -->
+  <!-- ============ COLLECTION (movies / series / favourites) ============ -->
   <section class="screen" id="collection" data-screen="collection">
     <div class="sec-h"><h2 id="colTitle">Collection</h2><span id="colSub"></span></div>
     <div class="colnote" id="colNote" hidden><span id="colNoteText"></span><button class="btn f" data-f id="colNoteGo"></button></div>
@@ -1510,7 +1504,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
    ================================================================ */
 const K = {
   src:'telly.source', cache:'telly.cache', favs:'telly.favs',
-  last:'telly.last', closed:'telly.closed', recent:'telly.recent', ui:'telly.ui'
+  last:'telly.last', closed:'telly.closed', ui:'telly.ui'
 };
 const store = {
   get(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch(e){ return d; } },
@@ -1528,7 +1522,6 @@ const state = {
   channels: [], groups: [], rows: [], tops: [], total: 0, matched: 0,
   closed: new Set(store.get(K.closed, [])),
   favs: new Set(store.get(K.favs, [])),
-  recent: store.get(K.recent, []),
   query: '', cat: 'all', currentId: null,
   source: store.get(K.src, null),
   epgUrl: '', screen: 'home', full: false, colKind: 'favourites', colShown: 0, colList: [],
@@ -2318,7 +2311,7 @@ function go(name, opts){
     return;
   }
   state.navKey = name;
-  const screenName = ['movies','series','favourites','recent'].includes(name) ? 'collection'
+  const screenName = ['movies','series','favourites'].includes(name) ? 'collection'
                    : ['catchup','recordings'].includes(name) ? 'shelf' : name;
 
   if (screenName === 'collection') openCollection(name);
@@ -2349,7 +2342,7 @@ function go(name, opts){
    keeps the home scene rather than flicking to blank. */
 const SCENE_FOR = {
   home:'home', live:'live', guide:'live', movies:'movies', series:'movies',
-  sport:'sport', news:'news', favourites:'home', recent:'home',
+  sport:'sport', news:'news', favourites:'home',
   settings:'home', playlist:'home'
 };
 let sceneNow = 'home';
@@ -2413,8 +2406,6 @@ function refreshHome(){
   const sp = sectionChannels(SPORT_SECTION).length, nw = sectionChannels(NEWS_SECTION).length;
   $('#cSport').textContent = sp ? fmt(sp) + ' channel' + (sp === 1 ? '' : 's') : 'None found';
   $('#cNews').textContent = nw ? fmt(nw) + ' channel' + (nw === 1 ? '' : 's') : 'None found';
-  $('#cRecent').textContent = state.recent.length
-    ? fmt(state.recent.length) + (state.recent.length === 1 ? ' channel' : ' channels') : 'Nothing yet';
   const rail = $('#liveRail');
   if (rail){
     rail.innerHTML = '';
@@ -2432,7 +2423,6 @@ function refreshHome(){
     ? (state.source.type === 'xtream' ? 'Xtream · ' + state.source.host
       : state.source.type === 'url' ? 'Playlist URL' : state.source.name || 'Local file')
     : 'No playlist yet';
-  renderRecents();
   renderHomeRails();
 }
 
@@ -2483,8 +2473,6 @@ function renderPopRail(){
   };
   const playIt = it => { play(it); go('live'); };
   take(state.channels.filter(c => state.favs.has(c.id)), playIt, c => 'Favourite · ' + c.group);
-  take(state.recent.map(id => channelById(id) || onDemandItem(id)).filter(Boolean),
-       it => (isOnDemand(it) ? openTitle(it) : playIt(it)), it => 'Watched · ' + it.group);
   take(state.movies, it => openTitle(it), m => m.year ? String(m.year) + ' · ' + m.group : m.group);
   take(state.series, it => openTitle(it),
        sh => sh.episodes ? fmt(sh.episodes.length) + ' episodes' : sh.group);
@@ -2528,23 +2516,6 @@ function renderHomeRails(){
   fillRail('#chanWrap', '#chanRail', '#chanMore', favs.concat(rest).slice(0, 18), state.channels.length, {
     sub: c => c.group,
     open: c => { play(c); go('live'); }
-  });
-}
-
-function renderRecents(){
-  const wrap = $('#recentWrap'), rail = $('#recentRail');
-  const list = state.recent.map(channelById).filter(Boolean).slice(0, 14);
-  wrap.hidden = list.length === 0;
-  rail.innerHTML = '';
-  list.forEach(ch => {
-    const b = document.createElement('button');
-    b.className = 'tile f'; b.dataset.f = '';
-    b.innerHTML = '<div class="thumb"></div><div class="cap"><b></b><i></i></div>';
-    fillLogo(b.querySelector('.thumb'), ch);
-    b.querySelector('b').textContent = ch.name;
-    b.querySelector('i').textContent = ch.group;
-    b.onclick = () => { play(ch); go('live'); };
-    rail.appendChild(b);
   });
 }
 
@@ -2650,9 +2621,6 @@ function countKind(kind){
 
 function collectionList(kind){
   if (kind === 'favourites') return state.channels.filter(c => state.favs.has(c.id));
-  if (kind === 'recent'){
-    return state.recent.map(id => channelById(id) || onDemandItem(id)).filter(Boolean);
-  }
   /* No on-demand library? Then show the channels that run films or box sets
      round the clock. They are not the same thing and the note above the grid
      says so — but a tab that explains why it is empty, on a source holding
@@ -2672,7 +2640,7 @@ function openCollection(kind){
   state.colKind = kind;
   state.colList = collectionList(kind);
   state.colShown = 0;
-  const title = kind === 'favourites' ? 'Favourites' : kind === 'recent' ? 'Recently watched' : KIND[kind].title;
+  const title = kind === 'favourites' ? 'Favourites' : KIND[kind].title;
   $('#colTitle').textContent = title;
   const noun = kind === 'movies' ? ['film', 'films']
     : kind === 'series' ? ['series', 'series']
@@ -2705,15 +2673,13 @@ function openCollection(kind){
     const thing = kind === 'movies' ? 'films' : 'series';
     const why = kind === 'favourites'
       ? 'Star a channel anywhere in Telly and it appears here, and at the top of the channel list.'
-      : kind === 'recent'
-      ? 'Channels you watch show up here so you can jump straight back in.'
       : !state.channels.length && !state.movies.length && !state.series.length
       ? 'Load a playlist first — Telly does not come with any channels.'
       : 'This tab is for ' + thing + ' you pick and play. This source carries live streams only, ' +
         'and none of its categories look like ' + thing + ' either. An Xtream account with a ' +
         (kind === 'movies' ? 'film' : 'series') + ' library fills this tab from the server.';
 
-    $('#colEmpty').innerHTML = '<div class="big">' + svg(kind === 'favourites' ? 'i-star' : kind === 'recent' ? 'i-clock' : KIND[kind].icon) +
+    $('#colEmpty').innerHTML = '<div class="big">' + svg(kind === 'favourites' ? 'i-star' : KIND[kind].icon) +
       '</div><h3>Nothing to show</h3><p>' + why + '</p>';
     $('#colMore').hidden = true;
     return;
@@ -3046,8 +3012,8 @@ $('#setClearFav').onclick = () => {
   toast('Favourites cleared');
 };
 $('#setForget').onclick = () => {
-  [K.src, K.cache, K.favs, K.last, K.closed, K.recent].forEach(store.del);
-  state.favs.clear(); state.recent = []; state.closed.clear(); state.source = null;
+  [K.src, K.cache, K.favs, K.last, K.closed].forEach(store.del);
+  state.favs.clear(); state.closed.clear(); state.source = null;
   state.channels = []; state.groups = []; state.currentId = null;
   teardown(); setPlayerLive(false);
   renderCategories(); rebuild(true); refreshHome(); refreshSettings();
@@ -3369,7 +3335,6 @@ function play(ch, isRetry){
   recovered = false;
   state.currentId = ch.id;
   store.set(K.last, ch.id);
-  pushRecent(ch.id);
 
   const blocker =
     !browserCanTry(ch.url)
@@ -3445,13 +3410,6 @@ video.addEventListener('ended', () => {
   $('#heroNote').classList.add('warn');
   updateNow();
 });
-
-function pushRecent(id){
-  state.recent = [id, ...state.recent.filter(x => x !== id)].slice(0, 24);
-  store.set(K.recent, state.recent);
-  renderRecents();
-  $('#cRecent').textContent = fmt(state.recent.length) + (state.recent.length === 1 ? ' title' : ' titles');
-}
 
 function setPoster(ch){
   const wrap = $('#pposter'), blur = wrap.querySelector('.pblur'), ini = wrap.querySelector('.pini');

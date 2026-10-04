@@ -9,11 +9,9 @@ the whole app is one HTML file plus hls.js from a CDN.
 **Home** is a hub, not a menu. A full-bleed hero shows the channel you are
 watching (or the one you left off on) over its own artwork, with the real
 playback state — live, connecting, paused, offline — and one obvious action.
-Below it, navigation cards of deliberately uneven weight: Live TV is the
-large one and carries a rail of real channel logos from your playlist; TV
-Guide, Favourites, Movies, Series, Recently watched, Catch Up, Recordings,
-Settings and Add playlist fill in around it. Each card says something true
-about your playlist rather than a generic label.
+Below it, a row of five section tiles — Live TV, Movies, Series, Sport, News
+— each in its own colour, and each saying something true about your playlist
+rather than a generic label.
 
 **Live TV** is the working screen: categories down the left, the channel
 list in the centre, and a preview player with channel details on the right.
@@ -73,17 +71,16 @@ you were.
 ## The home screen
 
 A side rail down the left leads with Home, Live TV, Movies, Series, Sport and
-Settings, with News, Favourites, TV Guide, Recent and Add playlist below a
+Settings, with News, Favourites, TV Guide and Add playlist below a
 divider — everything one press away instead of a scroll. It shows in any
 landscape window, a phone on its side included.
 
 Below the hero: one row of five section tiles — Live TV, Movies, Series,
 Sport, News — each in its own colour so the row reads as destinations at ten
 feet rather than as a grid of grey rectangles, and each counting what is
-actually loaded. Then **Popular Now**: favourites first, then what you watched
-recently, then films, then series, then the channel list, deduplicated so a
-favourite you watched an hour ago takes one slot rather than three. Then rails
-of real thumbnails — films, series and channels, favourites first.
+actually loaded. Then **Popular Now**: favourites first, then films, then
+series, then the channel list, deduplicated so nothing is listed twice. Then
+rails of real thumbnails — films, series and channels, favourites first.
 Every thumbnail is a button that opens that title. Cards for features the
 playlist does not have are gone from the home screen rather than sitting
 there saying "Not in playlist".
@@ -291,8 +288,9 @@ keeping focus even though only the visible rows exist in the DOM.
   channel name, including names and attribute values containing commas.
   `#EXTGRP` and `#EXTVLCOPT` are handled, and `url-tvg` is noted.
 - Collapsible categories, favourites pinned to the top, search by name.
-- Favourites, the last playlist, the last channel and the recently watched
-  list are kept in `localStorage`, so it opens where you left off.
+- Favourites, the last playlist and the last channel are kept in
+  `localStorage`, so it opens where you left off. Telly keeps no history of
+  what you have watched.
 - Plays `.m3u8` with hls.js, falling back to the browser's own HLS support
   on Safari and iOS.
 - Says what went wrong instead of hanging: offline, refused (401/403),
