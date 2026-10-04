@@ -288,9 +288,10 @@ keeping focus even though only the visible rows exist in the DOM.
   channel name, including names and attribute values containing commas.
   `#EXTGRP` and `#EXTVLCOPT` are handled, and `url-tvg` is noted.
 - Collapsible categories, favourites pinned to the top, search by name.
-- Favourites, the last playlist and the last channel are kept in
-  `localStorage`, so it opens where you left off. Telly keeps no history of
-  what you have watched.
+- Favourites, the playlist you loaded, which categories you collapsed and
+  your display settings are kept in `localStorage`, so it opens with your
+  playlist already there. **Nothing about what you have watched is kept** —
+  no history, and not the last channel either.
 - Plays `.m3u8` with hls.js, falling back to the browser's own HLS support
   on Safari and iOS.
 - Says what went wrong instead of hanging: offline, refused (401/403),

@@ -1333,7 +1333,6 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <h3>Playback</h3>
         <div class="kv"><span>HLS engine</span><b id="setEngine">checking…</b></div>
         <div class="kv"><span>Native HLS</span><b id="setNative">—</b></div>
-        <div class="kv"><span>Last channel</span><b id="setLast">None</b></div>
         <div class="kv"><span>Stream</span><b id="setStream">—</b></div>
         <div class="kv"><span>Page origin</span><b id="setOrigin">—</b></div>
         <div class="kv"><span>Blocked as insecure</span><b id="setInsecure">—</b></div>
@@ -1504,7 +1503,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
    ================================================================ */
 const K = {
   src:'telly.source', cache:'telly.cache', favs:'telly.favs',
-  last:'telly.last', closed:'telly.closed', ui:'telly.ui'
+  closed:'telly.closed', ui:'telly.ui'
 };
 const store = {
   get(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch(e){ return d; } },
@@ -2967,8 +2966,6 @@ function refreshSettings(){
   $('#setEngine').textContent = window.Hls ? 'hls.js ' + (window.Hls.version || 'loaded')
     : window.__hlsFailed ? 'unavailable (CDN blocked)' : 'loading…';
   $('#setNative').textContent = nativeHls ? 'supported' : 'not supported';
-  const last = channelById(store.get(K.last, null));
-  $('#setLast').textContent = last ? last.name : 'None';
   const cur = channelById(state.currentId);
   $('#setStream').textContent = cur ? (currentQuality() || (looksLikeHls(cur.url) ? 'HLS' : 'direct')) : '—';
   $('#setOrigin').textContent = location.protocol.replace(':', '');
@@ -3012,7 +3009,7 @@ $('#setClearFav').onclick = () => {
   toast('Favourites cleared');
 };
 $('#setForget').onclick = () => {
-  [K.src, K.cache, K.favs, K.last, K.closed].forEach(store.del);
+  [K.src, K.cache, K.favs, K.closed].forEach(store.del);
   state.favs.clear(); state.closed.clear(); state.source = null;
   state.channels = []; state.groups = []; state.currentId = null;
   teardown(); setPlayerLive(false);
@@ -3334,7 +3331,6 @@ function play(ch, isRetry){
   const myGen = ++gen;
   recovered = false;
   state.currentId = ch.id;
-  store.set(K.last, ch.id);
 
   const blocker =
     !browserCanTry(ch.url)
@@ -3968,25 +3964,6 @@ netState();
 /* ================================================================
    RESTORE LAST SESSION
    ================================================================ */
-function resumeLast(){
-  const id = store.get(K.last, null);
-  if (!id) return;
-  const ch = channelById(id) || onDemandItem(id);
-  if (!ch) return;
-  state.currentId = ch.id;
-  setHero(ch);
-  setBackdrop(ch);
-  setPoster(ch);
-  updateNow();
-  repaintRows();
-  setPlayerLive(true);
-  $('#heroEyebrow').textContent = 'Last watched';
-  $('#heroNote').textContent = 'Pick up where you left off, or browse the full line-up.';
-  showOverlay('i-play', ch.name, 'Last watched — ready when you are',
-    [{ label:'Play', icon:'i-play', primary:true, onClick:() => play(ch) }], 'idle');
-  placeSoon();
-}
-
 async function restore(force){
   const src = state.source;
   if (!src){ go('playlist'); return; }
@@ -4010,7 +3987,6 @@ async function restore(force){
     state.epgUrl = parsedEpgUrl;
     setLibrary(items, shows);
     if (force){ toast(fmt(items.length) + ' entries reloaded'); refreshSettings(); }
-    else resumeLast();
   } catch(e){
     go('playlist');
     const t = src.type === 'file' ? 'file' : src.type === 'xtream' ? 'xc' : 'url';
