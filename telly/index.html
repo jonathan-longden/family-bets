@@ -767,6 +767,22 @@ body.playing #backdrop{opacity:.12}
 .segs .btn{flex:1;min-height:52px;font-size:15px}
 .spanel .btn{width:100%;margin-top:10px}
 .spanel .btn.danger{color:#ffb3ba;border-color:rgba(255,77,94,.32);background:rgba(255,77,94,.1)}
+/* The operator's own lists — a media folder, an IPTV source. One line each:
+   what it is, what it is doing, and the buttons that act on it. .spanel .btn
+   is full width by design, so a button on a line opts out of that. */
+.lrow{display:flex;align-items:center;gap:14px;padding:13px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+.lrow:last-child{border-bottom:0}
+.lmain{flex:1;min-width:0}
+.lmain b{display:block;font-size:15px;font-weight:600}
+.lmain span{display:block;color:var(--faint);font-size:13px;line-height:1.55;word-break:break-word}
+.lacts{display:flex;gap:8px;flex:0 0 auto}
+.spanel .lacts .btn{width:auto;margin:0;min-height:46px;padding:0 15px;font-size:14px}
+.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:11px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase;border:1px solid var(--line);color:var(--faint);vertical-align:2px}
+.pill.ok{color:#a7e7bd;border-color:rgba(96,214,140,.42);background:rgba(96,214,140,.13)}
+.pill.warn{color:var(--gold);border-color:rgba(231,193,122,.45);background:var(--gold-dim)}
+.pill.bad{color:#ffb3ba;border-color:rgba(255,77,94,.34);background:rgba(255,77,94,.11)}
+.lnone{color:var(--faint);font-size:14px;padding:12px 0;line-height:1.6}
 
 /* ---------------- add playlist ---------------- */
 #playlist{display:flex;flex-direction:column;gap:25.9px;max-width:1240px;margin:0 auto;width:100%}
@@ -1245,12 +1261,13 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <button class="nv f" data-f data-go="live"><svg class="ic"><use href="#i-live"/></svg><span class="nvt">Live TV</span></button>
   <button class="nv f" data-f data-go="movies"><svg class="ic"><use href="#i-movies"/></svg><span class="nvt">Movies</span></button>
   <button class="nv f" data-f data-go="series"><svg class="ic"><use href="#i-series"/></svg><span class="nvt">Series</span></button>
-  <button class="nv f" data-f data-go="sport"><svg class="ic"><use href="#i-sport"/></svg><span class="nvt">Sport</span></button>
-  <button class="nv f" data-f data-go="news"><svg class="ic"><use href="#i-news"/></svg><span class="nvt">News</span></button>
+  <button class="nv f" data-f data-go="recordings"><svg class="ic"><use href="#i-rec"/></svg><span class="nvt">Recordings</span></button>
+  <button class="nv f" data-f data-go="guide"><svg class="ic"><use href="#i-guide"/></svg><span class="nvt">TV Guide</span></button>
+  <button class="nv f" data-f data-go="favourites"><svg class="ic"><use href="#i-star"/></svg><span class="nvt">Favourites</span></button>
   <button class="nv f" data-f data-go="settings"><svg class="ic"><use href="#i-settings"/></svg><span class="nvt">Settings</span></button>
   <div class="nvgap"></div>
-  <button class="nv sm f" data-f data-go="favourites"><svg class="ic"><use href="#i-star"/></svg><span class="nvt">Favourites</span></button>
-  <button class="nv sm f" data-f data-go="guide"><svg class="ic"><use href="#i-guide"/></svg><span class="nvt">TV Guide</span></button>
+  <button class="nv sm f" data-f data-go="sport"><svg class="ic"><use href="#i-sport"/></svg><span class="nvt">Sport</span></button>
+  <button class="nv sm f" data-f data-go="news"><svg class="ic"><use href="#i-news"/></svg><span class="nvt">News</span></button>
   <div class="nvspacer"></div>
   <button class="nv sm f" data-f data-go="playlist"><svg class="ic"><use href="#i-plus"/></svg><span class="nvt">Add playlist</span></button>
 </nav>
@@ -1481,6 +1498,46 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <div class="kv"><span>Page origin</span><b id="setOrigin">—</b></div>
         <div class="kv"><span>Blocked as insecure</span><b id="setInsecure">—</b></div>
       </div>
+      <!-- Only shown to an administrator signed in to a server: these are the
+           operator's own settings, and a viewer has no business with them. -->
+      <div class="spanel" id="libPanel" hidden>
+        <h3>Media library</h3>
+        <p class="hint">Folders on the server's own disk. The files stay where they are — scanning reads
+          them in place and writes nothing into them.</p>
+        <div id="libFolders"></div>
+        <div class="fgrid" style="gap:10px;margin-top:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <input id="libPath" class="in f" data-f type="text" placeholder="C:\Media\Movies"
+                   autocomplete="off" autocapitalize="none" spellcheck="false" aria-label="Folder path" />
+            <select id="libKind" class="in f" data-f aria-label="What is in it">
+              <option value="movies">Movies</option>
+              <option value="series">TV Series</option>
+              <option value="recordings">Recordings</option>
+            </select>
+          </div>
+          <button class="btn f" data-f id="libAdd"><svg class="ic"><use href="#i-plus"/></svg>Add folder</button>
+        </div>
+        <div class="segs" style="margin-top:12px">
+          <button class="btn f" data-f id="scanMovies">Scan Movies</button>
+          <button class="btn f" data-f id="scanTv">Scan TV</button>
+          <button class="btn f" data-f id="scanAll">Scan All</button>
+        </div>
+        <div class="kv" style="margin-top:12px"><span>Last scan</span><b id="scanState">—</b></div>
+        <div class="kv"><span>Unmatched files</span><b id="scanUnmatched">—</b></div>
+      </div>
+
+      <div class="spanel" id="iptvPanel" hidden>
+        <h3>IPTV sources</h3>
+        <p class="hint">Playlists the server imports and keeps up to date. The two country lists are
+          fetched from IPTV-org each refresh, so a channel change upstream arrives on its own.</p>
+        <div id="iptvList"></div>
+        <div class="segs" style="margin-top:12px">
+          <button class="btn f" data-f id="iptvUk">United Kingdom</button>
+          <button class="btn f" data-f id="iptvUs">United States</button>
+        </div>
+        <p class="hint" id="iptvNote">Public free-to-air and free ad-supported streams only.</p>
+      </div>
+
       <div class="spanel" id="srvPanel">
         <h3>Telly account</h3>
         <div class="kv"><span>Server</span><b id="setSrvHost">Not signed in</b></div>
@@ -2278,6 +2335,11 @@ async function srvLogin(host, username, password){
   srvSave({
     host, access: got.accessToken, refresh: got.refreshToken,
     user: (got.user && got.user.username) || username,
+    /* The server says what this account is. The app reads it only to decide
+       which settings panels to draw — every one of those calls is checked
+       again at the server, so a browser claiming to be an administrator
+       gets a 403 rather than a media folder. */
+    role: (got.user && got.user.role) || 'viewer',
     playlists: got.playlists || []
   });
   return got;
@@ -2929,8 +2991,8 @@ function go(name, opts){
     return;
   }
   state.navKey = name;
-  const screenName = ['movies','series','favourites'].includes(name) ? 'collection'
-                   : ['catchup','recordings'].includes(name) ? 'shelf' : name;
+  const screenName = ['movies','series','favourites','recordings'].includes(name) ? 'collection'
+                   : ['catchup'].includes(name) ? 'shelf' : name;
 
   if (screenName === 'collection') openCollection(name);
   if (screenName === 'shelf') openShelf(name);
@@ -2941,7 +3003,7 @@ function go(name, opts){
   document.body.dataset.screen = screenName;
   $$('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === screenName));
   const label = screenName === 'collection' ? $('#colTitle').textContent
-              : screenName === 'shelf' ? (name === 'catchup' ? 'Catch Up' : 'Recordings')
+              : screenName === 'shelf' ? 'Catch Up'
               : TITLES[screenName] || '';
   $('#crumb').innerHTML = screenName === 'home' ? '<span class="cur">Home</span>'
     : '<span>Home</span><span class="sep">›</span><span class="cur">' + escapeHtml(label) + '</span>';
@@ -3465,7 +3527,8 @@ $('#pvRetry').onclick = () => { const ch = channelById(state.currentId); if (ch)
    film channels in here, and it is what the Live TV film section is for. */
 const KIND = {
   movies: { title:'Movies', icon:'i-movies' },
-  series: { title:'Series', icon:'i-series' }
+  series: { title:'Series', icon:'i-series' },
+  recordings: { title:'Recordings', icon:'i-rec' }
 };
 
 function countKind(kind){
@@ -3474,6 +3537,7 @@ function countKind(kind){
 
 function collectionList(kind){
   if (kind === 'favourites') return state.channels.filter(c => state.favs.has(c.id));
+  if (kind === 'recordings') return state.recordings || [];
   /* No on-demand library? Then show the channels that run films or box sets
      round the clock. They are not the same thing and the note above the grid
      says so — but a tab that explains why it is empty, on a source holding
@@ -3497,6 +3561,7 @@ function openCollection(kind){
   $('#colTitle').textContent = title;
   const noun = kind === 'movies' ? ['film', 'films']
     : kind === 'series' ? ['series', 'series']
+    : kind === 'recordings' ? ['recording', 'recordings']
     : ['channel', 'channels'];
   const fallback = colIsFallback();
   const unit = fallback ? ['channel', 'channels'] : noun;
@@ -3872,6 +3937,13 @@ function refreshSettings(){
 
   const ui = store.get(K.ui, {});
   $$('[data-scale]').forEach(b => b.classList.toggle('on', (ui.scale || 'm') === b.dataset.scale));
+
+  /* The operator's panels, and the figures in them. Drawn only for an
+     administrator signed in to a server; the server checks again anyway. */
+  if (adminPanels()){
+    syncBuiltinButtons();
+    loadAdmin();
+  }
 }
 
 $('#setSrvIn').onclick = () => {
@@ -3893,6 +3965,288 @@ $('#setSrvOut').onclick = () => {
   refreshSettings();
   toast('Signed out of that account');
 };
+
+
+/* ================================================================
+   THE OPERATOR'S OWN SETTINGS — media folders and IPTV sources
+   ================================================================
+   Two panels an administrator signed in to a Telly server sees, and nobody
+   else does. Everything here goes through the API: the app names a folder
+   for the server to read on its own disk, and reads back counts. It never
+   opens a folder itself, never sends a path to be streamed, and never
+   learns where a file is.
+
+   The role in the stored session only decides what is drawn. Every call
+   below is an admin route, checked again at the server, so a browser that
+   lies about its role gets a 403 rather than a media folder. */
+const admin = { folders: [], sources: [], builtin: [], job: null, unmatched: 0, loading: false };
+
+const mk = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
+
+const isAdmin = () => { const st = srvState(); return !!(st && st.role === 'admin'); };
+
+/* "4 minutes ago", for a last-scanned or last-checked line. */
+function ago(iso){
+  if (!iso) return 'never';
+  const t = Date.parse(iso);
+  if (!t) return 'never';
+  const s = Math.max(Math.round((Date.now() - t) / 1000), 0);
+  if (s < 45) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return m + (m === 1 ? ' minute ago' : ' minutes ago');
+  const h = Math.round(m / 60);
+  if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+  const d = Math.round(h / 24);
+  return d + (d === 1 ? ' day ago' : ' days ago');
+}
+const plural = (n, one, many) => fmt(n) + ' ' + (n === 1 ? one : (many || one + 's'));
+const pill = (cls, text) => '<span class="pill ' + cls + '">' + escapeHtml(text) + '</span>';
+const KINDNAME = { movies: 'Movies', series: 'TV Series', recordings: 'Recordings' };
+
+/* One line in one of these lists: what it is, what it is doing, and the
+   buttons that act on it. Built as an element rather than markup so the
+   handlers come with it. */
+function lrow(title, subHtml, acts){
+  const row = mk('div', 'lrow');
+  const main = mk('div', 'lmain');
+  main.innerHTML = '<b>' + escapeHtml(title) + '</b><span>' + subHtml + '</span>';
+  row.appendChild(main);
+  const live = (acts || []).filter(Boolean);
+  if (live.length){
+    const box = mk('div', 'lacts');
+    live.forEach(a => {
+      const b = mk('button', 'btn f' + (a.danger ? ' danger' : ''));
+      b.setAttribute('data-f', '');
+      b.textContent = a.label;
+      b.onclick = () => a.run(b);
+      box.appendChild(b);
+    });
+    row.appendChild(box);
+  }
+  return row;
+}
+
+/* A button that is doing something says so, and cannot be pressed twice. */
+async function working(btn, label, fn){
+  if (!btn) return fn();
+  const was = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = label;
+  try { return await fn(); }
+  finally { btn.disabled = false; btn.textContent = was; }
+}
+
+function adminPanels(){
+  const on = isAdmin();
+  $('#libPanel').hidden = !on;
+  $('#iptvPanel').hidden = !on;
+  return on;
+}
+
+/* ------------------------------------------------------- media folders -- */
+function paintFolders(){
+  const box = $('#libFolders');
+  box.textContent = '';
+  if (!admin.folders.length){
+    const p = mk('p', 'lnone');
+    p.textContent = 'No folders yet. Add the folder your films are in, written the way the ' +
+      'server sees it — the files stay where they are.';
+    box.appendChild(p);
+    return;
+  }
+  admin.folders.forEach(f => {
+    const bits = [
+      (KINDNAME[f.kind] || f.kind) + ' · ' + escapeHtml(f.path),
+      plural(f.itemCount || 0, 'item') + ' · scanned ' + ago(f.lastScanAt)
+    ];
+    if (f.lastError) bits.push(pill('bad', 'problem') + ' ' + escapeHtml(f.lastError));
+    else if (!f.enabled) bits.push(pill('warn', 'off'));
+    box.appendChild(lrow(f.label || f.path, bits.join('<br>'), [
+      { label: 'Scan', run: (b) => working(b, 'Scanning…', () => scanOneFolder(f)) },
+      { label: 'Remove', danger: true, run: (b) => working(b, 'Removing…', () => dropFolder(f)) }
+    ]));
+  });
+}
+
+function paintScan(){
+  const j = admin.job;
+  $('#scanState').textContent = !j ? 'never'
+    : j.status === 'running' ? 'scanning… ' + fmt(j.processed || 0) + ' of ' + fmt(j.total || 0) + ' files'
+    : j.status === 'failed' ? 'failed — ' + (j.message || 'see the server log')
+    : [plural(j.found.movies || 0, 'film'),
+       plural(j.found.series || 0, 'series', 'series'),
+       plural(j.found.episodes || 0, 'episode'),
+       plural(j.found.recordings || 0, 'recording')].join(' · ') + ' · ' + ago(j.finishedAt);
+  $('#scanUnmatched').textContent = admin.unmatched
+    ? plural(admin.unmatched, 'file') + ' Telly would not guess at'
+    : 'none';
+}
+
+async function loadAdmin(){
+  if (!isAdmin() || admin.loading) return;
+  admin.loading = true;
+  try {
+    const [roots, srcs, built, scan, un] = await Promise.all([
+      srvAuthed('/admin/media-roots'),
+      srvAuthed('/admin/sources'),
+      srvAuthed('/admin/sources/builtin'),
+      srvAuthed('/admin/library/scan').catch(() => ({ job: null })),
+      srvAuthed('/admin/library/unmatched?limit=1').catch(() => ({ total: 0 }))
+    ]);
+    admin.folders = roots.roots || [];
+    admin.sources = srcs.sources || [];
+    admin.builtin = built.available || [];
+    admin.job = scan.job || null;
+    admin.unmatched = un.total || 0;
+    paintFolders(); paintScan(); paintSources();
+  } catch(e){
+    toast(String((e && e.message) || e));
+  } finally {
+    admin.loading = false;
+  }
+}
+
+$('#libAdd').onclick = (ev) => working(ev.currentTarget, 'Adding…', async () => {
+  const dir = $('#libPath').value.trim();
+  if (!dir) { toast('Type the folder, as the server sees it'); $('#libPath').focus(); return; }
+  try {
+    await srvAuthed('/admin/media-roots', {
+      method:'POST', headers:{ 'content-type':'application/json' },
+      body: JSON.stringify({ path: dir, kind: $('#libKind').value, label: dir.split(/[\\/]/).filter(Boolean).pop() || dir })
+    });
+    $('#libPath').value = '';
+    await loadAdmin();
+    toast('Folder added. Scan it to read what is in it.');
+  } catch(e){ toast(String((e && e.message) || e)); }
+});
+
+async function dropFolder(f){
+  try {
+    await srvAuthed('/admin/media-roots/' + f.id, { method:'DELETE' });
+    await loadAdmin();
+    toast('Folder removed. Nothing in it was touched.');
+  } catch(e){ toast(String((e && e.message) || e)); }
+}
+
+async function scanOneFolder(f){
+  try {
+    await srvAuthed('/admin/media-roots/' + f.id + '/scan', { method:'POST' });
+    await loadAdmin();
+    toast('Scanned ' + (f.label || f.path));
+  } catch(e){ toast(String((e && e.message) || e)); }
+}
+
+/* A scan of a few thousand files takes a while, and the server answers while
+   it runs — so the figure on screen climbs instead of the screen sitting
+   still. The poll stops when the request comes back. */
+async function runLibraryScan(kind, btn){
+  let polling = setInterval(async () => {
+    try {
+      const got = await srvAuthed('/admin/library/scan');
+      admin.job = got.job || admin.job;
+      paintScan();
+    } catch(e){}
+  }, 1200);
+  try {
+    const got = await srvAuthed('/admin/library/scan/' + kind, { method:'POST' });
+    admin.job = got.job || null;
+    clearInterval(polling); polling = 0;
+    await loadAdmin();
+    const f = (got.job && got.job.found) || {};
+    toast('Scan finished · ' + [plural(f.movies || 0, 'film'),
+      plural(f.series || 0, 'series', 'series'),
+      plural(f.episodes || 0, 'episode')].join(' · ') +
+      ((got.job && got.job.unmatched) ? ' · ' + plural(got.job.unmatched, 'file') + ' unmatched' : ''));
+    /* What is on screen came from the server, so it is now out of date. */
+    if (srvOn()) restore(true);
+  } catch(e){
+    toast(String((e && e.message) || e));
+  } finally {
+    if (polling) clearInterval(polling);
+  }
+}
+
+$('#scanMovies').onclick = (ev) => working(ev.currentTarget, 'Scanning…', () => runLibraryScan('movies'));
+$('#scanTv').onclick = (ev) => working(ev.currentTarget, 'Scanning…', () => runLibraryScan('tv'));
+$('#scanAll').onclick = (ev) => working(ev.currentTarget, 'Scanning…', () => runLibraryScan('all'));
+
+/* --------------------------------------------------------- IPTV sources -- */
+function paintSources(){
+  const box = $('#iptvList');
+  box.textContent = '';
+  if (!admin.sources.length){
+    const p = mk('p', 'lnone');
+    p.textContent = 'No playlists on the server yet. Add the United Kingdom or United States list ' +
+      'below and Telly will fetch it, keep it up to date, and test every channel in it.';
+    box.appendChild(p);
+  }
+  admin.sources.forEach(s => {
+    const h = s.health || {};
+    const off = (h.temporarily_unavailable || 0) + (h.failed || 0);
+    const bits = [
+      [s.enabled ? pill('ok', 'on') : pill('warn', 'off'),
+       plural(s.channelCount || 0, 'channel') + ' imported',
+       plural(h.working || 0, 'working', 'working'),
+       off ? plural(off, 'unavailable', 'unavailable') : null,
+       (h.unchecked || 0) ? plural(h.unchecked, 'unchecked', 'unchecked') : null
+      ].filter(Boolean).join(' · '),
+      'Playlist updated ' + ago(s.lastSyncedAt) + ' · channels checked ' + ago(s.lastHealthAt)
+    ];
+    if (s.lastError) bits.push(pill('bad', 'problem') + ' ' + escapeHtml(s.lastError));
+    box.appendChild(lrow(s.name, bits.join('<br>'), [
+      { label: 'Refresh playlist', run: (b) => working(b, 'Refreshing…', () => sourceAction(s, 'sync')) },
+      { label: 'Check channels', run: (b) => working(b, 'Checking…', () => sourceAction(s, 'health')) },
+      { label: 'Refresh + check', run: (b) => working(b, 'Working…', () => sourceAction(s, 'refresh-and-check')) }
+    ]));
+  });
+}
+
+async function sourceAction(s, what){
+  try {
+    const got = await srvAuthed('/admin/sources/' + s.id + '/' + what, {
+      method:'POST', headers:{ 'content-type':'application/json' }, body:'{}'
+    });
+    await loadAdmin();
+    const h = got.health || {};
+    toast(what === 'sync'
+      ? s.name + ' · ' + plural(got.channels || 0, 'channel') + ' imported'
+      : s.name + ' · ' + plural(h.working || 0, 'working', 'working') + ' of ' + fmt(h.total || 0));
+    if (srvOn()) restore(true);
+  } catch(e){ toast(String((e && e.message) || e)); }
+}
+
+/* The two country lists. Pressing one turns it on, pressing it again turns it
+   off: the server is sent the set that should be on, so it is the same whether
+   it has been set up before or not. */
+async function toggleBuiltin(key, btn){
+  const want = new Set(admin.builtin.filter(b => b.installed && b.enabled).map(b => b.key));
+  if (want.has(key)) want.delete(key); else want.add(key);
+  await working(btn, 'Working…', async () => {
+    try {
+      await srvAuthed('/admin/sources/builtin', {
+        method:'POST', headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({ enable: [...want] })
+      });
+      await loadAdmin();
+      syncBuiltinButtons();
+      const b = admin.builtin.find(x => x.key === key);
+      if (b && b.installed && b.enabled){
+        toast(b.name + ' added. Refresh it to fetch the channels.');
+      } else {
+        toast('Turned off. The channels stay on the server until you remove the playlist.');
+      }
+    } catch(e){ toast(String((e && e.message) || e)); }
+  });
+}
+
+function syncBuiltinButtons(){
+  const on = (key) => { const b = admin.builtin.find(x => x.key === key); return !!(b && b.installed && b.enabled); };
+  $('#iptvUk').classList.toggle('on', on('iptv-org:uk'));
+  $('#iptvUs').classList.toggle('on', on('iptv-org:us'));
+}
+
+$('#iptvUk').onclick = (ev) => toggleBuiltin('iptv-org:uk', ev.currentTarget);
+$('#iptvUs').onclick = (ev) => toggleBuiltin('iptv-org:us', ev.currentTarget);
 
 $$('[data-scale]').forEach(b => {
   b.onclick = () => {

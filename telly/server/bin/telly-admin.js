@@ -101,11 +101,17 @@ try {
       const [rootId] = args;
       if (rootId) {
         const r = scanRoot(Number(rootId));
-        console.log(`Scanned: ${r.found} files found, ${r.removed} gone.`);
+        console.log(`Scanned: ${r.found} files found, ${r.unmatched} not recognised, ` +
+          `${r.missing} now missing, ${r.removed} dropped.`);
       } else {
-        for (const r of scanAll()) {
-          console.log(r.error ? `  ${r.label}: ${r.error}` : `  ${r.label}: ${r.found} found, ${r.removed} gone`);
+        const { folders, totals } = scanAll({ kind: args[1] || 'all' });
+        for (const r of folders) {
+          console.log(r.error ? `  ${r.label}: ${r.error}`
+            : `  ${r.label}: ${r.found} found, ${r.unmatched} not recognised, ${r.missing} now missing`);
         }
+        console.log(`The library now holds ${totals.movies} films, ${totals.series} series ` +
+          `(${totals.episodes} episodes) and ${totals.recordings} recordings. ` +
+          `${totals.unmatched} file(s) could not be read; ${totals.errors} error(s).`);
       }
       break;
     }

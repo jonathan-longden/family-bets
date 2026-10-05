@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import {
   movies, movie, publicMovie, seriesList, oneSeries, publicSeries, episodesOf,
-  recordings, artworkPath
+  recordings, artworkPath, seasonsOf, episode, publicEpisode
 } from '../services/media.js';
 import { facets, searchAll, tvgIdsFor } from '../services/library.js';
 import { favourites } from '../services/profile.js';
@@ -18,13 +18,29 @@ import { notFound } from '../lib/errors.js';
  * one shelf — so it is offered to anyone signed in, and gated by the sections
  * an account is allowed rather than by source assignment.
  */
+/* Pages can be asked for either way: ?page=2&limit=50 reads better from a
+   client, ?offset= is what the database wants. Both are accepted. */
 const pageQuery = {
   type: 'object',
   properties: {
     search: { type: 'string', maxLength: 100 },
     limit: { type: 'integer', minimum: 1, maximum: 1000 },
-    offset: { type: 'integer', minimum: 0 }
+    offset: { type: 'integer', minimum: 0 },
+    page: { type: 'integer', minimum: 1 }
   }
+};
+
+export function paging(q = {}) {
+  const limit = Math.min(Math.max(Number(q.limit) || 200, 1), 1000);
+  const offset = q.offset != null ? Math.max(Number(q.offset) || 0, 0)
+    : q.page ? (Math.max(Number(q.page), 1) - 1) * limit
+    : 0;
+  return { limit, offset, page: Math.floor(offset / limit) + 1 };
+}
+
+const paged = (result, q) => {
+  const { limit, offset, page } = paging(q);
+  return { ...result, page, limit, offset, pages: Math.max(Math.ceil((result.total || 0) / limit), 1) };
 };
 
 export default async function catalogueRoutes(app) {
@@ -42,12 +58,13 @@ export default async function catalogueRoutes(app) {
         }
       }
     }
-  }, async (request) => movies(request.query));
+  }, async (request) => paged(movies({ ...request.query, ...paging(request.query) }), request.query));
 
   app.get('/movies/:id', async (request) => publicMovie(movie(Number(request.params.id))));
 
   /* ------------------------------------------------------------- series -- */
-  app.get('/series', { schema: { querystring: pageQuery } }, async (request) => seriesList(request.query));
+  app.get('/series', { schema: { querystring: pageQuery } },
+    async (request) => paged(seriesList({ ...request.query, ...paging(request.query) }), request.query));
 
   app.get('/series/:id', async (request) => {
     const row = oneSeries(Number(request.params.id));
@@ -58,6 +75,11 @@ export default async function catalogueRoutes(app) {
     });
   });
 
+  /* Seasons on their own, for a client that draws them as a level of its own. */
+  app.get('/series/:id/seasons', async (request) => ({
+    seasons: seasonsOf(Number(request.params.id))
+  }));
+
   app.get('/series/:id/episodes', {
     schema: { querystring: { type: 'object', properties: { season: { type: 'integer', minimum: 0 } } } }
   }, async (request) => ({
@@ -65,7 +87,11 @@ export default async function catalogueRoutes(app) {
   }));
 
   /* --------------------------------------------------------- recordings -- */
-  app.get('/recordings', { schema: { querystring: pageQuery } }, async (request) => recordings(request.query));
+  app.get('/recordings', { schema: { querystring: pageQuery } },
+    async (request) => paged(recordings({ ...request.query, ...paging(request.query) }), request.query));
+
+  /* One episode, by its own id — the shape a deep link or a resume needs. */
+  app.get('/episodes/:id', async (request) => publicEpisode(episode(Number(request.params.id))));
 
   /* ------------------------------------------------------------- search -- */
   app.get('/search', {
@@ -140,11 +166,4 @@ export default async function catalogueRoutes(app) {
     reply.header('cache-control', 'private, max-age=86400');
     return reply.send(createReadStream(file));
   });
-}
-
-function seasonsOf(seriesId) {
-  const all = episodesOf(seriesId);
-  const counts = new Map();
-  for (const e of all) counts.set(e.season, (counts.get(e.season) || 0) + 1);
-  return [...counts.entries()].sort((a, b) => a[0] - b[0]).map(([season, episodes]) => ({ season, episodes }));
 }

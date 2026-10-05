@@ -1,8 +1,10 @@
 import { createUser, listUsers, setPassword, setEnabled, setSections, getUser, SECTIONS } from '../services/users.js';
 import { listDevices, revokeDevice } from '../services/devices.js';
 import { createSource, updateSource, deleteSource, listSources, publicSource, assign, unassign,
-         syncSource, getSource } from '../services/sources.js';
-import { createRoot, updateRoot, deleteRoot, listRoots, publicRoot, scanRoot, scanAll } from '../services/media.js';
+         syncSource, getSource, ensureBuiltinSources, builtinCatalogue } from '../services/sources.js';
+import { createRoot, updateRoot, deleteRoot, listRoots, publicRoot, scanRoot, scanAll,
+         runScanLive, scanInFlight, getJob, latestJob, unmatched } from '../services/media.js';
+import { sweep, healthSummary, checkStream } from '../services/health.js';
 import { createEpgSource, updateEpgSource, deleteEpgSource, listEpgSources, publicEpgSource,
          syncEpgSource, getEpgSource } from '../services/xmltv.js';
 import { exportM3u } from '../services/library.js';
@@ -87,7 +89,31 @@ export default async function adminRoutes(app) {
     return { ok: true };
   });
 
-  app.get('/sources', async () => ({ sources: listSources().map(publicSource) }));
+  /* Each source with what its last import and its last health sweep found —
+     the figures the settings screen shows, rather than a bare "synced". */
+  app.get('/sources', async () => ({
+    sources: listSources().map(s => ({ ...publicSource(s), health: healthSummary(s.id) }))
+  }));
+
+  /**
+   * The playlists Telly can set up for you: the iptv-org country lists,
+   * fetched live rather than copied into this repository, so a change
+   * upstream arrives on the next refresh.
+   */
+  app.get('/sources/builtin', async () => ({ available: builtinCatalogue() }));
+
+  app.post('/sources/builtin', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: { enable: { type: 'array', items: { type: 'string', maxLength: 40 }, maxItems: 20 } }
+      }
+    }
+  }, async (request) => ({
+    /* The list is passed through as it arrived: a body with no `enable` sets
+       all of them up, and an empty list switches them all off. */
+    sources: ensureBuiltinSources({ enable: (request.body || {}).enable ?? null }).map(publicSource)
+  }));
 
   app.post('/sources', {
     schema: {
@@ -237,6 +263,81 @@ export default async function adminRoutes(app) {
     const result = await syncEpgSource(Number(request.params.id));
     return { ...result, source: publicEpgSource(getEpgSource(Number(request.params.id))) };
   });
+
+  /* ------------------------------------------------------ channel health -- */
+  /**
+   * Check the streams. A public playlist is mostly dead links and an HTTP 200
+   * proves nothing, so this looks at what actually comes back. Nothing is
+   * deleted for failing — a channel goes temporarily unavailable and is
+   * checked again later.
+   */
+  app.post('/sources/:id/health', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', minimum: 1, maximum: 5000 },
+          force: { type: 'boolean' }
+        }
+      }
+    }
+  }, async (request) => {
+    const id = Number(request.params.id);
+    getSource(id);
+    const body = request.body || {};
+    const counts = await sweep({ sourceId: id, limit: body.limit, force: body.force });
+    return { ...counts, source: publicSource(getSource(id)), health: healthSummary(id) };
+  });
+
+  app.get('/health-summary', async () => ({
+    overall: healthSummary(),
+    sources: listSources().map(s => ({ id: s.id, name: s.name, health: healthSummary(s.id) }))
+  }));
+
+  /** Refresh the playlist and then check what came back, in one go. */
+  app.post('/sources/:id/refresh-and-check', async (request) => {
+    const id = Number(request.params.id);
+    const imported = await syncSource(id);
+    const checked = await sweep({ sourceId: id, force: true, limit: 5000 });
+    return { imported, checked, source: publicSource(getSource(id)), health: healthSummary(id) };
+  });
+
+  /** One address, checked on its own — for working out why a channel is off. */
+  app.post('/check-stream', {
+    schema: { body: { type: 'object', required: ['url'], properties: { url: { type: 'string', maxLength: 2000 } } } }
+  }, async (request) => checkStream(request.body.url));
+
+  /* ------------------------------------------------------------- scanning -- */
+  /**
+   * Start a scan and answer with what it found.
+   *
+   * It runs giving the event loop a turn every few files, so a client can
+   * poll GET /library/scan while this request is still open and watch
+   * "1,250 of 2,300 files" climb, rather than staring at a silent request.
+   * One scan at a time: a second call joins the one already running.
+   */
+  app.post('/library/scan/:kind', async (request) => {
+    const kind = String(request.params.kind);
+    if (!['movies', 'tv', 'recordings', 'all'].includes(kind)) {
+      throw badRequest('Scan movies, tv, recordings or all.');
+    }
+    return runScanLive(kind);
+  });
+
+  app.get('/library/scan', async (request) => ({
+    job: request.query.id ? getJob(Number(request.query.id)) : (scanInFlight() || latestJob()),
+    running: Boolean(scanInFlight())
+  }));
+
+  /** The files the scanner would not guess at, so they can be looked at. */
+  app.get('/library/unmatched', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: { limit: { type: 'integer', minimum: 1, maximum: 1000 }, offset: { type: 'integer', minimum: 0 } }
+      }
+    }
+  }, async (request) => unmatched(request.query));
 
   /* One refresh pass by hand, for when waiting for the timer is silly. */
   app.post('/refresh', async (request) => runOnce({ log: request.log }));

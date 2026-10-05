@@ -83,7 +83,7 @@ export function parseM3u(text) {
     if (line.startsWith('#')) continue;
     if (!URI.test(line)) { pending = null; extgrp = ''; continue; }
 
-    const meta = pending || { name: safeName(line), tvgId: '', logo: '', group: '', country: '', language: '' };
+    const meta = pending || { name: safeName(line), tvgId: '', tvgName: '', logo: '', group: '', country: '', language: '' };
     const group = meta.group || extgrp || 'Ungrouped';
     const extId = `${group}|${line}`;
     if (!seen.has(extId)) {
@@ -95,6 +95,7 @@ export function parseM3u(text) {
         group,
         logo: meta.logo,
         tvgId: meta.tvgId,
+        tvgName: meta.tvgName || '',
         country: meta.country || '',
         language: meta.language || '',
         url: line,

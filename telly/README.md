@@ -22,6 +22,12 @@ the preview panel on Live TV, full screen, or a mini window in the corner
 when you wander off. Home has no slot, so a channel playing follows you
 there as that mini window. Playback is never interrupted by navigating.
 
+**The side rail** is the whole of the navigation, in the order the brief
+names: Home, Live TV, Movies, Series, Recordings, TV Guide, Favourites,
+Settings — then, below a divider, the shortcuts Sport, News and Add playlist.
+Movies, Series, Recordings and Favourites are the same collection screen with
+a different list in it.
+
 **Add playlist** is a screen, not a modal: three large source cards with
 descriptions, then a spacious form.
 
@@ -109,13 +115,37 @@ Settings says which account is signed in, on which server, which playlists
 it carries, and offers the way out. Signing out drops the tokens and the
 line-up with them.
 
-The server classifies its rows by group title, which is the publisher's
-label rather than a fact about the stream — the same guess this app stopped
-making. They are live streams either way, so they all arrive as channels,
-and the section tests that sort Film, Series, Sport and News out of a plain
-M3U sort these out too. The Movies and Series *libraries* stay empty for a
-server source, because its API carries no episode structure to fill them
-with.
+The server's *channels* are classified by group title, which is the
+publisher's label rather than a fact about the stream — the same guess this
+app stopped making. They are live streams either way, so they all arrive as
+channels, and the section tests that sort Film, Series, Sport and News out of
+a plain M3U sort these out too.
+
+Its *library* is different: the films, series and recordings on the server's
+own disk arrive as films, series with real seasons and episodes, and
+recordings, because the API carries that structure. So Movies and Series fill
+from the library when the server has one, and fall back to the film and
+box-set channels in the playlist when it does not.
+
+### Settings, when you are the one running it
+
+Signed in as an administrator, Settings grows two panels nobody else sees —
+a viewer is shown neither, and the server refuses the calls behind them
+whatever the browser claims to be:
+
+- **Media library.** The folders on the server's disk, each with what is in
+  it, its real path, how many items it holds and when it was last scanned.
+  Add one by naming it (`C:\Media\Movies`), several per kind. Then *Scan
+  Movies*, *Scan TV* or *Scan All* — the figure climbs while it runs, and
+  finishes with what was found and how many files Telly would not guess at.
+  **You never download or upload a file, and the app never opens a folder:**
+  it names one for the server to read, and reads back counts.
+- **IPTV sources.** Each playlist with how many channels it imported, how
+  many are working, how many are unavailable, when the playlist last updated
+  and when the channels were last checked — and *Refresh playlist*, *Check
+  channels* and *Refresh + check*. The two country lists, United Kingdom and
+  United States, are one press each: Telly fetches them from iptv-org itself,
+  so **there is no M3U file to download by hand**.
 
 ## What runs where
 
@@ -323,6 +353,10 @@ So:
 - **Series** holds shows. Opening one lists its seasons and episodes; Xtream
   episodes are fetched when the series is opened, not all up front.
 
+- **Recordings** holds what the server recorded, under the channel it came
+  from, when an account is signed in to one. Without a server there is nothing
+  to record with, and the screen says so rather than pretending.
+
 Both are shown as a poster wall: 2:3 artwork that fills its tile, the title
 on a scrim over the bottom of it, a badge with the year or the episode count,
 and a play icon that appears on the one you are pointing at or have focused.
@@ -334,8 +368,9 @@ as chips, a synopsis where the source sends one — and then a Play button for a
 film or the seasons for a series. A film whose container a browser cannot open
 says so on that screen before you press anything.
 
-A film library comes from an Xtream account, from a provider M3U that carries
-one, or from the **Films on demand** rows in the catalogue: 9,322 public-domain
+A film library comes from a Telly server's own media folders, from an Xtream
+account, from a provider M3U that carries one, or from the **Films on demand**
+rows in the catalogue: 9,322 public-domain
 feature films held by the Internet Archive, indexed as M3U by
 [streamfeeds](https://streamfeeds.github.io/web/) and split by language.
 Those are films, so they fill the Movies tab and leave Live TV empty.

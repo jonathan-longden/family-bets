@@ -3,6 +3,7 @@ import { openDb, nowIso } from '../db/index.js';
 import { listSources, syncSource } from './sources.js';
 import { listEpgSources, syncEpgSource, epgNeedsSync } from './xmltv.js';
 import { listRoots, scanRoot } from './media.js';
+import { sweep } from './health.js';
 
 /**
  * The background refresher.
@@ -56,8 +57,8 @@ export function dueForScan(root, now = Date.now()) {
 }
 
 /** One pass. Returns what it did, which is what the tests read. */
-export async function runOnce({ log = null, fetchImpl = fetch, now = Date.now() } = {}) {
-  const done = { playlists: [], guides: [], scans: [] };
+export async function runOnce({ log = null, fetchImpl = fetch, now = Date.now(), checker = null } = {}) {
+  const done = { playlists: [], guides: [], scans: [], health: null };
   const db = openDb();
 
   for (const src of listSources()) {
@@ -94,6 +95,19 @@ export async function runOnce({ log = null, fetchImpl = fetch, now = Date.now() 
     } catch (e) {
       done.scans.push({ id: root.id, label: root.label, ok: false, error: e.message });
       if (log) log.warn(`Media folder "${root.label}" did not scan: ${e.message}`);
+    }
+  }
+
+  /* A slice of the channels whose checks are due, never all of them: a few
+     at a time, on a widening interval, so this is a trickle rather than the
+     server opening a thousand sockets at once. */
+  if (config.health.enabled) {
+    try {
+      done.health = await sweep(Object.assign(
+        { limit: config.health.batch },
+        checker ? { checker } : {}));
+    } catch (e) {
+      if (log) log.warn(`Channel health sweep failed: ${e.message}`);
     }
   }
 

@@ -1,13 +1,15 @@
 import { test, before, after, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, rmSync, renameSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { isolate, login, auth } from './helpers.js';
 
 const box = isolate();
 const { buildServer } = await import('../src/index.js');
 const { createUser, findByUsername } = await import('../src/services/users.js');
-const { createRoot, scanRoot, listRoots, cleanTitle, yearOf, episodeOf, seriesOf } = await import('../src/services/media.js');
+const { createRoot, scanRoot, listRoots, movies, cleanTitle, yearOf, episodeOf, seriesOf } =
+  await import('../src/services/media.js');
+const { config } = await import('../src/config.js');
 const { closeDb, openDb } = await import('../src/db/index.js');
 
 let app, token, adminToken, movieRoot, seriesRoot, recRoot;
@@ -126,15 +128,62 @@ describe('scanning', () => {
     assert.equal(openDb().prepare('SELECT COUNT(*) n FROM movies').get().n, before);
   });
 
-  test('a file deleted from disk leaves the catalogue on the next scan', () => {
+  test('a file that disappears is waited for, not deleted on the spot', () => {
     const extra = path.join(listRoots().find(r => r.id === movieRoot.id).path, 'Temp Film (2001).mp4');
     writeFileSync(extra, 'z'.repeat(10));
     scanRoot(movieRoot.id);
     assert.ok(openDb().prepare('SELECT 1 FROM movies WHERE title_key = ?').get('temp film (2001)'));
+
     rmSync(extra);
     const r = scanRoot(movieRoot.id);
+    assert.equal(r.missing, 1, 'marked');
+    assert.equal(r.removed, 0, 'and not dropped');
+    const row = openDb().prepare('SELECT * FROM movies WHERE title_key = ?').get('temp film (2001)');
+    assert.ok(row, 'the row is kept, with whatever history hangs off it');
+    assert.ok(row.missing_since, 'stamped with when it went');
+
+    // but it is not offered to a client, because it cannot be played
+    assert.equal(movies().items.some(m => /Temp Film/.test(m.title)), false);
+  });
+
+  test('and comes back on its own when the file does', () => {
+    const extra = path.join(listRoots().find(r => r.id === movieRoot.id).path, 'Temp Film (2001).mp4');
+    const before = openDb().prepare('SELECT id FROM movies WHERE title_key = ?').get('temp film (2001)').id;
+    writeFileSync(extra, 'z'.repeat(10));
+    scanRoot(movieRoot.id);
+    const after = openDb().prepare('SELECT * FROM movies WHERE title_key = ?').get('temp film (2001)');
+    assert.equal(after.id, before, 'the same row, not a new one');
+    assert.equal(after.missing_since, null);
+    assert.equal(movies().items.some(m => /Temp Film/.test(m.title)), true);
+    rmSync(extra);
+  });
+
+  test('once it has been missing longer than the grace period it goes', () => {
+    scanRoot(movieRoot.id);                        // marks it missing
+    const id = openDb().prepare('SELECT id FROM movies WHERE title_key = ?').get('temp film (2001)').id;
+    // Backdate the stamp rather than waiting seven days.
+    openDb().prepare('UPDATE movies SET missing_since = ? WHERE id = ?')
+      .run(new Date(Date.now() - (config.media.missingGraceSeconds + 60) * 1000).toISOString(), id);
+    const r = scanRoot(movieRoot.id);
     assert.equal(r.removed, 1);
-    assert.equal(openDb().prepare('SELECT 1 FROM movies WHERE title_key = ?').get('temp film (2001)'), undefined);
+    assert.equal(openDb().prepare('SELECT 1 FROM movies WHERE id = ?').get(id), undefined);
+  });
+
+  test('a folder that is not there at all takes nothing with it', () => {
+    const root = listRoots().find(r => r.id === movieRoot.id);
+    const kept = openDb().prepare('SELECT COUNT(*) n FROM movies WHERE root_id = ?').get(root.id).n;
+    const moved = root.path + '-away';
+    renameSync(root.path, moved);
+    try {
+      const r = scanRoot(root.id);
+      assert.equal(r.error, 'missing');
+      assert.equal(r.missing, 0, 'an unplugged drive is not evidence the films are gone');
+      assert.equal(r.removed, 0);
+      assert.equal(openDb().prepare('SELECT COUNT(*) n FROM movies WHERE root_id = ?').get(root.id).n, kept);
+    } finally {
+      renameSync(moved, root.path);
+      scanRoot(root.id);
+    }
   });
 
   test('the files are never moved: every path is still where it was', () => {
@@ -165,7 +214,13 @@ describe('the catalogue over the API', () => {
     assert.equal(bear.episodeCount, 3);
 
     const one = (await app.inject({ method: 'GET', url: `/api/v1/series/${bear.id}`, headers: auth(token) })).json();
-    assert.deepEqual(one.seasons, [{ season: 1, episodes: 2 }, { season: 2, episodes: 1 }]);
+    // A season is a record of its own now, with an id to address it by.
+    assert.deepEqual(one.seasons.map(s => ({ season: s.season, episodes: s.episodes })),
+      [{ season: 1, episodes: 2 }, { season: 2, episodes: 1 }]);
+    assert.ok(one.seasons.every(s => Number.isInteger(s.id) && s.seriesId === bear.id), JSON.stringify(one.seasons));
+
+    const only = (await app.inject({ method: 'GET', url: `/api/v1/series/${bear.id}/seasons`, headers: auth(token) })).json();
+    assert.deepEqual(only.seasons.map(s => s.season), [1, 2]);
 
     const eps = (await app.inject({
       method: 'GET', url: `/api/v1/series/${bear.id}/episodes?season=1`, headers: auth(token)
