@@ -783,6 +783,17 @@ body.playing #backdrop{opacity:.12}
 .pill.warn{color:var(--gold);border-color:rgba(231,193,122,.45);background:var(--gold-dim)}
 .pill.bad{color:#ffb3ba;border-color:rgba(255,77,94,.34);background:rgba(255,77,94,.11)}
 .lnone{color:var(--faint);font-size:14px;padding:12px 0;line-height:1.6}
+/* Connected or not, and to what. */
+.connrow{display:flex;align-items:center;gap:14px;padding:4px 0 16px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:8px}
+.connrow>div{flex:1;min-width:0}
+.connrow b{display:block;font-size:16px;font-weight:600}
+.connrow span#srvAddr{display:block;color:var(--faint);font-size:13px;word-break:break-all;margin-top:2px}
+.spanel .connrow .btn{width:auto;margin:0;min-height:44px;padding:0 16px;flex:0 0 auto}
+.dot{flex:0 0 auto;width:12px;height:12px;border-radius:50%;background:var(--faint);
+  box-shadow:0 0 0 4px rgba(255,255,255,.05)}
+.dot.on{background:#4fd675;box-shadow:0 0 0 4px rgba(79,214,117,.18)}
+.dot.off{background:#ff4d5e;box-shadow:0 0 0 4px rgba(255,77,94,.18)}
+.dot.wait{background:var(--gold);box-shadow:0 0 0 4px rgba(231,193,122,.18)}
 .eprow.weblocked{opacity:.6}
 .eprow.weblocked .epgo{display:none}
 /* Who carries a title. A provider that only plays it in its own app is shown
@@ -1565,9 +1576,14 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <div class="segs" style="margin-top:12px">
           <button class="btn f" data-f id="scanMovies">Scan Movies</button>
           <button class="btn f" data-f id="scanTv">Scan TV</button>
-          <button class="btn f" data-f id="scanAll">Scan All</button>
+          <button class="btn f" data-f id="scanAll">Scan Everything</button>
         </div>
-        <div class="kv" style="margin-top:12px"><span>Last scan</span><b id="scanState">—</b></div>
+        <div class="kv" style="margin-top:12px"><span>Movies found</span><b id="scanMoviesN">—</b></div>
+        <div class="kv"><span>Series found</span><b id="scanSeriesN">—</b></div>
+        <div class="kv"><span>Episodes found</span><b id="scanEpisodesN">—</b></div>
+        <div class="kv"><span>Scan status</span><b id="scanStatus">—</b></div>
+        <div class="kv"><span>Last scan</span><b id="scanState">—</b></div>
+        <div class="kv"><span>Errors</span><b id="scanErrors">—</b></div>
         <div class="kv"><span>Unmatched files</span><b id="scanUnmatched">—</b></div>
       </div>
 
@@ -1607,7 +1623,17 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
       </div>
 
       <div class="spanel" id="srvPanel">
-        <h3>Telly account</h3>
+        <h3>Telly server</h3>
+        <!-- The library lives on the server, so whether it is reachable is the
+             first thing worth knowing on this screen. -->
+        <div class="connrow">
+          <span class="dot" id="srvDot"></span>
+          <div>
+            <b id="srvState">Not connected</b>
+            <span id="srvAddr">No server address set</span>
+          </div>
+          <button class="btn f" data-f id="srvCheck">Check</button>
+        </div>
         <div class="kv"><span>Server</span><b id="setSrvHost">Not signed in</b></div>
         <div class="kv"><span>Signed in as</span><b id="setSrvUser">—</b></div>
         <div class="kv"><span>This device</span><b id="setSrvDev">—</b></div>
@@ -1615,6 +1641,7 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <p class="hint" id="setSrvHint">Signed in, the playlist and the favourites come from the account, so
           every device sees the same thing. Signed out, each device keeps its own.</p>
         <button class="btn f" data-f id="setSrvIn"><svg class="ic"><use href="#i-tv"/></svg>Sign in to a Telly server</button>
+        <button class="btn f" data-f id="srvChange"><svg class="ic"><use href="#i-link"/></svg>Change server address</button>
         <button class="btn f danger" data-f id="setSrvOut" hidden><svg class="ic"><use href="#i-close"/></svg>Sign out of this account</button>
       </div>
       <div class="spanel">
@@ -1848,7 +1875,7 @@ const state = {
      channel that happens to be showing a film. */
   movies: [], series: [], show: null, showSeason: null, navKey: 'home', failed: false,
   /* What is on now, by tvg-id, when a Telly server has an XMLTV source. */
-  guide: {}, guideCoverage: null, recordings: [],
+  guide: {}, guideCoverage: null, recordings: [], conn: null,
   /* The unified catalogue, when the server keeps one: the counts, and the
      filter the collection screen is narrowed by. */
   catalogue: null, colFilter: {}, facets: null
@@ -3756,20 +3783,23 @@ function countKind(kind){
 function collectionList(kind){
   if (kind === 'favourites') return state.channels.filter(c => state.favs.has(c.id));
   if (kind === 'recordings') return state.recordings || [];
-  /* No on-demand library? Then show the channels that run films or box sets
-     round the clock. They are not the same thing and the note above the grid
-     says so — but a tab that explains why it is empty, on a source holding
-     178 film channels, is a worse answer than showing the 178. */
-  if (kind === 'movies') return state.movies.length ? state.movies : filmChannels();
-  if (kind === 'series') return state.series.length ? state.series : seriesChannels();
+  /* Movies and Series are the catalogue, and nothing else.
+     These used to fall back to the channels that run films round the clock,
+     which was the wrong trade: it put "00s Replay" and "Movie Channel" in
+     Movies as though they were films, and — worse — it hid the fact that the
+     library was empty, so a library that never filled looked like a library
+     that was full of the wrong thing. A channel is a channel; it belongs in
+     Live TV, and the empty state now says how to get films instead. */
+  if (kind === 'movies') return state.movies;
+  if (kind === 'series') return state.series;
   return [];
 }
 
 /* True when the list is channels standing in for a library Telly does not have. */
-function colIsFallback(){
-  return (state.colKind === 'movies' && !state.movies.length && filmChannels().length > 0) ||
-         (state.colKind === 'series' && !state.series.length && seriesChannels().length > 0);
-}
+/* Kept as a function returning false rather than deleted, because the grid,
+   the note and the counting noun all ask it. There is no fallback any more:
+   Movies shows films or it shows nothing and explains why. */
+function colIsFallback(){ return false; }
 
 function openCollection(kind){
   state.colKind = kind;
@@ -3812,16 +3842,53 @@ function openCollection(kind){
   $('#colGrid').hidden = none;
   if (none){
     const thing = kind === 'movies' ? 'films' : 'series';
-    const why = kind === 'favourites'
-      ? 'Star a channel anywhere in Telly and it appears here, and at the top of the channel list.'
-      : !state.channels.length && !state.movies.length && !state.series.length
-      ? 'Load a playlist first — Telly does not come with any channels.'
-      : 'This tab is for ' + thing + ' you pick and play. This source carries live streams only, ' +
-        'and none of its categories look like ' + thing + ' either. An Xtream account with a ' +
-        (kind === 'movies' ? 'film' : 'series') + ' library fills this tab from the server.';
+    const folder = kind === 'movies' ? 'Movies' : 'TV';
+    /* An empty library is nearly always one of three situations, and each has
+       a different next step. Saying which one it is, and offering the button,
+       beats a shrug — this screen used to hide the problem by showing film
+       channels instead. */
+    const signedIn = !!srvState();
+    const head = kind === 'favourites' ? 'No favourites yet'
+      : signedIn ? 'No ' + thing + ' in the library yet'
+      : 'No ' + thing + ' yet';
+    let why, act = null;
 
-    $('#colEmpty').innerHTML = '<div class="big">' + svg(kind === 'favourites' ? 'i-star' : KIND[kind].icon) +
-      '</div><h3>Nothing to show</h3><p>' + why + '</p>';
+    if (kind === 'favourites'){
+      why = 'Star a channel anywhere in Telly and it appears here, and at the top of the ' +
+        'channel list.';
+    } else if (!signedIn){
+      why = 'Films and series live on your Telly server, not in this browser — it is the server ' +
+        'that reads the folders on your PC. Sign in to it and they appear here. ' +
+        'Live TV works without one; a library does not.';
+      act = { label: 'Sign in to a Telly server', icon: 'i-tv',
+              run: () => { go('playlist'); const b = $('.opt[data-tab="srv"]'); if (b) b.click(); } };
+    } else if (isAdmin()){
+      why = 'Your server has no ' + thing + ' yet. Add your ' + folder + ' folder in Settings — ' +
+        'the path as the server sees it, such as C:\\Media\\' + folder + ' — then press ' +
+        'Scan ' + (kind === 'movies' ? 'Movies' : 'TV') + '. Channels in a playlist are not ' +
+        thing + ', so they are not shown here.';
+      act = { label: 'Open the media library settings', icon: 'i-settings',
+              run: () => { go('settings'); setTimeout(() => {
+                const p = $('#libPanel'); if (p && !p.hidden) p.scrollIntoView({ block:'center' });
+              }, 60); } };
+    } else {
+      why = 'Your server has no ' + thing + ' in its library yet. Whoever runs it can add a ' +
+        folder + ' folder in Settings and scan it.';
+    }
+
+    $('#colEmpty').innerHTML = '<div class="big">' +
+      svg(kind === 'favourites' ? 'i-star' : KIND[kind].icon) +
+      '</div><h3>' + escapeHtml(head) + '</h3><p>' + escapeHtml(why) + '</p>';
+    if (act){
+      const b = document.createElement('button');
+      b.className = 'btn gold f';
+      b.setAttribute('data-f', '');
+      b.innerHTML = svg(act.icon) + escapeHtml(act.label);
+      b.onclick = act.run;
+      b.style.margin = '18px auto 0';
+      b.style.maxWidth = '420px';
+      $('#colEmpty').appendChild(b);
+    }
     $('#colMore').hidden = true;
     return;
   }
@@ -4456,6 +4523,11 @@ function refreshSettings(){
   const ui = store.get(K.ui, {});
   $$('[data-scale]').forEach(b => b.classList.toggle('on', (ui.scale || 'm') === b.dataset.scale));
 
+  /* Is the server reachable, and what does it hold? Quietly, so opening
+     Settings does not flash "Checking…" every time. */
+  clearTimeout(connTimer);
+  connTimer = setTimeout(() => checkServer({ quiet: true }), 50);
+
   /* The operator's panels, and the figures in them. Drawn only for an
      administrator signed in to a server; the server checks again anyway. */
   if (adminPanels()){
@@ -4463,6 +4535,86 @@ function refreshSettings(){
     loadAdmin();
   }
 }
+
+/* ================================================================
+   IS THE SERVER THERE?
+
+   The catalogue is on the server, so "nothing in Movies" has two very
+   different causes — an empty library, or a server this browser cannot
+   reach — and they need different answers. /api/health needs no account, so
+   this works before signing in and keeps working after.
+   ================================================================ */
+let connTimer = 0;
+
+function setConn(cls, label, addr){
+  const dot = $('#srvDot');
+  if (!dot) return;
+  dot.className = 'dot' + (cls ? ' ' + cls : '');
+  $('#srvState').textContent = label;
+  $('#srvAddr').textContent = addr || '';
+}
+
+/* The address to try: the signed-in account's, or this page's own origin when
+   the app is being served by the server itself — which is the arrangement
+   that needs no configuration at all. */
+function serverAddress(){
+  const st = srvState();
+  if (st && st.host) return st.host;
+  if (location.protocol === 'http:' || location.protocol === 'https:'){
+    /* Served from the server? Then the API is right here. A static host is
+       not, and saying so is the point of this check. */
+    if (!/github\.io$/i.test(location.hostname)) return location.origin;
+  }
+  return '';
+}
+
+async function checkServer({ quiet = false } = {}){
+  const host = serverAddress();
+  if (!host){
+    setConn('', 'Not connected', 'No server address set');
+    return null;
+  }
+  if (!quiet) setConn('wait', 'Checking…', host);
+
+  const mixed = location.protocol === 'https:' && /^http:\/\//i.test(host);
+  if (mixed){
+    /* The browser will not even send this, so there is no point trying: say
+       what is wrong and what to do instead. */
+    setConn('off', 'Blocked by the browser', host +
+      ' — this page is on https and the server is on http, so the request is refused ' +
+      'before it is sent. Open the app from the server instead: ' + host + '/telly/');
+    return { ok: false, mixed: true, host };
+  }
+
+  try {
+    const r = await fetch(host + '/api/health', { cache: 'no-store' });
+    if (!r.ok) throw new Error('answered ' + r.status);
+    const body = await r.json();
+    const c = body.catalogue || {};
+    const held = [plural(c.movies || 0, 'film'), plural(c.series || 0, 'series', 'series'),
+                  plural(c.episodes || 0, 'episode')].join(' · ');
+    setConn('on', 'Connected', host + ' — ' + held);
+    state.conn = { ok: true, host, catalogue: c };
+    return state.conn;
+  } catch(e){
+    setConn('off', 'Offline', host + ' did not answer. Check the server is running and that ' +
+      'this device can reach that address.');
+    state.conn = { ok: false, host };
+    return state.conn;
+  }
+}
+
+$('#srvCheck').onclick = (ev) => working(ev.currentTarget, 'Checking…', () => checkServer());
+
+/* Changing the address is signing in to a different one, which is the only
+   way the app ever learns a server exists. */
+$('#srvChange').onclick = () => {
+  go('playlist');
+  const b = $('.opt[data-tab="srv"]');
+  if (b) b.click();
+  const host = $('#srvHost');
+  if (host){ host.value = (srvState() || {}).host || host.value; host.focus(); host.select(); }
+};
 
 $('#setSrvIn').onclick = () => {
   go('playlist');
@@ -4591,13 +4743,27 @@ function paintFolders(){
 
 function paintScan(){
   const j = admin.job;
-  $('#scanState').textContent = !j ? 'never'
+  /* The figures come from the catalogue where there is one, because that is
+     what Movies and Series actually show — a scan that found files but did
+     not publish them would otherwise read as a success. The scan job's own
+     counts are shown beside them when they disagree. */
+  const c = admin.catalogue || {};
+  const f = (j && j.found) || {};
+  const pick = (cat, scan) => cat != null ? fmt(cat) : (scan != null ? fmt(scan) : '—');
+
+  $('#scanMoviesN').textContent = pick(c.movies, f.movies);
+  $('#scanSeriesN').textContent = pick(c.series, f.series);
+  $('#scanEpisodesN').textContent = pick(c.episodes, f.episodes);
+
+  $('#scanStatus').textContent = !j ? 'never run'
     : j.status === 'running' ? 'scanning… ' + fmt(j.processed || 0) + ' of ' + fmt(j.total || 0) + ' files'
     : j.status === 'failed' ? 'failed — ' + (j.message || 'see the server log')
-    : [plural(j.found.movies || 0, 'film'),
-       plural(j.found.series || 0, 'series', 'series'),
-       plural(j.found.episodes || 0, 'episode'),
-       plural(j.found.recordings || 0, 'recording')].join(' · ') + ' · ' + ago(j.finishedAt);
+    : 'finished';
+  $('#scanState').textContent = !j ? '—'
+    : j.status === 'running' ? 'in progress'
+    : ago(j.finishedAt || j.startedAt);
+  $('#scanErrors').textContent = !j ? '—'
+    : (j.errors || 0) ? plural(j.errors, 'file') + ' could not be read' : 'none';
   $('#scanUnmatched').textContent = admin.unmatched
     ? plural(admin.unmatched, 'file') + ' Telly would not guess at'
     : 'none';
@@ -4607,7 +4773,7 @@ async function loadAdmin(){
   if (!isAdmin() || admin.loading) return;
   admin.loading = true;
   try {
-    const [roots, srcs, built, scan, un, provs, reviews] = await Promise.all([
+    const [roots, srcs, built, scan, un, provs, reviews, counts] = await Promise.all([
       srvAuthed('/admin/media-roots'),
       srvAuthed('/admin/sources'),
       srvAuthed('/admin/sources/builtin'),
@@ -4615,7 +4781,8 @@ async function loadAdmin(){
       srvAuthed('/admin/library/unmatched?limit=1').catch(() => ({ total: 0 })),
       /* An older server has neither of these, so neither is required. */
       srvAuthed('/admin/providers').catch(() => null),
-      srvAuthed('/admin/catalogue/reviews?limit=12').catch(() => ({ items: [] }))
+      srvAuthed('/admin/catalogue/reviews?limit=12').catch(() => ({ items: [] })),
+      srvAuthed('/catalogue/counts').catch(() => null)
     ]);
     admin.folders = roots.roots || [];
     admin.sources = srcs.sources || [];
@@ -4623,7 +4790,7 @@ async function loadAdmin(){
     admin.job = scan.job || null;
     admin.unmatched = un.total || 0;
     admin.providers = (provs && provs.providers) || [];
-    admin.catalogue = (provs && provs.catalogue) || null;
+    admin.catalogue = (provs && provs.catalogue) || (counts || null);
     admin.artwork = (provs && provs.artwork) || null;
     admin.reviews = (reviews && reviews.items) || [];
     $('#provPanel').hidden = !admin.providers.length;
@@ -4681,10 +4848,12 @@ async function runLibraryScan(kind, btn){
     admin.job = got.job || null;
     clearInterval(polling); polling = 0;
     await loadAdmin();
-    const f = (got.job && got.job.found) || {};
-    toast('Scan finished · ' + [plural(f.movies || 0, 'film'),
-      plural(f.series || 0, 'series', 'series'),
-      plural(f.episodes || 0, 'episode')].join(' · ') +
+    /* What the library now holds, which is the number that matters — the scan
+       also publishes to the catalogue, and that is what Movies reads. */
+    const c = got.catalogue || {};
+    toast('Scan finished · ' + [plural(c.movies || 0, 'film'),
+      plural(c.series || 0, 'series', 'series'),
+      plural(c.episodes || 0, 'episode')].join(' · ') + ' in the library' +
       ((got.job && got.job.unmatched) ? ' · ' + plural(got.job.unmatched, 'file') + ' unmatched' : ''));
     /* What is on screen came from the server, so it is now out of date. */
     if (srvOn()) restore(true);
@@ -5774,8 +5943,9 @@ async function fetchText(url){
   return res.text();
 }
 
-function adopt(items, source, label, fileText, shows, films){
-  if (!items.length && !(shows && shows.length) && !(films && films.length)){
+function adopt(items, source, label, fileText, shows, films, opts){
+  if (!items.length && !(shows && shows.length) && !(films && films.length)
+      && !(opts && opts.allowEmpty)){
     throw new Error('No channels found in that playlist — is it really an M3U file?');
   }
   state.epgUrl = parsedEpgUrl;
@@ -5848,16 +6018,30 @@ $('#loadBtn').onclick = async () => {
          per-source lists rather than sitting beside them. */
       const cat = await srvCatalogue((m) => setMsg(m, 'work'));
       if (cat){ lib.movies = cat.movies; lib.series = cat.series; state.catalogue = cat.counts; }
-      if (!items.length && !lib.movies.length && !lib.series.length && !lib.recordings.length){
-        throw new Error('That account has nothing assigned to it yet — no playlists, and no media folders ' +
-          'on the server. Whoever runs it can add one with the admin tool.');
-      }
+      /* An empty server is still a server, and refusing to connect to one was
+         the bug that made this feature look broken: a new installation has
+         nothing in it *until* you add a folder and scan, and both of those
+         are done from Settings — which needs the account adopted as the
+         source first. So it is adopted, and the empty screens say what to do
+         next rather than the sign-in failing. */
+      const bare = !items.length && !lib.movies.length && !lib.series.length && !lib.recordings.length;
       await srvPullFavs();
       await srvGuide();
       parsedEpgUrl = '';
       state.recordings = lib.recordings;
       adopt(items.concat(lib.recordings), { type:'server', host:normHost(host), user },
-            'your Telly account', null, lib.series, lib.movies);
+            'your Telly account', null, lib.series, lib.movies, { allowEmpty: true });
+      if (bare){
+        /* Said once, plainly, with the next step — rather than a refusal. */
+        setMsg('Connected to ' + normHost(host) + '. There is nothing in its library yet: add your ' +
+          'Movies and TV folders in Settings, then press Scan Everything.', 'ok');
+        go('settings');
+        setTimeout(() => {
+          const panel = $('#libPanel');
+          if (panel && !panel.hidden) panel.scrollIntoView({ block:'center' });
+        }, 120);
+        return;
+      }
     } else {
       const host = $('#xcHost').value, user = $('#xcUser').value.trim(), pass = $('#xcPass').value;
       const got = await loadXtream(host, user, pass, (m) => setMsg(m, 'work'));
@@ -6097,9 +6281,8 @@ async function restore(force){
       items = items.concat(lib.recordings);
       shows = lib.series;
       srvMovies = lib.movies;
-      if (!items.length && !lib.movies.length && !lib.series.length){
-        throw new Error('That account has nothing assigned to it yet.');
-      }
+      /* Deliberately not an error: a server whose library is empty is a server
+         to stay connected to, so the Settings screen can be used to fill it. */
     }
     else if (src.type === 'xtream'){
       const got = await loadXtream(src.host, src.user, src.pass, () => {});

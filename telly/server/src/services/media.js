@@ -57,11 +57,25 @@ export function titleCase(s) {
   return s.replace(/\s+/g, ' ').trim();
 }
 
-/** Strip the release noise and the separators, leaving something readable. */
-export function cleanTitle(raw) {
+/**
+ * Strip the release noise and the separators, leaving something readable.
+ *
+ * The year comes out too, because a year in a filename is filing, not part of
+ * the name: `Inception (2010).mkv` is a film called Inception, and the year is
+ * already its own column. Two different rules, because the two cases are
+ * different:
+ *
+ *   (2010) or [2010]   always removed. A bracketed year is never part of a
+ *                      title, so this needs no corroboration.
+ *   a trailing 2010    removed only when it matches `year`, the year actually
+ *                      detected for this file. Otherwise "Blade Runner 2049"
+ *                      would lose the half of its name that makes it that film.
+ */
+export function cleanTitle(raw, { year = null } = {}) {
   let s = String(raw || '').replace(/\.[A-Za-z0-9]{2,4}$/, '');     // extension
   s = s.replace(/[._]+/g, ' ');
   s = s.replace(/\[[^\]]*\]/g, ' ');                                 // [group]
+  s = s.replace(/[([](?:19\d{2}|20\d{2})[)\]]/g, ' ');               // (2010)
   // Cut at the first piece of release noise: everything after it is technical.
   const words = s.split(/\s+/);
   const out = [];
@@ -70,8 +84,13 @@ export function cleanTitle(raw) {
     out.push(w);
   }
   s = (out.length ? out.join(' ') : s);
+  if (year != null) {
+    s = s.replace(new RegExp(`[\\s(\\[-]*\\b${Number(year)}\\b[)\\]]*\\s*$`), '');
+  }
   s = s.replace(/[-–—\s]+$/, '');
-  return titleCase(s) || titleCase(raw);
+  /* Never return nothing: a file called "2010.mkv" keeps its name rather than
+     becoming an untitled row. */
+  return titleCase(s) || titleCase(String(raw || '').replace(/\.[A-Za-z0-9]{2,4}$/, '')) || titleCase(raw);
 }
 
 /**
@@ -125,12 +144,18 @@ export function seriesOf(relPath, fileName) {
 
 /** An episode's own title, where the filename bothers to give one. */
 export function episodeTitleOf(fileName) {
+  /* The extension goes first. Reading the tail of "Breaking Bad S01E01.mkv"
+     and then stripping the leading separator turns ".mkv" into "mkv", which
+     is how every episode of a tidily-named series ended up titled "mkv". */
+  const bare = String(fileName || '').replace(/\.[A-Za-z0-9]{2,4}$/, '');
   for (const re of EP_PATTERNS) {
-    const m = re.exec(fileName);
+    const m = re.exec(bare);
     if (!m) continue;
-    const tail = fileName.slice(m.index + m[0].length);
+    const tail = bare.slice(m.index + m[0].length);
     const t = cleanTitle(tail.replace(/^[\s._-]+/, ''));
-    return /^\d+$/.test(t) ? '' : t;
+    /* Nothing after the numbers, or only more numbers, means the filename
+       gave no title — which is honest, and better than inventing one. */
+    return /^\d*$/.test(t) ? '' : t;
   }
   return '';
 }
@@ -441,7 +466,8 @@ function probeIfNeeded(db, table, row, file, facts) {
 }
 
 function upsertMovie(db, root, rel, file, name, facts, at) {
-  const title = cleanTitle(name);
+  const year = yearOf(name) ?? yearOf(rel);
+  const title = cleanTitle(name, { year });
   const existing = db.prepare('SELECT id, modified_at, probed_at FROM movies WHERE root_id = ? AND rel_path = ?')
     .get(root.id, rel);
   const tech = probeIfNeeded(db, 'movies', existing, file, facts);
@@ -460,7 +486,7 @@ function upsertMovie(db, root, rel, file, name, facts, at) {
         height      = CASE WHEN excluded.probed_at IS NULL THEN movies.height ELSE excluded.height END,
         probed_at   = COALESCE(excluded.probed_at, movies.probed_at),
         updated_at = excluded.updated_at, seen_at = excluded.seen_at`)
-    .run(root.id, rel, file, title, title.toLowerCase(), yearOf(name) ?? yearOf(rel),
+    .run(root.id, rel, file, title, title.toLowerCase(), year,
          posterFor(file), facts.container, facts.size, facts.modified,
          tech ? tech.durationMs : 0, tech ? tech.videoCodec : '', tech ? tech.audioCodec : '',
          tech ? tech.width : 0, tech ? tech.height : 0, tech ? at : null, at, at, at);

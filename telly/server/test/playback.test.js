@@ -45,9 +45,27 @@ describe('deciding what to do with a file', () => {
   });
 
   test('a browser and an .mkv is the one case that needs FFmpeg', () => {
-    const plan = decide('mkv', { capability: 'browser' });
+    const plan = decide('mkv', { capability: 'browser', ffmpeg: true });
     assert.equal(plan.mode, 'remux');
     assert.equal(plan.mime, 'video/mp4');
+  });
+
+  test('and without FFmpeg it says so, rather than attempting it', () => {
+    /* The machine this runs on may or may not have FFmpeg, so both answers
+       are asked for explicitly. Attempting a remux with no binary used to
+       drop the connection, which told the player nothing at all. */
+    const plan = decide('mkv', { capability: 'browser', ffmpeg: false });
+    assert.equal(plan.mode, 'unsupported');
+    assert.match(plan.reason, /no FFmpeg/i);
+    assert.match(plan.reason, /mp4, m4v or webm play without it/,
+      'and names what does work');
+  });
+
+  test('a container a phone opens needs none of it either way', () => {
+    for (const have of [true, false]) {
+      assert.equal(decide('mkv', { capability: 'native', ffmpeg: have }).mode, 'direct');
+      assert.equal(decide('mp4', { capability: 'browser', ffmpeg: have }).mode, 'direct');
+    }
   });
 
   test('remuxing copies the streams: nothing is re-encoded unless asked', () => {
@@ -105,8 +123,13 @@ describe('playing a file from the library', () => {
     assert.equal(JSON.stringify(t).includes(box.dir), false, 'no path in the reply');
   });
 
-  test('an .mkv tells a browser it will be remuxed, and a phone that it will not', async () => {
-    assert.equal((await ticketFor('movie', mkvId)).json().mode, 'remux');
+  test('an .mkv tells a browser what will happen, and a phone that it is direct', async () => {
+    /* Which of the two the browser is told depends on whether this machine
+       has FFmpeg — but it is always told something it can act on, never a
+       dropped connection. */
+    const browser = (await ticketFor('movie', mkvId)).json();
+    assert.ok(['remux', 'unsupported'].includes(browser.mode), browser.mode);
+    if (browser.mode === 'unsupported') assert.match(browser.reason, /FFmpeg/);
     assert.equal((await ticketFor('movie', mkvId, '?capability=native')).json().mode, 'direct');
   });
 

@@ -3,7 +3,7 @@ import { badRequest, notFound } from '../lib/errors.js';
 import { ingestMovie, ingestSeries } from './catalogue.js';
 import { cacheArtwork } from './artwork.js';
 import {
-  adapterFor, importable, getProvider, listProviders, NO_INTERFACE, STATUS
+  adapterFor, importable, getProvider, listProviders, providerByKey, NO_INTERFACE, STATUS
 } from './providers/index.js';
 
 /**
@@ -247,6 +247,39 @@ export async function runImport(providerId, { fetchImpl = fetch, log = null } = 
 
   running.set(provider.id, promise);
   return promise;
+}
+
+/**
+ * Publish what the scanner found to the catalogue.
+ *
+ * This is the step whose absence made the whole feature invisible: the scanner
+ * writes `movies`, `series` and `episodes`, but Movies and Series read the
+ * *catalogue*, and nothing joined the two. Pressing "Scan Movies" filled the
+ * first and left the second empty, so the library stayed blank however many
+ * files were on disk.
+ *
+ * So every scan ends here. It is the local adapter's ordinary import — no
+ * special path, no second code route — which means a file on disk reaches the
+ * catalogue by exactly the same road a provider's title does, and
+ * deduplicates against it.
+ *
+ * It never throws: a scan that found the files has done its job, and a
+ * catalogue that could not be updated is worth a line in the log rather than
+ * a failed scan.
+ */
+export async function syncLocalProvider({ log = null } = {}) {
+  const provider = providerByKey('local');
+  if (!provider) return null;
+  if (!provider.enabled) {
+    if (log) log.info('The media folders are not published to the catalogue: that provider is off.');
+    return null;
+  }
+  try {
+    return await runImport(provider.id, { log });
+  } catch (e) {
+    if (log) log.warn(`Scan finished, but the catalogue was not updated: ${e.message}`);
+    return null;
+  }
 }
 
 /** Every provider that is on and due, or every provider that is on. */

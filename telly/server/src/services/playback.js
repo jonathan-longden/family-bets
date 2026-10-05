@@ -1,5 +1,5 @@
 import { createReadStream, statSync, existsSync } from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { config } from '../config.js';
 import { notFound, upstreamFailed } from '../lib/errors.js';
@@ -38,6 +38,30 @@ const BROWSER_NATIVE = new Set(['mp4', 'm4v', 'webm', 'ogv']);
 const PLAYER_NATIVE = new Set(['mp4', 'm4v', 'webm', 'ogv', 'mkv', 'mov', 'ts', 'm2ts', 'avi', 'mpg', 'mpeg']);
 
 /**
+ * Is FFmpeg actually here?
+ *
+ * `config.ffmpeg.enabled` is a wish, not a fact: it is a flag somebody set,
+ * and it says nothing about whether the binary exists. Asking it was enough
+ * to decide to remux an .mkv on a PC with no FFmpeg installed — and then the
+ * spawn failed asynchronously, the connection was destroyed, and the player
+ * got neither video nor an explanation. A film that will not play has to say
+ * so, so the question is answered properly, once, and remembered.
+ */
+let ffmpegThere = null;
+
+export function ffmpegAvailable({ recheck = false } = {}) {
+  if (!config.ffmpeg.enabled) return false;
+  if (ffmpegThere !== null && !recheck) return ffmpegThere;
+  try {
+    const r = spawnSync(config.ffmpeg.path, ['-version'], { timeout: 4000, stdio: 'ignore' });
+    ffmpegThere = !r.error && r.status === 0;
+  } catch {
+    ffmpegThere = false;
+  }
+  return ffmpegThere;
+}
+
+/**
  * How to serve this file to this client.
  *
  * `capability` is what the caller says it can play: 'native' for a real media
@@ -45,13 +69,22 @@ const PLAYER_NATIVE = new Set(['mp4', 'm4v', 'webm', 'ogv', 'mkv', 'mov', 'ts', 
  * Asking for more than you can play only costs CPU, so the default is the
  * cheapest thing that works.
  */
-export function decide(container, { capability = 'browser', allowTranscode = true } = {}) {
+export function decide(container, { capability = 'browser', allowTranscode = true,
+                                    ffmpeg = null } = {}) {
   const ext = String(container || '').replace('.', '').toLowerCase();
   const native = capability === 'native' ? PLAYER_NATIVE : BROWSER_NATIVE;
+  /* `ffmpeg` is for callers that know, and for tests: whether a machine has
+     FFmpeg changes the answer, so it has to be possible to ask both ways
+     without installing or removing anything. */
+  const haveFfmpeg = ffmpeg == null ? ffmpegAvailable() : Boolean(ffmpeg);
   if (native.has(ext)) return { mode: 'direct', container: ext, mime: MIME[ext] || 'application/octet-stream' };
-  if (!config.ffmpeg.enabled) {
-    return { mode: 'unsupported', container: ext, mime: MIME[ext] || 'application/octet-stream',
-             reason: `This server has no FFmpeg configured, and a ${ext || 'file'} will not play as it is.` };
+  if (!haveFfmpeg) {
+    return {
+      mode: 'unsupported', container: ext, mime: MIME[ext] || 'application/octet-stream',
+      reason: `A .${ext || 'file'} cannot be played as it is, and this server has no FFmpeg to ` +
+        'repackage it. Install FFmpeg and restart Telly, or set TELLY_FFMPEG to where it is. ' +
+        'Files already in mp4, m4v or webm play without it.'
+    };
   }
   // A container problem, not a codec one: copy the streams across.
   if (allowTranscode) return { mode: 'remux', container: ext, mime: 'video/mp4' };
@@ -125,6 +158,14 @@ export function sendTranscoded(file, reply, opts = {}) {
   fileSize(file);                                   // 404 before spawning anything
   if (!config.ffmpeg.enabled) throw upstreamFailed('This server has no FFmpeg configured.');
 
+  /* Asked before anything is committed to, so a missing binary is an answer
+     rather than a dropped connection. */
+  if (!ffmpegAvailable()) {
+    throw upstreamFailed(
+      'This server has no FFmpeg, so it cannot repackage that file. Install FFmpeg and restart ' +
+      'Telly, or set TELLY_FFMPEG to where it is.');
+  }
+
   const args = ffmpegArgs(file, opts);
   let child;
   try {
@@ -135,7 +176,19 @@ export function sendTranscoded(file, reply, opts = {}) {
 
   let stderr = '';
   child.stderr.on('data', d => { if (stderr.length < 4000) stderr += String(d); });
-  child.on('error', () => { try { reply.raw.destroy(); } catch {} });
+  child.on('error', (e) => {
+    /* It vanished between the check and the spawn. If nothing has been sent
+       yet there is still time to say why; otherwise the stream has to end,
+       and ending it is all that is left. */
+    ffmpegThere = null;                               // ask again next time
+    if (!reply.sent && !reply.raw.headersSent) {
+      reply.status(502).send({
+        error: { code: 'upstream_failed', message: `FFmpeg would not start: ${e.message}` }
+      });
+      return;
+    }
+    try { reply.raw.destroy(); } catch {}
+  });
   // A client that closes the tab must not leave an encoder running.
   reply.raw.on('close', () => { try { child.kill('SIGKILL'); } catch {} });
 

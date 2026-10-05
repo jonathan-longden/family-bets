@@ -20,6 +20,9 @@ import { openDb } from '../src/db/index.js';
 import { createUser, findByUsername, listUsers } from '../src/services/users.js';
 import { createSource, listSources, assign, syncSource, publicSource } from '../src/services/sources.js';
 import { createRoot, listRoots, publicRoot, scanRoot, scanAll } from '../src/services/media.js';
+import { ensureProviders } from '../src/services/providers/index.js';
+import { syncLocalProvider } from '../src/services/importer.js';
+import { catalogueCounts } from '../src/services/catalogue.js';
 import { createEpgSource, listEpgSources, publicEpgSource, syncEpgSource } from '../src/services/xmltv.js';
 import { exportM3u } from '../src/services/library.js';
 
@@ -99,6 +102,10 @@ try {
     }
     case 'scan': {
       const [rootId] = args;
+      /* The provider rows are the server's job on boot; the tool may be the
+         first thing that ever runs, so it makes sure they exist before asking
+         the local provider to publish anything. */
+      ensureProviders();
       if (rootId) {
         const r = scanRoot(Number(rootId));
         console.log(`Scanned: ${r.found} files found, ${r.unmatched} not recognised, ` +
@@ -113,6 +120,10 @@ try {
           `(${totals.episodes} episodes) and ${totals.recordings} recordings. ` +
           `${totals.unmatched} file(s) could not be read; ${totals.errors} error(s).`);
       }
+      /* And into the catalogue, which is what the apps read. */
+      await syncLocalProvider();
+      const c = catalogueCounts();
+      console.log(`Catalogue: ${c.movies} films, ${c.series} series, ${c.episodes} episodes.`);
       break;
     }
     case 'add-epg': {

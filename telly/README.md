@@ -1,5 +1,10 @@
 # Telly
 
+> **Films and series live on your PC, not in this page.** To see your own
+> library, start the Telly server and open the app *from it* —
+> `http://your-pc:8080/telly/`. [RUNNING.md](RUNNING.md) is three minutes
+> end to end.
+
 A single-file IPTV player with a cinematic, remote-friendly interface.
 Open `index.html` — there is no build step, no bundler and no framework;
 the whole app is one HTML file plus hls.js from a CDN.
@@ -161,6 +166,12 @@ Search runs over the canonical catalogue rather than asking each provider, so
 
 Which providers can actually be imported from, and why four of the five
 requested cannot, is in [PROVIDERS.md](PROVIDERS.md).
+
+**A channel is never a film.** Movies and Series show the catalogue and nothing
+else. A playlist's film channels — "Movie Channel", "00s Replay" — are channels
+and stay in Live TV, under the *Film channels* section. This tab used to fall
+back to showing them, which put a channel in the library as though it were a
+title and hid the fact that there was no library at all.
 
 ### Settings, when you are the one running it
 

@@ -12,7 +12,7 @@ import {
   listProviders, getProvider, publicProvider, setProviderEnabled, updateProvider,
   adapterFor, importable, NO_INTERFACE
 } from '../services/providers/index.js';
-import { runImport, runAllImports, imports, latestImport, importInFlight }
+import { runImport, runAllImports, imports, latestImport, importInFlight, syncLocalProvider }
   from '../services/importer.js';
 import { openReviews } from '../services/dedupe.js';
 import { decideReview, mergeWorks, catalogueCounts, forgetProvider }
@@ -228,10 +228,20 @@ export default async function adminRoutes(app) {
   /* Scanning reads the folders in place. It never writes to them. */
   app.post('/media-roots/:id/scan', async (request) => {
     const result = scanRoot(Number(request.params.id));
-    return { ...result, root: publicRoot(listRoots().find(r => r.id === Number(request.params.id))) };
+    const published = await syncLocalProvider({ log: request.log });
+    return {
+      ...result,
+      root: publicRoot(listRoots().find(r => r.id === Number(request.params.id))),
+      catalogue: catalogueCounts(),
+      published: published && published.run
+    };
   });
 
-  app.post('/media-roots/scan', async () => ({ scans: scanAll() }));
+  app.post('/media-roots/scan', async (request) => {
+    const scans = scanAll();
+    const published = await syncLocalProvider({ log: request.log });
+    return { scans, catalogue: catalogueCounts(), published: published && published.run };
+  });
 
   /* -------------------------------------------------------- XMLTV guides -- */
   app.get('/epg-sources', async () => ({ sources: listEpgSources().map(publicEpgSource) }));
@@ -331,7 +341,11 @@ export default async function adminRoutes(app) {
     if (!['movies', 'tv', 'recordings', 'all'].includes(kind)) {
       throw badRequest('Scan movies, tv, recordings or all.');
     }
-    return runScanLive(kind);
+    const scan = await runScanLive(kind);
+    /* And then into the catalogue, which is what Movies and Series actually
+       read. A scan that stops at the `movies` table is a scan nobody sees. */
+    const published = await syncLocalProvider({ log: request.log });
+    return { ...scan, catalogue: catalogueCounts(), published: published && published.run };
   });
 
   app.get('/library/scan', async (request) => ({

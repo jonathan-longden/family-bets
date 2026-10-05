@@ -6,6 +6,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 function env(name, fallback) {
   const v = process.env[name];
@@ -23,7 +24,13 @@ function bool(name, fallback) {
   return v === '1' || v === 'true' || v === 'yes';
 }
 
-const root = path.resolve(process.cwd());
+/* The working directory is wherever somebody happened to type `node`, so
+   anything derived from it moves when they start the server from elsewhere.
+   These are anchored to this file instead: serverRoot is telly/server, and
+   appRoot is telly/, where index.html lives. */
+const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const appRoot = path.resolve(serverRoot, '..');
+const root = serverRoot;
 
 /**
  * The signing secret for playback tickets. Persisted next to the database so
@@ -56,6 +63,14 @@ export const config = {
   },
   // Behind nginx/Caddy this must be on so rate limiting sees real client IPs.
   trustProxy: bool('TELLY_TRUST_PROXY', 'false'),
+
+  /* The app's own files, served from this server so the browser and the API
+     share an origin — see routes/app.js. Default: the directory above this
+     one, which is where index.html lives in this repository. */
+  app: {
+    serve: bool('TELLY_SERVE_APP', 'true'),
+    dir: path.resolve(env('TELLY_APP_DIR', appRoot))
+  },
 
   dataDir,
   dbPath: env('TELLY_DB', path.join(dataDir, 'telly.db')),
