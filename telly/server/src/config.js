@@ -78,7 +78,38 @@ export const config = {
   },
 
   // How long a cached playlist is served before the server refetches it.
+  // A source may set its own interval; this is the default for one that does not.
   playlistTtlSeconds: int('TELLY_PLAYLIST_TTL', 60 * 60 * 6),
+
+  // The background refresher: playlists and guides on their own intervals.
+  // Set TELLY_REFRESH_INTERVAL to 0 to turn it off and refresh by hand.
+  refresh: {
+    tickSeconds: int('TELLY_REFRESH_INTERVAL', 300),
+    get enabled() { return this.tickSeconds > 0; },
+    // After a failure a source is left alone for a while rather than hammered,
+    // and its channels are kept: an upstream having a bad hour is not a reason
+    // to empty somebody's television.
+    backoffSeconds: int('TELLY_REFRESH_BACKOFF', 900),
+    maxBackoffSeconds: int('TELLY_REFRESH_MAX_BACKOFF', 60 * 60 * 6)
+  },
+
+  // Personal media. Scanning walks the folders in media_roots; this is only
+  // how often, and whether a scan runs at all on a timer.
+  media: {
+    scanIntervalSeconds: int('TELLY_SCAN_INTERVAL', 60 * 60),
+    get scanEnabled() { return this.scanIntervalSeconds > 0; }
+  },
+
+  // FFmpeg is optional. Without it everything a browser can open still plays
+  // directly from disk; with it, the containers a browser cannot open are
+  // remuxed on the way out.
+  ffmpeg: {
+    path: env('TELLY_FFMPEG', 'ffmpeg'),
+    enabled: bool('TELLY_FFMPEG_ENABLED', 'true'),
+    videoCodec: env('TELLY_FFMPEG_VCODEC', 'libx264'),
+    preset: env('TELLY_FFMPEG_PRESET', 'veryfast'),
+    crf: int('TELLY_FFMPEG_CRF', 23)
+  },
 
   defaults: {
     maxDevices: int('TELLY_DEFAULT_MAX_DEVICES', 2)

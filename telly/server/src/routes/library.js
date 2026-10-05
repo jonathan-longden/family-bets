@@ -23,6 +23,8 @@ export default async function libraryRoutes(app) {
           kind: { type: 'string', enum: ['live', 'movie', 'series'] },
           group: { type: 'string', maxLength: 200 },
           search: { type: 'string', maxLength: 100 },
+          country: { type: 'string', maxLength: 60 },
+          language: { type: 'string', maxLength: 60 },
           limit: { type: 'integer', minimum: 1, maximum: 2000 },
           offset: { type: 'integer', minimum: 0 }
         }
@@ -32,6 +34,8 @@ export default async function libraryRoutes(app) {
     kind: request.query.kind || 'live',
     group: request.query.group,
     search: request.query.search,
+    country: request.query.country,
+    language: request.query.language,
     limit: request.query.limit,
     offset: request.query.offset
   }));

@@ -13,9 +13,18 @@ function sign(payload) {
   return createHmac('sha256', config.secret).update(payload).digest('base64url');
 }
 
-export function issueTicket({ userId, deviceId, channelId, ttlSeconds = config.tokens.ticketTtlSeconds }) {
+/**
+ * `resource` is what the ticket is for. A live channel is its numeric id, as
+ * it always was; a file from the server's own library is "movie-12",
+ * "episode-98", "recording-3". One mechanism, so a personal film is no more
+ * reachable without a ticket than a subscription channel is.
+ */
+export function issueTicket({ userId, deviceId, channelId, resource,
+                              ttlSeconds = config.tokens.ticketTtlSeconds }) {
+  const what = String(resource == null ? channelId : resource);
+  if (!/^[A-Za-z0-9_-]+$/.test(what)) throw new Error('A ticket resource must be plain id text.');
   const expires = Math.floor(Date.now() / 1000) + ttlSeconds;
-  const payload = `${userId}.${deviceId}.${channelId}.${expires}`;
+  const payload = `${userId}.${deviceId}.${what}.${expires}`;
   return `${payload}.${sign(payload)}`;
 }
 
@@ -24,8 +33,8 @@ export function readTicket(ticket) {
   if (typeof ticket !== 'string') return null;
   const parts = ticket.split('.');
   if (parts.length !== 5) return null;
-  const [userId, deviceId, channelId, expires, mac] = parts;
-  const payload = `${userId}.${deviceId}.${channelId}.${expires}`;
+  const [userId, deviceId, resource, expires, mac] = parts;
+  const payload = `${userId}.${deviceId}.${resource}.${expires}`;
   const expected = sign(payload);
   const a = Buffer.from(mac);
   const b = Buffer.from(expected);
@@ -34,7 +43,10 @@ export function readTicket(ticket) {
   return {
     userId: Number(userId),
     deviceId: Number(deviceId),
-    channelId: Number(channelId),
+    resource,
+    // Unchanged for a live channel, whose resource is its id. NaN for a file,
+    // which the media route reads from `resource` instead.
+    channelId: Number(resource),
     expiresAt: new Date(Number(expires) * 1000).toISOString()
   };
 }

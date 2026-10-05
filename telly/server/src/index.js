@@ -9,8 +9,10 @@ import authRoutes from './routes/auth.js';
 import meRoutes from './routes/me.js';
 import libraryRoutes from './routes/library.js';
 import streamRoutes from './routes/stream.js';
+import catalogueRoutes from './routes/catalogue.js';
 import adminRoutes from './routes/admin.js';
 import healthRoutes from './routes/health.js';
+import { startScheduler } from './services/scheduler.js';
 
 export async function buildServer({ logger = true } = {}) {
   openDb();
@@ -47,6 +49,7 @@ export async function buildServer({ logger = true } = {}) {
   await app.register(authRoutes, { prefix: '/api/v1/auth' });
   await app.register(meRoutes, { prefix: '/api/v1/me' });
   await app.register(libraryRoutes, { prefix: '/api/v1' });
+  await app.register(catalogueRoutes, { prefix: '/api/v1' });
   await app.register(streamRoutes, { prefix: '/api/v1' });
   await app.register(adminRoutes, { prefix: '/api/v1/admin' });
 
@@ -63,6 +66,9 @@ export async function buildServer({ logger = true } = {}) {
 // Started directly rather than imported by a test.
 if (import.meta.url === `file://${process.argv[1]}`) {
   const app = await buildServer();
+  // Playlists, guides and media folders refresh on their own intervals. Only
+  // the real server does this: a test drives runOnce() itself.
+  startScheduler(app);
   try {
     await app.listen({ host: config.host, port: config.port });
     const scheme = config.tls.enabled ? 'https' : 'http';

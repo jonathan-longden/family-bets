@@ -1,6 +1,12 @@
 import { createUser, listUsers, setPassword, setEnabled, setSections, getUser, SECTIONS } from '../services/users.js';
 import { listDevices, revokeDevice } from '../services/devices.js';
-import { createSource, listSources, publicSource, assign, unassign, syncSource, getSource } from '../services/sources.js';
+import { createSource, updateSource, deleteSource, listSources, publicSource, assign, unassign,
+         syncSource, getSource } from '../services/sources.js';
+import { createRoot, updateRoot, deleteRoot, listRoots, publicRoot, scanRoot, scanAll } from '../services/media.js';
+import { createEpgSource, updateEpgSource, deleteEpgSource, listEpgSources, publicEpgSource,
+         syncEpgSource, getEpgSource } from '../services/xmltv.js';
+import { exportM3u } from '../services/library.js';
+import { runOnce } from '../services/scheduler.js';
 import { revokeAllForUser } from '../services/sessions.js';
 import { openDb, nowIso } from '../db/index.js';
 import { badRequest } from '../lib/errors.js';
@@ -103,10 +109,137 @@ export default async function adminRoutes(app) {
     return reply.status(201).send({ source: publicSource(s) });
   });
 
+  /* A source is managed, not just created: turned off without losing its
+     channels, renamed, re-pointed, given its own refresh interval. */
+  app.patch('/sources/:id', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', minLength: 1, maxLength: 80 },
+          url: { type: 'string', maxLength: 2000 },
+          username: { type: 'string', maxLength: 200 },
+          password: { type: 'string', maxLength: 200 },
+          epgUrl: { type: 'string', maxLength: 2000 },
+          enabled: { type: 'boolean' },
+          refreshIntervalSeconds: { type: 'integer', minimum: 60, maximum: 2592000 }
+        }
+      }
+    }
+  }, async (request) => ({ source: publicSource(updateSource(Number(request.params.id), request.body)) }));
+
+  app.delete('/sources/:id', async (request) => {
+    deleteSource(Number(request.params.id));
+    return { ok: true };
+  });
+
   app.post('/sources/:id/sync', async (request) => {
     const result = await syncSource(Number(request.params.id));
     return { ...result, source: publicSource(getSource(Number(request.params.id))) };
   });
+
+  /**
+   * The catalogue back out as an M3U. It carries real stream addresses, which
+   * is the point of an export and the reason only an administrator may ask.
+   */
+  app.get('/sources/export.m3u', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          sourceId: { type: 'integer', minimum: 1 },
+          kind: { type: 'string', enum: ['live', 'movie', 'series'] }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    reply.header('content-type', 'audio/x-mpegurl; charset=utf-8');
+    reply.header('content-disposition', 'attachment; filename="telly.m3u"');
+    return reply.send(exportM3u(request.query));
+  });
+
+  /* ------------------------------------------------------ media folders -- */
+  app.get('/media-roots', async () => ({ roots: listRoots().map(publicRoot) }));
+
+  app.post('/media-roots', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['path', 'kind'],
+        properties: {
+          label: { type: 'string', maxLength: 80 },
+          path: { type: 'string', minLength: 1, maxLength: 1000 },
+          kind: { type: 'string', enum: ['movies', 'series', 'recordings'] }
+        }
+      }
+    }
+  }, async (request, reply) => reply.status(201).send({ root: publicRoot(createRoot(request.body)) }));
+
+  app.patch('/media-roots/:id', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: { label: { type: 'string', maxLength: 80 }, enabled: { type: 'boolean' } }
+      }
+    }
+  }, async (request) => ({ root: publicRoot(updateRoot(Number(request.params.id), request.body)) }));
+
+  app.delete('/media-roots/:id', async (request) => {
+    deleteRoot(Number(request.params.id));
+    return { ok: true };
+  });
+
+  /* Scanning reads the folders in place. It never writes to them. */
+  app.post('/media-roots/:id/scan', async (request) => {
+    const result = scanRoot(Number(request.params.id));
+    return { ...result, root: publicRoot(listRoots().find(r => r.id === Number(request.params.id))) };
+  });
+
+  app.post('/media-roots/scan', async () => ({ scans: scanAll() }));
+
+  /* -------------------------------------------------------- XMLTV guides -- */
+  app.get('/epg-sources', async () => ({ sources: listEpgSources().map(publicEpgSource) }));
+
+  app.post('/epg-sources', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['url'],
+        properties: {
+          name: { type: 'string', maxLength: 80 },
+          url: { type: 'string', minLength: 1, maxLength: 2000 },
+          refreshIntervalSeconds: { type: 'integer', minimum: 300, maximum: 2592000 }
+        }
+      }
+    }
+  }, async (request, reply) => reply.status(201).send({ source: publicEpgSource(createEpgSource(request.body)) }));
+
+  app.patch('/epg-sources/:id', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', maxLength: 80 },
+          url: { type: 'string', maxLength: 2000 },
+          enabled: { type: 'boolean' },
+          refreshIntervalSeconds: { type: 'integer', minimum: 300, maximum: 2592000 }
+        }
+      }
+    }
+  }, async (request) => ({ source: publicEpgSource(updateEpgSource(Number(request.params.id), request.body)) }));
+
+  app.delete('/epg-sources/:id', async (request) => {
+    deleteEpgSource(Number(request.params.id));
+    return { ok: true };
+  });
+
+  app.post('/epg-sources/:id/sync', async (request) => {
+    const result = await syncEpgSource(Number(request.params.id));
+    return { ...result, source: publicEpgSource(getEpgSource(Number(request.params.id))) };
+  });
+
+  /* One refresh pass by hand, for when waiting for the timer is silly. */
+  app.post('/refresh', async (request) => runOnce({ log: request.log }));
 
   app.put('/users/:id/sources/:sourceId', async (request) => {
     assign(Number(request.params.id), Number(request.params.sourceId));

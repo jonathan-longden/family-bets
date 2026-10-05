@@ -2,8 +2,12 @@ import { config } from '../config.js';
 import { entitledChannel } from '../services/library.js';
 import { issueTicket, readTicket } from '../lib/tickets.js';
 import { markWatched } from '../services/profile.js';
-import { forbidden, notFound, upstreamFailed } from '../lib/errors.js';
+import { playableMedia } from '../services/media.js';
+import { decide, sendDirect, sendTranscoded, MIME } from '../services/playback.js';
+import { badRequest, forbidden, notFound, upstreamFailed } from '../lib/errors.js';
 import { openDb } from '../db/index.js';
+
+const MEDIA_KINDS = ['movie', 'episode', 'recording'];
 
 /**
  * Playback in two steps.
@@ -28,6 +32,66 @@ export default async function streamRoutes(app) {
       expiresIn: config.tokens.ticketTtlSeconds,
       kind: channel.kind
     };
+  });
+
+  /* ------------------------------------------------- the server's own disk --
+   *
+   * The same two steps, for a file in a media folder. The client holds an id
+   * and a ticket and never sees a path: /stream/media/movie/12, not
+   * C:\Media\Movies\Arrival (2016)\Arrival.mkv.
+   */
+  app.post('/stream/media/:kind/:id/ticket', { preHandler: [app.authenticate] }, async (request) => {
+    const kind = String(request.params.kind);
+    if (!MEDIA_KINDS.includes(kind)) throw badRequest('That is not a kind of media.');
+    const id = Number(request.params.id);
+    const item = playableMedia(kind, id);          // 404s before a ticket is cut
+    const capability = request.query.capability === 'native' ? 'native' : 'browser';
+    const plan = decide(item.container, { capability });
+    const ticket = issueTicket({
+      userId: request.auth.user.id,
+      deviceId: request.auth.deviceId,
+      resource: `${kind}-${id}`
+    });
+    return {
+      url: `/api/v1/stream/media/${kind}/${id}?ticket=${encodeURIComponent(ticket)}`,
+      expiresIn: config.tokens.ticketTtlSeconds,
+      kind,
+      title: item.title,
+      container: item.container,
+      /* Said plainly so a client can choose a player rather than guess:
+         direct means byte ranges and seeking, remux means a single
+         progressive stream, unsupported means do not try. */
+      mode: plan.mode,
+      mimeType: plan.mime,
+      seekable: plan.mode === 'direct',
+      reason: plan.reason || undefined
+    };
+  });
+
+  app.get('/stream/media/:kind/:id', async (request, reply) => {
+    const kind = String(request.params.kind);
+    const id = Number(request.params.id);
+    if (!MEDIA_KINDS.includes(kind)) throw badRequest('That is not a kind of media.');
+
+    const claims = readTicket(request.query.ticket);
+    if (!claims) throw forbidden('That playback link has expired. Choose it again.');
+    if (claims.resource !== `${kind}-${id}`) throw forbidden('That playback link is for something else.');
+
+    const device = openDb().prepare('SELECT revoked_at FROM devices WHERE id = ? AND user_id = ?')
+      .get(claims.deviceId, claims.userId);
+    if (!device || device.revoked_at) throw forbidden('This device has been removed from the account.');
+
+    const item = playableMedia(kind, id);
+    const capability = request.query.capability === 'native' ? 'native' : 'browser';
+    const plan = decide(item.container, { capability });
+
+    if (plan.mode === 'direct') {
+      return sendDirect(item.path, reply, request.headers.range, plan.mime || MIME[item.container]);
+    }
+    if (plan.mode === 'remux') {
+      return sendTranscoded(item.path, reply, { encode: request.query.encode === '1' });
+    }
+    throw upstreamFailed(plan.reason || 'That file cannot be played by this server.');
   });
 
   app.get('/stream/:channelId', async (request, reply) => {

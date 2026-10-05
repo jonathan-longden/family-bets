@@ -72,6 +72,21 @@ credentials; the app signs in and is told what it may watch. Sign in on the
 PC and on the phone and both show the same line-up, the same categories and
 the same favourites, because neither of them is the thing that remembers.
 
+Signed in, the account also brings everything else the server holds: the
+films, box sets and recordings in the media folders on that PC, and the
+programme guide. Those are the server's own — one household, one shelf — so
+they appear beside the channels on every device signed in to it:
+
+    Live TV        the playlists, with what is on now where the guide knows
+    Movies         the on-demand library, and the films on the PC's disk
+    Series         box sets, with their seasons and episodes
+    Recordings     what the PC recorded, under the channel it came from
+    TV Guide       now and next, from XMLTV, and how much of the line-up matched
+    Search         all of it at once
+
+A film on the PC plays on the phone without the phone ever learning a path:
+it holds an id, asks for a ticket, and the server reads the disk.
+
     PC browser  ─┐
     Phone       ─┼─ HTTPS ─> telly/server ──> SQLite + your IPTV sources
     Android app ─┘
@@ -101,6 +116,25 @@ and the section tests that sort Film, Series, Sport and News out of a plain
 M3U sort these out too. The Movies and Series *libraries* stay empty for a
 server source, because its API carries no episode structure to fill them
 with.
+
+## What runs where
+
+    Windows PC  ──┐
+    Android     ──┼── HTTPS ──> Telly server on the PC ──> SQLite
+    iPhone/iPad ──┘                      │                 (the catalogue)
+                                         ├──> IPTV playlists (M3U / Xtream)
+                                         ├──> XMLTV guides
+                                         └──> C:\Media\... read in place
+
+The PC is the server. The clients are told an address — `http://192.168.1.50:8080`
+or whatever yours is — and ask it for everything. There is no cloud account
+and nothing to sign up for: this is a house on its own network.
+
+The web app runs on all three. On Android there is also a native app in
+`telly/android`, which plays containers a browser cannot.
+
+If the server is not there, the app says so and keeps what it had: the three
+local options (an M3U address, a file, Xtream) do not involve a server at all.
 
 ## Landscape only
 

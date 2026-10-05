@@ -8,13 +8,48 @@ import { badRequest, notFound, upstreamFailed } from '../lib/errors.js';
  * An IPTV source belongs to the operator. Its credentials live here and are
  * used only by this process; clients receive channels, never addresses.
  */
-export function createSource({ name, kind, url = '', username = '', password = '', epgUrl = '' }) {
+export function createSource({ name, kind, url = '', username = '', password = '', epgUrl = '',
+                               refreshIntervalSeconds } = {}) {
   if (!['m3u_url', 'm3u_text', 'xtream'].includes(kind)) throw badRequest('kind must be m3u_url, m3u_text or xtream.');
   if (!String(name || '').trim()) throw badRequest('A source needs a name.');
   const now = nowIso();
-  const info = openDb().prepare(`INSERT INTO sources (name, kind, url, username, password, epg_url, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(String(name).trim(), kind, url, username, password, epgUrl, now, now);
+  const info = openDb().prepare(`INSERT INTO sources
+      (name, kind, url, username, password, epg_url, refresh_interval_seconds, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(String(name).trim(), kind, url, username, password, epgUrl,
+         Number(refreshIntervalSeconds) || config.playlistTtlSeconds, now, now);
   return getSource(Number(info.lastInsertRowid));
+}
+
+/**
+ * Change a source without touching its channels. Turning one off hides it from
+ * every client immediately; its channels stay in the catalogue so turning it
+ * back on is instant rather than another download.
+ */
+export function updateSource(id, patch = {}) {
+  const row = getSource(id);
+  const next = {
+    name: patch.name === undefined ? row.name : String(patch.name).trim(),
+    url: patch.url === undefined ? row.url : String(patch.url).trim(),
+    username: patch.username === undefined ? row.username : String(patch.username),
+    password: patch.password === undefined ? row.password : String(patch.password),
+    epgUrl: patch.epgUrl === undefined ? row.epg_url : String(patch.epgUrl).trim(),
+    enabled: patch.enabled === undefined ? row.enabled : (patch.enabled ? 1 : 0),
+    interval: patch.refreshIntervalSeconds === undefined
+      ? row.refresh_interval_seconds
+      : Math.max(Number(patch.refreshIntervalSeconds) || 0, 60)
+  };
+  if (!next.name) throw badRequest('A source needs a name.');
+  openDb().prepare(`UPDATE sources SET name = ?, url = ?, username = ?, password = ?, epg_url = ?,
+      enabled = ?, refresh_interval_seconds = ?, updated_at = ? WHERE id = ?`)
+    .run(next.name, next.url, next.username, next.password, next.epgUrl,
+         next.enabled, next.interval, nowIso(), id);
+  return getSource(id);
+}
+
+export function deleteSource(id) {
+  getSource(id);
+  openDb().prepare('DELETE FROM sources WHERE id = ?').run(id);
 }
 
 export function getSource(id) {
@@ -32,7 +67,9 @@ export function publicSource(s) {
   return {
     id: s.id, name: s.name, kind: s.kind, url: s.url, username: s.username,
     hasPassword: Boolean(s.password), epgUrl: s.epg_url, enabled: Boolean(s.enabled),
-    lastSyncedAt: s.last_synced_at, lastError: s.last_error, channelCount: s.channel_count
+    refreshIntervalSeconds: s.refresh_interval_seconds,
+    lastSyncedAt: s.last_synced_at, lastAttemptAt: s.last_attempt_at,
+    lastError: s.last_error, failCount: s.fail_count, channelCount: s.channel_count
   };
 }
 
@@ -86,10 +123,11 @@ export async function syncSource(sourceId, { fetchImpl = fetch, text = null } = 
   const tx = db.transaction(() => {
     db.prepare('DELETE FROM channels WHERE source_id = ?').run(sourceId);
     const ins = db.prepare(`INSERT INTO channels
-        (source_id, ext_id, kind, number, name, name_key, group_title, logo, tvg_id, stream_url, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        (source_id, ext_id, kind, number, name, name_key, group_title, logo, tvg_id, country, language, stream_url, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     for (const c of parsed.channels) {
-      ins.run(sourceId, c.extId, c.kind, c.number, c.name, c.name.toLowerCase(), c.group, c.logo, c.tvgId, c.url, now);
+      ins.run(sourceId, c.extId, c.kind, c.number, c.name, c.name.toLowerCase(), c.group, c.logo, c.tvgId,
+              c.country || '', c.language || '', c.url, now);
     }
     db.prepare(`UPDATE sources SET last_synced_at = ?, last_error = NULL, channel_count = ?, epg_url = COALESCE(NULLIF(?, ''), epg_url), updated_at = ?
                 WHERE id = ?`)

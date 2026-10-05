@@ -1721,7 +1721,9 @@ const state = {
   epgUrl: '', screen: 'home', full: false, colKind: 'favourites', colShown: 0, colList: [],
   /* On demand, kept apart from the channels: a film you pick is not a
      channel that happens to be showing a film. */
-  movies: [], series: [], show: null, showSeason: null, navKey: 'home', failed: false
+  movies: [], series: [], show: null, showSeason: null, navKey: 'home', failed: false,
+  /* What is on now, by tvg-id, when a Telly server has an XMLTV source. */
+  guide: {}, guideCoverage: null, recordings: []
 };
 let H_CH = 72, H_GRP = 50;
 
@@ -2327,9 +2329,74 @@ async function srvLoad(note){
       if (!items.length || offset >= (page.total || 0)) break;
     }
   }
-  if (!out.length) throw new Error('That account has no playlists assigned to it yet. Whoever runs the ' +
-    'server can add one with the admin tool.');
   return out;
+}
+
+/* A film, an episode or a recording from the server's own disk. It has no
+   address until a ticket is cut for it, exactly like a channel. */
+function srvMediaItem(kind, m, extra){
+  return Object.assign({
+    id: 'srv' + kind + '|' + m.id,
+    srvMedia: kind, srvId: m.id,
+    name: m.title || 'Untitled',
+    logo: m.poster ? srvState().host + m.poster : '',
+    group: m.genre || (kind === 'recording' ? (m.channel || 'Recordings') : 'Library'),
+    year: m.year || null,
+    plot: m.description || '',
+    url: ''
+  }, extra || {});
+}
+
+/* The library the server keeps for the household: films, box sets and
+   recordings off its own disk, read through the same account. Each is
+   optional — a server with no media folders configured simply has none. */
+async function srvLibrary(note){
+  const out = { movies: [], series: [], recordings: [] };
+  const page = (path) => srvAuthed(path, {}).catch(() => null);
+
+  const films = await page('/movies?limit=1000');
+  if (films && films.items){
+    out.movies = films.items.map(m => Object.assign(srvMediaItem('movie', m), { kind: 'movie' }));
+  }
+  if (note && out.movies.length) note('Fetching the library… ' + fmt(out.movies.length) + ' films');
+
+  const shows = await page('/series?limit=1000');
+  if (shows && shows.items){
+    for (const sh of shows.items){
+      const got = await page('/series/' + sh.id + '/episodes');
+      const episodes = ((got && got.episodes) || []).map(e => Object.assign(
+        srvMediaItem('episode', { id: e.id, title: e.title }), {
+          kind: 'episode', season: e.season, episode: e.episode,
+          epTitle: e.title, seriesName: sh.title, group: sh.title,
+          logo: sh.poster ? srvState().host + sh.poster : ''
+        }));
+      if (!episodes.length) continue;
+      out.series.push({
+        id: 'srvseries|' + sh.id, name: sh.title, kind: 'series',
+        logo: sh.poster ? srvState().host + sh.poster : '',
+        group: sh.genre || 'Library', plot: sh.description || '', episodes
+      });
+    }
+  }
+  if (note && out.series.length) note('Fetching the library… ' + fmt(out.series.length) + ' series');
+
+  const recs = await page('/recordings?limit=500');
+  if (recs && recs.items){
+    out.recordings = recs.items.map(r => Object.assign(
+      srvMediaItem('recording', r), { kind: 'live', group: r.channel || 'Recordings' }));
+  }
+  return out;
+}
+
+/* What is on now, for the channels this account can see. Entirely optional:
+   a server with no XMLTV source configured answers with an empty guide and
+   the screens say so rather than inventing programmes. */
+async function srvGuide(){
+  try {
+    const got = await srvAuthed('/epg', {});
+    state.guide = (got && got.nowNext) || {};
+    state.guideCoverage = (got && got.coverage) || null;
+  } catch(e){ state.guide = {}; state.guideCoverage = null; }
 }
 
 /* Favourites belong to the account, not to the browser. */
@@ -2348,8 +2415,18 @@ function srvPushFav(ch, on){
 /* Playback, in two steps: the app holds the token and asks for a ticket, the
    player holds the ticket and cannot carry a header. */
 async function srvTicket(ch){
-  const got = await srvAuthed('/stream/' + ch.srv + '/ticket', { method:'POST' });
   const st = srvState();
+  if (ch.srvMedia){
+    /* A file from the server's library. The reply says whether it will be
+       sent as it is or remuxed on the way, so a refusal can be explained
+       rather than appearing as a player that will not start. */
+    const got = await srvAuthed('/stream/media/' + ch.srvMedia + '/' + ch.srvId + '/ticket', { method:'POST' });
+    if (got.mode === 'unsupported'){
+      throw new Error(got.reason || 'The server cannot play that file as it is.');
+    }
+    return st.host + String(got.url).replace(/^\/api\/v1/, SRV_API);
+  }
+  const got = await srvAuthed('/stream/' + ch.srv + '/ticket', { method:'POST' });
   return st.host + String(got.url).replace(/^\/api\/v1/, SRV_API);
 }
 
@@ -2503,10 +2580,12 @@ function toast(msg){
 /* Takes everything a source produced and files it: channels to Live TV,
    films to Movies, episodes assembled into Series. `shows` is for Xtream,
    whose series arrive as a list before their episodes are known. */
-function setLibrary(items, shows){
+/* `films` is for a source that keeps its own library — the Telly server does,
+   off the PC's disk — rather than one that has to be read out of addresses. */
+function setLibrary(items, shows, films){
   const split = splitSources(items);
-  state.movies = split.movies;
-  state.series = (shows && shows.length) ? shows : split.series;
+  state.movies = (films && films.length) ? films.concat(split.movies) : split.movies;
+  state.series = (shows && shows.length) ? shows.concat(split.series) : split.series;
   state.show = null;
   setChannels(split.live);
 }
@@ -3223,6 +3302,12 @@ const ROWS = [
   { id:'showch', title:'Series Channels', to:'live',
     list: () => state.series.length ? seriesChannels() : [] },
 
+  /* What the server recorded off its own tuner or dropped in a folder. They
+     are in the channel list too, under the channel they came from, so they
+     search and favourite like everything else; this is the shelf. */
+  { id:'rec', title:'Recordings', to:'live',
+    list: () => state.recordings || [] },
+
   { id:'sport', title:'Live Sports', to:'sport',
     list: () => sectionChannels(SPORT_SECTION) },
 
@@ -3652,6 +3737,23 @@ $('#colMore').onclick = moreCollection;
 /* ================================================================
    GUIDE SCREEN — honest about having no EPG feed
    ================================================================ */
+/* What is on, for one channel. Nothing is guessed: with no guide loaded it
+   says so, and says which of the two reasons it is. */
+function guideLine(ch){
+  const g = ch.tvgId ? state.guide[ch.tvgId] : null;
+  if (g && (g.now || g.next)){
+    const at = (p) => new Date(p.startsAt).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
+    const bits = [];
+    if (g.now) bits.push('Now · ' + g.now.title + (g.now.endsAt ? ' until ' +
+      new Date(g.now.endsAt).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }) : ''));
+    if (g.next) bits.push('Next · ' + at(g.next) + ' ' + g.next.title);
+    return bits.join('   ·   ');
+  }
+  if (!ch.tvgId) return 'No guide data · this channel has no tvg-id';
+  return state.guideCoverage ? 'No guide data for ' + ch.tvgId
+                             : 'No guide data loaded · guide id ' + ch.tvgId;
+}
+
 function renderGuide(){
   const tl = $('#gtimeline');
   tl.innerHTML = '';
@@ -3665,7 +3767,13 @@ function renderGuide(){
     s.textContent = d.toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
     tl.appendChild(s);
   }
-  $('#epgState').textContent = state.epgUrl ? 'EPG source in playlist — not loaded' : 'No EPG source in this playlist';
+  /* Signed in to a server with an XMLTV source, this is the real coverage:
+     how many of this account's channels the guide actually matched. */
+  $('#epgState').textContent =
+    state.guideCoverage ? 'Guide loaded · ' + fmt(state.guideCoverage.matched) + ' of ' +
+                          fmt(state.guideCoverage.total) + ' channels matched'
+    : state.epgUrl ? 'EPG source in playlist — not loaded'
+    : 'No EPG source in this playlist';
   $('#guideSub').textContent = state.channels.length ? 'Line-up · ' + fmt(state.channels.length) + ' channels' : '';
 
   const wrap = $('#guideRows');
@@ -3689,9 +3797,7 @@ function renderGuide(){
     row.innerHTML = '<div class="box"></div><div class="nm"></div><div class="slot"></div>';
     fillArt(row.querySelector('.box'), ch, { sm:true });
     row.querySelector('.nm').textContent = ch.name;
-    row.querySelector('.slot').textContent = ch.tvgId
-      ? 'No guide data loaded · guide id ' + ch.tvgId
-      : 'No guide data · this channel has no tvg-id';
+    row.querySelector('.slot').textContent = guideLine(ch);
     row.onclick = () => { play(ch); go('live'); };
     frag.appendChild(row);
   });
@@ -4139,7 +4245,7 @@ function play(ch, isRetry){
   /* A server channel has no address until the server cuts one: it is a
      signed link, good for one channel for five minutes, so it is asked for
      at the moment of playing rather than kept anywhere. */
-  if (ch && ch.srv != null && !ch.url){
+  if (ch && (ch.srv != null || ch.srvMedia) && !ch.url){
     teardown();
     state.currentId = ch.id;
     setBackdrop(ch); setPoster(ch); repaintRows(); setPlayerLive(true); placeSoon();
@@ -4301,9 +4407,13 @@ function updateNow(){
       meta.appendChild(s);
     });
     if (!state.failed){
-      $('#pvEpg').textContent = state.epgUrl
-        ? 'This playlist names an EPG source, but Telly does not download guide data — only the stream.'
-        : 'No programme guide in this playlist. Telly shows what the playlist actually carries.';
+      const g = ch && ch.tvgId ? state.guide[ch.tvgId] : null;
+      $('#pvEpg').textContent =
+        (g && (g.now || g.next)) ? guideLine(ch)
+        : state.guideCoverage ? 'The guide on your server carries nothing for this channel.'
+        : state.epgUrl
+          ? 'This playlist names an EPG source. Guide data comes from a Telly server with an XMLTV source configured.'
+          : 'No programme guide. A Telly server with an XMLTV source fills this in.';
     }
   }
   syncPlayIcon();
@@ -4588,10 +4698,12 @@ async function fetchText(url){
   return res.text();
 }
 
-function adopt(items, source, label, fileText, shows){
-  if (!items.length) throw new Error('No channels found in that playlist — is it really an M3U file?');
+function adopt(items, source, label, fileText, shows, films){
+  if (!items.length && !(shows && shows.length) && !(films && films.length)){
+    throw new Error('No channels found in that playlist — is it really an M3U file?');
+  }
   state.epgUrl = parsedEpgUrl;
-  setLibrary(items, shows);
+  setLibrary(items, shows, films);
   state.source = source;
   store.set(K.src, source);
   refreshHome();
@@ -4653,9 +4765,17 @@ $('#loadBtn').onclick = async () => {
       await srvLogin(host, user, pass);
       $('#srvPass').value = '';          // it was sent once; it is not kept
       const items = await srvLoad((m) => setMsg(m, 'work'));
+      const lib = await srvLibrary((m) => setMsg(m, 'work'));
+      if (!items.length && !lib.movies.length && !lib.series.length && !lib.recordings.length){
+        throw new Error('That account has nothing assigned to it yet — no playlists, and no media folders ' +
+          'on the server. Whoever runs it can add one with the admin tool.');
+      }
       await srvPullFavs();
+      await srvGuide();
       parsedEpgUrl = '';
-      adopt(items, { type:'server', host:normHost(host), user }, 'your Telly account', null);
+      state.recordings = lib.recordings;
+      adopt(items.concat(lib.recordings), { type:'server', host:normHost(host), user },
+            'your Telly account', null, lib.series, lib.movies);
     } else {
       const host = $('#xcHost').value, user = $('#xcUser').value.trim(), pass = $('#xcPass').value;
       const got = await loadXtream(host, user, pass, (m) => setMsg(m, 'work'));
@@ -4878,15 +4998,24 @@ async function restore(force){
   if (src.type === 'server'){ $('#srvHost').value = src.host; $('#srvUser').value = src.user; }
 
   try {
-    let items, shows = null;
+    let items, shows = null, srvMovies = null;
     if (src.type === 'url') items = parseM3U(await fetchText(src.url));
     else if (src.type === 'server'){
       /* The tokens are what is kept, so coming back is a reconnection
-         rather than another sign-in. The line-up comes from the account, so
-         a playlist added on another device is already here. */
+         rather than another sign-in. Everything comes from the account, so a
+         playlist or a film added on another device is already here. */
       if (!srvState()) throw new Error('Signed out of that Telly server. Sign in again.');
       items = await srvLoad(() => {});
+      const lib = await srvLibrary(() => {});
       await srvPullFavs();
+      await srvGuide();
+      state.recordings = lib.recordings;
+      items = items.concat(lib.recordings);
+      shows = lib.series;
+      srvMovies = lib.movies;
+      if (!items.length && !lib.movies.length && !lib.series.length){
+        throw new Error('That account has nothing assigned to it yet.');
+      }
     }
     else if (src.type === 'xtream'){
       const got = await loadXtream(src.host, src.user, src.pass, () => {});
@@ -4897,9 +5026,11 @@ async function restore(force){
       if (!cached || !cached.text) throw new Error('That playlist file is no longer stored on this device — please choose it again.');
       items = parseM3U(cached.text);
     }
-    if (!items.length) throw new Error('The saved playlist now has no channels in it.');
+    if (!items.length && !(shows && shows.length) && !(srvMovies && srvMovies.length)){
+      throw new Error('The saved playlist now has no channels in it.');
+    }
     state.epgUrl = parsedEpgUrl;
-    setLibrary(items, shows);
+    setLibrary(items, shows, srvMovies);
     if (force){ toast(fmt(items.length) + ' entries reloaded'); refreshSettings(); }
   } catch(e){
     go('playlist');
