@@ -50,11 +50,57 @@ existed.
 - **Xtream** — server URL, username and password. Telly calls
   `player_api.php` for the live categories and channels, for the film
   library and for the series library, and builds the stream URLs itself.
+- **Telly account** — sign in to the server in `telly/server`. The playlist
+  lives there, not here.
 - **Free channels** — a catalogue of public playlists, one tap each.
 
-Both network options need the server to allow cross-origin requests, since
-the browser fetches the playlist directly. If a server refuses, save the
-playlist and use the File option, which always works.
+The three network options need the server to allow cross-origin requests,
+since the browser fetches the playlist directly. If a server refuses, save
+the playlist and use the File option, which always works.
+
+## One playlist, every device
+
+The first three options put the playlist in this browser, and that is where
+it stays. `localStorage` is per device and per origin: **a playlist added on
+a PC is not on the phone**, and a favourite starred on the phone is not on
+the TV. That is what local storage is, rather than a fault in it — there is
+no way for one browser to read another's.
+
+The playlist that follows you is the fourth option. The Telly server in
+`telly/server` owns the accounts, the sources and the provider's
+credentials; the app signs in and is told what it may watch. Sign in on the
+PC and on the phone and both show the same line-up, the same categories and
+the same favourites, because neither of them is the thing that remembers.
+
+    PC browser  ─┐
+    Phone       ─┼─ HTTPS ─> telly/server ──> SQLite + your IPTV sources
+    Android app ─┘
+
+What is kept in the browser is a pair of session tokens the server can
+revoke, and nothing else:
+
+- **The password is sent once and never stored.** Signing in exchanges it
+  for tokens; the field is cleared the moment it succeeds.
+- **The provider's own credentials never reach the browser.** Channels
+  arrive as ids. Playing one asks the server for a signed ticket, good for
+  five minutes, for one user, one device and one channel — so the upstream
+  address is never in a page, a URL bar or `localStorage`.
+- **Favourites are the account's.** Starring on one device writes it
+  through; the others have it next time they load.
+- **Devices are named and countable.** The account has a device limit, and
+  whoever runs the server can remove one.
+
+Settings says which account is signed in, on which server, which playlists
+it carries, and offers the way out. Signing out drops the tokens and the
+line-up with them.
+
+The server classifies its rows by group title, which is the publisher's
+label rather than a fact about the stream — the same guess this app stopped
+making. They are live streams either way, so they all arrive as channels,
+and the section tests that sort Film, Series, Sport and News out of a plain
+M3U sort these out too. The Movies and Series *libraries* stay empty for a
+server source, because its API carries no episode structure to fill them
+with.
 
 ## Landscape only
 
@@ -121,6 +167,12 @@ one, otherwise the year, the kind, the category and where it came from. Where
 a title has a small logo rather than a landscape picture, the logo is shown as
 a mark above the title — where a logo belongs — and the category scene carries
 the frame.
+
+With nothing loaded there is nothing to put in any of the rows, and a screen
+of tiles over an acre of black is not a home screen — so the catalogue Telly
+already carries becomes the first two rows, **Start Here — Free Channels**
+and **Free Films — Public Domain**. Pressing one loads it, which is the only
+thing there is to do on an empty home anyway.
 
 **Five category tiles** follow, in one row: Live TV, Movies, Series, Sport,
 News. Each is a wide 16:9 tile — the category's own artwork, its colour washed
@@ -408,6 +460,8 @@ title has no picture, the generated scene is what you get.
 
 Xtream credentials are stored in the browser in plain text so the app can
 reconnect, and the password forms part of every stream URL — that is how
-Xtream Codes works. Use it on a private device.
+Xtream Codes works. Use it on a private device, or sign in to a Telly
+account instead, where the credentials stay on the server and the browser
+only ever holds a revocable token.
 
 The app plays whatever you point it at; it doesn't come with any channels.

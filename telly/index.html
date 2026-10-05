@@ -1481,10 +1481,21 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <div class="kv"><span>Page origin</span><b id="setOrigin">—</b></div>
         <div class="kv"><span>Blocked as insecure</span><b id="setInsecure">—</b></div>
       </div>
+      <div class="spanel" id="srvPanel">
+        <h3>Telly account</h3>
+        <div class="kv"><span>Server</span><b id="setSrvHost">Not signed in</b></div>
+        <div class="kv"><span>Signed in as</span><b id="setSrvUser">—</b></div>
+        <div class="kv"><span>This device</span><b id="setSrvDev">—</b></div>
+        <div class="kv"><span>Playlists on the account</span><b id="setSrvLists">—</b></div>
+        <p class="hint" id="setSrvHint">Signed in, the playlist and the favourites come from the account, so
+          every device sees the same thing. Signed out, each device keeps its own.</p>
+        <button class="btn f" data-f id="setSrvIn"><svg class="ic"><use href="#i-tv"/></svg>Sign in to a Telly server</button>
+        <button class="btn f danger" data-f id="setSrvOut" hidden><svg class="ic"><use href="#i-close"/></svg>Sign out of this account</button>
+      </div>
       <div class="spanel">
         <h3>Stored on this device</h3>
-        <p class="hint">Favourites, the last playlist and the last channel are kept in this browser only.
-          Xtream credentials are stored in plain text so the app can reconnect.</p>
+        <p class="hint" id="setStoredHint">Favourites, the last playlist and the last channel are kept in this
+          browser only. Xtream credentials are stored in plain text so the app can reconnect.</p>
         <button class="btn f danger" data-f id="setClearFav"><svg class="ic"><use href="#i-trash"/></svg>Clear favourites</button>
         <button class="btn f danger" data-f id="setForget"><svg class="ic"><use href="#i-trash"/></svg>Forget everything</button>
       </div>
@@ -1495,7 +1506,9 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <section class="screen" id="playlist" data-screen="playlist">
     <div class="pl-head">
       <h1>Add playlist</h1>
-      <p>Point Telly at your channels. Everything stays on this device — nothing is uploaded anywhere.</p>
+      <p>Point Telly at your channels. The first three keep the playlist in this browser, where it stays.
+        A <b>Telly account</b> keeps it on your own server instead, so every device you sign in on sees the
+        same thing.</p>
     </div>
 
     <div class="opts">
@@ -1516,6 +1529,12 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <svg class="ic"><use href="#i-key"/></svg>
         <b>Xtream Codes</b>
         <p>Server, username and password. Telly builds the channel list from the provider's API.</p>
+      </button>
+      <button class="opt f" data-f data-tab="srv">
+        <span class="tick"><svg class="ic"><use href="#i-check"/></svg></span>
+        <svg class="ic"><use href="#i-tv"/></svg>
+        <b>Telly account</b>
+        <p>Sign in to your Telly server. The playlist, the favourites and the credentials live there, so every device sees the same thing.</p>
       </button>
       <button class="opt f" data-f data-tab="free">
         <span class="tick"><svg class="ic"><use href="#i-check"/></svg></span>
@@ -1565,6 +1584,33 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         </div>
         <p class="hint">Credentials are stored in this browser in plain text so Telly can reconnect, and the
           password forms part of every stream URL — that is how Xtream Codes works. <b>Use a private device.</b></p>
+      </div>
+
+      <div class="fgrid pane" data-pane="srv" hidden>
+        <div>
+          <label class="fl" for="srvHost">Server address</label>
+          <input id="srvHost" class="in f" data-f type="url" inputmode="url" placeholder="http://192.168.1.10:8443"
+                 autocomplete="off" autocapitalize="none" spellcheck="false" />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:inherit">
+          <div>
+            <label class="fl" for="srvUser">Username</label>
+            <input id="srvUser" class="in f" data-f type="text" autocomplete="username" autocapitalize="none" spellcheck="false" />
+          </div>
+          <div>
+            <label class="fl" for="srvPass">Password</label>
+            <input id="srvPass" class="in f" data-f type="password" autocomplete="current-password" />
+          </div>
+        </div>
+        <p class="hint"><b>This is the option that follows you between devices.</b> The other three keep the
+          playlist in this browser, where it stays — local storage is per device, so a playlist added on a PC
+          is not on the phone. Sign in here and the playlist, the categories and the favourites come from the
+          account instead, the same on every device you sign in on.</p>
+        <p class="hint">Your password is sent once and never stored: this browser keeps a pair of session
+          tokens the server can revoke, and nothing else. The provider's own credentials never leave the
+          server — playback goes through a short-lived signed link it cuts for one channel at a time. The
+          server is <b>telly/server</b> in this repository; run it on a PC or a VPS and point this at it.</p>
+        <p class="hint" id="srvNow" hidden></p>
       </div>
 
       <div class="fgrid pane" data-pane="free" hidden>
@@ -1649,7 +1695,10 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
    ================================================================ */
 const K = {
   src:'telly.source', cache:'telly.cache', favs:'telly.favs',
-  closed:'telly.closed', ui:'telly.ui'
+  closed:'telly.closed', ui:'telly.ui',
+  /* The signed-in Telly server: its address and this session's tokens.
+     Never the password. */
+  srv:'telly.server', dev:'telly.device'
 };
 const store = {
   get(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch(e){ return d; } },
@@ -1904,6 +1953,9 @@ function splitSources(items){
   const addMovie = (it) => movies.push({ ...it, kind:'movie', year: it.year || yearIn(it.name) });
 
   for (const it of items){
+    /* A source that knows what it is sending says so. Only an M3U, which
+       knows nothing, falls through to reading the address. */
+    if (it.kind === 'live'){ live.push({ ...it }); continue; }
     if (it.kind === 'movie'){ addMovie(it); continue; }
     if (it.kind === 'episode' || it.kind === 'series'){
       const ep = it.season != null && it.episode != null
@@ -2116,6 +2168,189 @@ async function xcSeriesInfo(show){
   });
   eps.sort((a, b) => a.season - b.season || a.episode - b.episode);
   return eps;
+}
+
+/* ================================================================
+   TELLY SERVER — the playlist that follows you between devices
+
+   The M3U, file and Xtream options put the playlist in this browser, and
+   that is where it stays. localStorage is per device and per origin: a
+   playlist added on a PC is not on the phone, and that is what local
+   storage is rather than a fault in it.
+
+   The playlist that follows you lives on the Telly server in this
+   repository (telly/server). It owns the accounts, the sources and the
+   provider's credentials; the app signs in and is told what it may watch.
+   Nothing here ever sees the provider's password — playback goes through a
+   short-lived signed ticket the server cuts for one user, one device and
+   one channel — and the only thing kept in this browser is a pair of
+   session tokens, which the server can revoke.
+
+   Favourites live there too, so they are the same list on every device.
+   ================================================================ */
+const SRV_API = '/api/v1';
+
+const srvState = () => store.get(K.srv, null);
+const srvSave = (v) => { if (v) store.set(K.srv, v); else store.del(K.srv); };
+const srvOn = () => !!(state.source && state.source.type === 'server');
+
+/* A stable name for this browser, so the account's device list means
+   something and a device can be removed from it by whoever runs the server. */
+function deviceKey(){
+  let k = store.get(K.dev, '');
+  if (!k){
+    const b = new Uint8Array(16);
+    if (self.crypto && crypto.getRandomValues) crypto.getRandomValues(b);
+    else for (let i = 0; i < b.length; i++) b[i] = (Math.random() * 256) | 0;
+    k = [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+    store.set(K.dev, k);
+  }
+  return k;
+}
+function deviceName(){
+  const ua = navigator.userAgent || '';
+  const kind = /Android/i.test(ua) ? 'Android' : /iPhone|iPad|iPod/i.test(ua) ? 'iOS'
+             : /Windows/i.test(ua) ? 'Windows' : /Mac OS X/i.test(ua) ? 'Mac'
+             : /CrOS/i.test(ua) ? 'Chromebook' : /Linux/i.test(ua) ? 'Linux' : 'Browser';
+  return kind + ' browser';
+}
+
+/* One error shape comes back from the server, so one place turns it into a
+   sentence fit for a television. */
+async function srvJson(host, path, opts){
+  let r;
+  try {
+    r = await fetch(host + SRV_API + path, opts);
+  } catch(e){
+    throw new Error('Could not reach ' + host + '. Check the address, and that the server is running and ' +
+      'reachable from this device.');
+  }
+  let body = null;
+  try { body = await r.json(); } catch(e){}
+  if (!r.ok){
+    const err = new Error((body && body.error && body.error.message) || ('The server answered ' + r.status + '.'));
+    err.status = r.status;
+    err.code = body && body.error && body.error.code;
+    throw err;
+  }
+  return body;
+}
+
+/* Signed in: the access token on every call, and one silent refresh if it
+   expired underneath us. A second failure means sign in again. */
+async function srvAuthed(path, opts, second){
+  const st = srvState();
+  if (!st) throw new Error('Not signed in to a Telly server.');
+  const o = Object.assign({}, opts);
+  o.headers = Object.assign({}, o.headers || {}, { authorization: 'Bearer ' + st.access });
+  try {
+    return await srvJson(st.host, path, o);
+  } catch(e){
+    if (e.status !== 401 || second) throw e;
+    await srvRefresh();
+    return srvAuthed(path, opts, true);
+  }
+}
+
+async function srvRefresh(){
+  const st = srvState();
+  if (!st || !st.refresh) throw new Error('Signed out. Sign in to the server again.');
+  const got = await srvJson(st.host, '/auth/refresh', {
+    method:'POST', headers:{ 'content-type':'application/json' },
+    body: JSON.stringify({ refreshToken: st.refresh })
+  });
+  srvSave(Object.assign({}, st, { access: got.accessToken, refresh: got.refreshToken }));
+}
+
+async function srvLogin(host, username, password){
+  host = normHost(host);
+  if (!host) throw new Error('Enter the address of your Telly server.');
+  if (!username || !password) throw new Error('Enter your username and password.');
+  const got = await srvJson(host, '/auth/login', {
+    method:'POST', headers:{ 'content-type':'application/json' },
+    body: JSON.stringify({
+      username, password,
+      device: { key: deviceKey(), name: deviceName(), platform: 'web', appVersion: '1' }
+    })
+  });
+  srvSave({
+    host, access: got.accessToken, refresh: got.refreshToken,
+    user: (got.user && got.user.username) || username,
+    playlists: got.playlists || []
+  });
+  return got;
+}
+
+function srvLogout(){
+  const st = srvState();
+  if (st){
+    /* Best effort: tell the server to drop the session, but never block
+       signing out of this browser on the server answering. */
+    srvAuthed('/auth/logout', { method:'POST' }).catch(() => {});
+  }
+  srvSave(null);
+}
+
+/* The channel rows, as this app's own items.
+
+   The server files every row under live, movie or series by reading its
+   group title, which is the publisher's label rather than a fact about the
+   stream — the same guess this app stopped making. Its rows are live
+   streams either way, so they all arrive as channels and the section tests
+   that already sort Film, Series, Sport and News out of a plain M3U sort
+   these out too. The Movies and Series libraries stay empty for a server
+   source, because the API carries no episode structure to fill them with. */
+function srvChannel(c){
+  return {
+    id: 'srv|' + c.id,
+    srv: c.id,
+    no: c.number || 0,
+    name: c.name || 'Channel ' + c.id,
+    group: c.group || 'Ungrouped',
+    logo: c.logo || '',
+    tvgId: c.tvgId || '',
+    url: '',                 // filled in per play, from a signed ticket
+    kind: 'live'
+  };
+}
+
+async function srvLoad(note){
+  const out = [];
+  for (const kind of ['live', 'movie', 'series']){
+    let offset = 0;
+    for (;;){
+      const page = await srvAuthed('/channels?kind=' + kind + '&limit=2000&offset=' + offset, {});
+      const items = (page && page.items) || [];
+      items.forEach(c => out.push(srvChannel(c)));
+      offset += items.length;
+      if (note) note('Fetching the line-up… ' + fmt(out.length));
+      if (!items.length || offset >= (page.total || 0)) break;
+    }
+  }
+  if (!out.length) throw new Error('That account has no playlists assigned to it yet. Whoever runs the ' +
+    'server can add one with the admin tool.');
+  return out;
+}
+
+/* Favourites belong to the account, not to the browser. */
+async function srvPullFavs(){
+  try {
+    const got = await srvAuthed('/me/favourites', {});
+    state.favs = new Set((got.channels || []).map(c => 'srv|' + c.id));
+  } catch(e){ /* keep whatever is on the device rather than losing them */ }
+}
+function srvPushFav(ch, on){
+  if (!ch || ch.srv == null) return;
+  srvAuthed('/me/favourites/' + ch.srv, { method: on ? 'PUT' : 'DELETE' })
+    .catch(() => toast('That favourite did not reach the server'));
+}
+
+/* Playback, in two steps: the app holds the token and asks for a ticket, the
+   player holds the ticket and cannot carry a header. */
+async function srvTicket(ch){
+  const got = await srvAuthed('/stream/' + ch.srv + '/ticket', { method:'POST' });
+  const st = srvState();
+  return st.host + String(got.url).replace(/^\/api\/v1/, SRV_API);
 }
 
 /* ================================================================
@@ -2550,6 +2785,9 @@ function toggleFav(id){
   const isOn = state.favs.has(id);
   if (isOn) state.favs.delete(id); else state.favs.add(id);
   store.set(K.favs, [...state.favs]);
+  /* Signed in, the list belongs to the account: write it through so the
+     other devices have it too. */
+  if (srvOn()) srvPushFav(channelById(id), !isOn);
   const keep = chanList.scrollTop;
   renderCategories();
   rebuild(false);
@@ -2740,7 +2978,8 @@ function refreshHome(){
   $('#cSport').textContent = sp ? fmt(sp) + ' channel' + (sp === 1 ? '' : 's') : 'None found';
   $('#cNews').textContent = nw ? fmt(nw) + ' channel' + (nw === 1 ? '' : 's') : 'None found';
   $('#exploreSub').textContent = state.source
-    ? (state.source.type === 'xtream' ? 'Xtream · ' + state.source.host
+    ? (state.source.type === 'server' ? 'Telly account · ' + state.source.host
+      : state.source.type === 'xtream' ? 'Xtream · ' + state.source.host
       : state.source.type === 'url' ? 'Playlist URL' : state.source.name || 'Local file')
     : 'No playlist yet';
   renderHero();
@@ -2796,7 +3035,8 @@ function heroLine(it){
   }
   if (it.group) bits.push(it.group);
   const src = state.source;
-  if (src) bits.push(src.type === 'xtream' ? 'Xtream · ' + src.host
+  if (src) bits.push(src.type === 'server' ? 'Telly account'
+    : src.type === 'xtream' ? 'Xtream · ' + src.host
     : src.type === 'url' ? 'Playlist URL' : (src.name || 'Local file'));
   return bits.join(' · ');
 }
@@ -2846,9 +3086,9 @@ function paintHero(){
       ? 'Nothing came back from the source. Open Add playlist to check the address, or try a different one.'
       : 'Point Telly at an M3U address, a playlist file, or an Xtream account. Channels, films and box sets all appear here.';
     $('#heroPlayT').textContent = 'Add playlist';
-    $('#heroMoreT').textContent = 'Settings';
+    $('#heroMoreT').textContent = 'Free channels';
     bPlay.onclick = () => go('playlist');
-    bMore.onclick = () => go('settings');
+    bMore.onclick = () => { go('playlist'); const b = $('.opt[data-tab="free"]'); if (b) b.click(); };
     return;
   }
 
@@ -2921,7 +3161,8 @@ const BADGE = {
   live:   { t:'LIVE', cls:'live' },
   tv:     { t:'TV',   cls:'' },
   film:   { t:'FILM', cls:'gold' },
-  series: { t:'SERIES', cls:'gold' }
+  series: { t:'SERIES', cls:'gold' },
+  free:   { t:'FREE', cls:'gold' }
 };
 
 const playNow = (it) => { play(it); go('live'); };
@@ -2929,7 +3170,30 @@ const openOne = (it) => openTitle(it);
 
 function favChannels(){ return state.channels.filter(c => state.favs.has(c.id)); }
 
+function nothingLoaded(){
+  return !state.channels.length && !state.movies.length && !state.series.length;
+}
+
+/* The catalogue, as cards. A row of them is what an empty home shows instead
+   of an acre of black: the only thing to do here is pick one, so it may as
+   well be one press away. */
+function freeCards(pick, n){
+  return FREE.filter(pick).slice(0, n).map(f => ({
+    id: 'free|' + f.u, name: f.n, group: f.d || f.g, logo: '', kind: 'live', free: f
+  }));
+}
+
 const ROWS = [
+  /* With nothing loaded there is nothing to put in any of the rows below, and
+     a screen of category tiles over an acre of black is not a home screen. So
+     the catalogue Telly already carries becomes the first row: pick one and it
+     loads, which is the only thing there is to do here anyway. */
+  { id:'start', title:'Start Here — Free Channels', to:'playlist',
+    list: () => nothingLoaded() ? freeCards(f => f.g !== 'Films on demand', 20) : [] },
+
+  { id:'startfilm', title:'Free Films — Public Domain', to:'playlist',
+    list: () => nothingLoaded() ? freeCards(f => f.g === 'Films on demand', 20) : [] },
+
   { id:'pop',  title:'Popular Now', to:'live',
     list: () => {
       const seen = new Set(), pick = [];
@@ -2979,6 +3243,16 @@ const ROWS = [
 
 /* What a card says underneath its picture, and what the badge in its corner
    says — both from the item itself, never guessed. */
+/* One press from a card on the home screen to a loaded playlist. The
+   catalogue screen already knows how to fetch one; this only puts you where
+   the progress and any refusal are visible first. */
+function openFree(f){
+  go('playlist');
+  const tabBtn = $('.opt[data-tab="free"]');
+  if (tabBtn) tabBtn.click();
+  loadFree(f);
+}
+
 function tileSub(it){
   if (it.kind === 'movie') return it.year ? it.year + ' · ' + (it.group || 'Film') : (it.group || 'Film');
   if (it.kind === 'series') return it.episodes
@@ -2987,6 +3261,7 @@ function tileSub(it){
   return it.group || 'Channel';
 }
 function tileBadge(it){
+  if (it.free) return BADGE.free;
   if (it.kind === 'movie') return BADGE.film;
   if (it.kind === 'series') return BADGE.series;
   if (isSportChannel(it)) return BADGE.live;
@@ -3062,8 +3337,9 @@ function renderHomeRails(){
     all.slice(0, 20).forEach(it => frag.appendChild(railTile(it, {
       poster,
       sub: tileSub,
-      /* A title opens its own screen; a channel plays. */
-      open: () => (it.kind === 'movie' || it.kind === 'series') ? openOne(it) : playNow(it)
+      /* A catalogue entry loads; a title opens its own screen; a channel plays. */
+      open: () => it.free ? openFree(it.free)
+        : (it.kind === 'movie' || it.kind === 'series') ? openOne(it) : playNow(it)
     })));
     rail.appendChild(frag);
   });
@@ -3471,9 +3747,46 @@ function refreshSettings(){
     ' · ' + (land ? 'landscape' : 'portrait') +
     (canLock ? '' : ' · no orientation lock here');
   syncFullBtn();
+  /* The account panel: what is actually signed in, and where the playlist
+     is really coming from. */
+  const srv = srvState();
+  $('#setSrvHost').textContent = srv ? srv.host : 'Not signed in';
+  $('#setSrvUser').textContent = srv ? srv.user : '—';
+  $('#setSrvDev').textContent = srv ? deviceName() : '—';
+  $('#setSrvLists').textContent = srv ? (srv.playlists && srv.playlists.length
+    ? srv.playlists.map(pl => pl.name).join(', ') : 'none assigned yet') : '—';
+  $('#setSrvOut').hidden = !srv;
+  $('#setSrvIn').hidden = !!srv;
+  $('#setSrvHint').textContent = srvOn()
+    ? 'The playlist and the favourites on this screen come from the account, so every device signed in to it sees the same thing. Only a pair of session tokens is kept in this browser.'
+    : 'Signed in, the playlist and the favourites come from the account, so every device sees the same thing. Signed out, each device keeps its own.';
+  $('#setStoredHint').textContent = srvOn()
+    ? 'Signed in to a Telly server, the playlist and the favourites live there. This browser keeps only a pair of session tokens, which the server can revoke, and your display settings.'
+    : 'Favourites, the last playlist and the last channel are kept in this browser only, so they do not follow you to another device. Xtream credentials are stored in plain text so the app can reconnect.';
+
   const ui = store.get(K.ui, {});
   $$('[data-scale]').forEach(b => b.classList.toggle('on', (ui.scale || 'm') === b.dataset.scale));
 }
+
+$('#setSrvIn').onclick = () => {
+  go('playlist');
+  const b = $('.opt[data-tab="srv"]');
+  if (b) b.click();
+};
+$('#setSrvOut').onclick = () => {
+  srvLogout();
+  if (srvOn()){
+    store.del(K.src);
+    state.source = null;
+    state.channels = []; state.groups = []; state.movies = []; state.series = [];
+    state.favs.clear(); store.set(K.favs, []);
+    state.currentId = null;
+    teardown(); setPlayerLive(false);
+    renderCategories(); rebuild(true); refreshHome();
+  }
+  refreshSettings();
+  toast('Signed out of that account');
+};
 
 $$('[data-scale]').forEach(b => {
   b.onclick = () => {
@@ -3506,6 +3819,7 @@ $('#setClearFav').onclick = () => {
   toast('Favourites cleared');
 };
 $('#setForget').onclick = () => {
+  srvLogout();
   [K.src, K.cache, K.favs, K.closed].forEach(store.del);
   state.favs.clear(); state.closed.clear(); state.source = null;
   state.channels = []; state.groups = []; state.currentId = null;
@@ -3822,6 +4136,20 @@ function playHls(ch, myGen){
 }
 
 function play(ch, isRetry){
+  /* A server channel has no address until the server cuts one: it is a
+     signed link, good for one channel for five minutes, so it is asked for
+     at the moment of playing rather than kept anywhere. */
+  if (ch && ch.srv != null && !ch.url){
+    teardown();
+    state.currentId = ch.id;
+    setBackdrop(ch); setPoster(ch); repaintRows(); setPlayerLive(true); placeSoon();
+    showSpinner('Connecting…');
+    updateNow();
+    srvTicket(ch)
+      .then(url => { ch.url = url; play(ch, isRetry); })
+      .catch(e => fail('Could not start that channel', String((e && e.message) || e), ch));
+    return;
+  }
   teardown();
   const myGen = ++gen;
   recovered = false;
@@ -4218,7 +4546,15 @@ $$('.opt').forEach(b => {
     $$('.pane').forEach(p => { p.hidden = p.dataset.pane !== tab; });
     setMsg('', '');
     $('#loadBtn').hidden = tab === 'free';          // the catalogue rows load themselves
+    $('#loadBtn').lastChild.textContent = tab === 'srv' ? 'Sign in' : 'Load playlist';
     if (tab === 'free') renderFree();
+    if (tab === 'srv'){
+      const st = srvState();
+      const now = $('#srvNow');
+      now.hidden = !st;
+      if (st) now.textContent = 'Signed in as ' + st.user + ' on ' + st.host +
+        '. Signing in again refreshes the line-up from the account.';
+    }
     const first = $('.pane[data-pane="' + tab + '"] .in, .pane[data-pane="' + tab + '"] .filedrop, .pane[data-pane="' + tab + '"] input');
     if (first) first.focus();
   };
@@ -4311,6 +4647,15 @@ $('#loadBtn').onclick = async () => {
       setMsg('Reading file…', 'work');
       const text = await f.text();
       adopt(parseM3U(text), { type:'file', name:f.name }, f.name, text);
+    } else if (tab === 'srv'){
+      const host = $('#srvHost').value, user = $('#srvUser').value.trim(), pass = $('#srvPass').value;
+      setMsg('Signing in…', 'work');
+      await srvLogin(host, user, pass);
+      $('#srvPass').value = '';          // it was sent once; it is not kept
+      const items = await srvLoad((m) => setMsg(m, 'work'));
+      await srvPullFavs();
+      parsedEpgUrl = '';
+      adopt(items, { type:'server', host:normHost(host), user }, 'your Telly account', null);
     } else {
       const host = $('#xcHost').value, user = $('#xcUser').value.trim(), pass = $('#xcPass').value;
       const got = await loadXtream(host, user, pass, (m) => setMsg(m, 'work'));
@@ -4530,10 +4875,19 @@ async function restore(force){
 
   if (src.type === 'url') $('#m3uUrl').value = src.url;
   if (src.type === 'xtream'){ $('#xcHost').value = src.host; $('#xcUser').value = src.user; $('#xcPass').value = src.pass; }
+  if (src.type === 'server'){ $('#srvHost').value = src.host; $('#srvUser').value = src.user; }
 
   try {
     let items, shows = null;
     if (src.type === 'url') items = parseM3U(await fetchText(src.url));
+    else if (src.type === 'server'){
+      /* The tokens are what is kept, so coming back is a reconnection
+         rather than another sign-in. The line-up comes from the account, so
+         a playlist added on another device is already here. */
+      if (!srvState()) throw new Error('Signed out of that Telly server. Sign in again.');
+      items = await srvLoad(() => {});
+      await srvPullFavs();
+    }
     else if (src.type === 'xtream'){
       const got = await loadXtream(src.host, src.user, src.pass, () => {});
       items = got.items; shows = got.shows; parsedEpgUrl = '';
@@ -4549,7 +4903,8 @@ async function restore(force){
     if (force){ toast(fmt(items.length) + ' entries reloaded'); refreshSettings(); }
   } catch(e){
     go('playlist');
-    const t = src.type === 'file' ? 'file' : src.type === 'xtream' ? 'xc' : 'url';
+    const t = src.type === 'file' ? 'file' : src.type === 'xtream' ? 'xc'
+            : src.type === 'server' ? 'srv' : 'url';
     const btn = $('.opt[data-tab="' + t + '"]');
     if (btn) btn.click();
     setMsg(String((e && e.message) || e), 'err');
