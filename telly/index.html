@@ -137,6 +137,12 @@ h1,h2,h3,p{margin:0}
   background:linear-gradient(180deg,rgba(6,7,10,.92),rgba(6,7,10,.55) 55%,transparent);
   backdrop-filter:blur(14px) saturate(1.2);-webkit-backdrop-filter:blur(14px) saturate(1.2);
 }
+/* On home the banner runs under it, so the bar floats clear: its own
+   gradient would be a second horizon across the picture. */
+body[data-screen="home"] #chrome{
+  background:none;backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+body[data-screen="home"] #crumb{opacity:0}
 .mark{display:flex;align-items:center;gap:13px;width:100%;text-align:left;
   padding:16px 14px;border-radius:18px;margin-bottom:8px}
 .mark .glyph{
@@ -221,6 +227,16 @@ body.playing #backdrop{opacity:.12}
 .nv.on{background:var(--gold-dim);border-color:rgba(231,193,122,.38);color:var(--gold);
   box-shadow:inset 3px 0 0 var(--gold)}
 .nv.on .ic{color:var(--gold)}
+/* A faint horizon at the foot of the rail, so the column has a bottom to it
+   rather than fading into the same flat black as everything else. */
+#rail::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:200px;pointer-events:none;
+  opacity:.34;
+  background:
+    linear-gradient(0deg,rgba(255,255,255,.04),transparent 70%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 200' preserveAspectRatio='xMidYMax slice'%3E%3Cpath d='M0 150 L44 104 L78 136 L116 86 L158 130 L196 96 L240 134 L240 200 L0 200Z' fill='%23161a24'/%3E%3Cpath d='M0 176 L52 142 L96 172 L140 138 L186 174 L240 146 L240 200 L0 200Z' fill='%230c0e15'/%3E%3C/svg%3E") bottom/100% auto no-repeat;
+}
+
 /* the secondary half of the rail, below the six the layout leads with */
 .nvgap{height:1px;background:var(--line);margin:10px 6px}
 .nv.sm{padding:9px 13px;font-size:13px;color:var(--faint)}
@@ -271,22 +287,33 @@ body.playing #backdrop{opacity:.12}
 .sect.f.kfocus,.opt.f.kfocus{transform:translateY(-6px) scale(1.035)}
 .row.f.kfocus,.cat.f.kfocus{transform:none;box-shadow:inset 0 0 0 2px var(--gold),0 0 0 1px rgba(231,193,122,.2)}
 
-/* ---------------- home ---------------- */
-#home{display:flex;flex-direction:column;gap:28px}
+/* ---------------- home ----------------
+   A television home screen: a cinematic banner running to the edges of the
+   content area, a row of category tiles under it, then rows of artwork.
+   Nothing is inset from the top or the right — the picture reaches the panel
+   edge, which is what makes it read as a television rather than a web page. */
+/* The banner runs from the rail to the right edge and up to the top of the
+   panel, so home carries no padding of its own beyond the rail; every row
+   under the banner takes the gutter itself. */
+#home{
+  padding:0 0 calc(var(--pad) + var(--safe-b)) calc(var(--rail-w) + var(--safe-l));
+  display:flex;flex-direction:column;gap:30px;
+}
+.hpad{padding-left:var(--pad);padding-right:calc(var(--pad) + var(--safe-r))}
 
 /* ---------------- home: the banner ----------------
-   A single title shown large over artwork that fills the whole width of the
-   content area. Two gradients do the reading work: one across from the left,
-   one up from the bottom, so white text holds over any picture. */
+   One title at a time, set large over artwork that fills the whole area. Two
+   gradients do the reading work — one across from the left, one up from the
+   bottom — so white text holds over any picture. */
 .hero{
-  position:relative;flex:0 0 auto;height:398px;overflow:hidden;
-  border-radius:var(--r-xl);border:1px solid var(--line);background:#0a0c12;
-  box-shadow:0 44px 90px -54px #000;
+  position:relative;flex:0 0 auto;height:430px;overflow:hidden;background:#080a10;
+  margin-bottom:-6px;
 }
 .hero-art{position:absolute;inset:0;overflow:hidden}
 .hero-art .hero-scene,.hero-art img{
   position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover;
 }
+.hero-art .hero-scene{filter:saturate(1.25) brightness(1.12)}
 .hero-art img{opacity:0;transition:opacity .8s var(--ease)}
 .hero-art img.on{opacity:1}
 /* a slow drift, so the banner is not a still photograph of a still photograph */
@@ -297,35 +324,236 @@ body.playing #backdrop{opacity:.12}
    large flat black area rather than a lit one. */
 .hero-tint{
   position:absolute;inset:0;mix-blend-mode:screen;
-  background:radial-gradient(118% 150% at 76% 42%, var(--ht,rgba(231,193,122,.3)), transparent 64%);
+  background:
+    radial-gradient(104% 128% at 72% 38%, var(--ht,rgba(231,193,122,.32)), transparent 62%),
+    radial-gradient(60% 80% at 88% 74%, var(--ht,rgba(231,193,122,.32)), transparent 70%);
 }
 .hero-shade{
   position:absolute;inset:0;
   background:
-    linear-gradient(90deg,rgba(4,5,8,.96) 0%,rgba(4,5,8,.86) 30%,rgba(4,5,8,.34) 62%,rgba(4,5,8,.04) 100%),
-    linear-gradient(0deg,rgba(4,5,8,.95) 0%,rgba(4,5,8,.52) 28%,transparent 64%);
+    linear-gradient(90deg,rgba(5,6,10,.96) 0%,rgba(5,6,10,.84) 22%,rgba(5,6,10,.3) 52%,rgba(5,6,10,0) 86%),
+    linear-gradient(0deg,rgba(5,6,10,1) 0%,rgba(5,6,10,.72) 12%,rgba(5,6,10,.08) 46%,transparent 70%),
+    linear-gradient(180deg,rgba(5,6,10,.72),transparent 26%),
+    radial-gradient(120% 128% at 62% 44%,transparent 36%,rgba(4,5,8,.62) 100%);
 }
 .hero-body{
-  position:absolute;left:58px;right:58px;bottom:46px;max-width:860px;
-  display:flex;flex-direction:column;align-items:flex-start;gap:14px;
+  position:absolute;left:var(--pad);right:var(--pad);bottom:38px;max-width:820px;
+  display:flex;flex-direction:column;align-items:flex-start;gap:15px;
 }
+/* the kicker line: the source's own mark where it has one, then what this is */
+.hero-kickrow{display:flex;align-items:center;gap:13px;min-height:34px}
+#heroMark{height:34px;max-width:150px;object-fit:contain;display:none;
+  filter:drop-shadow(0 4px 14px rgba(0,0,0,.7))}
+#heroMark.on{display:block}
 .hero-kick{
-  display:inline-flex;align-items:center;gap:9px;padding:7px 15px;border-radius:999px;
-  background:var(--gold-dim);border:1px solid rgba(231,193,122,.4);color:var(--gold-2);
-  font-size:13px;letter-spacing:.2em;text-transform:uppercase;font-weight:700;
+  font-size:15px;letter-spacing:.3em;text-transform:uppercase;font-weight:700;
+  color:var(--gold-2);text-shadow:0 2px 12px rgba(0,0,0,.8);
 }
 .hero-title{
-  font-size:62px;line-height:1.03;font-weight:800;letter-spacing:-.025em;
-  text-shadow:0 6px 34px rgba(0,0,0,.7);
+  font-size:66px;line-height:1.02;font-weight:800;letter-spacing:-.028em;
+  text-shadow:0 6px 36px rgba(0,0,0,.8);
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
 }
 .hero-desc{
-  color:#cfd6e0;font-size:20px;line-height:1.5;max-width:58ch;
-  text-shadow:0 2px 14px rgba(0,0,0,.8);
-  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+  color:#d4dae3;font-size:21px;line-height:1.46;max-width:54ch;
+  text-shadow:0 2px 16px rgba(0,0,0,.9);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
 }
-.hero-acts{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px}
-.hero-acts .btn{min-height:62px;padding:0 30px;font-size:17px}
+.hero-acts{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px}
+.hero-acts .btn{min-height:60px;padding:0 32px;font-size:17px}
+/* where you are in the carousel */
+.hero-dots{display:flex;gap:4px;margin-top:4px;margin-left:-7px}
+.hdot{
+  width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex:0 0 auto;
+}
+.hdot i{
+  display:block;width:9px;height:9px;border-radius:999px;background:rgba(255,255,255,.34);
+  transition:width .3s var(--ease),background .3s var(--ease);
+}
+.hdot.on i{width:26px;background:var(--gold)}
+.hdot.kfocus i,.hdot:focus-visible i{background:var(--gold-2)}
+.hdot.f.kfocus{transform:none;box-shadow:0 0 0 2px var(--gold)}
+
+/* ---------------- home: category tiles ----------------
+   Five destinations across one row, each a wide landscape tile carrying the
+   artwork of the thing it opens, its own colour over the top, a large icon,
+   the title and a live count. Premium-streaming proportions — 16:9, never a
+   narrow column. */
+.sections{display:grid;gap:20px;grid-template-columns:repeat(5,minmax(0,1fr))}
+.sect{
+  --tint:rgba(231,193,122,.55); --glow:rgba(231,193,122,.5);
+  position:relative;display:block;overflow:hidden;aspect-ratio:16/9;
+  border-radius:18px;border:1px solid rgba(255,255,255,.1);
+  background:#0a0c12;color:#fff;text-align:left;
+  box-shadow:0 22px 44px -28px rgba(0,0,0,.95);
+  transition:transform .32s var(--ease), box-shadow .32s var(--ease);
+}
+/* the artwork, slice-cropped so it fills the tile at any size */
+.sect .sa{position:absolute;inset:0}
+.sect .sa svg{width:100%;height:100%;display:block;transform:scale(1.06);opacity:.95}
+/* its own colour over the top, washing in from the left so the artwork still
+   shows on the right — the row reads at ten feet as five destinations */
+.sect .sv{
+  position:absolute;inset:0;
+  background:
+    linear-gradient(90deg,var(--tint) 0%,var(--tint) 24%,transparent 86%),
+    linear-gradient(0deg,rgba(4,5,8,.88) 0%,rgba(4,5,8,.3) 44%,transparent 78%);
+}
+.sect .sb{
+  position:absolute;inset:0;padding:18px 20px 17px;
+  display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+}
+.sect .si{
+  width:46px;height:46px;border-radius:13px;margin-bottom:auto;
+  display:grid;place-items:center;
+  background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.26);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 10px 24px -12px rgba(0,0,0,.9);
+}
+.sect .si .ic{font-size:24px;color:#fff;stroke-width:1.8}
+.sect .st{font-size:27px;font-weight:750;letter-spacing:-.02em;line-height:1.1;
+  text-shadow:0 3px 18px rgba(0,0,0,.8)}
+.sect .ss{color:rgba(255,255,255,.88);font-size:15px;font-weight:500;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  text-shadow:0 2px 12px rgba(0,0,0,.9)}
+.sect[data-go="live"]   {--tint:rgba(22,74,168,.86);  --glow:rgba(66,122,235,.55)}
+.sect[data-go="movies"] {--tint:rgba(158,26,43,.86);  --glow:rgba(226,74,94,.55)}
+.sect[data-go="series"] {--tint:rgba(16,104,62,.86);  --glow:rgba(45,190,124,.55)}
+.sect[data-go="sport"]  {--tint:rgba(176,86,14,.86);  --glow:rgba(240,138,29,.55)}
+.sect[data-go="news"]   {--tint:rgba(78,38,160,.86);  --glow:rgba(150,102,232,.55)}
+/* a sheen that lifts on focus, over the picture rather than instead of it */
+.sect::after{
+  content:"";position:absolute;inset:0;opacity:0;pointer-events:none;
+  transition:opacity .35s var(--ease);
+  background:linear-gradient(150deg,rgba(255,255,255,.2),transparent 56%);
+}
+.sect:hover::after,.sect.kfocus::after,.sect:focus-visible::after{opacity:1}
+/* Focus lifts the card and lights it in its own colour, so from a sofa you
+   can tell which one you are on without reading anything. */
+.sect:hover,.sect.kfocus,.sect:focus-visible{
+  transform:translateY(-8px) scale(1.04);
+  box-shadow:0 40px 70px -26px rgba(0,0,0,.95), 0 0 0 3px var(--gold), 0 0 54px -4px var(--glow);
+}
+.no-motion .sect{transition:none}
+.no-motion .sect:hover,.no-motion .sect.kfocus{transform:none}
+
+/* ---------------- generated artwork ----------------
+   Every thumbnail is a picture. Where the source gives one — tvg-logo, a
+   poster, a still — that is what fills the frame. Where it gives nothing, or
+   the address fails to load, what shows is artwork generated for the
+   category the item belongs to: the scene that sits behind that section,
+   scaled, shifted and hue-turned by an amount taken from the title so that a
+   wall of fallbacks is not one picture repeated, washed in a matching hue,
+   with the category mark over it. Never a black box with letters. */
+.arthost{position:relative;overflow:hidden}
+.art{position:absolute;inset:0;overflow:hidden;background:#0a0c12}
+.art .artscene{
+  position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0;opacity:.82;
+  transform:scale(var(--as,1.06)) translate(var(--ax,0%),var(--ay,0%)) scaleX(var(--af,1));
+  filter:hue-rotate(var(--ar,0deg)) saturate(1.15);
+}
+.art .artblur{position:absolute;left:-9%;top:-9%;width:118%;height:118%;z-index:1;
+  object-fit:cover;filter:blur(26px) saturate(1.7) brightness(.62)}
+.art .artwash{
+  position:absolute;inset:0;z-index:2;
+  background:
+    linear-gradient(140deg,hsla(var(--h,42),64%,46%,.5),hsla(var(--h2,88),54%,24%,.3) 60%,transparent),
+    radial-gradient(120% 120% at 50% 32%,transparent 40%,rgba(5,6,9,.5) 100%),
+    linear-gradient(0deg,rgba(5,6,9,.74) 0%,rgba(5,6,9,.06) 52%,transparent);
+}
+/* a poster or a still fills the frame outright */
+.art .artfull{position:absolute;inset:0;width:100%;height:100%;z-index:2;object-fit:cover}
+/* a logo is not a poster: shown whole, over a blurred copy of itself, so the
+   frame is filled without cropping the mark */
+.art .artlogo{position:absolute;left:11%;top:12%;width:78%;height:66%;z-index:3;
+  object-fit:contain;filter:drop-shadow(0 12px 28px rgba(0,0,0,.7))}
+.art .artmark{
+  position:absolute;left:50%;top:46%;transform:translate(-50%,-50%);z-index:3;
+  width:34%;height:34%;color:rgba(255,255,255,.46);fill:none;stroke:currentColor;
+  stroke-width:1.1;stroke-linecap:round;stroke-linejoin:round;
+  filter:drop-shadow(0 6px 18px rgba(0,0,0,.7));
+}
+/* once a real picture is up, the generated parts step aside */
+.art.has-art .artscene,.art.has-art .artmark{display:none}
+.art.has-art.filled .artwash{display:none}
+/* the small square beside a list row: the mark alone carries it */
+.art.sm .artscene{display:none}
+.art.sm .artmark{width:46%;height:46%;top:50%}
+.art.sm .artlogo{left:8%;top:8%;width:84%;height:84%}
+
+/* ---------------- home: rows of artwork ----------------
+   The picture is the card: a 16:9 frame for anything that comes off a
+   channel, a poster for anything out of a library, the caption on a dark
+   strip underneath it, and a badge saying what it is. */
+.hrow{display:flex;flex-direction:column}
+.row-h{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.row-h h2{font-size:29px;font-weight:750;letter-spacing:-.02em}
+.row-h .rchev{color:var(--gold);font-size:19px;opacity:.85;margin-top:3px}
+.row-h .rmore{
+  margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--faint);
+  font-size:15px;font-weight:600;padding:7px 12px;border-radius:12px;
+}
+.row-h .rmore .ic{font-size:1.05em}
+.row-h .rmore:hover{color:var(--txt)}
+.row-h .rmore.f.kfocus{color:var(--gold);box-shadow:0 0 0 2px var(--gold);transform:none}
+.row-h .rcount{color:var(--faint);font-size:15px;font-weight:600;letter-spacing:.1em}
+
+/* No scroll snapping. A remote drives these rails, and snap points fight
+   the scroll that brings a focused tile into view: the browser pulls back to
+   the nearest tile start and the tile you just moved to stays off the edge. */
+.rail{display:flex;gap:18px;overflow-x:auto;padding:8px 4px 14px;
+  scrollbar-width:none;scroll-behavior:smooth}
+/* A row is a carousel: it reaches the edge of the panel and carries on past
+   it, rather than stopping short inside a gutter. */
+.hrow .rail{margin-right:calc(-1 * (var(--pad) + var(--safe-r)));
+  padding-right:calc(var(--pad) + var(--safe-r))}
+.rail::-webkit-scrollbar{display:none}
+.no-motion .rail{scroll-behavior:auto}
+.tile{
+  position:relative;flex:0 0 auto;width:286px;border-radius:14px;overflow:hidden;
+  background:#111520;border:1px solid rgba(255,255,255,.07);text-align:left;
+  /* so a focused tile is never flush against the edge it scrolled to */
+  scroll-margin-inline:40px;
+  box-shadow:0 18px 36px -26px #000;
+  transition:transform .3s var(--ease), box-shadow .3s var(--ease), border-color .3s var(--ease);
+}
+.tile .thumb{width:100%;aspect-ratio:16/9;position:relative;overflow:hidden}
+.posterrail .tile{width:208px}
+.posterrail .tile .thumb{aspect-ratio:2/3}
+.tile .cap{padding:11px 13px 13px}
+.tile .cap b{display:block;font-weight:650;font-size:18px;line-height:1.25;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile .cap i{display:block;font-style:normal;color:var(--faint);font-size:14px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+/* the badge in the corner: what this is, in two or three letters */
+.tile .tbadge{
+  position:absolute;z-index:6;top:9px;right:9px;
+  padding:3px 8px;border-radius:7px;font-size:11px;font-weight:800;letter-spacing:.1em;
+  background:rgba(8,10,14,.74);color:#e8edf5;border:1px solid rgba(255,255,255,.18);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  text-shadow:0 1px 4px rgba(0,0,0,.8);line-height:1.5;
+}
+.tile .tbadge.live{background:rgba(255,45,70,.92);border-color:rgba(255,255,255,.3);color:#fff}
+.tile .tbadge.gold{background:rgba(231,193,122,.94);border-color:transparent;color:#23190a}
+.tile:hover,.tile.kfocus,.tile:focus-visible{
+  transform:translateY(-9px) scale(1.055);border-color:var(--gold);
+  box-shadow:0 30px 56px -18px rgba(0,0,0,.95), 0 0 0 3px var(--gold), 0 0 44px -10px rgba(231,193,122,.6);
+}
+.no-motion .tile{transition:none}
+.no-motion .tile:hover,.no-motion .tile.kfocus{transform:none}
+/* section headings sized for the room, not for a laptop */
+.sec-h{display:flex;align-items:baseline;gap:14px;margin-bottom:12px}
+.sec-h h2{font-size:28px;font-weight:700;letter-spacing:-.01em}
+.sec-h span{color:var(--faint);font-size:15px;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
+
+/* Older Smart TV browsers have no aspect-ratio. Without this the thumbs
+   collapse to zero height and the grid looks empty rather than wrong. */
+@supports not (aspect-ratio: 1 / 1){
+  .tile .thumb,.pcard .thumb,.pcard.poster .thumb,.posterrail .tile .thumb,.showart .box,.sect{
+    height:0;padding-top:56.25%;position:relative}
+  .posterrail .tile .thumb,.pcard.poster .thumb,.showart .box{padding-top:150%}
+  .tile .thumb>*,.pcard .thumb>*,.showart .box>*{position:absolute;inset:0;margin:auto}
+}
+
 #home > *{flex:0 0 auto}
 .livedot{width:8px;height:8px;border-radius:50%;background:var(--live);box-shadow:0 0 12px var(--live);animation:pulse 2.4s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.35;transform:scale(.8)}}
@@ -353,157 +581,6 @@ body.playing #backdrop{opacity:.12}
 .btn.gold:hover{filter:brightness(1.06)}
 .btn.on{color:var(--gold);border-color:rgba(231,193,122,.45);background:var(--gold-dim)}
 .btn.sq{padding:0;width:64px}
-
-/* ---------------- home: category cards ----------------
-   Five destinations, each a wide landscape tile carrying the artwork of the
-   thing it opens: a picture, a gradient to read it over, an icon, a title and
-   a count. Premium-streaming proportions — 3:2, never a narrow column. */
-.sections{display:grid;gap:var(--gap);grid-template-columns:repeat(5,minmax(0,1fr))}
-.sect{
-  --tint:rgba(231,193,122,.55); --glow:rgba(231,193,122,.5);
-  position:relative;display:block;overflow:hidden;aspect-ratio:3/2;
-  border-radius:26px;border:1px solid rgba(255,255,255,.14);
-  background:#0a0c12;color:#fff;text-align:left;
-  box-shadow:0 26px 54px -30px rgba(0,0,0,.95);
-  transition:transform .32s var(--ease), box-shadow .32s var(--ease);
-}
-/* the artwork, slice-cropped so it fills the tile at any size */
-.sect .sa{position:absolute;inset:0}
-.sect .sa svg{width:100%;height:100%;display:block;transform:scale(1.04)}
-/* its own colour over the top, so the row reads at ten feet as five
-   destinations rather than five grey rectangles */
-.sect .sv{
-  position:absolute;inset:0;
-  background:
-    linear-gradient(0deg,rgba(4,5,8,.94) 0%,rgba(4,5,8,.42) 46%,rgba(4,5,8,.06) 100%),
-    linear-gradient(125deg,var(--tint),transparent 72%);
-}
-.sect .sb{
-  position:absolute;inset:0;padding:22px 22px 20px;
-  display:flex;flex-direction:column;align-items:flex-start;gap:3px;
-}
-.sect .si{
-  width:54px;height:54px;border-radius:17px;margin-bottom:auto;
-  display:grid;place-items:center;
-  background:rgba(255,255,255,.17);border:1px solid rgba(255,255,255,.28);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 10px 26px -12px rgba(0,0,0,.8);
-}
-.sect .si .ic{font-size:27px;color:#fff;stroke-width:1.7}
-.sect .st{font-size:27px;font-weight:750;letter-spacing:-.02em;line-height:1.1;
-  text-shadow:0 3px 18px rgba(0,0,0,.6)}
-.sect .ss{color:rgba(255,255,255,.82);font-size:15px;font-weight:500;max-width:100%;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  text-shadow:0 2px 10px rgba(0,0,0,.7)}
-.sect[data-go="live"]   {--tint:rgba(42,89,173,.72);  --glow:rgba(66,122,235,.5)}
-.sect[data-go="movies"] {--tint:rgba(168,47,63,.72);  --glow:rgba(226,74,94,.5)}
-.sect[data-go="series"] {--tint:rgba(31,122,76,.72);  --glow:rgba(45,190,124,.5)}
-.sect[data-go="sport"]  {--tint:rgba(176,102,22,.72); --glow:rgba(240,138,29,.5)}
-.sect[data-go="news"]   {--tint:rgba(99,58,166,.72);  --glow:rgba(150,102,232,.5)}
-/* a sheen that lifts on focus, over the picture rather than instead of it */
-.sect::after{
-  content:"";position:absolute;inset:0;opacity:0;pointer-events:none;
-  transition:opacity .35s var(--ease);
-  background:linear-gradient(150deg,rgba(255,255,255,.18),transparent 58%);
-}
-.sect:hover::after,.sect.kfocus::after,.sect:focus-visible::after{opacity:1}
-/* Focus lifts the card and lights it in its own colour, so from a sofa you
-   can tell which one you are on without reading anything. */
-.sect:hover,.sect.kfocus,.sect:focus-visible{
-  transform:translateY(-8px) scale(1.035);
-  box-shadow:0 40px 70px -26px rgba(0,0,0,.95), 0 0 0 3px var(--gold), 0 0 52px -6px var(--glow);
-}
-.no-motion .sect{transition:none}
-.no-motion .sect:hover,.no-motion .sect.kfocus{transform:none}
-
-/* ---------------- generated artwork ----------------
-   Every thumbnail is a picture. Where the source gives one — tvg-logo, a
-   poster, a still — that is what fills the frame. Where it gives nothing, or
-   the address fails to load, what shows is artwork generated for the
-   category the item belongs to: the scene that sits behind that section,
-   washed in a hue taken from the title so neighbouring cards differ, with
-   the category mark and the name over it. Never a black box with letters. */
-/* the host box keeps the shape; the artwork fills it */
-.arthost{position:relative;overflow:hidden}
-.art{position:absolute;inset:0;overflow:hidden;background:#0a0c12}
-.art .artscene{position:absolute;inset:0;width:100%;height:100%;display:block;
-  z-index:0;opacity:.62;transform:scale(1.05)}
-.art .artblur{position:absolute;left:-9%;top:-9%;width:118%;height:118%;z-index:1;
-  object-fit:cover;filter:blur(26px) saturate(1.7) brightness(.62)}
-.art .artwash{
-  position:absolute;inset:0;z-index:2;
-  background:
-    linear-gradient(140deg,hsla(var(--h,42),58%,44%,.52),hsla(var(--h2,88),50%,26%,.24) 62%,transparent),
-    linear-gradient(0deg,rgba(5,6,9,.78) 0%,rgba(5,6,9,.08) 54%,transparent);
-}
-/* a poster or a still fills the frame outright */
-.art .artfull{position:absolute;inset:0;width:100%;height:100%;z-index:2;object-fit:cover}
-/* a logo is not a poster: shown whole, over a blurred copy of itself, so the
-   frame is filled without cropping the mark */
-.art .artlogo{position:absolute;left:10%;top:9%;width:80%;height:72%;z-index:3;
-  object-fit:contain;filter:drop-shadow(0 12px 28px rgba(0,0,0,.6))}
-.art .artmark{
-  position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);z-index:3;
-  width:38%;height:38%;color:rgba(255,255,255,.42);fill:none;stroke:currentColor;
-  stroke-width:1.1;stroke-linecap:round;stroke-linejoin:round;
-  filter:drop-shadow(0 6px 18px rgba(0,0,0,.6));
-}
-/* once a real picture is up, the generated parts step aside */
-.art.has-art .artscene,.art.has-art .artmark{display:none}
-.art.has-art.filled .artwash{display:none}
-/* the small square beside a list row: the mark alone carries it */
-.art.sm .artscene{display:none}
-.art.sm .artmark{width:46%;height:46%;top:50%}
-.art.sm .artlogo{left:8%;top:8%;width:84%;height:84%}
-
-/* ---------------- home: thumbnail rails ----------------
-   The picture is the card: a 16:9 frame for anything that comes off a
-   channel, a poster for anything that comes out of a library, and the
-   caption underneath rather than over the top of it. */
-/* No scroll snapping. A remote drives these rails, and snap points fight
-   the scroll that brings a focused tile into view: the browser pulls back to
-   the nearest tile start and the tile you just moved to stays off the edge. */
-.rail{display:flex;gap:20px;overflow-x:auto;padding:6px 4px 16px;
-  scrollbar-width:none;scroll-behavior:smooth}
-.rail::-webkit-scrollbar{display:none}
-.no-motion .rail{scroll-behavior:auto}
-.tile{
-  flex:0 0 auto;width:304px;border-radius:20px;overflow:hidden;
-  background:#0d1017;border:1px solid var(--line);text-align:left;
-  /* so a focused tile is never flush against the edge it scrolled to */
-  scroll-margin-inline:38px;
-  transition:transform .3s var(--ease), box-shadow .3s var(--ease), border-color .3s var(--ease);
-}
-.tile .thumb{width:100%;aspect-ratio:16/9;position:relative;overflow:hidden}
-.posterrail .tile{width:224px}
-.posterrail .tile .thumb{aspect-ratio:2/3}
-.tile .cap{padding:12px 15px 14px}
-.tile .cap b{display:block;font-weight:650;font-size:19px;line-height:1.25;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tile .cap i{display:block;font-style:normal;color:var(--faint);font-size:15px;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
-/* a third line for whatever the source actually knows */
-.tile .cap em{display:block;font-style:normal;color:var(--gold);font-weight:600;
-  font-size:13px;letter-spacing:.1em;text-transform:uppercase;margin-top:6px}
-.tile:hover,.tile.kfocus,.tile:focus-visible{
-  transform:translateY(-8px) scale(1.04);border-color:var(--gold);
-  box-shadow:0 30px 56px -20px rgba(0,0,0,.95), 0 0 0 3px var(--gold-dim);
-}
-.no-motion .tile{transition:none}
-.no-motion .tile:hover,.no-motion .tile.kfocus{transform:none}
-/* section headings sized for the room, not for a laptop */
-.sec-h{display:flex;align-items:baseline;gap:14px;margin-bottom:12px}
-.sec-h h2{font-size:28px;font-weight:700;letter-spacing:-.01em}
-.sec-h span{color:var(--faint);font-size:15px;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
-
-/* Older Smart TV browsers have no aspect-ratio. Without this the thumbs
-   collapse to zero height and the grid looks empty rather than wrong. */
-@supports not (aspect-ratio: 1 / 1){
-  .tile .thumb,.pcard .thumb,.pcard.poster .thumb,.posterrail .tile .thumb,.showart .box,.sect{
-    height:0;padding-top:56.25%;position:relative}
-  .posterrail .tile .thumb,.pcard.poster .thumb,.showart .box{padding-top:150%}
-  .sect{padding-top:66.6%}
-  .tile .thumb>*,.pcard .thumb>*,.showart .box>*{position:absolute;inset:0;margin:auto}
-}
 
 /* ---------------- live tv ---------------- */
 #live{display:grid;gap:var(--gap);grid-template-columns:300px minmax(0,1fr) 460px;align-items:start;height:100%}
@@ -1017,7 +1094,28 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <path d="M160 780a730 730 0 0 1 1280 0" opacity=".10" stroke-width="3"/>
       </g>
       <circle cx="800" cy="780" r="16" fill="#cfe2ff"/>
-      <rect y="780" width="1600" height="120" fill="#05070f"/>
+      <!-- a skyline for it to go out over -->
+      <g fill="#060b18">
+        <rect x="40" y="690" width="92" height="210"/><rect x="150" y="640" width="70" height="260"/>
+        <rect x="246" y="712" width="110" height="188"/><rect x="384" y="662" width="84" height="238"/>
+        <rect x="496" y="722" width="128" height="178"/><rect x="654" y="676" width="76" height="224"/>
+        <rect x="880" y="684" width="96" height="216"/><rect x="1004" y="640" width="72" height="260"/>
+        <rect x="1104" y="714" width="118" height="186"/><rect x="1250" y="668" width="82" height="232"/>
+        <rect x="1362" y="726" width="134" height="174"/><rect x="1520" y="686" width="72" height="214"/>
+      </g>
+      <g fill="#7fb4ff" opacity=".4">
+        <rect x="62" y="716" width="12" height="16"/><rect x="96" y="756" width="12" height="16"/>
+        <rect x="172" y="668" width="12" height="16"/><rect x="190" y="730" width="12" height="16"/>
+        <rect x="272" y="740" width="12" height="16"/><rect x="316" y="786" width="12" height="16"/>
+        <rect x="406" y="690" width="12" height="16"/><rect x="430" y="752" width="12" height="16"/>
+        <rect x="524" y="748" width="12" height="16"/><rect x="580" y="800" width="12" height="16"/>
+        <rect x="904" y="712" width="12" height="16"/><rect x="940" y="770" width="12" height="16"/>
+        <rect x="1026" y="668" width="12" height="16"/><rect x="1048" y="736" width="12" height="16"/>
+        <rect x="1132" y="742" width="12" height="16"/><rect x="1184" y="796" width="12" height="16"/>
+        <rect x="1272" y="696" width="12" height="16"/><rect x="1300" y="758" width="12" height="16"/>
+        <rect x="1392" y="754" width="12" height="16"/><rect x="1448" y="804" width="12" height="16"/>
+      </g>
+      <rect y="866" width="1600" height="34" fill="#04060c"/>
     </symbol>
 
     <!-- movies: a projector beam opening across a dark room -->
@@ -1027,15 +1125,37 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
     <linearGradient id="g-beam" x1="0" y1="0" x2="1" y2="0">
       <stop offset="0%" stop-color="#ffd9b0" stop-opacity=".62"/><stop offset="100%" stop-color="#ff9e6e" stop-opacity="0"/>
     </linearGradient>
+    <radialGradient id="g-scr" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffd7a8" stop-opacity=".55"/>
+      <stop offset="100%" stop-color="#ff9a5e" stop-opacity="0"/>
+    </radialGradient>
     <symbol id="sc-movies" viewBox="0 0 1600 900">
       <rect width="1600" height="900" fill="url(#g-movDark)"/>
+      <!-- the screen at the far end of the room -->
+      <ellipse cx="1240" cy="420" rx="520" ry="400" fill="url(#g-scr)"/>
+      <rect x="1030" y="184" width="500" height="430" rx="10" fill="#ffd9b0" opacity=".13"/>
+      <rect x="1030" y="184" width="500" height="430" rx="10" fill="none" stroke="#ffe6c8" stroke-opacity=".18" stroke-width="3"/>
+      <!-- the beam, and the lamp it comes from -->
       <path d="M96 450 L1600 96 L1600 804 Z" fill="url(#g-beam)"/>
+      <path d="M96 450 L1180 250 L1180 650 Z" fill="#ffd9b0" opacity=".06"/>
       <circle cx="96" cy="450" r="30" fill="#ffe6c8" opacity=".9"/>
       <circle cx="96" cy="450" r="92" fill="#ffb877" opacity=".16"/>
-      <g fill="#ffd9b0" opacity=".30">
+      <g fill="#ffd9b0" opacity=".34">
         <circle cx="520" cy="372" r="4"/><circle cx="760" cy="492" r="3"/><circle cx="980" cy="330" r="5"/>
         <circle cx="1180" cy="556" r="3"/><circle cx="1362" cy="404" r="4"/><circle cx="640" cy="612" r="3"/>
+        <circle cx="430" cy="520" r="3"/><circle cx="880" cy="604" r="4"/><circle cx="1290" cy="300" r="3"/>
       </g>
+      <!-- the back of the room: seats, in silhouette -->
+      <g fill="#06060a">
+        <path d="M0 900 L0 772 Q96 712 192 772 L192 900Z"/>
+        <path d="M232 900 L232 758 Q336 694 440 758 L440 900Z"/>
+        <path d="M480 900 L480 766 Q584 702 688 766 L688 900Z"/>
+        <path d="M728 900 L728 752 Q836 688 944 752 L944 900Z"/>
+        <path d="M984 900 L984 766 Q1088 702 1192 766 L1192 900Z"/>
+        <path d="M1232 900 L1232 758 Q1336 694 1440 758 L1440 900Z"/>
+        <path d="M1480 900 L1480 772 Q1560 718 1640 772 L1640 900Z"/>
+      </g>
+      <rect y="820" width="1600" height="80" fill="#040407"/>
       <rect width="1600" height="900" fill="#e0384a" opacity=".05"/>
     </symbol>
 
@@ -1126,9 +1246,9 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <button class="nv f" data-f data-go="movies"><svg class="ic"><use href="#i-movies"/></svg><span class="nvt">Movies</span></button>
   <button class="nv f" data-f data-go="series"><svg class="ic"><use href="#i-series"/></svg><span class="nvt">Series</span></button>
   <button class="nv f" data-f data-go="sport"><svg class="ic"><use href="#i-sport"/></svg><span class="nvt">Sport</span></button>
+  <button class="nv f" data-f data-go="news"><svg class="ic"><use href="#i-news"/></svg><span class="nvt">News</span></button>
   <button class="nv f" data-f data-go="settings"><svg class="ic"><use href="#i-settings"/></svg><span class="nvt">Settings</span></button>
   <div class="nvgap"></div>
-  <button class="nv sm f" data-f data-go="news"><svg class="ic"><use href="#i-news"/></svg><span class="nvt">News</span></button>
   <button class="nv sm f" data-f data-go="favourites"><svg class="ic"><use href="#i-star"/></svg><span class="nvt">Favourites</span></button>
   <button class="nv sm f" data-f data-go="guide"><svg class="ic"><use href="#i-guide"/></svg><span class="nvt">TV Guide</span></button>
   <div class="nvspacer"></div>
@@ -1142,9 +1262,9 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <!-- ============ HOME ============ -->
   <section class="screen" id="home" data-screen="home">
 
-    <!-- The banner. One title at a time, shown large over artwork that fills
-         the whole width of the content area. The picture is whatever the
-         source gave for that title; where it gave nothing, the scene for its
+    <!-- The banner. One title at a time, set large over artwork that runs to
+         the edges of the content area. The picture is whatever the source
+         gave for that title; where it gave nothing, the scene for its
          category stands in. -->
     <section class="hero" id="hero">
       <div class="hero-art">
@@ -1154,7 +1274,10 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
       </div>
       <div class="hero-shade" aria-hidden="true"></div>
       <div class="hero-body">
-        <span class="hero-kick" id="heroKick">Telly</span>
+        <div class="hero-kickrow">
+          <img id="heroMark" alt="" />
+          <span class="hero-kick" id="heroKick">Telly</span>
+        </div>
         <h1 class="hero-title" id="heroTitle">Add a playlist to begin</h1>
         <p class="hero-desc" id="heroDesc">Point Telly at an M3U address, a playlist file, or an Xtream account. Channels, films and box sets all appear here.</p>
         <div class="hero-acts">
@@ -1165,10 +1288,11 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
             <svg class="ic"><use href="#i-live"/></svg><span id="heroMoreT">Browse Live TV</span>
           </button>
         </div>
+        <div class="hero-dots" id="heroDots" role="tablist" aria-label="Featured"></div>
       </div>
     </section>
 
-    <div class="sections">
+    <div class="sections hpad">
       <button class="sect f" data-f data-go="live">
         <span class="sa" aria-hidden="true"><svg viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice"><use href="#sc-live"/></svg></span>
         <span class="sv" aria-hidden="true"></span>
@@ -1216,29 +1340,12 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
       </button>
     </div>
 
-    <!-- The one rail the reference shows: whatever is worth opening first. -->
-    <div id="popWrap" hidden>
-      <div class="sec-h"><h2>Popular Now</h2><span id="popMore"></span></div>
-      <div class="rail" id="popRail"></div>
-    </div>
+    <!-- The rows. Built from a table in the script rather than written out
+         ten times, each one hidden when the source has nothing for it. -->
+    <div id="rows"></div>
 
     <div hidden>
       <span id="cFav"></span><span id="cGuide"></span><span id="exploreSub"></span>
-    </div>
-
-    <div id="filmWrap" hidden>
-      <div class="sec-h"><h2 id="filmHead">Films</h2><span id="filmMore"></span></div>
-      <div class="rail posterrail" id="filmRail"></div>
-    </div>
-
-    <div id="showWrap" hidden>
-      <div class="sec-h"><h2 id="showHead">Series</h2><span id="showMore"></span></div>
-      <div class="rail posterrail" id="showRail"></div>
-    </div>
-
-    <div id="chanWrap" hidden>
-      <div class="sec-h"><h2>Channels</h2><span id="chanMore"></span></div>
-      <div class="rail" id="chanRail"></div>
     </div>
   </section>
 
@@ -2090,6 +2197,16 @@ function fillArt(box, it, opts){
   art.dataset.art = key;
   art.style.setProperty('--h', String(hue));
   art.style.setProperty('--h2', String((hue + 46) % 360));
+  /* The same hash, spent again: the scene behind each card is scaled,
+     shifted, sometimes mirrored and turned a little in hue, so a rail of
+     generated artwork reads as a rail of different pictures rather than as
+     one picture printed twenty times. Deterministic, so a card looks the
+     same every time you come back to it. */
+  art.style.setProperty('--as', (1.05 + (hue % 7) * 0.045).toFixed(3));
+  art.style.setProperty('--ax', (((hue >> 3) % 13) - 6) + '%');
+  art.style.setProperty('--ay', (((hue >> 5) % 11) - 5) + '%');
+  art.style.setProperty('--af', (hue % 2 ? -1 : 1));
+  art.style.setProperty('--ar', (((hue >> 2) % 61) - 30) + 'deg');
 
   if (!opts.sm){
     const scene = svgEl('artscene', '0 0 1600 900', '#sc-' + key);
@@ -2504,6 +2621,7 @@ function go(name, opts){
   if (screenName === 'settings') refreshSettings();
 
   state.screen = screenName;
+  document.body.dataset.screen = screenName;
   $$('.screen').forEach(s => s.classList.toggle('on', s.dataset.screen === screenName));
   const label = screenName === 'collection' ? $('#colTitle').textContent
               : screenName === 'shelf' ? (name === 'catchup' ? 'Catch Up' : 'Recordings')
@@ -2634,15 +2752,29 @@ function refreshHome(){
    about what is actually loaded — a favourite first, then a film, then a
    series, then the first channel — and with nothing loaded it says how to
    load something instead of showing an empty frame. */
-function heroPick(){
-  const fav = state.channels.find(c => state.favs.has(c.id));
-  if (fav) return { it: fav, kick: 'Favourite' };
-  if (state.movies.length) return { it: state.movies[0], kick: 'Film' };
-  if (state.series.length) return { it: state.series[0], kick: 'Series' };
-  const fc = filmChannels()[0];
-  if (fc) return { it: fc, kick: 'Film channel' };
-  if (state.channels.length) return { it: state.channels[0], kick: 'Live now' };
-  return null;
+/* ---------------- the banner ----------------
+   A carousel of up to six featured titles, each shown large over its own
+   artwork. What it offers is honest about what is loaded — favourites first,
+   then films, then series, then channels — and with nothing loaded it says
+   how to load something rather than showing an empty frame. */
+const HERO_MAX = 6;
+
+function heroCandidates(){
+  const out = [], seen = new Set();
+  const take = (list, kick) => {
+    for (const it of list){
+      if (out.length >= HERO_MAX) return;
+      if (!it || seen.has(it.id)) continue;
+      seen.add(it.id);
+      out.push({ it, kick });
+    }
+  };
+  take(state.channels.filter(c => state.favs.has(c.id)), 'Favourite');
+  take(state.movies, 'Film');
+  take(state.series, 'Series');
+  take(filmChannels(), 'Film channel');
+  take(state.channels, 'Live now');
+  return out;
 }
 
 /* The description line. Xtream sends a plot for a title and that is what
@@ -2669,13 +2801,41 @@ function heroLine(it){
   return bits.join(' · ');
 }
 
-function renderHero(){
-  const img = $('#heroImg'), scene = $('#heroScene');
-  const bPlay = $('#heroPlay'), bMore = $('#heroMore');
-  img.classList.remove('on');
-  img.removeAttribute('src');
-  const pick = heroPick();
+let heroList = [], heroIx = 0, heroTimer = 0;
 
+function renderHero(){
+  heroList = heroCandidates();
+  if (heroIx >= heroList.length) heroIx = 0;
+  const dots = $('#heroDots');
+  dots.innerHTML = '';
+  if (heroList.length > 1){
+    heroList.forEach((row, i) => {
+      const d = document.createElement('button');
+      d.className = 'hdot f' + (i === heroIx ? ' on' : '');
+      d.dataset.f = '';
+      d.setAttribute('role', 'tab');
+      d.setAttribute('aria-label', row.it.name);
+      d.setAttribute('aria-selected', String(i === heroIx));
+      d.innerHTML = '<i></i>';
+      d.onclick = () => { heroIx = i; paintHero(); heroHold(); };
+      dots.appendChild(d);
+    });
+  }
+  paintHero();
+  heroAuto();
+}
+
+function paintHero(){
+  const img = $('#heroImg'), scene = $('#heroScene'), mark = $('#heroMark');
+  const bPlay = $('#heroPlay'), bMore = $('#heroMore');
+  img.classList.remove('on'); img.removeAttribute('src');
+  mark.classList.remove('on'); mark.removeAttribute('src');
+  $$('#heroDots .hdot').forEach((d, i) => {
+    d.classList.toggle('on', i === heroIx);
+    d.setAttribute('aria-selected', String(i === heroIx));
+  });
+
+  const pick = heroList[heroIx];
   if (!pick){
     scene.setAttribute('href', '#sc-home');
     $('#hero').style.setProperty('--ht', SCENE_TINT.home);
@@ -2697,134 +2857,215 @@ function renderHero(){
   const onDemand = series || it.kind === 'movie';
   const key = artKey(it);
   scene.setAttribute('href', '#sc-' + key);
+  /* The same hue trick the thumbnails use: each slide turns its scene a
+     little, so moving through the carousel does not show one picture six
+     times over. */
+  const hue = artHue(it.name);
+  scene.style.filter = 'saturate(1.25) brightness(1.12) hue-rotate(' + (((hue >> 2) % 41) - 20) + 'deg)';
   $('#hero').style.setProperty('--ht', SCENE_TINT[key] || SCENE_TINT.home);
   $('#heroKick').textContent = pick.kick;
   $('#heroTitle').textContent = it.name;
   $('#heroDesc').textContent = heroLine(it);
   $('#heroPlayT').textContent = series ? 'Open series' : 'Watch now';
-  $('#heroMoreT').textContent = onDemand ? 'Browse the library' : 'Browse Live TV';
+  $('#heroMoreT').textContent = 'More info';
   bPlay.onclick = () => { if (series) openTitle(it); else { play(it); go('live'); } };
-  bMore.onclick = () => go(onDemand ? (series ? 'series' : 'movies') : 'live');
+  bMore.onclick = () => {
+    if (onDemand) return openTitle(it);
+    play(it); go('live');
+  };
 
-  /* A banner wants a landscape picture. A station logo is a few hundred
-     pixels of transparency and stretching it across the width would look
-     exactly as bad as it sounds, so the image is only used when it is big
-     enough to carry the frame; otherwise the category scene does. */
   if (!it.logo) return;
+  /* A banner wants a landscape picture; a station logo is a few hundred
+     pixels of transparency and stretching it across the width would look
+     exactly as bad as it sounds. So the picture is used as the backdrop only
+     when it is big enough to carry the frame, and otherwise shown small as a
+     mark above the title, where a logo belongs. */
   const probe = new Image();
   probe.referrerPolicy = 'no-referrer'; probe.decoding = 'async';
   probe.onload = () => {
-    if (probe.naturalWidth < 600) return;
-    img.src = it.logo;
-    img.classList.add('on');
+    if (heroList[heroIx] !== pick) return;        // moved on while it loaded
+    if (probe.naturalWidth >= 600 && probe.naturalWidth > probe.naturalHeight * 1.2){
+      img.src = it.logo;
+      img.classList.add('on');
+    } else {
+      mark.src = it.logo;
+      mark.classList.add('on');
+    }
   };
   probe.src = it.logo;
 }
 
-/* The home screen is the thing you look at first, so it shows what is
-   actually in the source rather than describing it: a rail of films, a rail
-   of series, a rail of channels, each one a thumbnail you can press. */
+/* The carousel advances on its own, but never under someone's hands: it
+   stops while the banner holds focus, and for a while after it is touched. */
+let heroHeld = 0;
+function heroHold(){ heroHeld = Date.now() + 20000; }
+function heroAuto(){
+  clearInterval(heroTimer);
+  heroTimer = 0;
+  if (heroList.length < 2) return;
+  heroTimer = setInterval(() => {
+    if (state.screen !== 'home' || document.hidden) return;
+    if (Date.now() < heroHeld) return;
+    const hero = $('#hero');
+    if (hero && hero.contains(document.activeElement)) return;
+    heroIx = (heroIx + 1) % heroList.length;
+    paintHero();
+  }, 9000);
+}
+
+/* ---------------- the rows ----------------
+   Ten of them, each built from the same description: a heading, a way
+   through to the whole thing, and a rail of artwork. A row whose list comes
+   back empty hides itself rather than sitting there as a gap. */
+const BADGE = {
+  live:   { t:'LIVE', cls:'live' },
+  tv:     { t:'TV',   cls:'' },
+  film:   { t:'FILM', cls:'gold' },
+  series: { t:'SERIES', cls:'gold' }
+};
+
+const playNow = (it) => { play(it); go('live'); };
+const openOne = (it) => openTitle(it);
+
+function favChannels(){ return state.channels.filter(c => state.favs.has(c.id)); }
+
+const ROWS = [
+  { id:'pop',  title:'Popular Now', to:'live',
+    list: () => {
+      const seen = new Set(), pick = [];
+      const take = (list) => { for (const it of list){
+        if (pick.length >= 20) return;
+        if (seen.has(it.id)) continue;
+        seen.add(it.id); pick.push(it);
+      } };
+      take(favChannels()); take(state.movies); take(state.series); take(state.channels);
+      return pick;
+    } },
+
+  { id:'film', poster: () => !!state.movies.length,
+    title: () => state.movies.length ? 'Films' : 'Film Channels',
+    to: () => 'movies',
+    list: () => state.movies.length ? state.movies : filmChannels() },
+
+  { id:'show', poster: () => !!state.series.length,
+    title: () => state.series.length ? 'Series' : 'Series Channels',
+    to: () => 'series',
+    list: () => state.series.length ? state.series : seriesChannels() },
+
+  { id:'filmch', title:'Film Channels', to:'live',
+    /* only when the row above is showing the library rather than these */
+    list: () => state.movies.length ? filmChannels() : [] },
+
+  { id:'showch', title:'Series Channels', to:'live',
+    list: () => state.series.length ? seriesChannels() : [] },
+
+  { id:'sport', title:'Live Sports', to:'sport',
+    list: () => sectionChannels(SPORT_SECTION) },
+
+  { id:'news', title:'News', to:'news',
+    list: () => sectionChannels(NEWS_SECTION) },
+
+  /* The newest entries in the source, which is a fact about the playlist —
+     not about anything that has been watched. Telly keeps no history. */
+  { id:'new', title:'Recently Added', to:'live',
+    list: () => state.channels.length > 24 ? state.channels.slice(-20).reverse() : [] },
+
+  { id:'fav', title:'Favourites', to:'favourites',
+    list: () => favChannels() },
+
+  { id:'chan', title:'All Channels', to:'live',
+    list: () => favChannels().concat(state.channels.filter(c => !state.favs.has(c.id))) }
+];
+
+/* What a card says underneath its picture, and what the badge in its corner
+   says — both from the item itself, never guessed. */
+function tileSub(it){
+  if (it.kind === 'movie') return it.year ? it.year + ' · ' + (it.group || 'Film') : (it.group || 'Film');
+  if (it.kind === 'series') return it.episodes
+    ? fmt(it.episodes.length) + (it.episodes.length === 1 ? ' episode' : ' episodes')
+    : (it.group || 'Series');
+  return it.group || 'Channel';
+}
+function tileBadge(it){
+  if (it.kind === 'movie') return BADGE.film;
+  if (it.kind === 'series') return BADGE.series;
+  if (isSportChannel(it)) return BADGE.live;
+  return BADGE.tv;
+}
+
 function railTile(item, opts){
   const b = document.createElement('button');
   b.className = 'tile f'; b.dataset.f = '';
-  b.innerHTML = '<div class="thumb"></div><div class="cap"><b></b><i></i><em hidden></em></div>';
+  b.innerHTML = '<div class="thumb"></div><div class="cap"><b></b><i></i></div>';
   fillArt(b.querySelector('.thumb'), item, { poster: !!opts.poster });
   b.querySelector('b').textContent = item.name;
   b.querySelector('i').textContent = opts.sub(item);
-  /* A third line only where the source actually knows something — a year, a
-     season count, a channel number. An empty line is worse than none. */
-  const tag = opts.tag ? opts.tag(item) : '';
-  if (tag){
-    const em = b.querySelector('em');
-    em.textContent = tag;
-    em.hidden = false;
+  const bg = tileBadge(item);
+  if (bg){
+    const e = document.createElement('span');
+    e.className = 'tbadge ' + bg.cls;
+    e.textContent = bg.t;
+    b.appendChild(e);
   }
   b.onclick = opts.open;
   return b;
 }
 
-function fillRail(wrapId, railId, moreId, list, total, opts){
-  const wrap = $(wrapId), rail = $(railId), more = moreId ? $(moreId) : null;
-  if (!wrap || !rail) return;
-  if (opts.poster !== undefined) rail.classList.toggle('posterrail', !!opts.poster);
-  wrap.hidden = list.length === 0;
-  rail.innerHTML = '';
-  if (!list.length) return;
-  if (more) more.textContent = total > list.length
-    ? fmt(list.length) + ' of ' + fmt(total) : fmt(total);
+/* The rows exist in the document from the start, empty and hidden, so that
+   filling one is a matter of its own rail rather than of rebuilding home. */
+function buildRows(){
+  const host = $('#rows');
+  if (!host || host.children.length) return;
   const frag = document.createDocumentFragment();
-  list.forEach(item => frag.appendChild(railTile(item, {
-    sub: opts.sub,
-    tag: opts.tag,
-    poster: !!opts.poster,
-    open: () => opts.open(item)
-  })));
-  rail.appendChild(frag);
-}
-
-/* The one rail the layout leads with: whatever is worth opening first.
-   Favourites, then what was watched recently, then films, then the channel
-   list — deduplicated, because a favourite you watched an hour ago should
-   take one slot, not three. */
-function renderPopRail(){
-  const seen = new Set(), pick = [];
-  const take = (list, open, sub) => {
-    for (const it of list){
-      if (pick.length >= 18) return;
-      if (seen.has(it.id)) continue;
-      seen.add(it.id);
-      pick.push({ it, open, sub });
-    }
-  };
-  const playIt = it => { play(it); go('live'); };
-  take(state.channels.filter(c => state.favs.has(c.id)), playIt, c => 'Favourite · ' + c.group);
-  take(state.movies, it => openTitle(it), m => m.year ? String(m.year) + ' · ' + m.group : m.group);
-  take(state.series, it => openTitle(it),
-       sh => sh.episodes ? fmt(sh.episodes.length) + ' episodes' : sh.group);
-  take(state.channels, playIt, c => c.group);
-
-  const wrap = $('#popWrap'), rail = $('#popRail');
-  wrap.hidden = pick.length === 0;
-  rail.innerHTML = '';
-  if (!pick.length) return;
-  $('#popMore').textContent = fmt(pick.length);
-  const frag = document.createDocumentFragment();
-  pick.forEach(row => frag.appendChild(railTile(row.it, {
-    sub: it => it.group, tag: row.sub, open: () => row.open(row.it)
-  })));
-  rail.appendChild(frag);
+  ROWS.forEach(row => {
+    const wrap = document.createElement('section');
+    wrap.className = 'hrow hpad';
+    wrap.id = row.id + 'Wrap';
+    wrap.hidden = true;
+    const h = document.createElement('div');
+    h.className = 'row-h';
+    const t = document.createElement('h2');
+    t.id = row.id + 'Head';
+    t.textContent = typeof row.title === 'function' ? row.title() : row.title;
+    const chev = document.createElement('span');
+    chev.className = 'rchev';
+    chev.innerHTML = svg('i-chev');
+    const more = document.createElement('button');
+    more.className = 'rmore f'; more.dataset.f = '';
+    more.id = row.id + 'More';
+    more.innerHTML = '<span>View all</span>' + svg('i-chev');
+    more.onclick = () => go(typeof row.to === 'function' ? row.to() : row.to);
+    h.append(t, chev, more);
+    const rail = document.createElement('div');
+    rail.className = 'rail';
+    rail.id = row.id + 'Rail';
+    wrap.append(h, rail);
+    frag.appendChild(wrap);
+  });
+  host.appendChild(frag);
 }
 
 function renderHomeRails(){
-  renderPopRail();
-  /* Same rule as the tabs: show the film and box-set channels when there is
-     no library, and say so in the heading rather than leaving a gap. */
-  const fc = filmChannels(), sc = seriesChannels();
-  const filmList = state.movies.length ? state.movies : fc;
-  const showList = state.series.length ? state.series : sc;
-  $('#filmHead').textContent = state.movies.length ? 'Films' : 'Film channels';
-  $('#showHead').textContent = state.series.length ? 'Series' : 'Series channels';
-
-  fillRail('#filmWrap', '#filmRail', '#filmMore', filmList.slice(0, 18), filmList.length, {
-    poster: !!state.movies.length,
-    sub: m => m.group,
-    tag: m => state.movies.length ? (m.year ? String(m.year) : 'Film') : 'Channel',
-    open: m => state.movies.length ? openTitle(m) : (play(m), go('live'))
-  });
-  fillRail('#showWrap', '#showRail', '#showMore', showList.slice(0, 18), showList.length, {
-    poster: !!state.series.length,
-    sub: sh => sh.group,
-    tag: sh => sh.episodes ? fmt(sh.episodes.length) + (sh.episodes.length === 1 ? ' episode' : ' episodes')
-             : state.series.length ? 'Series' : 'Channel',
-    open: sh => state.series.length ? openTitle(sh) : (play(sh), go('live'))
-  });
-  /* Favourites first, because those are the channels somebody chose. */
-  const favs = state.channels.filter(c => state.favs.has(c.id));
-  const rest = state.channels.filter(c => !state.favs.has(c.id));
-  fillRail('#chanWrap', '#chanRail', '#chanMore', favs.concat(rest).slice(0, 18), state.channels.length, {
-    sub: c => c.group,
-    tag: c => state.favs.has(c.id) ? 'Favourite' : (c.no ? 'Channel ' + c.no : ''),
-    open: c => { play(c); go('live'); }
+  buildRows();
+  ROWS.forEach(row => {
+    const wrap = $('#' + row.id + 'Wrap'), rail = $('#' + row.id + 'Rail');
+    if (!wrap || !rail) return;
+    const all = row.list() || [];
+    const poster = typeof row.poster === 'function' ? row.poster() : !!row.poster;
+    wrap.hidden = all.length === 0;
+    rail.innerHTML = '';
+    rail.classList.toggle('posterrail', poster);
+    $('#' + row.id + 'Head').textContent =
+      typeof row.title === 'function' ? row.title() : row.title;
+    if (!all.length) return;
+    const frag = document.createDocumentFragment();
+    all.slice(0, 20).forEach(it => frag.appendChild(railTile(it, {
+      poster,
+      sub: tileSub,
+      /* A title opens its own screen; a channel plays. */
+      open: () => (it.kind === 'movie' || it.kind === 'series') ? openOne(it) : playNow(it)
+    })));
+    rail.appendChild(frag);
   });
 }
 

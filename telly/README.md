@@ -96,31 +96,58 @@ instead.
 ## The home screen
 
 A side rail down the left carries the wordmark, then Home, Live TV, Movies,
-Series, Sport and Settings, with News, Favourites, TV Guide and Add playlist
-below a divider — everything one press away instead of a scroll. It takes a
-fixed slice of the canvas, around an eighth; the content keeps the rest.
+Series, Sport, News and Settings, with Favourites, TV Guide and Add playlist
+below a divider. It takes a fixed slice of the canvas, around an eighth; the
+content keeps the rest, and the top bar starts where the rail ends.
 
-**The banner** leads: one title at a time, set large over artwork that fills
-the width of the content area, with a gradient across from the left and
-another up from the bottom so the words hold over any picture. What it shows
-is honest about what is loaded — a favourite first, then a film, then a
-series, then the first channel — and with nothing loaded it says how to load
-something rather than showing an empty frame. The line under the title is
-what the source actually knows: a plot where Xtream sends one, otherwise the
-year, the kind, the category and where it came from. Watch now plays it.
+**The banner** is the top of the panel rather than a card sitting on it: it
+runs from the rail to the right edge and up under the top bar, which stands
+down on home so it is not a second horizon across the picture. One title at a
+time, set large over artwork that fills the frame, with a gradient across from
+the left, another up from the bottom and a vignette around it, so the words
+hold over any picture.
 
-**Five category cards** follow, in one row: Live TV, Movies, Series, Sport,
-News. Each is a wide landscape tile — the category's artwork, a gradient to
-read over, a large icon, the title and a count of what is really loaded.
-Focus lifts a card and rings it in the accent colour, so from a sofa you can
-see which one you are on without reading anything.
+It is a carousel of up to six: favourites first, then films, then series, then
+channels. A dot under the buttons for each, the current one lit, and pressing
+a dot moves to that title. It advances on its own every nine seconds — but
+never under someone's hands: it stops while the banner holds focus, and for
+twenty seconds after a dot is pressed. Each slide turns its scene a little in
+hue, so moving through the carousel is not one picture shown six times.
 
-Then **Popular Now**: favourites first, then films, then series, then the
-channel list, deduplicated so nothing is listed twice. Then rails of
-thumbnails — films, series and channels, favourites first. Every thumbnail is
-a button that opens that title. Cards for features the playlist does not have
-are gone from the home screen rather than sitting there saying "Not in
-playlist".
+What the banner shows is honest about what is loaded, and with nothing loaded
+it says how to load something rather than showing an empty frame. The line
+under the title is what the source actually knows: a plot where Xtream sends
+one, otherwise the year, the kind, the category and where it came from. Where
+a title has a small logo rather than a landscape picture, the logo is shown as
+a mark above the title — where a logo belongs — and the category scene carries
+the frame.
+
+**Five category tiles** follow, in one row: Live TV, Movies, Series, Sport,
+News. Each is a wide 16:9 tile — the category's own artwork, its colour washed
+in from the left so the picture still shows on the right, a large icon, the
+title and a count of what is really loaded. Focus lifts a tile and rings it in
+the accent colour.
+
+**Then the rows**, each a carousel that reaches the edge of the panel and
+carries on past it, each with a heading and a way through to the whole of it,
+and each hidden when the source has nothing for it:
+
+    Popular Now        favourites, then films, then series, then channels
+    Films / Series     the on-demand libraries, as posters
+    Film Channels      channels that carry films, when a library is loaded too
+    Series Channels    the same for box sets
+    Live Sports        the sport section
+    News               the news section
+    Recently Added     the newest entries in the playlist
+    Favourites         the channels somebody chose
+    All Channels       favourites first, then the rest
+
+Recently Added is a fact about the playlist, not about anything that has been
+watched. **Telly keeps no history**: no last channel, nothing recently played.
+
+Every card is a picture with a caption under it and a badge in the corner
+saying what it is — TV, LIVE, FILM or SERIES. Focus grows a card and rings it
+in gold.
 
 ## Thumbnails: the artwork is the card
 
@@ -139,10 +166,12 @@ logo is not — it would be cut in half — so it is shown whole over a blurred
 copy of itself, which fills the frame instead.
 
 Where the source gives nothing, or the address fails to load, the artwork is
-**generated**: the scene that belongs to that item's category, washed in a
-hue derived from its title so neighbouring cards differ, with the category
-mark over it. No card is ever a black box with two letters in it, which is
-what this replaced.
+**generated**: the scene that belongs to that item's category — scaled,
+shifted, sometimes mirrored and turned in hue by an amount taken from the
+title — washed in a matching hue, with the category mark over it. The same
+hash every time, so a card looks the same whenever you come back to it, and no
+two neighbours look alike. No card is ever a black box with two letters in it,
+which is what this replaced.
 
 ## Backdrops
 
