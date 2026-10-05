@@ -128,6 +128,34 @@ its own — every five minutes it looks for anything due.
 
   Administrator:
 
+    GET    /api/v1/catalogue/movies?search=&provider=&genre=&year=&country=
+                              &language=&minRating=&playable=&sort=&page=&limit=
+    GET    /api/v1/catalogue/movies/:id        with every provider that has it
+    GET    /api/v1/catalogue/series            and /:id, /:id/seasons, /:id/episodes
+    GET    /api/v1/catalogue/episodes/:id
+    GET    /api/v1/catalogue/search?q=         one query, over the canonical rows
+    GET    /api/v1/catalogue/facets?kind=      what the filter menus offer
+    GET    /api/v1/catalogue/counts
+    GET    /api/v1/catalogue/art/:id           a cached poster, by id
+
+    POST   /api/v1/stream/catalogue/:kind/:id/ticket?source=&provider=
+                              play this work; answers local, direct or WEB_ONLY
+
+  Administrator:
+
+    GET    /api/v1/admin/providers             each one, with what it permits
+    GET    /api/v1/admin/providers/:id         and its import history
+    PUT    /api/v1/admin/providers/:id/enabled {enabled} — refused with a
+                                               reason where none is permitted
+    PATCH  /api/v1/admin/providers/:id         delays, concurrency, interval
+    POST   /api/v1/admin/providers/:id/refresh
+    POST   /api/v1/admin/providers/refresh     all of them
+    GET    /api/v1/admin/providers/imports     the import log
+    GET    /api/v1/admin/catalogue/reviews     possible duplicates
+    POST   /api/v1/admin/catalogue/reviews/:id {decision: merge|reject}
+    POST   /api/v1/admin/catalogue/merge       {kind, keep, drop}
+    POST   /api/v1/admin/catalogue/artwork/prune
+
     GET    /api/v1/admin/sources              POST, PATCH, DELETE
     POST   /api/v1/admin/sources/:id/sync
     GET    /api/v1/admin/sources/builtin      the country lists Telly can set up
@@ -164,9 +192,13 @@ change, not a redesign.
   ffprobe. The columns a provider would fill — description, genre, poster —
   exist and are optional, so adding TMDB later is a service, not a migration.
   Nothing requires an external service to work.
-- **Most of the admin web panel.** Media folders, scanning and the IPTV
-  sources are in the app's Settings screen; users, devices and the audit log
-  are still `bin/telly-admin.js` from a terminal.
+- **Most of the admin web panel.** Media folders, scanning, IPTV sources,
+  catalogue providers and the duplicate review are in the app's Settings
+  screen; users, devices and the audit log are still `bin/telly-admin.js`
+  from a terminal.
+- **Four of the five requested catalogue providers have no importer**, because
+  none of them publishes an interface a third party may read. This is a
+  finding, not an omission — see [PROVIDERS.md](../PROVIDERS.md).
 
 ## Personal media
 
@@ -285,6 +317,166 @@ so turning it back on is instant rather than another download.
     TELLY_REFRESH_INTERVAL=0     refresh by hand only
     TELLY_SCAN_INTERVAL=0        scan media folders by hand only
     POST /api/v1/admin/refresh   one pass right now
+
+## The unified catalogue
+
+Three libraries sit side by side: IPTV channels from playlists, the files in
+this server's media folders, and — above both — **one catalogue** assembled
+from several providers.
+
+The problem it solves: the same film is on several services. Without this,
+*Inception* appears four times in Movies, once per provider. So a work is
+recorded once, canonically, and the providers that carry it hang off it as
+**sources**:
+
+    catalogue_movies ──< catalogue_movie_sources >── providers
+
+**Provider identity is deliberately not part of a work's identity.** A work is
+a work; a source is one provider's copy of it. That is what makes
+`?provider=tubi` a filter that narrows the list rather than a different list,
+and it is why the screen shows one *Inception* with three ways to play it.
+
+The local media folders are a provider of this catalogue like any other — see
+[PROVIDERS.md](../PROVIDERS.md) — so an existing installation keeps everything
+it had and gains a catalogue on top. Nothing about `movies`, `series` and
+`episodes` changed.
+
+### Which provider, and what it permits
+
+Read [PROVIDERS.md](../PROVIDERS.md). The short version: of the five
+commercial services, **none publishes a catalogue interface a third party may
+read**, so none has an importer and none can be switched on. The Internet
+Archive does, and works. Each provider's assessment is a row in `providers`
+with a date and a reason, surfaced in Settings, so the answer is checkable
+rather than buried.
+
+### Deciding whether two records are the same work
+
+In `services/dedupe.js`. Three outcomes, not two:
+
+    MERGE     confident — attached to the work that exists
+    REVIEW    suspicious but not confident — parked for a person, both stay visible
+    DISTINCT  no reason to think they are the same
+
+Merging two different films is worse than showing two cards: two cards are
+visibly wrong and somebody fixes them, whereas a bad merge quietly hides a film
+and attaches the wrong provider to it. So the ladder is cautious:
+
+| | | |
+|---|---|---|
+| 0 | this provider's own id, already filed | decisive |
+| 1 | a reliable external id (IMDb and friends) | decisive |
+| 2 | normalized title + year | merge |
+| 3 | original title + year | merge |
+| 4 | title, year within one, **and** a runtime within 3 min or a shared director | merge |
+| 4 | title, year within one, nothing else to compare | **review** |
+| 5 | title matches, one side has no year | **review**, never merged |
+
+Rung 0 matters more than it looks. Without it a work the provider gives no year
+for can never match itself — rung 2 needs a year, and rungs 4 and 5 only ever
+queue — so every refresh would file another copy and the catalogue would grow a
+duplicate a week.
+
+Normalizing folds what is noise and keeps what is not: articles, punctuation,
+diacritics and `&`/`and` go; roman numerals become digits so *Rocky II* lands
+where *Rocky 2* does; and **a trailing year that equals the record's own year
+comes off**, because `Arrival.2016.1080p.mkv` reads as "Arrival 2016" and is the
+same film as a provider's "Arrival". A trailing number that is *not* the year
+stays, so *Blade Runner 2049* is never *Blade Runner*.
+
+Series deduplicate the same way. An **episode** is identified by
+`(series_id, season_number, episode_number)` and nothing else, so the same
+episode on four providers is one row with four sources.
+
+### Episodes, seasons and a work's metadata
+
+Everything a provider makes available is kept: title, original title, year,
+release date, description, runtime, genres, rating, age rating, language,
+country, poster, backdrop, thumbnail, cast with characters and images,
+directors, writers, keywords and external ids. Genres, countries, languages and
+keywords share one `catalogue_tags` table, so the four filters are one index
+and a provider that invents a fifth kind of tag needs no migration.
+
+### Playing a work
+
+`metadata_url` and `playback_url` are separate columns, because they are
+separate things. A source's `playback_type` is one of:
+
+    direct    a progressive file the player opens
+    hls       an HLS manifest
+    dash
+    web_only  the provider plays this in its own app or site, and only that
+    none
+
+`POST /stream/catalogue/:kind/:id/ticket` answers with one of three shapes:
+
+    { mode: 'local',  url: '/api/v1/stream/media/movie/12?ticket=…' }
+    { mode: 'direct', url: 'https://provider.example/video/123/master.m3u8' }
+    409 WEB_ONLY     { provider, webUrl, alternatives: [ … ] }
+
+A local source carries the row id of the file, not a URL, so the existing path
+guard, ticket and remux decision are unchanged. A remote source hands over the
+address **the provider published for this purpose, unchanged** — nothing is
+derived from a web page and nothing is unwrapped. And `web_only` is reported
+rather than worked around: the catalogue stays honest about who carries the
+title, and says plainly that Telly cannot open it.
+
+Preference order, which is also what "automatically select the preferred
+working source" means: something playable before something web-only, this
+server's own disk before anything that needs the internet, and an available
+source before one last seen failing.
+
+### Importing, politely
+
+Every outbound request an adapter makes goes through `ctx.get`, so the
+provider's own delay, timeout, retries and request count are enforced in one
+place rather than trusted to each adapter — an adapter cannot reach `fetch`
+directly, and so cannot accidentally be impolite.
+
+- **A delay between requests**, per provider.
+- **429 or 503 with `Retry-After` is obeyed as given**, not retried through.
+- **401 or 403 is taken as an answer** and not retried another way. If a
+  provider refuses an identified client, that is its answer.
+- **Timeouts abort**, so a provider that stops answering is a failure rather
+  than a hang.
+- **Failures back off** — fifteen minutes, then half an hour, to a ceiling of a
+  day — so a service having a bad afternoon is not asked three hundred times.
+- **One import per provider at a time.** Two people pressing Refresh make one
+  pass.
+- **One bad record does not end an import of four thousand.** It is counted and
+  the next one is read.
+
+Artwork is fetched once. The row remembers the URL, where the copy went and the
+validators, so the next import sends `If-None-Match` and gets a 304 — a few
+hundred bytes instead of a few hundred kilobytes, across a few thousand films.
+Clients are given `/catalogue/art/:id` where a copy exists, so the provider is
+not asked for the same poster by every device in the house. A provider whose
+terms do not permit a local copy is recorded `reference_only` and simply linked.
+
+### The import log
+
+One row per run, per provider, with exactly the figures the brief asks for:
+movies, series and episodes discovered; new, updated, duplicates merged, queued
+for review, unmatched; errors; and requests made. A provider that may not be
+imported from is recorded as `skipped` **with its reason**, so the log says
+plainly why there is nothing from Tubi rather than looking like a fault.
+
+    GET /api/v1/admin/providers/imports
+    GET /api/v1/admin/providers              each provider's latest run
+
+### Forgetting a provider
+
+Switching a provider off stops it importing and keeps what it contributed, so
+switching it back on is instant. Forgetting its titles is a separate, deliberate
+act:
+
+    DELETE /api/v1/admin/providers/:id/catalogue
+
+Its sources go, and a work left with no sources at all goes with them — a film
+nobody carries is not in the catalogue, it is a ghost. A film several providers
+had simply loses one of its ways to play.
+
+    TELLY_ARCHIVE_BASE=https://archive.org   a mirror, or a local instance
 
 ## The channels Telly sets up for you
 

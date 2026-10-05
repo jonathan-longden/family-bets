@@ -116,6 +116,80 @@ By hand:
 
 ---
 
+## 5b. Build the Movies and Series catalogue
+
+**Settings → Catalogue providers.**
+
+Every provider Telly knows is listed, whether or not it can be used. The ones
+that can be are switched on with *Turn on* and then *Refresh*; the ones that
+cannot show the reason instead of a switch.
+
+| Provider | |
+|---|---|
+| **This server's media folders** | On by default. Puts your own films and box sets in the catalogue. |
+| **Internet Archive** | Public-domain features, with real metadata and direct playback. Off until you want a few thousand films. |
+| Tubi · The Roku Channel · Fawesome · Xumo Play · Movy | **No importer.** See the reason on each row, and [PROVIDERS.md](PROVIDERS.md). |
+
+*Refresh all providers* imports every enabled one. The ones that cannot be
+imported from are skipped **with their reason**, which is what the import log
+then shows — so an empty Tubi row says why rather than looking broken.
+
+Each row carries the figures the brief asks for: films, series and episodes
+discovered; new, updated, duplicates merged, unmatched; errors; and when it
+last ran. Below the list: how many titles the catalogue holds, and **how many
+are carried by more than one provider** — which is how many extra cards the
+deduplication is saving you.
+
+### What one film looks like afterwards
+
+Open **Movies**. A film your disk has *and* a provider has is **one card**.
+Opening it shows the metadata and a row of providers; pressing one plays from
+that one, and pressing **Play** uses the preferred source — your own disk
+first, because it needs no internet.
+
+A provider that keeps a title in its own app is greyed and labelled **web
+only**. That is the honest answer, not a failure.
+
+### Filters
+
+Above Movies and Series: provider, genre, year, rating, country, language.
+`Movies → Provider → Internet Archive` narrows the list; *Inception* is still
+one card.
+
+### Possible duplicates
+
+**Settings → Possible duplicates** holds pairs Telly suspected were the same
+title but would not merge on its own — the same name a year apart with nothing
+else to compare, or a remake with no year. Both stay visible until you press
+*Same title* or *Different*. It will not guess, because merging the wrong two
+quietly hides a film.
+
+### Removing a provider's titles
+
+Turning a provider off stops it importing and leaves what it contributed in
+place, so turning it back on is instant. To forget its titles as well:
+
+    DELETE /api/v1/admin/providers/:id/catalogue
+
+A film that provider was the only source for goes with it; a film others also
+carry just loses one way to play.
+
+### Refresh intervals
+
+Each provider has its own, configurable, and the background pass only touches
+the ones that are due:
+
+    PATCH /api/v1/admin/providers/:id
+      { "refreshIntervalSeconds": 604800, "requestDelayMs": 1200,
+        "concurrency": 2, "timeoutMs": 20000, "maxRetries": 3, "pageLimit": 10 }
+
+Telly will not hammer a provider: a delay between requests, a cap on how many
+at once, timeouts that abort, `Retry-After` obeyed as given, a 403 taken as an
+answer rather than retried another way, and failures that back off to a
+ceiling of a day.
+
+---
+
 ## 6. How to test
 
 ### A channel
@@ -155,6 +229,19 @@ client can open the container, **remux** when FFmpeg will repackage it without
 re-encoding, **unsupported** when neither is possible — said plainly rather
 than appearing as a player that never starts.
 
+### A catalogue title
+
+**Movies**, open one, press a provider in the row under the facts — or press
+**Play** to use the preferred source. By hand:
+
+    GET  /api/v1/catalogue/movies?search=arrival     one row, with its sources
+    POST /api/v1/stream/catalogue/movie/7/ticket     → mode: local | direct
+    POST /api/v1/stream/catalogue/movie/7/ticket?provider=archive-org
+
+A title every provider keeps behind its own app answers **409 WEB_ONLY**, with
+the link and a list of any provider that does offer a stream. That is the
+answer, not an error to route around.
+
 ### A series
 
 **Series**, open one, pick a season, pick an episode.
@@ -193,13 +280,23 @@ a 403 rather than a media folder.
 
 ## 8. Remaining limitations
 
-- **No metadata provider.** Titles, years, seasons and episodes come from the
-  filenames and the folders above them; codecs and resolution from ffprobe.
-  Descriptions, genres and real posters are only there if a file or folder
-  carries them (`poster.jpg`, `folder.jpg`, `cover.jpg`). The columns a
-  provider would fill exist and are optional, so adding TMDB later is a
-  service, not a migration — and deliberately not required for any of this to
-  work.
+- **Four of the five requested catalogue providers have no importer.** Tubi,
+  The Roku Channel, Fawesome and Xumo publish nothing a third party may read;
+  movy.sx could not be established as a licensed distributor at all. They are
+  listed with their reasons and cannot be switched on. This is the finding the
+  brief asked for, not a gap to be closed later —
+  [PROVIDERS.md](PROVIDERS.md) says what would have to change for each.
+- **No metadata provider for local files.** Titles, years, seasons and
+  episodes of files on your own disk come from the filenames and the folders
+  above them; codecs and resolution from ffprobe. Descriptions, genres and
+  real posters are only there if a file or folder carries them (`poster.jpg`,
+  `folder.jpg`, `cover.jpg`) — or if a catalogue provider supplies them for
+  the same title. The columns a provider would fill exist and are optional, so
+  adding TMDB later is a service, not a migration.
+- **Deduplication is cautious on purpose.** Two films with the same name a
+  year apart and nothing else in common are left as two cards and queued for
+  review rather than merged. That is the intended trade: a visible duplicate
+  gets fixed, a bad merge hides a film.
 - **Without ffprobe, technical details are blank.** Duration, codecs and
   resolution come from ffprobe; channel health falls back to byte inspection,
   which is genuinely stronger than an HTTP 200 but weaker than a real decode.

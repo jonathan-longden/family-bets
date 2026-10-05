@@ -783,6 +783,36 @@ body.playing #backdrop{opacity:.12}
 .pill.warn{color:var(--gold);border-color:rgba(231,193,122,.45);background:var(--gold-dim)}
 .pill.bad{color:#ffb3ba;border-color:rgba(255,77,94,.34);background:rgba(255,77,94,.11)}
 .lnone{color:var(--faint);font-size:14px;padding:12px 0;line-height:1.6}
+.eprow.weblocked{opacity:.6}
+.eprow.weblocked .epgo{display:none}
+/* Who carries a title. A provider that only plays it in its own app is shown
+   too, greyed and labelled, because knowing who has it is useful even when
+   Telly cannot open it. */
+.srcs{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px}
+.src{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border-radius:var(--r-sm);
+  border:1px solid var(--line);background:var(--glass);font-size:14px;font-weight:600;color:var(--dim)}
+.src .ic{font-size:1.05em}
+.src.can{color:var(--ink);border-color:rgba(231,193,122,.4);background:var(--gold-dim);cursor:pointer}
+.src.can:hover,.src.can.kfocus{border-color:var(--gold);color:var(--gold)}
+.src.web{opacity:.72}
+.src small{font-weight:500;color:var(--faint);font-size:12px;letter-spacing:.04em;text-transform:uppercase}
+/* The cast, as faces where a provider gives them and initials where it does not. */
+.castrow{display:flex;gap:14px;overflow-x:auto;padding:14px 0 6px;scrollbar-width:none}
+.castrow::-webkit-scrollbar{display:none}
+.cast{flex:0 0 auto;width:104px;text-align:center}
+.cast .face{width:84px;height:84px;margin:0 auto 8px;border-radius:50%;overflow:hidden;
+  background:var(--glass-2);display:grid;place-items:center;border:1px solid var(--line)}
+.cast .face img{width:100%;height:100%;object-fit:cover}
+.cast .face span{font-size:24px;font-weight:700;color:var(--faint)}
+.cast b{display:block;font-size:13px;font-weight:600;line-height:1.35}
+.cast i{display:block;font-size:12px;color:var(--faint);font-style:normal;line-height:1.35;margin-top:2px}
+/* The filter bar above a collection. */
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 0 16px}
+.filters select,.filters .fclear{appearance:none;background:var(--glass);color:var(--ink);
+  border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 14px;font:inherit;font-size:14px;
+  min-height:44px;cursor:pointer}
+.filters select:focus,.filters select.kfocus,.filters .fclear.kfocus{border-color:var(--gold);outline:none}
+.filters select.on{color:var(--gold);border-color:rgba(231,193,122,.45);background:var(--gold-dim)}
 
 /* ---------------- add playlist ---------------- */
 #playlist{display:flex;flex-direction:column;gap:25.9px;max-width:1240px;margin:0 auto;width:100%}
@@ -1428,6 +1458,17 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <section class="screen" id="collection" data-screen="collection">
     <div class="sec-h"><h2 id="colTitle">Collection</h2><span id="colSub"></span></div>
     <div class="colnote" id="colNote" hidden><span id="colNoteText"></span><button class="btn f" data-f id="colNoteGo"></button></div>
+    <!-- Only shown where the server keeps a catalogue: there is nothing to
+         filter a plain M3U by. -->
+    <div class="filters" id="colFilters" hidden>
+      <select id="fProvider" class="f" data-f aria-label="Provider"></select>
+      <select id="fGenre" class="f" data-f aria-label="Genre"></select>
+      <select id="fYear" class="f" data-f aria-label="Year"></select>
+      <select id="fRating" class="f" data-f aria-label="Rating"></select>
+      <select id="fCountry" class="f" data-f aria-label="Country"></select>
+      <select id="fLanguage" class="f" data-f aria-label="Language"></select>
+      <button class="fclear f" data-f id="fClear">Clear</button>
+    </div>
     <div class="grid" id="colGrid"></div>
     <div class="empty" id="colEmpty" hidden></div>
     <div style="display:flex;justify-content:center;padding:24px 0">
@@ -1449,6 +1490,10 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
           <button class="btn f" data-f id="showFav"><svg class="ic"><use href="#i-star"/></svg><span id="showFavLabel">Favourite</span></button>
         </div>
         <p id="showPlot" class="showplot" hidden></p>
+        <!-- Who has it. One film, several providers: the list is here rather
+             than being four separate cards in Movies. -->
+        <div id="showSources" class="srcs" hidden></div>
+        <div id="showCast" class="castrow" hidden></div>
         <div id="showSeasons" class="segs"></div>
         <div id="showEps"></div>
         <div class="empty" id="showEmpty" hidden></div>
@@ -1536,6 +1581,29 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
           <button class="btn f" data-f id="iptvUs">United States</button>
         </div>
         <p class="hint" id="iptvNote">Public free-to-air and free ad-supported streams only.</p>
+      </div>
+
+      <div class="spanel" id="provPanel" hidden>
+        <h3>Catalogue providers</h3>
+        <p class="hint">Where the Movies and Series catalogue comes from. A service with no
+          published, permitted way to read its catalogue is listed with the reason and cannot
+          be switched on — Telly does not go round the back of one.</p>
+        <div id="provList"></div>
+        <div class="segs" style="margin-top:12px">
+          <button class="btn f" data-f id="provRefreshAll">Refresh all providers</button>
+        </div>
+        <div class="kv" style="margin-top:12px"><span>Films in the catalogue</span><b id="catMovies">—</b></div>
+        <div class="kv"><span>Series · episodes</span><b id="catSeries">—</b></div>
+        <div class="kv"><span>On more than one provider</span><b id="catShared">—</b></div>
+        <div class="kv"><span>Artwork cached</span><b id="catArt">—</b></div>
+      </div>
+
+      <div class="spanel" id="dupPanel" hidden>
+        <h3>Possible duplicates</h3>
+        <p class="hint">Pairs Telly suspected were the same title but would not merge on its own.
+          Both stay visible until you decide, because merging the wrong two is worse than showing
+          two cards.</p>
+        <div id="dupList"></div>
       </div>
 
       <div class="spanel" id="srvPanel">
@@ -1780,7 +1848,10 @@ const state = {
      channel that happens to be showing a film. */
   movies: [], series: [], show: null, showSeason: null, navKey: 'home', failed: false,
   /* What is on now, by tvg-id, when a Telly server has an XMLTV source. */
-  guide: {}, guideCoverage: null, recordings: []
+  guide: {}, guideCoverage: null, recordings: [],
+  /* The unified catalogue, when the server keeps one: the counts, and the
+     filter the collection screen is narrowed by. */
+  catalogue: null, colFilter: {}, facets: null
 };
 let H_CH = 72, H_GRP = 50;
 
@@ -2290,6 +2361,9 @@ async function srvJson(host, path, opts){
     const err = new Error((body && body.error && body.error.message) || ('The server answered ' + r.status + '.'));
     err.status = r.status;
     err.code = body && body.error && body.error.code;
+    /* Some refusals carry the useful part in `detail` — which provider has it,
+       where it can be watched, who else offers it. */
+    err.detail = body && body.error && body.error.detail;
     throw err;
   }
   return body;
@@ -2476,8 +2550,152 @@ function srvPushFav(ch, on){
 
 /* Playback, in two steps: the app holds the token and asks for a ticket, the
    player holds the ticket and cannot carry a header. */
-async function srvTicket(ch){
+/* ================================================================
+   THE UNIFIED CATALOGUE
+
+   The server keeps one row per film and one per episode, however many
+   providers carry it, and hangs the providers off it as sources. So this
+   fetches works, not provider listings, and a film three services have
+   arrives once with three ways to play it.
+
+   It supersedes the per-provider lists on purpose: the catalogue already
+   includes this server's own media folders, as the `local` provider, which
+   is what lets a film you own and a film a service carries become one card.
+   ================================================================ */
+const CAT_PAGE = 200;
+
+/* The catalogue's own shape, mapped onto the item shape the rest of the app
+   already draws — so the grids, the artwork and the player need no changes. */
+function catItem(kind, w){
+  const host = (srvState() || {}).host || '';
+  /* A poster may be an absolute provider URL or a path on our own server. */
+  const art = (u) => !u ? '' : /^https?:\/\//i.test(u) ? u : host + u;
+  const playable = (w.sources || []).filter(s => s.playable);
+  return {
+    id: 'cat' + kind + '|' + w.id,
+    catKind: kind === 'movie' ? 'movie' : 'series',
+    catId: w.id,
+    kind: kind === 'movie' ? 'movie' : 'series',
+    name: w.title || 'Untitled',
+    year: w.year || null,
+    rating: w.rating != null ? Math.round(w.rating * 10) / 10 : null,
+    ageRating: w.ageRating || '',
+    runtime: w.runtimeMinutes || 0,
+    plot: w.description || '',
+    logo: art(w.poster || w.thumbnail),
+    backdrop: art(w.backdrop),
+    group: (w.genres && w.genres[0]) || 'Library',
+    genres: w.genres || [],
+    countries: w.countries || [],
+    languages: w.languages || [],
+    cast: w.cast || [],
+    directors: w.directors || [],
+    writers: w.writers || [],
+    externalIds: w.externalIds || {},
+    sources: w.sources || [],
+    playableSources: playable,
+    preferred: w.preferred || playable[0] || null,
+    seasonCount: w.seasonCount || 0,
+    episodeCount: w.episodeCount || 0,
+    url: ''                               // filled by a ticket at play time
+  };
+}
+
+function catEpisodeItem(seriesItem, e){
+  const playable = (e.sources || []).filter(s => s.playable);
+  return {
+    id: 'catepisode|' + e.id,
+    catKind: 'episode',
+    catId: e.id,
+    kind: 'episode',
+    name: e.title || ('Episode ' + e.episode),
+    epTitle: e.title || ('Episode ' + e.episode),
+    seriesName: seriesItem.name,
+    group: seriesItem.name,
+    season: e.season,
+    episode: e.episode,
+    plot: e.description || '',
+    runtime: e.runtimeMinutes || 0,
+    airDate: e.airDate || '',
+    logo: seriesItem.logo,
+    sources: e.sources || [],
+    playableSources: playable,
+    preferred: e.preferred || playable[0] || null,
+    url: ''
+  };
+}
+
+/* Every page of a list, because a catalogue is the one thing in Telly that
+   can genuinely run to thousands. */
+async function catAll(path, note){
+  const out = [];
+  for (let page = 1; ; page++){
+    const got = await srvAuthed(path + (path.includes('?') ? '&' : '?') +
+      'limit=' + CAT_PAGE + '&page=' + page, {});
+    const items = (got && got.items) || [];
+    out.push(...items);
+    if (note) note('Fetching the catalogue… ' + fmt(out.length));
+    if (!items.length || out.length >= (got.total || 0) || page >= 200) break;
+  }
+  return out;
+}
+
+/**
+ * The whole catalogue, as items. Returns null when the server has none —
+ * which is the signal to fall back to the per-source library, so a server
+ * with no providers imported behaves exactly as it did before.
+ */
+async function srvCatalogue(note){
+  let counts;
+  try {
+    counts = await srvAuthed('/catalogue/counts', {});
+  } catch(e){
+    return null;                          // an older server without this layer
+  }
+  if (!counts || (!counts.movies && !counts.series)) return null;
+
+  const films = (await catAll('/catalogue/movies?sort=title', note)).map(w => catItem('movie', w));
+  const shows = (await catAll('/catalogue/series?sort=title', note)).map(w => catItem('series', w));
+  return { movies: films, series: shows, counts };
+}
+
+/* Episodes are fetched when a series is opened, not all up front: a
+   catalogue of four hundred series is forty thousand episodes. */
+async function catEpisodes(seriesItem){
+  const got = await srvAuthed('/catalogue/series/' + seriesItem.catId + '/episodes', {});
+  return ((got && got.episodes) || []).map(e => catEpisodeItem(seriesItem, e));
+}
+
+async function srvTicket(ch, sourceId){
   const st = srvState();
+
+  /* A work in the catalogue. The server decides which provider to use —
+     or honours the one that was picked — and answers with one of three
+     things: a ticket for a file on its own disk, a provider's own published
+     stream address, or a refusal saying the provider plays this only in its
+     own app. The third is not worked around. */
+  if (ch.catKind && ch.catKind !== 'series'){
+    const q = sourceId ? '?source=' + encodeURIComponent(sourceId) : '';
+    let got;
+    try {
+      got = await srvAuthed('/stream/catalogue/' + ch.catKind + '/' + ch.catId + '/ticket' + q,
+        { method:'POST' });
+    } catch(e){
+      if (e.code === 'WEB_ONLY'){
+        const err = new Error(e.message);
+        err.webOnly = true;
+        err.detail = e.detail;
+        throw err;
+      }
+      throw e;
+    }
+    if (got.mode === 'local'){
+      return st.host + String(got.url).replace(/^\/api\/v1/, SRV_API);
+    }
+    /* The provider's own address, exactly as it published it. */
+    return got.url;
+  }
+
   if (ch.srvMedia){
     /* A file from the server's library. The reply says whether it will be
        sent as it is or remuxed on the way, so a refusal can be explained
@@ -3584,6 +3802,11 @@ function openCollection(kind){
     note.hidden = true;
   }
 
+  /* A different tab is a different filter set: provider-and-genre chosen for
+     Movies means nothing on Series. */
+  if (state.colFilterKind !== kind){ state.colFilter = {}; state.colFilterKind = kind; }
+  paintFilters();
+
   const none = state.colList.length === 0;
   $('#colEmpty').hidden = !none;
   $('#colGrid').hidden = none;
@@ -3629,17 +3852,41 @@ async function openTitle(t){
   $('#showEmpty').hidden = true;
   $('#showBackLabel').textContent = isSeries ? 'All series' : 'All films';
   titleMeta(t, isSeries);
+  titleCast(t);
   go('show');
 
   if (!isSeries){
     // a film is one thing to play, so the screen is art, facts and a button
     $('#showActs').hidden = false;
-    $('#showSub').textContent = [t.year, t.group].filter(Boolean).join(' · ');
+    $('#showSub').textContent = [t.year, t.runtime ? runLabel(t.runtime) : '',
+      (t.genres && t.genres.length ? t.genres.slice(0, 2).join(', ') : t.group)]
+      .filter(Boolean).join(' · ');
+    titleSources(t);
     syncTitleFav(t);
     return;
   }
 
   $('#showActs').hidden = true;
+  titleSources(t);
+
+  /* A catalogue series carries its episodes on the server, so they are
+     fetched when it is opened rather than all of them up front. */
+  if (!t.episodes && t.catKind === 'series'){
+    $('#showSub').textContent = 'Loading episodes…';
+    try {
+      t.episodes = await catEpisodes(t);
+    } catch(e){
+      t.episodes = [];
+      $('#showEmpty').hidden = false;
+      $('#showEmpty').innerHTML = '<div class="big">' + svg('i-warn') +
+        '</div><h3>Could not load the episodes</h3><p>' +
+        escapeHtml(String((e && e.message) || e)) + '</p>';
+      $('#showSub').textContent = '';
+      return;
+    }
+    if (state.show !== t) return;
+  }
+
   if (!t.episodes && t.seriesId != null){
     $('#showSub').textContent = 'Loading episodes…';
     try {
@@ -3658,6 +3905,13 @@ async function openTitle(t){
   renderShow();
 }
 
+const runLabel = (mins) => {
+  const m = Math.round(Number(mins) || 0);
+  if (!m) return '';
+  const h = Math.floor(m / 60);
+  return h ? h + 'h ' + String(m % 60).padStart(2, '0') + 'm' : m + 'm';
+};
+
 function titleMeta(t, isSeries){
   const wrap = $('#showMeta');
   wrap.innerHTML = '';
@@ -3665,8 +3919,20 @@ function titleMeta(t, isSeries){
   chips.push({ cls:'gold', t: isSeries ? 'Series' : 'Film' });
   if (t.year) chips.push({ cls:'', t: String(t.year) });
   if (t.rating) chips.push({ cls:'', t: '★ ' + t.rating });
-  if (t.group) chips.push({ cls:'', t: t.group });
-  if (!isSeries){
+  if (t.ageRating) chips.push({ cls:'', t: t.ageRating });
+  if (t.runtime) chips.push({ cls:'', t: runLabel(t.runtime) });
+  if (isSeries && t.seasonCount) {
+    chips.push({ cls:'', t: t.seasonCount + (t.seasonCount === 1 ? ' season' : ' seasons') });
+  }
+  /* The genres, rather than the one group title a plain M3U gives. */
+  if (t.genres && t.genres.length) t.genres.slice(0, 4).forEach(g => chips.push({ cls:'', t: g }));
+  else if (t.group) chips.push({ cls:'', t: t.group });
+  if (t.countries && t.countries.length) chips.push({ cls:'', t: t.countries[0] });
+  if (t.languages && t.languages.length) chips.push({ cls:'', t: t.languages[0] });
+  if (t.directors && t.directors.length) {
+    chips.push({ cls:'', t: 'Dir. ' + t.directors.slice(0, 2).join(', ') });
+  }
+  if (!isSeries && !t.catKind){
     const c = containerOf(t.url);
     if (c) chips.push({ cls:'', t: c.toUpperCase() });
     if (deadContainer(t.url)) chips.push({ cls:'live', t: 'Not playable in a browser' });
@@ -3680,13 +3946,137 @@ function titleMeta(t, isSeries){
   });
 }
 
+/**
+ * Who has this title.
+ *
+ * One row of chips, one per provider. A provider offering a stream is
+ * pressable and plays through that one; a provider that plays only in its own
+ * app is shown greyed and labelled WEB ONLY, because knowing who carries it
+ * is useful even where Telly cannot open it — and saying so is the honest
+ * alternative to pretending its web page is a stream.
+ */
+function titleSources(t){
+  const box = $('#showSources');
+  box.innerHTML = '';
+  const list = t.sources || [];
+  if (!list.length){ box.hidden = true; return; }
+  box.hidden = false;
+
+  const playable = list.filter(s => s.playable);
+  list.forEach(src => {
+    const b = document.createElement(src.playable ? 'button' : 'span');
+    b.className = 'src' + (src.playable ? ' can' : ' web');
+    if (src.playable){
+      b.setAttribute('data-f', '');
+      b.onclick = () => playFrom(t, src);
+      b.title = 'Play from ' + src.providerName;
+    }
+    const bits = [svg(src.playable ? 'i-play' : 'i-globe'), '<span>' + escapeHtml(src.providerName) + '</span>'];
+    if (src.playable && src.quality) bits.push('<small>' + escapeHtml(src.quality) + '</small>');
+    if (!src.playable) bits.push('<small>web only</small>');
+    else if (src.local) bits.push('<small>on this server</small>');
+    b.innerHTML = bits.join('');
+    box.appendChild(b);
+  });
+
+  /* The main Play button is only offered where something can actually play.
+     Where nothing can, it says so instead of failing when pressed. */
+  const act = $('#showPlay');
+  if (t.catKind === 'movie' || t.catKind === 'episode'){
+    if (playable.length){
+      act.disabled = false;
+      act.lastChild.textContent = playable.length > 1
+        ? 'Play · ' + playable[0].providerName : 'Play';
+    } else {
+      act.disabled = true;
+      act.lastChild.textContent = 'Not playable here';
+    }
+  }
+}
+
+/* Play this title from one named provider. */
+function playFrom(t, src){
+  const item = Object.assign({}, t, { useSource: src.id, url: '' });
+  item.id = t.id;                        // the same item as far as the rest is concerned
+  play(item);
+  go('live');
+}
+
+/**
+ * The cast, which is the one piece of metadata that is worth a picture. A
+ * provider that gives no image gets initials rather than a blank circle.
+ */
+function titleCast(t){
+  const box = $('#showCast');
+  box.innerHTML = '';
+  const people = (t.cast || []).slice(0, 20);
+  if (!people.length){ box.hidden = true; return; }
+  box.hidden = false;
+  people.forEach(p => {
+    const name = String(p.name || p || '').trim();
+    if (!name) return;
+    const cell = document.createElement('div');
+    cell.className = 'cast';
+    const face = document.createElement('div');
+    face.className = 'face';
+    if (p.image){
+      const img = document.createElement('img');
+      img.loading = 'lazy';
+      img.alt = '';
+      /* Initials stay behind it until the picture is actually up, and come
+         back if it never arrives. */
+      img.onerror = () => img.remove();
+      face.appendChild(initials(name));
+      face.appendChild(img);
+      img.src = p.image;
+    } else {
+      face.appendChild(initials(name));
+    }
+    cell.appendChild(face);
+    const b = document.createElement('b');
+    b.textContent = name;
+    cell.appendChild(b);
+    if (p.character){
+      const i = document.createElement('i');
+      i.textContent = p.character;
+      cell.appendChild(i);
+    }
+    box.appendChild(cell);
+  });
+}
+
+function initials(name){
+  const span = document.createElement('span');
+  span.textContent = String(name).split(/\s+/).filter(Boolean).slice(0, 2)
+    .map(w => w[0].toUpperCase()).join('');
+  return span;
+}
+
 function syncTitleFav(t){
   const on = state.favs.has(t.id);
   $('#showFav').classList.toggle('gold', on);
   $('#showFavLabel').textContent = on ? 'Remove favourite' : 'Favourite';
 }
 
-$('#showPlay').onclick = () => { const t = state.show; if (t){ play(t); go('live'); } };
+$('#showPlay').onclick = () => {
+  const t = state.show;
+  if (!t) return;
+  /* Nothing playable: say which providers have it and that they keep it in
+     their own apps, rather than starting a player that cannot start. */
+  const playable = (t.sources || []).filter(s => s.playable);
+  if ((t.catKind === 'movie' || t.catKind === 'episode') && !playable.length){
+    const who = (t.sources || []).map(s => s.providerName).filter(Boolean);
+    toast(who.length
+      ? who.join(' and ') + ' play this in their own apps, so Telly cannot open it'
+      : 'No provider offers a stream for this');
+    return;
+  }
+  /* The preferred source, which the server worked out, so every device
+     agrees on which provider is used. */
+  if (playable.length) { playFrom(t, t.preferred || playable[0]); return; }
+  play(t);
+  go('live');
+};
 $('#showFav').onclick = () => {
   const t = state.show;
   if (!t) return;
@@ -3737,13 +4127,141 @@ function renderShow(){
       svg('i-play').replace('class="ic"', 'class="ic epgo"');
     b.querySelector('.epno').textContent = e.episode ? String(e.episode) : '–';
     b.querySelector('.ept b').textContent = e.epTitle || e.name;
+    /* Where the catalogue knows who carries this episode, the line says so —
+       and a web-only episode says that rather than looking playable. */
+    const playable = (e.playableSources || []).filter(Boolean);
+    const who = e.catKind === 'episode'
+      ? (playable.length ? ' · ' + playable.map(s => s.providerName).join(', ')
+                         : (e.sources || []).length ? ' · web only' : '')
+      : '';
     b.querySelector('.ept i').textContent = 'Season ' + e.season +
-      (e.episode ? ', episode ' + e.episode : '');
-    b.onclick = () => { play(e); go('live'); };
+      (e.episode ? ', episode ' + e.episode : '') +
+      (e.runtime ? ' · ' + runLabel(e.runtime) : '') + who;
+    if (e.catKind === 'episode' && !playable.length && (e.sources || []).length){
+      b.classList.add('weblocked');
+    }
+    b.onclick = () => {
+      if (e.catKind === 'episode' && playable.length){ playFrom(e, e.preferred || playable[0]); return; }
+      if (e.catKind === 'episode' && (e.sources || []).length){
+        toast((e.sources || []).map(s => s.providerName).join(' and ') +
+          ' play this in their own apps, so Telly cannot open it');
+        return;
+      }
+      play(e); go('live');
+    };
     frag.appendChild(b);
   });
   wrap.appendChild(frag);
 }
+
+/* ================================================================
+   FILTERING A COLLECTION
+
+   The filters run on the server, over the canonical rows, because the whole
+   catalogue is not in the browser — and because "Provider → Tubi" has to
+   narrow the list without a provider ever becoming part of a film's
+   identity. Filtering by provider still shows one card per film.
+   ================================================================ */
+const FILTER_FIELDS = [
+  ['fProvider', 'provider', 'Any provider'],
+  ['fGenre', 'genre', 'Any genre'],
+  ['fYear', 'year', 'Any year'],
+  ['fRating', 'minRating', 'Any rating'],
+  ['fCountry', 'country', 'Any country'],
+  ['fLanguage', 'language', 'Any language']
+];
+
+const catalogueCollection = () =>
+  (state.colKind === 'movies' || state.colKind === 'series') && !!state.catalogue;
+
+function fillSelect(el, placeholder, options, current){
+  el.innerHTML = '';
+  const add = (value, label) => {
+    const o = document.createElement('option');
+    o.value = value; o.textContent = label;
+    el.appendChild(o);
+  };
+  add('', placeholder);
+  options.forEach(o => add(String(o.value), o.label));
+  el.value = current == null ? '' : String(current);
+  el.classList.toggle('on', !!el.value);
+}
+
+async function paintFilters(){
+  const bar = $('#colFilters');
+  if (!catalogueCollection()){ bar.hidden = true; return; }
+  bar.hidden = false;
+
+  const kind = state.colKind === 'series' ? 'series' : 'movie';
+  try {
+    if (!state.facets || state.facets.kind !== kind){
+      const got = await srvAuthed('/catalogue/facets?kind=' + kind, {});
+      state.facets = Object.assign({ kind }, got);
+    }
+  } catch(e){ bar.hidden = true; return; }
+
+  const f = state.facets;
+  const cur = state.colFilter;
+  const named = (rows, n = 40) => rows.slice(0, n)
+    .map(r => ({ value: r.key != null ? r.key : r.value,
+                 label: (r.name || r.value) + (r.count ? ' (' + fmt(r.count) + ')' : '') }));
+
+  fillSelect($('#fProvider'), 'Any provider', named(f.providers || []), cur.provider);
+  fillSelect($('#fGenre'), 'Any genre', named(f.genres || []), cur.genre);
+  fillSelect($('#fYear'), 'Any year',
+    (f.years || []).slice(0, 120).map(y => ({ value: y.value, label: String(y.value) })), cur.year);
+  fillSelect($('#fRating'), 'Any rating',
+    [9, 8, 7, 6, 5].map(n => ({ value: n, label: n + '+' })), cur.minRating);
+  fillSelect($('#fCountry'), 'Any country', named(f.countries || []), cur.country);
+  fillSelect($('#fLanguage'), 'Any language', named(f.languages || []), cur.language);
+
+  const any = FILTER_FIELDS.some(([, key]) => cur[key]);
+  $('#fClear').hidden = !any;
+}
+
+/* A filtered list is fetched rather than sieved in the browser: the catalogue
+   can run to thousands and only a page of it is ever here. */
+async function applyFilters(){
+  if (!catalogueCollection()) return;
+  const kind = state.colKind === 'series' ? 'series' : 'movies';
+  /* No limit or page here: catAll owns the paging, and setting them twice
+     put the key in the query twice — which the server reads as a list and
+     rejects, so every filter silently returned nothing. */
+  const q = new URLSearchParams({ sort: 'title' });
+  for (const [, key] of FILTER_FIELDS) if (state.colFilter[key]) q.set(key, state.colFilter[key]);
+
+  $('#colSub').textContent = 'Filtering…';
+  try {
+    const rows = await catAll('/catalogue/' + kind + '?' + q.toString());
+    state.colList = rows.map(w => catItem(kind === 'movies' ? 'movie' : 'series', w));
+  } catch(e){
+    toast(String((e && e.message) || e));
+    return;
+  }
+  state.colShown = 0;
+  $('#colGrid').innerHTML = '';
+  const n = state.colList.length;
+  const unit = kind === 'movies' ? (n === 1 ? 'film' : 'films') : 'series';
+  $('#colSub').textContent = n ? fmt(n) + ' ' + unit : '';
+  $('#colEmpty').hidden = n > 0;
+  $('#colGrid').hidden = n === 0;
+  if (!n){
+    $('#colEmpty').innerHTML = '<div class="big">' + svg('i-search') +
+      '</div><h3>Nothing matches those filters</h3><p>Clear one of them to widen the list.</p>';
+    return;
+  }
+  moreCollection();
+  paintFilters();
+}
+
+FILTER_FIELDS.forEach(([id, key]) => {
+  $('#' + id).onchange = () => {
+    const v = $('#' + id).value;
+    if (v) state.colFilter[key] = v; else delete state.colFilter[key];
+    applyFilters();
+  };
+});
+$('#fClear').onclick = () => { state.colFilter = {}; applyFilters(); };
 
 function moreCollection(){
   const grid = $('#colGrid');
@@ -3979,7 +4497,8 @@ $('#setSrvOut').onclick = () => {
    The role in the stored session only decides what is drawn. Every call
    below is an admin route, checked again at the server, so a browser that
    lies about its role gets a 403 rather than a media folder. */
-const admin = { folders: [], sources: [], builtin: [], job: null, unmatched: 0, loading: false };
+const admin = { folders: [], sources: [], builtin: [], job: null, unmatched: 0, loading: false,
+                providers: [], catalogue: null, artwork: null, reviews: [] };
 
 const mk = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
 
@@ -4040,6 +4559,8 @@ function adminPanels(){
   const on = isAdmin();
   $('#libPanel').hidden = !on;
   $('#iptvPanel').hidden = !on;
+  $('#provPanel').hidden = !on;
+  if (!on) $('#dupPanel').hidden = true;
   return on;
 }
 
@@ -4086,19 +4607,27 @@ async function loadAdmin(){
   if (!isAdmin() || admin.loading) return;
   admin.loading = true;
   try {
-    const [roots, srcs, built, scan, un] = await Promise.all([
+    const [roots, srcs, built, scan, un, provs, reviews] = await Promise.all([
       srvAuthed('/admin/media-roots'),
       srvAuthed('/admin/sources'),
       srvAuthed('/admin/sources/builtin'),
       srvAuthed('/admin/library/scan').catch(() => ({ job: null })),
-      srvAuthed('/admin/library/unmatched?limit=1').catch(() => ({ total: 0 }))
+      srvAuthed('/admin/library/unmatched?limit=1').catch(() => ({ total: 0 })),
+      /* An older server has neither of these, so neither is required. */
+      srvAuthed('/admin/providers').catch(() => null),
+      srvAuthed('/admin/catalogue/reviews?limit=12').catch(() => ({ items: [] }))
     ]);
     admin.folders = roots.roots || [];
     admin.sources = srcs.sources || [];
     admin.builtin = built.available || [];
     admin.job = scan.job || null;
     admin.unmatched = un.total || 0;
-    paintFolders(); paintScan(); paintSources();
+    admin.providers = (provs && provs.providers) || [];
+    admin.catalogue = (provs && provs.catalogue) || null;
+    admin.artwork = (provs && provs.artwork) || null;
+    admin.reviews = (reviews && reviews.items) || [];
+    $('#provPanel').hidden = !admin.providers.length;
+    paintFolders(); paintScan(); paintSources(); paintProviders(); paintDuplicates();
   } catch(e){
     toast(String((e && e.message) || e));
   } finally {
@@ -4169,6 +4698,170 @@ async function runLibraryScan(kind, btn){
 $('#scanMovies').onclick = (ev) => working(ev.currentTarget, 'Scanning…', () => runLibraryScan('movies'));
 $('#scanTv').onclick = (ev) => working(ev.currentTarget, 'Scanning…', () => runLibraryScan('tv'));
 $('#scanAll').onclick = (ev) => working(ev.currentTarget, 'Scanning…', () => runLibraryScan('all'));
+
+/* ------------------------------------------------- catalogue providers -- */
+/* The six states the brief asks to see, said in a person's words. A provider
+   has two independent things going on — the operator's switch, and what the
+   service itself permits — and the label has to carry both. */
+const PROV_STATE = {
+  available: ['ok', 'available'],
+  unavailable: ['bad', 'unavailable'],
+  no_official_api: ['warn', 'no official API'],
+  no_permitted_automated_access: ['warn', 'no permitted access']
+};
+
+const mb = (bytes) => {
+  const m = Number(bytes) / (1024 * 1024);
+  return m >= 1024 ? (m / 1024).toFixed(1) + ' GB' : Math.round(m) + ' MB';
+};
+
+function paintProviders(){
+  const box = $('#provList');
+  box.textContent = '';
+  if (!admin.providers.length){
+    const p = mk('p', 'lnone');
+    p.textContent = 'No providers registered.';
+    box.appendChild(p);
+    return;
+  }
+
+  admin.providers.forEach(p => {
+    const [cls, label] = PROV_STATE[p.status] || ['warn', p.status];
+    const imp = p.lastImport;
+    const bits = [
+      [p.enabled ? pill('ok', 'enabled') : pill('warn', 'disabled'), pill(cls, label),
+       p.supports.playbackType === 'web_only' ? pill('warn', 'web only')
+         : p.supports.playbackType === 'none' ? '' : pill('ok', p.supports.playbackType)
+      ].filter(Boolean).join(' ')
+    ];
+
+    /* The reason, which is the whole point for a provider that cannot be read. */
+    if (!p.importable && p.statusReason) bits.push(escapeHtml(p.statusReason));
+
+    if (imp && imp.status !== 'skipped'){
+      bits.push([
+        plural(imp.moviesDiscovered || 0, 'film'),
+        plural(imp.seriesDiscovered || 0, 'series', 'series'),
+        plural(imp.episodesDiscovered || 0, 'episode')
+      ].join(' · ') + ' discovered');
+      bits.push([
+        fmt(imp.newItems || 0) + ' new',
+        fmt(imp.updatedItems || 0) + ' updated',
+        fmt(imp.duplicatesMerged || 0) + ' duplicates merged',
+        (imp.reviewQueued || 0) ? fmt(imp.reviewQueued) + ' to review' : null,
+        (imp.unmatchedItems || 0) ? fmt(imp.unmatchedItems) + ' unmatched' : null,
+        (imp.errors || 0) ? fmt(imp.errors) + ' errors' : null
+      ].filter(Boolean).join(' · '));
+      bits.push('Last update ' + ago(imp.lastUpdate) +
+        (imp.status === 'failed' ? ' · ' + pill('bad', 'failed') : ''));
+    } else if (p.importable){
+      bits.push('Never imported · refreshes every ' +
+        Math.round((p.limits.refreshIntervalSeconds || 0) / 3600) + 'h');
+    }
+    if (p.lastError) bits.push(pill('bad', 'problem') + ' ' + escapeHtml(p.lastError));
+
+    const acts = [];
+    if (p.importable){
+      acts.push({ label: p.enabled ? 'Turn off' : 'Turn on', danger: p.enabled,
+                  run: (b) => working(b, '…', () => toggleProvider(p)) });
+      if (p.enabled) {
+        acts.push({ label: 'Refresh', run: (b) => working(b, 'Importing…', () => refreshProvider(p)) });
+      }
+    } else if (p.termsUrl){
+      /* Nothing to press but the terms, which is the honest set of options. */
+      acts.push({ label: 'Terms', run: () => window.open(p.termsUrl, '_blank', 'noopener') });
+    }
+
+    box.appendChild(lrow(p.name, bits.join('<br>'), acts));
+  });
+
+  const c = admin.catalogue || {};
+  $('#catMovies').textContent = c.movies != null ? fmt(c.movies) : '—';
+  $('#catSeries').textContent = c.series != null
+    ? fmt(c.series) + ' · ' + fmt(c.episodes || 0) : '—';
+  $('#catShared').textContent = c.multiSourceMovies != null
+    ? plural(c.multiSourceMovies, 'film') + ' carried by more than one' : '—';
+  const art = admin.artwork || {};
+  $('#catArt').textContent = art.cached != null
+    ? plural(art.cached, 'picture') + (art.bytes ? ' · ' + mb(art.bytes) : '') : '—';
+}
+
+async function toggleProvider(p){
+  try {
+    await srvAuthed('/admin/providers/' + p.id + '/enabled', {
+      method:'PUT', headers:{ 'content-type':'application/json' },
+      body: JSON.stringify({ enabled: !p.enabled })
+    });
+    await loadAdmin();
+    toast(p.name + (p.enabled ? ' turned off' : ' turned on. Refresh it to import.'));
+  } catch(e){
+    /* The refusal carries the reason, which is more use than "failed". */
+    toast(String((e && e.message) || e));
+  }
+}
+
+async function refreshProvider(p){
+  try {
+    const got = await srvAuthed('/admin/providers/' + p.id + '/refresh', { method:'POST' });
+    await loadAdmin();
+    if (got.skipped){ toast(p.name + ': ' + got.reason); return; }
+    const r = got.run || {};
+    toast(p.name + ' · ' + [plural(r.moviesDiscovered || 0, 'film'),
+      plural(r.seriesDiscovered || 0, 'series', 'series')].join(' · ') +
+      ' · ' + fmt(r.newItems || 0) + ' new, ' + fmt(r.duplicatesMerged || 0) + ' merged');
+    if (srvOn()) restore(true);
+  } catch(e){ toast(String((e && e.message) || e)); }
+}
+
+$('#provRefreshAll').onclick = (ev) => working(ev.currentTarget, 'Importing…', async () => {
+  try {
+    const got = await srvAuthed('/admin/providers/refresh', { method:'POST' });
+    await loadAdmin();
+    const ran = (got.runs || []).filter(r => !r.skipped).length;
+    const skipped = (got.runs || []).filter(r => r.skipped).length;
+    toast(plural(ran, 'provider') + ' imported' +
+      (skipped ? ', ' + fmt(skipped) + ' skipped with a reason' : ''));
+    if (srvOn()) restore(true);
+  } catch(e){ toast(String((e && e.message) || e)); }
+});
+
+/* --------------------------------------------------- possible duplicates -- */
+function paintDuplicates(){
+  const box = $('#dupList');
+  box.textContent = '';
+  const list = admin.reviews || [];
+  $('#dupPanel').hidden = !isAdmin() || !list.length;
+  if (!list.length) return;
+
+  list.slice(0, 12).forEach(r => {
+    const side = (w) => !w ? 'gone'
+      : escapeHtml(w.canonical_title) + (w.year ? ' (' + w.year + ')' : ' (no year)') +
+        (w.runtime_minutes ? ' · ' + w.runtime_minutes + 'm' : '');
+    const bits = [
+      side(r.left) + '<br>' + side(r.right),
+      escapeHtml(r.reason) + ' · ' + Math.round(r.confidence * 100) + '% sure'
+    ];
+    box.appendChild(lrow(
+      (r.left && r.left.canonical_title) || 'Unknown',
+      bits.join('<br>'),
+      [
+        { label: 'Same title', run: (b) => working(b, 'Merging…', () => decideDup(r, 'merge')) },
+        { label: 'Different', run: (b) => working(b, '…', () => decideDup(r, 'reject')) }
+      ]));
+  });
+}
+
+async function decideDup(r, decision){
+  try {
+    await srvAuthed('/admin/catalogue/reviews/' + r.id, {
+      method:'POST', headers:{ 'content-type':'application/json' },
+      body: JSON.stringify({ decision })
+    });
+    await loadAdmin();
+    toast(decision === 'merge' ? 'Merged into one title' : 'Left as two titles');
+    if (decision === 'merge' && srvOn()) restore(true);
+  } catch(e){ toast(String((e && e.message) || e)); }
+}
 
 /* --------------------------------------------------------- IPTV sources -- */
 function paintSources(){
@@ -4599,15 +5292,32 @@ function play(ch, isRetry){
   /* A server channel has no address until the server cuts one: it is a
      signed link, good for one channel for five minutes, so it is asked for
      at the moment of playing rather than kept anywhere. */
-  if (ch && (ch.srv != null || ch.srvMedia) && !ch.url){
+  if (ch && (ch.srv != null || ch.srvMedia || ch.catKind) && !ch.url){
     teardown();
     state.currentId = ch.id;
     setBackdrop(ch); setPoster(ch); repaintRows(); setPlayerLive(true); placeSoon();
     showSpinner('Connecting…');
     updateNow();
-    srvTicket(ch)
+    srvTicket(ch, ch.useSource)
       .then(url => { ch.url = url; play(ch, isRetry); })
-      .catch(e => fail('Could not start that channel', String((e && e.message) || e), ch));
+      .catch(e => {
+        /* A provider that plays only in its own app is not a fault to retry;
+           it is an answer, and the useful part of it is where else the title
+           can be had. */
+        if (e && e.webOnly){
+          const d = e.detail || {};
+          const others = (d.alternatives || []).map(a => a.provider).filter(Boolean);
+          fail(d.provider ? d.provider + ' plays this in its own app' : 'Not playable here',
+            String(e.message) +
+            (others.length
+              ? ' ' + (others.length === 1 ? others[0] + ' offers it as a stream, so Telly can play that one.'
+                                           : 'These offer it as a stream, so Telly can play one of them: ' +
+                                             others.join(', ') + '.')
+              : ' No provider in your catalogue offers a stream for it.'), ch);
+          return;
+        }
+        fail('Could not start that', String((e && e.message) || e), ch);
+      });
     return;
   }
   teardown();
@@ -4689,8 +5399,19 @@ function setPoster(ch){
   const wrap = $('#pposter'), blur = wrap.querySelector('.pblur'), ini = wrap.querySelector('.pini');
   layer.classList.remove('playing');
   wrap.querySelectorAll('.plogo').forEach(e => e.remove());
-  /* The mark for whatever this is, rather than two letters set in 66px. */
-  ini.firstElementChild.setAttribute('href', '#i-' + SCENE_ICON[artKey(ch || {})]);
+  /* The mark for whatever this is, rather than two letters set in 66px.
+     Put back rather than assumed: this used to read firstElementChild
+     directly, which threw the moment a poster had loaded for the item
+     before — the <use> had been cleared away and the next item never
+     started. */
+  let use = ini.firstElementChild;
+  if (!use){
+    use = document.createElementNS(SVGNS, 'use');
+    ini.appendChild(use);
+  }
+  /* SCENE_ICON already carries the i- prefix; this used to add a second one
+     and point at #i-i-movies, so the mark silently never resolved. */
+  use.setAttribute('href', '#' + SCENE_ICON[artKey(ch || {})]);
   ini.hidden = !ch;
   blur.style.backgroundImage = '';
   if (!ch || !ch.logo) return;
@@ -4702,7 +5423,8 @@ function setPoster(ch){
     const logo = document.createElement('div');
     logo.className = 'plogo';
     logo.style.backgroundImage = css;
-    ini.textContent = '';
+    /* Hidden, not emptied: the mark is wanted again for the next item. */
+    ini.hidden = true;
     wrap.appendChild(logo);
   };
   img.src = ch.logo;
@@ -5120,6 +5842,12 @@ $('#loadBtn').onclick = async () => {
       $('#srvPass').value = '';          // it was sent once; it is not kept
       const items = await srvLoad((m) => setMsg(m, 'work'));
       const lib = await srvLibrary((m) => setMsg(m, 'work'));
+      /* Where the server keeps a unified catalogue, that is what Movies and
+         Series show: one row per work, with every provider that has it. It
+         already contains the server's own media folders, so this replaces the
+         per-source lists rather than sitting beside them. */
+      const cat = await srvCatalogue((m) => setMsg(m, 'work'));
+      if (cat){ lib.movies = cat.movies; lib.series = cat.series; state.catalogue = cat.counts; }
       if (!items.length && !lib.movies.length && !lib.series.length && !lib.recordings.length){
         throw new Error('That account has nothing assigned to it yet — no playlists, and no media folders ' +
           'on the server. Whoever runs it can add one with the admin tool.');
@@ -5361,6 +6089,8 @@ async function restore(force){
       if (!srvState()) throw new Error('Signed out of that Telly server. Sign in again.');
       items = await srvLoad(() => {});
       const lib = await srvLibrary(() => {});
+      const cat = await srvCatalogue(() => {});
+      if (cat){ lib.movies = cat.movies; lib.series = cat.series; state.catalogue = cat.counts; }
       await srvPullFavs();
       await srvGuide();
       state.recordings = lib.recordings;

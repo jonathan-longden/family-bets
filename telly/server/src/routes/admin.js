@@ -8,6 +8,16 @@ import { sweep, healthSummary, checkStream } from '../services/health.js';
 import { createEpgSource, updateEpgSource, deleteEpgSource, listEpgSources, publicEpgSource,
          syncEpgSource, getEpgSource } from '../services/xmltv.js';
 import { exportM3u } from '../services/library.js';
+import {
+  listProviders, getProvider, publicProvider, setProviderEnabled, updateProvider,
+  adapterFor, importable, NO_INTERFACE
+} from '../services/providers/index.js';
+import { runImport, runAllImports, imports, latestImport, importInFlight }
+  from '../services/importer.js';
+import { openReviews } from '../services/dedupe.js';
+import { decideReview, mergeWorks, catalogueCounts, forgetProvider }
+  from '../services/catalogue.js';
+import { artworkStats, pruneArtwork } from '../services/artwork.js';
 import { runOnce } from '../services/scheduler.js';
 import { revokeAllForUser } from '../services/sessions.js';
 import { openDb, nowIso } from '../db/index.js';
@@ -338,6 +348,150 @@ export default async function adminRoutes(app) {
       }
     }
   }, async (request) => unmatched(request.query));
+
+  /* ======================================================== providers ==== */
+  /**
+   * Every provider, with what it permits and how its last import went.
+   *
+   * A provider that cannot be imported from is listed too, with the reason,
+   * because the brief's whole point is that this is visible rather than
+   * silently absent.
+   */
+  app.get('/providers', async () => ({
+    providers: listProviders().map(p => {
+      const a = adapterFor(p);
+      return publicProvider(p, {
+        lastImport: latestImport(p.id),
+        /* What to look at if this is to change. */
+        recheck: a.access.recheck || []
+      });
+    }),
+    catalogue: catalogueCounts(),
+    artwork: artworkStats()
+  }));
+
+  app.get('/providers/:id', async (request) => {
+    const p = getProvider(Number(request.params.id));
+    const a = adapterFor(p);
+    return {
+      provider: publicProvider(p, { recheck: a.access.recheck || [] }),
+      imports: imports({ providerId: p.id, limit: 20 }).items
+    };
+  });
+
+  /**
+   * The switch. Turning on a provider with no permitted interface is refused
+   * with the reason rather than accepted and quietly ignored.
+   */
+  app.put('/providers/:id/enabled', {
+    schema: { body: { type: 'object', required: ['enabled'], properties: { enabled: { type: 'boolean' } } } }
+  }, async (request) => ({
+    provider: publicProvider(setProviderEnabled(Number(request.params.id), request.body.enabled))
+  }));
+
+  /** The politeness figures and the refresh interval, per provider. */
+  app.patch('/providers/:id', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          refreshIntervalSeconds: { type: 'integer', minimum: 0, maximum: 2592000 },
+          requestDelayMs: { type: 'integer', minimum: 0, maximum: 60000 },
+          concurrency: { type: 'integer', minimum: 1, maximum: 8 },
+          timeoutMs: { type: 'integer', minimum: 1000, maximum: 120000 },
+          maxRetries: { type: 'integer', minimum: 0, maximum: 10 },
+          pageLimit: { type: 'integer', minimum: 0, maximum: 1000 }
+        }
+      }
+    }
+  }, async (request) => ({
+    provider: publicProvider(updateProvider(Number(request.params.id), request.body || {}))
+  }));
+
+  /**
+   * Forget what one provider contributed. Separate from switching it off,
+   * because off is reversible in a second and this is not: a work nobody
+   * carries any more goes with its last source.
+   */
+  app.delete('/providers/:id/catalogue', async (request) => {
+    const p = getProvider(Number(request.params.id));
+    return { provider: p.name, removed: forgetProvider(p.id), catalogue: catalogueCounts() };
+  });
+
+  /** Refresh one provider. */
+  app.post('/providers/:id/refresh', async (request) =>
+    runImport(Number(request.params.id), { log: request.log }));
+
+  /** Refresh all of them. The ones that cannot be imported from are skipped
+      with their reason, which is what the import log then shows. */
+  app.post('/providers/refresh', async (request) => ({
+    runs: await runAllImports({ log: request.log })
+  }));
+
+  /** The import log, per provider or across all of them. */
+  app.get('/providers/imports', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          providerId: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 200 },
+          offset: { type: 'integer', minimum: 0 }
+        }
+      }
+    }
+  }, async (request) => ({
+    ...imports(request.query),
+    running: importInFlight()
+  }));
+
+  /* ============================================ the duplicate review ===== */
+  /**
+   * Pairs the matcher suspected were the same work but would not merge on its
+   * own. Both are still showing until somebody decides.
+   */
+  app.get('/catalogue/reviews', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['movie', 'series'] },
+          limit: { type: 'integer', minimum: 1, maximum: 500 },
+          offset: { type: 'integer', minimum: 0 }
+        }
+      }
+    }
+  }, async (request) => openReviews(request.query));
+
+  app.post('/catalogue/reviews/:id', {
+    schema: {
+      body: { type: 'object', required: ['decision'],
+              properties: { decision: { type: 'string', enum: ['merge', 'reject'] } } }
+    }
+  }, async (request) => ({
+    review: decideReview(Number(request.params.id), request.body.decision, request.auth.user.id)
+  }));
+
+  /** Merging two by hand, when somebody spots a pair the matcher never queued. */
+  app.post('/catalogue/merge', {
+    schema: {
+      body: {
+        type: 'object', required: ['kind', 'keep', 'drop'],
+        properties: {
+          kind: { type: 'string', enum: ['movie', 'series'] },
+          keep: { type: 'integer', minimum: 1 },
+          drop: { type: 'integer', minimum: 1 }
+        }
+      }
+    }
+  }, async (request) => ({
+    work: mergeWorks(request.body.kind, request.body.keep, request.body.drop)
+  }));
+
+  /* ---------------------------------------------------------- artwork ----- */
+  app.post('/catalogue/artwork/prune', {
+    schema: { body: { type: 'object', properties: { keepDays: { type: 'integer', minimum: 1, maximum: 3650 } } } }
+  }, async (request) => pruneArtwork({ keepDays: (request.body || {}).keepDays }));
 
   /* One refresh pass by hand, for when waiting for the timer is silly. */
   app.post('/refresh', async (request) => runOnce({ log: request.log }));

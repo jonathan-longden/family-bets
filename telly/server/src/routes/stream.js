@@ -4,7 +4,10 @@ import { issueTicket, readTicket } from '../lib/tickets.js';
 import { markWatched } from '../services/profile.js';
 import { playableMedia } from '../services/media.js';
 import { decide, sendDirect, sendTranscoded, MIME } from '../services/playback.js';
-import { badRequest, forbidden, notFound, upstreamFailed } from '../lib/errors.js';
+import { badRequest, forbidden, notFound, upstreamFailed, webOnly } from '../lib/errors.js';
+import {
+  movie as catMovie, episode as catEpisode, movieSources, episodeSources, preferredSource
+} from '../services/catalogue.js';
 import { openDb } from '../db/index.js';
 
 const MEDIA_KINDS = ['movie', 'episode', 'recording'];
@@ -65,6 +68,111 @@ export default async function streamRoutes(app) {
       mimeType: plan.mime,
       seekable: plan.mode === 'direct',
       reason: plan.reason || undefined
+    };
+  });
+
+  /* --------------------------------------------- a work in the catalogue --
+   *
+   * One call that answers "play this film" however many providers have it.
+   * The client holds a catalogue id — not a provider's id, and never a path or
+   * a page URL — and gets back one of three answers:
+   *
+   *   local     this server has the file. A ticket is cut exactly as before,
+   *             so the path guard and the remux decision are unchanged.
+   *   direct    a provider publishes a stream for this purpose. Its address is
+   *             handed over as it was published; nothing is derived from a web
+   *             page and nothing is unwrapped.
+   *   web_only  every provider that has this plays it in its own app or site.
+   *             Said plainly, with the link, rather than a player that will
+   *             never start.
+   */
+  app.post('/stream/catalogue/:kind/:id/ticket', {
+    preHandler: [app.authenticate],
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          capability: { type: 'string', enum: ['browser', 'native'] },
+          /* Which provider to use, when the person picked one from the Play
+             menu. Left out, the preferred working source is chosen. */
+          source: { type: 'integer', minimum: 1 },
+          provider: { type: 'string', maxLength: 40 }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const kind = String(request.params.kind);
+    if (!['movie', 'episode'].includes(kind)) throw badRequest('Play a movie or an episode.');
+    const id = Number(request.params.id);
+
+    /* 404s before anything else happens, so a bad id never produces a ticket. */
+    const work = kind === 'movie' ? catMovie(id) : catEpisode(id);
+    const all = kind === 'movie' ? movieSources(id) : episodeSources(id);
+
+    let chosen = null;
+    if (request.query.source) chosen = all.find(s => s.id === Number(request.query.source)) || null;
+    else if (request.query.provider) {
+      chosen = all.find(s => s.providerKey === request.query.provider && s.playable) || null;
+    } else {
+      /* Nothing playable does not mean nothing at all: a work every provider
+         keeps behind its own app still has sources, and saying so is more use
+         than a 404. So the first of those is picked, and reported below. */
+      chosen = preferredSource(kind, id) || all[0] || null;
+    }
+
+    if (!chosen) throw notFound('No source for that, from any provider.');
+
+    if (!chosen.playable) {
+      throw webOnly(
+        `${chosen.providerName} plays this in its own app or site, so Telly cannot open it ` +
+        'in the player.',
+        {
+          playbackType: chosen.playbackType,
+          provider: chosen.providerName,
+          webUrl: chosen.webUrl || '',
+          /* Where another provider does offer a stream, say so — that is the
+             answer the person actually wants. */
+          alternatives: all.filter(s => s.playable)
+            .map(s => ({ sourceId: s.id, provider: s.providerName, playbackType: s.playbackType }))
+        });
+    }
+
+    if (chosen.local) {
+      /* The source carries the row id of the file, so this is the existing
+         path: the same lookup, the same guard, the same ticket. */
+      const mediaKind = chosen.localKind || kind;
+      const item = playableMedia(mediaKind, chosen.localId);
+      const capability = request.query.capability === 'native' ? 'native' : 'browser';
+      const plan = decide(item.container, { capability });
+      const ticket = issueTicket({
+        userId: request.auth.user.id,
+        deviceId: request.auth.deviceId,
+        resource: `${mediaKind}-${chosen.localId}`
+      });
+      return {
+        mode: 'local',
+        provider: chosen.providerName,
+        sourceId: chosen.id,
+        url: `/api/v1/stream/media/${mediaKind}/${chosen.localId}?ticket=${encodeURIComponent(ticket)}`,
+        expiresIn: config.tokens.ticketTtlSeconds,
+        playbackType: chosen.playbackType,
+        container: item.container,
+        playback: plan.mode,
+        title: titleOf(work)
+      };
+    }
+
+    return {
+      mode: 'direct',
+      provider: chosen.providerName,
+      sourceId: chosen.id,
+      /* The provider's own published address, unchanged. */
+      url: chosen.url,
+      playbackType: chosen.playbackType,
+      quality: chosen.quality || undefined,
+      title: titleOf(work),
+      alternatives: all.filter(s => s.playable && s.id !== chosen.id)
+        .map(s => ({ sourceId: s.id, provider: s.providerName, playbackType: s.playbackType }))
     };
   });
 
@@ -136,3 +244,5 @@ async function proxy(url, request, reply) {
   reply.status(upstream.status);
   return reply.send(upstream.body);
 }
+
+const titleOf = (work) => work.canonical_title || work.title || '';

@@ -10,12 +10,19 @@ import meRoutes from './routes/me.js';
 import libraryRoutes from './routes/library.js';
 import streamRoutes from './routes/stream.js';
 import catalogueRoutes from './routes/catalogue.js';
+import unifiedCatalogueRoutes from './routes/catalogue-unified.js';
 import adminRoutes from './routes/admin.js';
 import healthRoutes from './routes/health.js';
 import { startScheduler } from './services/scheduler.js';
+import { ensureProviders } from './services/providers/index.js';
 
 export async function buildServer({ logger = true } = {}) {
   openDb();
+  /* The adapters are the source of truth for what each provider permits, so
+     their assessments are written through on every boot — a new adapter
+     appears, and a changed assessment takes effect, without disturbing the
+     switches or the history an operator owns. */
+  ensureProviders();
 
   const https = config.tls.enabled
     ? { key: readFileSync(config.tls.keyPath), cert: readFileSync(config.tls.certPath) }
@@ -50,6 +57,7 @@ export async function buildServer({ logger = true } = {}) {
   await app.register(meRoutes, { prefix: '/api/v1/me' });
   await app.register(libraryRoutes, { prefix: '/api/v1' });
   await app.register(catalogueRoutes, { prefix: '/api/v1' });
+  await app.register(unifiedCatalogueRoutes, { prefix: '/api/v1' });
   await app.register(streamRoutes, { prefix: '/api/v1' });
   await app.register(adminRoutes, { prefix: '/api/v1/admin' });
 

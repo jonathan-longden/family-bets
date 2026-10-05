@@ -4,6 +4,7 @@ import { listSources, syncSource } from './sources.js';
 import { listEpgSources, syncEpgSource, epgNeedsSync } from './xmltv.js';
 import { listRoots, scanRoot } from './media.js';
 import { sweep } from './health.js';
+import { runAllImports } from './importer.js';
 
 /**
  * The background refresher.
@@ -58,7 +59,7 @@ export function dueForScan(root, now = Date.now()) {
 
 /** One pass. Returns what it did, which is what the tests read. */
 export async function runOnce({ log = null, fetchImpl = fetch, now = Date.now(), checker = null } = {}) {
-  const done = { playlists: [], guides: [], scans: [], health: null };
+  const done = { playlists: [], guides: [], scans: [], health: null, imports: [] };
   const db = openDb();
 
   for (const src of listSources()) {
@@ -96,6 +97,16 @@ export async function runOnce({ log = null, fetchImpl = fetch, now = Date.now(),
       done.scans.push({ id: root.id, label: root.label, ok: false, error: e.message });
       if (log) log.warn(`Media folder "${root.label}" did not scan: ${e.message}`);
     }
+  }
+
+  /* Catalogue providers, each on its own interval, and only the ones that are
+     due — which is never one that may not be imported from, because such a
+     provider cannot be enabled. A provider having a bad day backs off on its
+     own; see dueForImport. */
+  try {
+    done.imports = await runAllImports({ fetchImpl, log, dueOnly: true });
+  } catch (e) {
+    if (log) log.warn(`Catalogue import pass failed: ${e.message}`);
   }
 
   /* A slice of the channels whose checks are due, never all of them: a few

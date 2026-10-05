@@ -127,6 +127,41 @@ recordings, because the API carries that structure. So Movies and Series fill
 from the library when the server has one, and fall back to the film and
 box-set channels in the playlist when it does not.
 
+### One film, however many providers have it
+
+Above both sits a **unified catalogue**. A film on three services is one card
+with three ways to play it, not three cards:
+
+    Movies
+      [Inception]  ← Tubi · Roku · this server's disk
+      [The Matrix]
+      [Interstellar]
+
+Opening it shows the title, poster, year, runtime, genres, rating, age rating,
+country, language, director and cast — and a row of the providers that carry
+it. Pressing one plays from that one; pressing **Play** uses the preferred
+working source, which means this server's own disk before anything that needs
+the internet.
+
+A provider that plays a title only in its own app or site is shown too, greyed
+and labelled **web only**, because knowing who has it is useful even where
+Telly cannot open it. Telly says so plainly rather than treating a web page as
+if it were a video stream.
+
+Series work the same way: one series, its seasons, its episodes — and an
+episode on four providers is one episode with four sources, never four rows.
+
+**Filters** appear above Movies and Series once a catalogue exists: provider,
+genre, year, rating, country and language. Filtering by provider narrows the
+list without a provider ever becoming part of a film's identity, so *Inception*
+is still one card under `Provider → Tubi`.
+
+Search runs over the canonical catalogue rather than asking each provider, so
+"Matrix" returns the four films once each.
+
+Which providers can actually be imported from, and why four of the five
+requested cannot, is in [PROVIDERS.md](PROVIDERS.md).
+
 ### Settings, when you are the one running it
 
 [**SETUP.md**](SETUP.md) walks the whole thing through: configuring the Movies
@@ -151,6 +186,16 @@ whatever the browser claims to be:
   channels* and *Refresh + check*. The two country lists, United Kingdom and
   United States, are one press each: Telly fetches them from iptv-org itself,
   so **there is no M3U file to download by hand**.
+- **Catalogue providers.** Every provider, enabled or not, with what it
+  permits and how its last import went: films, series and episodes
+  discovered, new, updated, duplicates merged, unmatched, errors, and when it
+  last ran. *Refresh* per provider, or *Refresh all providers*. A provider
+  with no permitted way in is listed **with the reason** and has no switch to
+  turn on — only a link to its terms.
+- **Possible duplicates.** Pairs Telly suspected were the same title but
+  would not merge on its own, with what matched and how sure it was. Both
+  stay visible until you decide, because merging the wrong two is worse than
+  showing two cards.
 
 ## What runs where
 
