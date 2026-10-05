@@ -22,6 +22,12 @@ the preview panel on Live TV, full screen, or a mini window in the corner
 when you wander off. Home has no slot, so a channel playing follows you
 there as that mini window. Playback is never interrupted by navigating.
 
+**The side rail** is the whole of the navigation, in the order the brief
+names: Home, Live TV, Movies, Series, Recordings, TV Guide, Favourites,
+Settings — then, below a divider, the shortcuts Sport, News and Add playlist.
+Movies, Series, Recordings and Favourites are the same collection screen with
+a different list in it.
+
 **Add playlist** is a screen, not a modal: three large source cards with
 descriptions, then a spacious form.
 
@@ -72,6 +78,21 @@ credentials; the app signs in and is told what it may watch. Sign in on the
 PC and on the phone and both show the same line-up, the same categories and
 the same favourites, because neither of them is the thing that remembers.
 
+Signed in, the account also brings everything else the server holds: the
+films, box sets and recordings in the media folders on that PC, and the
+programme guide. Those are the server's own — one household, one shelf — so
+they appear beside the channels on every device signed in to it:
+
+    Live TV        the playlists, with what is on now where the guide knows
+    Movies         the on-demand library, and the films on the PC's disk
+    Series         box sets, with their seasons and episodes
+    Recordings     what the PC recorded, under the channel it came from
+    TV Guide       now and next, from XMLTV, and how much of the line-up matched
+    Search         all of it at once
+
+A film on the PC plays on the phone without the phone ever learning a path:
+it holds an id, asks for a ticket, and the server reads the disk.
+
     PC browser  ─┐
     Phone       ─┼─ HTTPS ─> telly/server ──> SQLite + your IPTV sources
     Android app ─┘
@@ -94,13 +115,106 @@ Settings says which account is signed in, on which server, which playlists
 it carries, and offers the way out. Signing out drops the tokens and the
 line-up with them.
 
-The server classifies its rows by group title, which is the publisher's
-label rather than a fact about the stream — the same guess this app stopped
-making. They are live streams either way, so they all arrive as channels,
-and the section tests that sort Film, Series, Sport and News out of a plain
-M3U sort these out too. The Movies and Series *libraries* stay empty for a
-server source, because its API carries no episode structure to fill them
-with.
+The server's *channels* are classified by group title, which is the
+publisher's label rather than a fact about the stream — the same guess this
+app stopped making. They are live streams either way, so they all arrive as
+channels, and the section tests that sort Film, Series, Sport and News out of
+a plain M3U sort these out too.
+
+Its *library* is different: the films, series and recordings on the server's
+own disk arrive as films, series with real seasons and episodes, and
+recordings, because the API carries that structure. So Movies and Series fill
+from the library when the server has one, and fall back to the film and
+box-set channels in the playlist when it does not.
+
+### One film, however many providers have it
+
+Above both sits a **unified catalogue**. A film on three services is one card
+with three ways to play it, not three cards:
+
+    Movies
+      [Inception]  ← Tubi · Roku · this server's disk
+      [The Matrix]
+      [Interstellar]
+
+Opening it shows the title, poster, year, runtime, genres, rating, age rating,
+country, language, director and cast — and a row of the providers that carry
+it. Pressing one plays from that one; pressing **Play** uses the preferred
+working source, which means this server's own disk before anything that needs
+the internet.
+
+A provider that plays a title only in its own app or site is shown too, greyed
+and labelled **web only**, because knowing who has it is useful even where
+Telly cannot open it. Telly says so plainly rather than treating a web page as
+if it were a video stream.
+
+Series work the same way: one series, its seasons, its episodes — and an
+episode on four providers is one episode with four sources, never four rows.
+
+**Filters** appear above Movies and Series once a catalogue exists: provider,
+genre, year, rating, country and language. Filtering by provider narrows the
+list without a provider ever becoming part of a film's identity, so *Inception*
+is still one card under `Provider → Tubi`.
+
+Search runs over the canonical catalogue rather than asking each provider, so
+"Matrix" returns the four films once each.
+
+Which providers can actually be imported from, and why four of the five
+requested cannot, is in [PROVIDERS.md](PROVIDERS.md).
+
+### Settings, when you are the one running it
+
+[**SETUP.md**](SETUP.md) walks the whole thing through: configuring the Movies
+and TV folders, importing a playlist, scanning, and how to test a channel, a
+film, a series and an episode.
+
+
+Signed in as an administrator, Settings grows two panels nobody else sees —
+a viewer is shown neither, and the server refuses the calls behind them
+whatever the browser claims to be:
+
+- **Media library.** The folders on the server's disk, each with what is in
+  it, its real path, how many items it holds and when it was last scanned.
+  Add one by naming it (`C:\Media\Movies`), several per kind. Then *Scan
+  Movies*, *Scan TV* or *Scan All* — the figure climbs while it runs, and
+  finishes with what was found and how many files Telly would not guess at.
+  **You never download or upload a file, and the app never opens a folder:**
+  it names one for the server to read, and reads back counts.
+- **IPTV sources.** Each playlist with how many channels it imported, how
+  many are working, how many are unavailable, when the playlist last updated
+  and when the channels were last checked — and *Refresh playlist*, *Check
+  channels* and *Refresh + check*. The two country lists, United Kingdom and
+  United States, are one press each: Telly fetches them from iptv-org itself,
+  so **there is no M3U file to download by hand**.
+- **Catalogue providers.** Every provider, enabled or not, with what it
+  permits and how its last import went: films, series and episodes
+  discovered, new, updated, duplicates merged, unmatched, errors, and when it
+  last ran. *Refresh* per provider, or *Refresh all providers*. A provider
+  with no permitted way in is listed **with the reason** and has no switch to
+  turn on — only a link to its terms.
+- **Possible duplicates.** Pairs Telly suspected were the same title but
+  would not merge on its own, with what matched and how sure it was. Both
+  stay visible until you decide, because merging the wrong two is worse than
+  showing two cards.
+
+## What runs where
+
+    Windows PC  ──┐
+    Android     ──┼── HTTPS ──> Telly server on the PC ──> SQLite
+    iPhone/iPad ──┘                      │                 (the catalogue)
+                                         ├──> IPTV playlists (M3U / Xtream)
+                                         ├──> XMLTV guides
+                                         └──> C:\Media\... read in place
+
+The PC is the server. The clients are told an address — `http://192.168.1.50:8080`
+or whatever yours is — and ask it for everything. There is no cloud account
+and nothing to sign up for: this is a house on its own network.
+
+The web app runs on all three. On Android there is also a native app in
+`telly/android`, which plays containers a browser cannot.
+
+If the server is not there, the app says so and keeps what it had: the three
+local options (an M3U address, a file, Xtream) do not involve a server at all.
 
 ## Landscape only
 
@@ -289,6 +403,10 @@ So:
 - **Series** holds shows. Opening one lists its seasons and episodes; Xtream
   episodes are fetched when the series is opened, not all up front.
 
+- **Recordings** holds what the server recorded, under the channel it came
+  from, when an account is signed in to one. Without a server there is nothing
+  to record with, and the screen says so rather than pretending.
+
 Both are shown as a poster wall: 2:3 artwork that fills its tile, the title
 on a scrim over the bottom of it, a badge with the year or the episode count,
 and a play icon that appears on the one you are pointing at or have focused.
@@ -300,8 +418,9 @@ as chips, a synopsis where the source sends one — and then a Play button for a
 film or the seasons for a series. A film whose container a browser cannot open
 says so on that screen before you press anything.
 
-A film library comes from an Xtream account, from a provider M3U that carries
-one, or from the **Films on demand** rows in the catalogue: 9,322 public-domain
+A film library comes from a Telly server's own media folders, from an Xtream
+account, from a provider M3U that carries one, or from the **Films on demand**
+rows in the catalogue: 9,322 public-domain
 feature films held by the Internet Archive, indexed as M3U by
 [streamfeeds](https://streamfeeds.github.io/web/) and split by language.
 Those are films, so they fill the Movies tab and leave Live TV empty.

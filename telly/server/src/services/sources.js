@@ -8,13 +8,48 @@ import { badRequest, notFound, upstreamFailed } from '../lib/errors.js';
  * An IPTV source belongs to the operator. Its credentials live here and are
  * used only by this process; clients receive channels, never addresses.
  */
-export function createSource({ name, kind, url = '', username = '', password = '', epgUrl = '' }) {
+export function createSource({ name, kind, url = '', username = '', password = '', epgUrl = '',
+                               refreshIntervalSeconds } = {}) {
   if (!['m3u_url', 'm3u_text', 'xtream'].includes(kind)) throw badRequest('kind must be m3u_url, m3u_text or xtream.');
   if (!String(name || '').trim()) throw badRequest('A source needs a name.');
   const now = nowIso();
-  const info = openDb().prepare(`INSERT INTO sources (name, kind, url, username, password, epg_url, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(String(name).trim(), kind, url, username, password, epgUrl, now, now);
+  const info = openDb().prepare(`INSERT INTO sources
+      (name, kind, url, username, password, epg_url, refresh_interval_seconds, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(String(name).trim(), kind, url, username, password, epgUrl,
+         Number(refreshIntervalSeconds) || config.playlistTtlSeconds, now, now);
   return getSource(Number(info.lastInsertRowid));
+}
+
+/**
+ * Change a source without touching its channels. Turning one off hides it from
+ * every client immediately; its channels stay in the catalogue so turning it
+ * back on is instant rather than another download.
+ */
+export function updateSource(id, patch = {}) {
+  const row = getSource(id);
+  const next = {
+    name: patch.name === undefined ? row.name : String(patch.name).trim(),
+    url: patch.url === undefined ? row.url : String(patch.url).trim(),
+    username: patch.username === undefined ? row.username : String(patch.username),
+    password: patch.password === undefined ? row.password : String(patch.password),
+    epgUrl: patch.epgUrl === undefined ? row.epg_url : String(patch.epgUrl).trim(),
+    enabled: patch.enabled === undefined ? row.enabled : (patch.enabled ? 1 : 0),
+    interval: patch.refreshIntervalSeconds === undefined
+      ? row.refresh_interval_seconds
+      : Math.max(Number(patch.refreshIntervalSeconds) || 0, 60)
+  };
+  if (!next.name) throw badRequest('A source needs a name.');
+  openDb().prepare(`UPDATE sources SET name = ?, url = ?, username = ?, password = ?, epg_url = ?,
+      enabled = ?, refresh_interval_seconds = ?, updated_at = ? WHERE id = ?`)
+    .run(next.name, next.url, next.username, next.password, next.epgUrl,
+         next.enabled, next.interval, nowIso(), id);
+  return getSource(id);
+}
+
+export function deleteSource(id) {
+  getSource(id);
+  openDb().prepare('DELETE FROM sources WHERE id = ?').run(id);
 }
 
 export function getSource(id) {
@@ -32,7 +67,14 @@ export function publicSource(s) {
   return {
     id: s.id, name: s.name, kind: s.kind, url: s.url, username: s.username,
     hasPassword: Boolean(s.password), epgUrl: s.epg_url, enabled: Boolean(s.enabled),
-    lastSyncedAt: s.last_synced_at, lastError: s.last_error, channelCount: s.channel_count
+    refreshIntervalSeconds: s.refresh_interval_seconds,
+    lastSyncedAt: s.last_synced_at, lastAttemptAt: s.last_attempt_at,
+    lastError: s.last_error, failCount: s.fail_count, channelCount: s.channel_count,
+    builtin: s.builtin || null,
+    lastHealthAt: s.last_health_at,
+    lastImport: {
+      added: s.last_import_added, updated: s.last_import_updated, removed: s.last_import_removed
+    }
   };
 }
 
@@ -83,21 +125,62 @@ export async function syncSource(sourceId, { fetchImpl = fetch, text = null } = 
   }
 
   const now = nowIso();
+  let added = 0, updated = 0;
+
+  /**
+   * Upserted on the stream address, which is what actually identifies a
+   * stream: a group title is the publisher's filing and changes between
+   * refreshes without the channel changing at all. So a refresh updates the
+   * row that is already there — keeping its id, and with it the favourites,
+   * the health history and anything else hanging off it — rather than making
+   * a second one.
+   */
   const tx = db.transaction(() => {
-    db.prepare('DELETE FROM channels WHERE source_id = ?').run(sourceId);
+    const find = db.prepare('SELECT id FROM channels WHERE source_id = ? AND source_key = ?');
     const ins = db.prepare(`INSERT INTO channels
-        (source_id, ext_id, kind, number, name, name_key, group_title, logo, tvg_id, stream_url, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        (source_id, source_key, ext_id, kind, number, name, name_key, group_title, logo,
+         tvg_id, tvg_name, country, language, stream_url, active, first_seen_at, last_seen_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`);
+    const upd = db.prepare(`UPDATE channels SET
+        ext_id = ?, kind = ?, number = ?, name = ?, name_key = ?, group_title = ?, logo = ?,
+        tvg_id = ?, tvg_name = ?, country = ?, language = ?, stream_url = ?,
+        active = 1, last_seen_at = ? WHERE id = ?`);
+
     for (const c of parsed.channels) {
-      ins.run(sourceId, c.extId, c.kind, c.number, c.name, c.name.toLowerCase(), c.group, c.logo, c.tvgId, c.url, now);
+      const key = c.url;
+      const row = find.get(sourceId, key);
+      if (row) {
+        upd.run(c.extId, c.kind, c.number, c.name, c.name.toLowerCase(), c.group, c.logo,
+                c.tvgId, c.tvgName || '', c.country || '', c.language || '', c.url, now, row.id);
+        updated++;
+      } else {
+        ins.run(sourceId, key, c.extId, c.kind, c.number, c.name, c.name.toLowerCase(), c.group, c.logo,
+                c.tvgId, c.tvgName || '', c.country || '', c.language || '', c.url, now, now, now);
+        added++;
+      }
     }
-    db.prepare(`UPDATE sources SET last_synced_at = ?, last_error = NULL, channel_count = ?, epg_url = COALESCE(NULLIF(?, ''), epg_url), updated_at = ?
-                WHERE id = ?`)
-      .run(now, parsed.channels.length, parsed.epgUrl || '', now, sourceId);
+
+    /* A channel that is no longer in the playlist is marked inactive, not
+       deleted. Playlists drop channels for an afternoon and bring them back;
+       deleting one would lose whoever had favourited it. */
+    const removed = db.prepare(`UPDATE channels SET active = 0
+        WHERE source_id = ? AND last_seen_at <> ? AND active = 1`).run(sourceId, now).changes;
+
+    const live = db.prepare('SELECT COUNT(*) n FROM channels WHERE source_id = ? AND active = 1')
+      .get(sourceId).n;
+    db.prepare(`UPDATE sources SET last_synced_at = ?, last_error = NULL, channel_count = ?,
+        last_import_added = ?, last_import_updated = ?, last_import_removed = ?,
+        epg_url = COALESCE(NULLIF(?, ''), epg_url), updated_at = ? WHERE id = ?`)
+      .run(now, live, added, updated, removed, parsed.epgUrl || '', now, sourceId);
+    syncSource.lastRemoved = removed;
   });
   tx();
 
-  return { channels: parsed.channels.length, syncedAt: now };
+  return {
+    channels: parsed.channels.length,
+    added, updated, deactivated: syncSource.lastRemoved || 0,
+    syncedAt: now
+  };
 }
 
 /** True when a source has never synced, or its cache has gone stale. */
@@ -105,4 +188,61 @@ export function needsSync(source) {
   if (!source.last_synced_at) return true;
   const age = (Date.now() - Date.parse(source.last_synced_at)) / 1000;
   return age > config.playlistTtlSeconds;
+}
+
+/**
+ * The playlists Telly can set up for you: the iptv-org country lists, fetched
+ * live so a change upstream arrives on the next refresh. Nothing is copied
+ * into this repository, and these are public free-to-air and free
+ * ad-supported streams only — there is no subscription to put here.
+ *
+ * `enable` is the exact set that should be on: a list names the ones wanted
+ * and switches the rest off, so the settings screen can send what it shows
+ * and get that. Omitting it means "all of them", for a first run. An empty
+ * list therefore means none, which is why it is not the default.
+ *
+ * It is keyed on `builtin`, not on the URL, so running this twice adopts the
+ * row that is already there, and a file iptv-org moves corrects that row
+ * rather than adding a second source beside it — favourites and health
+ * history stay with it.
+ */
+export function ensureBuiltinSources({ enable = null } = {}) {
+  const db = openDb();
+  const out = [];
+  const exact = Array.isArray(enable);
+  for (const def of config.builtinSources) {
+    const wanted = !exact || enable.includes(def.key);
+    let row = db.prepare('SELECT * FROM sources WHERE builtin = ?').get(def.key);
+    if (!row) {
+      if (!wanted) continue;
+      const created = createSource({ name: def.name, kind: 'm3u_url', url: def.url });
+      db.prepare('UPDATE sources SET builtin = ? WHERE id = ?').run(def.key, created.id);
+      row = getSource(created.id);
+    } else if (row.url !== def.url) {
+      // iptv-org moving a file should not mean a second source.
+      db.prepare('UPDATE sources SET url = ?, updated_at = ? WHERE id = ?').run(def.url, nowIso(), row.id);
+      row = getSource(row.id);
+    }
+    if (exact) {
+      db.prepare('UPDATE sources SET enabled = ?, updated_at = ? WHERE id = ?')
+        .run(wanted ? 1 : 0, nowIso(), row.id);
+      row = getSource(row.id);
+    }
+    out.push(row);
+  }
+  return out;
+}
+
+/** The built-in definitions, whether or not they have been set up yet. */
+export function builtinCatalogue() {
+  const db = openDb();
+  return config.builtinSources.map(def => {
+    const row = db.prepare('SELECT * FROM sources WHERE builtin = ?').get(def.key);
+    return {
+      key: def.key, name: def.name, url: def.url,
+      installed: Boolean(row),
+      sourceId: row ? row.id : null,
+      enabled: row ? Boolean(row.enabled) : false
+    };
+  });
 }

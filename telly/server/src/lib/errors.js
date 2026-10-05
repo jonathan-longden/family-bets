@@ -22,4 +22,11 @@ export const accountDisabled = () => new ApiError(403, 'account_disabled', 'This
 export const accountExpired = () => new ApiError(403, 'account_expired', 'This account has expired. Contact whoever runs the server.');
 export const deviceLimit = (max) => new ApiError(409, 'device_limit', `This account is already signed in on ${max} device${max === 1 ? '' : 's'}. Remove one to add another.`);
 export const notFound = (m = 'Not found.') => new ApiError(404, 'not_found', m);
+/* A provider that offers no permitted way in cannot be switched on. A conflict
+   rather than a bad request: nothing about the request is wrong, the provider
+   simply is not available to be imported from. */
+export const notImportable = (m, d) => new ApiError(409, 'provider_not_importable', m, d);
+/* The provider plays this in its own app or site. Not an error of Telly's, and
+   not something to route around — so it is reported, with the link. */
+export const webOnly = (m, d) => new ApiError(409, 'WEB_ONLY', m, d);
 export const upstreamFailed = (m) => new ApiError(502, 'upstream_failed', m);
