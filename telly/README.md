@@ -6,15 +6,15 @@ the whole app is one HTML file plus hls.js from a CDN.
 
 ## The interface
 
-**Home** opens on what you can watch, not on a panel describing what you
-were watching. A row of five section tiles — Live TV, Movies, Series, Sport,
-News — each in its own colour and each saying something true about your
-playlist, and then the thumbnails: Popular Now, films, series, channels.
+**Home** opens on a banner — one title, shown large over artwork that fills
+the width — then a row of five landscape category cards (Live TV, Movies,
+Series, Sport, News), each carrying its own artwork and counting what is
+really loaded, and then rails of thumbnails: Popular Now, films, series,
+channels.
 
 **Live TV** is the working screen: categories down the left, the channel
 list in the centre, and a preview player with channel details on the right.
-On a phone the categories become a chip rail, the player sits above the
-list, and the layout stacks rather than shrinking.
+It is the same three columns on every screen; only the scale changes.
 
 **The player never moves between elements.** One video element lives in a
 floating layer that measures the slot it should occupy and glides there —
@@ -56,13 +56,27 @@ Both network options need the server to allow cross-origin requests, since
 the browser fetches the playlist directly. If a server refuses, save the
 playlist and use the File option, which always works.
 
-## Landscape first, never blocked
+## Landscape only
 
-Telly is a ten-foot layout: a rail down one side, a row of sections, rails of
-artwork. The rail scrolls, because ten items do not fit on a phone held
-sideways and an item you cannot reach is worse than one you scroll to.
+Telly is a television, so there is one layout and it is landscape. The
+interface is laid out once, in logical pixels, on a canvas 1080 rows tall and
+between 1440 and 2560 columns wide — the width follows the viewport's own
+aspect ratio, so a 16:9 panel fills edge to edge and a wider one does too.
+That canvas is then scaled to whatever viewport it finds itself in.
 
-Landscape is asked for at every level the platform actually allows:
+This is what makes 1280×720, 1366×768, 1920×1080 and 3840×2160 the same
+picture at four sizes rather than four layouts. The rail is the same share of
+the screen on all of them, the banner is the same height relative to it, the
+cards are the same size relative to it. A 4K panel gets the composition drawn
+twice as large, not twice as much of it.
+
+**There is no portrait layout.** Held upright, a phone gets the television,
+scaled down and letterboxed above and below. Nothing stacks, nothing becomes
+a narrow column, nothing is squeezed, and nothing asks for the device to be
+turned. The composition is the one on the television, because that is the
+only composition there is.
+
+Landscape is still asked for at every level the platform actually allows:
 
 - The **manifest** declares `"display": "fullscreen"` and
   `"orientation": "landscape"`. Installed to a home screen, the platform
@@ -74,30 +88,90 @@ Landscape is asked for at every level the platform actually allows:
   screen or a tab; landscape or portrait; and whether orientation locking
   exists here at all. With a button to toggle it.
 
-Where the browser refuses, nothing is blocked. **There is no "rotate your
-device" screen.** Portrait keeps the same interface, narrowed: the rail drops
-to icons, the five category cards scroll sideways rather than being squeezed,
-and everything stays reachable.
-
-A browser cannot physically turn a handset. Refusing to render until someone
-does it by hand is not a design.
+Where the browser refuses, nothing is blocked and **there is no "rotate your
+device" screen**. A browser cannot physically turn a handset, and refusing to
+render until someone does it by hand is not a design. The canvas handles it
+instead.
 
 ## The home screen
 
-A side rail down the left leads with Home, Live TV, Movies, Series, Sport and
-Settings, with News, Favourites, TV Guide and Add playlist below a
-divider — everything one press away instead of a scroll. It shows in any
-landscape window, a phone on its side included.
+A side rail down the left carries the wordmark, then Home, Live TV, Movies,
+Series, Sport, News and Settings, with Favourites, TV Guide and Add playlist
+below a divider. It takes a fixed slice of the canvas, around an eighth; the
+content keeps the rest, and the top bar starts where the rail ends.
 
-One row of five section tiles — Live TV, Movies, Series,
-Sport, News — each in its own colour so the row reads as destinations at ten
-feet rather than as a grid of grey rectangles, and each counting what is
-actually loaded. Then **Popular Now**: favourites first, then films, then
-series, then the channel list, deduplicated so nothing is listed twice. Then
-rails of real thumbnails — films, series and channels, favourites first.
-Every thumbnail is a button that opens that title. Cards for features the
-playlist does not have are gone from the home screen rather than sitting
-there saying "Not in playlist".
+**The banner** is the top of the panel rather than a card sitting on it: it
+runs from the rail to the right edge and up under the top bar, which stands
+down on home so it is not a second horizon across the picture. One title at a
+time, set large over artwork that fills the frame, with a gradient across from
+the left, another up from the bottom and a vignette around it, so the words
+hold over any picture.
+
+It is a carousel of up to six: favourites first, then films, then series, then
+channels. A dot under the buttons for each, the current one lit, and pressing
+a dot moves to that title. It advances on its own every nine seconds — but
+never under someone's hands: it stops while the banner holds focus, and for
+twenty seconds after a dot is pressed. Each slide turns its scene a little in
+hue, so moving through the carousel is not one picture shown six times.
+
+What the banner shows is honest about what is loaded, and with nothing loaded
+it says how to load something rather than showing an empty frame. The line
+under the title is what the source actually knows: a plot where Xtream sends
+one, otherwise the year, the kind, the category and where it came from. Where
+a title has a small logo rather than a landscape picture, the logo is shown as
+a mark above the title — where a logo belongs — and the category scene carries
+the frame.
+
+**Five category tiles** follow, in one row: Live TV, Movies, Series, Sport,
+News. Each is a wide 16:9 tile — the category's own artwork, its colour washed
+in from the left so the picture still shows on the right, a large icon, the
+title and a count of what is really loaded. Focus lifts a tile and rings it in
+the accent colour.
+
+**Then the rows**, each a carousel that reaches the edge of the panel and
+carries on past it, each with a heading and a way through to the whole of it,
+and each hidden when the source has nothing for it:
+
+    Popular Now        favourites, then films, then series, then channels
+    Films / Series     the on-demand libraries, as posters
+    Film Channels      channels that carry films, when a library is loaded too
+    Series Channels    the same for box sets
+    Live Sports        the sport section
+    News               the news section
+    Recently Added     the newest entries in the playlist
+    Favourites         the channels somebody chose
+    All Channels       favourites first, then the rest
+
+Recently Added is a fact about the playlist, not about anything that has been
+watched. **Telly keeps no history**: no last channel, nothing recently played.
+
+Every card is a picture with a caption under it and a badge in the corner
+saying what it is — TV, LIVE, FILM or SERIES. Focus grows a card and rings it
+in gold.
+
+## Thumbnails: the artwork is the card
+
+The picture is the largest part of every card, with the caption underneath —
+a 16:9 frame for anything that comes off a channel, a poster for anything out
+of a library.
+
+Where the source gives a picture, that is what you see. Both formats carry
+exactly one image field and Telly uses it: `tvg-logo` in an M3U, and
+`stream_icon` / `movie_image` / `cover` from Xtream. `tvg-name` and
+`group-title` are text, not artwork, and are already spent on the name and
+the category; there is nothing else in either format that is an image.
+
+A poster or a still is meant to be cropped, so it fills the frame. A station
+logo is not — it would be cut in half — so it is shown whole over a blurred
+copy of itself, which fills the frame instead.
+
+Where the source gives nothing, or the address fails to load, the artwork is
+**generated**: the scene that belongs to that item's category — scaled,
+shifted, sometimes mirrored and turned in hue by an amount taken from the
+title — washed in a matching hue, with the category mark over it. The same
+hash every time, so a card looks the same whenever you come back to it, and no
+two neighbours look alike. No card is ever a black box with two letters in it,
+which is what this replaced.
 
 ## Backdrops
 
@@ -312,7 +386,8 @@ keeping focus even though only the visible rows exist in the DOM.
   a plain message and a Try again button in the page itself.
 - Lists of several thousand channels stay smooth — only the visible rows
   exist in the DOM.
-- Missing or broken logos fall back to the channel's initials.
+- Missing or broken artwork falls back to a generated category scene, not
+  to initials in an empty box.
 
 ## What it does not pretend to do
 
@@ -323,6 +398,11 @@ Catch Up needs a provider that offers archived streams, and recording
 happens on a provider's server, not in a browser — both screens explain
 that instead of showing empty shelves. Movies and Series are drawn from the
 playlist's own group titles; if a playlist has none, they say so.
+
+Neither M3U nor Xtream carries artwork beyond the one image field per entry,
+so Telly does not go looking for posters elsewhere — no third-party metadata
+service is called, and nothing about your playlist leaves the device. Where a
+title has no picture, the generated scene is what you get.
 
 ## Notes
 
