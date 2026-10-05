@@ -57,9 +57,17 @@ after(async () => { await app.close(); closeDb(); box.cleanup(); });
 
 describe('reading a filename', () => {
   test('the release noise comes off the title', () => {
-    assert.equal(cleanTitle('Arrival.2016.1080p.BluRay.x264-GROUP.mkv'), 'Arrival 2016');
+    /* The year comes off the title because it is already its own column —
+       what the brief asked for: "The Matrix (1999).mkv" is The Matrix, 1999. */
+    assert.equal(cleanTitle('Arrival.2016.1080p.BluRay.x264-GROUP.mkv', { year: 2016 }), 'Arrival');
+    assert.equal(cleanTitle('Arrival.2016.1080p.BluRay.x264-GROUP.mkv'), 'Arrival 2016',
+      'and stays where no year was established');
     assert.equal(cleanTitle('The.Bear.S01E01.System.1080p.mkv'), 'The Bear S01E01 System');
-    assert.equal(cleanTitle('Heat (1995).mp4'), 'Heat (1995)');
+    assert.equal(cleanTitle('Heat (1995).mp4'), 'Heat', 'a bracketed year is always filing');
+    assert.equal(cleanTitle('Blade Runner 2049 (2017).mkv', { year: 2017 }), 'Blade Runner 2049',
+      'but a number that is part of the name stays');
+    assert.equal(cleanTitle('2010.mkv', { year: 2010 }), '2010',
+      'and a film named after a year keeps its name');
   });
 
   test('a year is only a year when it could be one', () => {
@@ -86,7 +94,7 @@ describe('scanning', () => {
     const r = scanRoot(movieRoot.id);
     assert.equal(r.found, 2, 'Arrival and Heat');
     const rows = openDb().prepare('SELECT title, year, container, size_bytes, poster FROM movies ORDER BY title').all();
-    assert.deepEqual(rows.map(x => x.title), ['Arrival 2016', 'Heat (1995)']);
+    assert.deepEqual(rows.map(x => x.title), ['Arrival', 'Heat']);
     assert.equal(rows[0].year, 2016);
     assert.equal(rows[0].container, 'mkv');
     assert.equal(rows[0].size_bytes, 2048);
@@ -132,13 +140,13 @@ describe('scanning', () => {
     const extra = path.join(listRoots().find(r => r.id === movieRoot.id).path, 'Temp Film (2001).mp4');
     writeFileSync(extra, 'z'.repeat(10));
     scanRoot(movieRoot.id);
-    assert.ok(openDb().prepare('SELECT 1 FROM movies WHERE title_key = ?').get('temp film (2001)'));
+    assert.ok(openDb().prepare('SELECT 1 FROM movies WHERE title_key = ?').get('temp film'));
 
     rmSync(extra);
     const r = scanRoot(movieRoot.id);
     assert.equal(r.missing, 1, 'marked');
     assert.equal(r.removed, 0, 'and not dropped');
-    const row = openDb().prepare('SELECT * FROM movies WHERE title_key = ?').get('temp film (2001)');
+    const row = openDb().prepare('SELECT * FROM movies WHERE title_key = ?').get('temp film');
     assert.ok(row, 'the row is kept, with whatever history hangs off it');
     assert.ok(row.missing_since, 'stamped with when it went');
 
@@ -148,10 +156,10 @@ describe('scanning', () => {
 
   test('and comes back on its own when the file does', () => {
     const extra = path.join(listRoots().find(r => r.id === movieRoot.id).path, 'Temp Film (2001).mp4');
-    const before = openDb().prepare('SELECT id FROM movies WHERE title_key = ?').get('temp film (2001)').id;
+    const before = openDb().prepare('SELECT id FROM movies WHERE title_key = ?').get('temp film').id;
     writeFileSync(extra, 'z'.repeat(10));
     scanRoot(movieRoot.id);
-    const after = openDb().prepare('SELECT * FROM movies WHERE title_key = ?').get('temp film (2001)');
+    const after = openDb().prepare('SELECT * FROM movies WHERE title_key = ?').get('temp film');
     assert.equal(after.id, before, 'the same row, not a new one');
     assert.equal(after.missing_since, null);
     assert.equal(movies().items.some(m => /Temp Film/.test(m.title)), true);
@@ -160,7 +168,7 @@ describe('scanning', () => {
 
   test('once it has been missing longer than the grace period it goes', () => {
     scanRoot(movieRoot.id);                        // marks it missing
-    const id = openDb().prepare('SELECT id FROM movies WHERE title_key = ?').get('temp film (2001)').id;
+    const id = openDb().prepare('SELECT id FROM movies WHERE title_key = ?').get('temp film').id;
     // Backdate the stamp rather than waiting seven days.
     openDb().prepare('UPDATE movies SET missing_since = ? WHERE id = ?')
       .run(new Date(Date.now() - (config.media.missingGraceSeconds + 60) * 1000).toISOString(), id);

@@ -1,5 +1,9 @@
 # Setting Telly up, and checking it works
 
+> Just want your own films on screen? [RUNNING.md](RUNNING.md) is the short
+> path: start the server, open the app from it, add a folder, scan. This page
+> is the fuller reference.
+
 Everything below is done from the app's **Settings** screen, signed in to your
 Telly server as an administrator. Nothing here asks you to download an M3U
 file, copy a video, or type a path into the app that the app then opens — the

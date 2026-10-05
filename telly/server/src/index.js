@@ -13,6 +13,8 @@ import catalogueRoutes from './routes/catalogue.js';
 import unifiedCatalogueRoutes from './routes/catalogue-unified.js';
 import adminRoutes from './routes/admin.js';
 import healthRoutes from './routes/health.js';
+import appRoutes from './routes/app.js';
+import compatRoutes from './routes/compat.js';
 import { startScheduler } from './services/scheduler.js';
 import { ensureProviders } from './services/providers/index.js';
 
@@ -60,6 +62,10 @@ export async function buildServer({ logger = true } = {}) {
   await app.register(unifiedCatalogueRoutes, { prefix: '/api/v1' });
   await app.register(streamRoutes, { prefix: '/api/v1' });
   await app.register(adminRoutes, { prefix: '/api/v1/admin' });
+  /* The short, unversioned paths, pointing at the catalogue. */
+  await app.register(compatRoutes, { prefix: '/api' });
+  /* Last, so nothing it serves can shadow an API route. */
+  await app.register(appRoutes);
 
   app.addHook('onSend', async (request, reply, payload) => {
     reply.header('x-content-type-options', 'nosniff');

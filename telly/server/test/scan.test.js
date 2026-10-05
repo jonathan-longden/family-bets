@@ -135,8 +135,8 @@ describe('what it would not guess at', () => {
   test('and the two named properly are read properly', () => {
     const rows = openDb().prepare('SELECT title, year FROM movies ORDER BY title').all();
     assert.deepEqual(rows.filter(r => r.year), [
-      { title: 'Inception 2010', year: 2010 },
-      { title: 'The Matrix (1999)', year: 1999 }
+      { title: 'Inception', year: 2010 },
+      { title: 'The Matrix', year: 1999 }
     ]);
   });
 });

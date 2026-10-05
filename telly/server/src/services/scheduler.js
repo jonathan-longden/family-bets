@@ -4,7 +4,7 @@ import { listSources, syncSource } from './sources.js';
 import { listEpgSources, syncEpgSource, epgNeedsSync } from './xmltv.js';
 import { listRoots, scanRoot } from './media.js';
 import { sweep } from './health.js';
-import { runAllImports } from './importer.js';
+import { runAllImports, syncLocalProvider } from './importer.js';
 
 /**
  * The background refresher.
@@ -98,6 +98,9 @@ export async function runOnce({ log = null, fetchImpl = fetch, now = Date.now(),
       if (log) log.warn(`Media folder "${root.label}" did not scan: ${e.message}`);
     }
   }
+  /* Anything a scan found goes into the catalogue in the same pass, for the
+     same reason it does when somebody presses the button. */
+  if (done.scans.some(s => s.ok)) await syncLocalProvider({ log });
 
   /* Catalogue providers, each on its own interval, and only the ones that are
      due — which is never one that may not be imported from, because such a

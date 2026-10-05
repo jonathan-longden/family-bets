@@ -9,6 +9,12 @@ Runs on a PC on your network today and moves to a VPS unchanged: the clients
 only ever know an API endpoint, so relocating the server is a setting rather
 than a rewrite.
 
+> **Nothing in Movies or Series?** [RUNNING.md](../RUNNING.md) is the page for
+> that: how to start the server, open the app *from* it, add your folders and
+> scan. The short answer is that the catalogue is SQLite on your PC, so the app
+> has to be opened from your PC — `http://your-pc:8080/telly/`, which the
+> server now serves itself.
+
 ## Getting started
 
     cd telly/server
@@ -242,6 +248,22 @@ played; the moment a scan sees the file again the stamp clears and it is back,
 the same row. A folder that is wholly absent marks nothing at all: a scan that
 can see no files is not evidence that the files are gone.
 
+### A scan publishes to the catalogue
+
+This is the step whose absence made the whole library invisible. The scanner
+writes `movies`, `series` and `episodes`; Movies and Series read the
+**catalogue**; and nothing joined the two, so pressing Scan filled the first
+and left the second empty.
+
+Every scan now ends by publishing — through the `local` adapter's ordinary
+import, no special path — so a file on disk reaches the catalogue by exactly
+the road a provider's title does, and deduplicates against it. It never throws:
+a scan that found the files has done its job, and a catalogue that could not be
+updated is a line in the log, not a failed scan.
+
+It happens on all four routes that scan: the button, `POST
+/media-roots/:id/scan`, `bin/telly-admin.js scan`, and the background pass.
+
 ### Scanning as a job
 
     POST /api/v1/admin/library/scan/movies     and tv, recordings, or all
@@ -317,6 +339,41 @@ so turning it back on is instant rather than another download.
     TELLY_REFRESH_INTERVAL=0     refresh by hand only
     TELLY_SCAN_INTERVAL=0        scan media folders by hand only
     POST /api/v1/admin/refresh   one pass right now
+
+## Serving the app
+
+The catalogue is SQLite on this machine, so a client has to be able to reach
+this machine. Opening the app from a static host over https and pointing it at
+`http://192.168.1.50:8080` does not work and cannot be made to from this side:
+the browser refuses it as mixed content before it is sent.
+
+So the server offers the app at its own address, and browser and API share an
+origin:
+
+    http://192.168.1.50:8080/           the app
+    http://192.168.1.50:8080/telly/     the same thing, the documented path
+    http://192.168.1.50:8080/api/…      the API it talks to
+
+Only a named list of files is served, from one directory, resolved and bounded
+— the same rule the media folders follow. No directory listing, and no way to
+ask for anything else.
+
+    TELLY_SERVE_APP=false        turn it off
+    TELLY_APP_DIR=/path/to/app   where index.html is (default: the directory
+                                 above this one)
+
+### Two sets of API paths
+
+    /api/movies           the catalogue — what Movies shows
+    /api/v1/movies        the raw scan of this server's own disk
+
+They hold the same films once a scan has published, which it does on its own.
+The catalogue is the one to read: deduplicated, and it carries every provider
+that has a title. `/api/v1/...` is unchanged.
+
+`/api/health` is open and needs no account, so a client can ask whether the
+server is there before signing in. It reports what the catalogue holds, which
+is how Settings distinguishes "no library" from "no server".
 
 ## The unified catalogue
 
