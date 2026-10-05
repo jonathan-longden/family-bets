@@ -129,6 +129,11 @@ box-set channels in the playlist when it does not.
 
 ### Settings, when you are the one running it
 
+[**SETUP.md**](SETUP.md) walks the whole thing through: configuring the Movies
+and TV folders, importing a playlist, scanning, and how to test a channel, a
+film, a series and an episode.
+
+
 Signed in as an administrator, Settings grows two panels nobody else sees —
 a viewer is shown neither, and the server refuses the calls behind them
 whatever the browser claims to be:
