@@ -1,7 +1,8 @@
 import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import cors from '@fastify/cors';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { config } from './config.js';
 import { openDb } from './db/index.js';
 import authPlugin from './plugins/auth.js';
@@ -77,8 +78,50 @@ export async function buildServer({ logger = true } = {}) {
   return app;
 }
 
+/**
+ * Was this module run directly, or imported by something else?
+ *
+ * `import.meta.url` is a file:// URL; `process.argv[1]` is a filesystem path
+ * in the platform's own spelling. Those are different kinds of string, so they
+ * have to be converted before they are compared — not concatenated.
+ *
+ * This used to read `import.meta.url === \`file://${process.argv[1]}\``, which
+ * matched on Linux and macOS purely by luck: an absolute POSIX path starts
+ * with a slash, so "file://" + "/srv/app.js" happens to spell the same
+ * three-slash URL that Node produces. On Windows there is no leading slash and
+ * the separators are backslashes:
+ *
+ *     argv[1]          C:\Telly\server\src\index.js
+ *     import.meta.url  file:///C:/Telly/server/src/index.js
+ *     the old check    file://C:\Telly\server\src\index.js   — never equal
+ *
+ * So the condition was always false, nothing called listen(), and `npm start`
+ * exited silently with status 0 — no error, because nothing had gone wrong as
+ * far as Node was concerned. There was simply no work left to do.
+ *
+ * `pathToFileURL` does the conversion properly on every platform: it picks the
+ * right separators, adds the slash Windows drive letters need, and
+ * percent-encodes what has to be encoded. The realpath comparison is a second
+ * chance for the cases a string comparison cannot see — a symlinked checkout,
+ * or a path reached through a junction — and is allowed to fail quietly,
+ * because by then the straightforward answer has already been given.
+ */
+export function isEntryPoint(moduleUrl, argvPath = process.argv[1]) {
+  if (!moduleUrl || !argvPath) return false;
+  try {
+    if (pathToFileURL(argvPath).href === moduleUrl) return true;
+  } catch {
+    return false;                        // not a path this platform can spell
+  }
+  try {
+    return realpathSync(fileURLToPath(moduleUrl)) === realpathSync(argvPath);
+  } catch {
+    return false;                        // one of them is not on disk
+  }
+}
+
 // Started directly rather than imported by a test.
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isEntryPoint(import.meta.url)) {
   const app = await buildServer();
   // Playlists, guides and media folders refresh on their own intervals. Only
   // the real server does this: a test drives runOnce() itself.
