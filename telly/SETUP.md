@@ -220,11 +220,30 @@ first, because it needs no internet.
 A provider that keeps a title in its own app is greyed and labelled **web
 only**. That is the honest answer, not a failure.
 
+### Search
+
+A box above Movies and Series, searching the whole catalogue in SQLite rather
+than the page that happens to be on screen. On a subscription with twenty
+thousand films that distinction is the feature: *Zodiac* is nowhere near the
+first page, and typing `zodiac` finds it.
+
+The title is matched three ways — as written, as the comparison form (so
+"zone of interest" finds *The Zone of Interest*) and as the original title (so
+`Rencontre` finds *Arrival*). Typing is debounced, so a word is one request
+rather than one per letter, and results page in like the rest of the
+catalogue. Clearing the box puts the list back as it was without fetching it
+again.
+
+Search and the filters compose: a genre chosen while searching narrows the
+search rather than replacing it. Live TV has its own box over its own channel
+list and is not involved.
+
 ### Filters
 
 Above Movies and Series: provider, genre, year, rating, country, language.
 `Movies → Provider → Internet Archive` narrows the list; *Inception* is still
-one card.
+one card. A series card carries its season and episode counts, which come with
+the row rather than needing the series to be opened first.
 
 ### Possible duplicates
 

@@ -824,6 +824,8 @@ body.playing #backdrop{opacity:.12}
 .cast b{display:block;font-size:13px;font-weight:600;line-height:1.35}
 .cast i{display:block;font-size:12px;color:var(--faint);font-style:normal;line-height:1.35;margin-top:2px}
 /* The filter bar above a collection. */
+.colsearch{display:flex;gap:10px;align-items:center;padding:0 0 12px;max-width:560px}
+.colsearch .field{flex:1;min-width:0}
 .filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 0 16px}
 .filters select,.filters .fclear{appearance:none;background:var(--glass);color:var(--ink);
   border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 14px;font:inherit;font-size:14px;
@@ -1475,6 +1477,19 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
   <section class="screen" id="collection" data-screen="collection">
     <div class="sec-h"><h2 id="colTitle">Collection</h2><span id="colSub"></span></div>
     <div class="colnote" id="colNote" hidden><span id="colNoteText"></span><button class="btn f" data-f id="colNoteGo"></button></div>
+    <!-- Searching is the server's job: the catalogue is SQLite and can run to
+         tens of thousands of titles, so the term goes to SQL rather than
+         sieving the page that happens to be loaded. Shown only where there is
+         a catalogue, for the same reason as the filters. -->
+    <div class="colsearch" id="colSearchRow" hidden>
+      <label class="field">
+        <svg class="ic"><use href="#i-search"/></svg>
+        <input id="colSearch" type="search" placeholder="Search films by title" autocomplete="off"
+               autocorrect="off" autocapitalize="none" spellcheck="false" enterkeyhint="search"
+               aria-label="Search films by title" class="f" data-f />
+      </label>
+      <button class="btn sq f" data-f id="colSearchClear" hidden aria-label="Clear search"><svg class="ic"><use href="#i-close"/></svg></button>
+    </div>
     <!-- Only shown where the server keeps a catalogue: there is nothing to
          filter a plain M3U by. -->
     <div class="filters" id="colFilters" hidden>
@@ -1884,7 +1899,11 @@ const state = {
   guide: {}, guideCoverage: null, recordings: [], conn: null,
   /* The unified catalogue, when the server keeps one: the counts, and the
      filter the collection screen is narrowed by. */
-  catalogue: null, colFilter: {}, facets: null
+  catalogue: null, colFilter: {}, facets: null,
+  /* A catalogue search is served a page at a time (colFeed), and the list it
+     replaced is kept (colStash) so clearing the box does not mean fetching
+     twenty thousand rows again. */
+  colFeed: null, colStash: null
 };
 let H_CH = 72, H_GRP = 50;
 
@@ -3843,9 +3862,17 @@ function openCollection(kind){
   }
 
   /* A different tab is a different filter set: provider-and-genre chosen for
-     Movies means nothing on Series. */
-  if (state.colFilterKind !== kind){ state.colFilter = {}; state.colFilterKind = kind; }
+     Movies means nothing on Series. A search is the same — the term in the
+     box was about films, so Series starts clean. */
+  if (state.colFilterKind !== kind){
+    state.colFilter = {}; state.colFilterKind = kind;
+    $('#colSearch').value = '';
+  }
+  /* colList has just been replaced with the whole tab, so any page-at-a-time
+     search feed describing the old list is finished with. */
+  state.colFeed = null; state.colStash = null;
   paintFilters();
+  paintSearch();
 
   const none = state.colList.length === 0;
   $('#colEmpty').hidden = !none;
@@ -3902,6 +3929,9 @@ function openCollection(kind){
     $('#colMore').hidden = true;
     return;
   }
+  /* A term still in the box is still a search: coming back to Movies shows
+     what was being looked for, not the whole library. */
+  if (colTerm()){ runSearch(); return; }
   moreCollection();
 }
 
@@ -4296,49 +4326,192 @@ async function paintFilters(){
   $('#fClear').hidden = !any;
 }
 
+/* What the collection screen is currently asking the server for: the filter
+   selects and the search box together, so choosing a genre while searching
+   narrows the search rather than replacing it. */
+function colQuery(){
+  const q = new URLSearchParams({ sort: 'title' });
+  for (const [, key] of FILTER_FIELDS) if (state.colFilter[key]) q.set(key, state.colFilter[key]);
+  const term = colTerm();
+  if (term) q.set('search', term);
+  return q;
+}
+
+const colKindPath = () => (state.colKind === 'series' ? 'series' : 'movies');
+const filterSig = () => FILTER_FIELDS.map(([, k]) => k + '=' + (state.colFilter[k] || '')).join('&');
+
+/* The line under the heading. With a search running the figure is the
+   server's total, not the handful fetched so far. */
+function colCount(){
+  const n = state.colFeed ? state.colFeed.total : state.colList.length;
+  const unit = colKindPath() === 'movies' ? (n === 1 ? 'film' : 'films') : 'series';
+  const term = colTerm();
+  $('#colSub').textContent = n
+    ? fmt(n) + ' ' + unit + (term ? ' matching \u201c' + term + '\u201d' : '')
+    : '';
+}
+
+/* Draw whatever is in state.colList from the top. */
+function colPaint(emptyHtml){
+  state.colShown = 0;
+  $('#colGrid').innerHTML = '';
+  const n = state.colFeed ? state.colFeed.total : state.colList.length;
+  colCount();
+  $('#colEmpty').hidden = n > 0;
+  $('#colGrid').hidden = n === 0;
+  if (!n){ $('#colEmpty').innerHTML = emptyHtml; $('#colMore').hidden = true; return; }
+  moreCollection();
+}
+
 /* A filtered list is fetched rather than sieved in the browser: the catalogue
    can run to thousands and only a page of it is ever here. */
 async function applyFilters(){
   if (!catalogueCollection()) return;
-  const kind = state.colKind === 'series' ? 'series' : 'movies';
+  const kind = colKindPath();
   /* No limit or page here: catAll owns the paging, and setting them twice
      put the key in the query twice — which the server reads as a list and
      rejects, so every filter silently returned nothing. */
-  const q = new URLSearchParams({ sort: 'title' });
-  for (const [, key] of FILTER_FIELDS) if (state.colFilter[key]) q.set(key, state.colFilter[key]);
-
+  state.colFeed = null;
   $('#colSub').textContent = 'Filtering…';
   try {
-    const rows = await catAll('/catalogue/' + kind + '?' + q.toString());
+    const rows = await catAll('/catalogue/' + kind + '?' + colQuery().toString());
     state.colList = rows.map(w => catItem(kind === 'movies' ? 'movie' : 'series', w));
   } catch(e){
     toast(String((e && e.message) || e));
     return;
   }
-  state.colShown = 0;
-  $('#colGrid').innerHTML = '';
-  const n = state.colList.length;
-  const unit = kind === 'movies' ? (n === 1 ? 'film' : 'films') : 'series';
-  $('#colSub').textContent = n ? fmt(n) + ' ' + unit : '';
-  $('#colEmpty').hidden = n > 0;
-  $('#colGrid').hidden = n === 0;
-  if (!n){
-    $('#colEmpty').innerHTML = '<div class="big">' + svg('i-search') +
-      '</div><h3>Nothing matches those filters</h3><p>Clear one of them to widen the list.</p>';
-    return;
-  }
-  moreCollection();
+  colPaint('<div class="big">' + svg('i-search') +
+    '</div><h3>Nothing matches those filters</h3><p>Clear one of them to widen the list.</p>');
   paintFilters();
 }
+
+/* ------------------------------------------------------- catalogue search --
+ *
+ * The server searches, not the browser. The term goes into the same query the
+ * filters use and SQL matches it against the written title, the comparison
+ * form and the original title across the whole catalogue — so a film on page
+ * four hundred is found, which is the entire point. Live TV is untouched: it
+ * has its own box over its own channel list.
+ *
+ * Results come a page at a time rather than all at once, because on a
+ * subscription with twenty thousand films a term like "the" matches most of
+ * them. "Show more" asks for the next page.
+ */
+const CAT_SEARCH_PAGE = 60;
+const SEARCH_WAIT = 280;
+/* Named apart from the Live TV box's own timer: that search sieves the
+   channel list in the browser, this one asks SQLite. They never meet. */
+let catSearchTimer = null, catSearchRun = 0;
+
+const colTerm = () => ($('#colSearch').value || '').trim();
+
+function paintSearch(){
+  const on = catalogueCollection();
+  $('#colSearchRow').hidden = !on;
+  if (!on) return;
+  const films = colKindPath() === 'movies';
+  const box = $('#colSearch');
+  const label = films ? 'Search films by title' : 'Search series by name';
+  box.placeholder = label;
+  box.setAttribute('aria-label', label);
+  $('#colSearchClear').hidden = !colTerm();
+}
+
+/** One more page of the running search, appended. */
+async function colFeedNext(){
+  const feed = state.colFeed;
+  if (!feed) return false;
+  const got = await srvAuthed(feed.path + '&limit=' + CAT_SEARCH_PAGE +
+    '&page=' + (feed.page + 1), {});
+  const items = (got && got.items) || [];
+  feed.page += 1;
+  if (got && got.total != null) feed.total = got.total;
+  state.colList.push(...items.map(w => catItem(feed.kind === 'movies' ? 'movie' : 'series', w)));
+  return items.length > 0;
+}
+
+async function runSearch(){
+  if (!catalogueCollection()) return;
+  const term = colTerm();
+  $('#colSearchClear').hidden = !term;
+
+  /* An empty box is not a search for nothing — it is the catalogue back as it
+     was, from what is already here rather than another twenty thousand rows
+     off the server. */
+  if (!term){
+    catSearchRun++;
+    state.colFeed = null;
+    const stash = state.colStash;
+    state.colStash = null;
+    if (stash && stash.sig === filterSig()){
+      state.colList = stash.list;
+      colPaint('<div class="big">' + svg('i-search') +
+        '</div><h3>Nothing matches those filters</h3><p>Clear one of them to widen the list.</p>');
+      return;
+    }
+    return applyFilters();
+  }
+
+  const kind = colKindPath();
+  const path = '/catalogue/' + kind + '?' + colQuery().toString();
+  const run = ++catSearchRun;
+  $('#colSub').textContent = 'Searching\u2026';
+  let got;
+  try {
+    got = await srvAuthed(path + '&limit=' + CAT_SEARCH_PAGE + '&page=1', {});
+  } catch(e){
+    if (run === catSearchRun) toast(String((e && e.message) || e));
+    return;
+  }
+  /* A slower earlier keystroke must not overwrite a later answer. */
+  if (run !== catSearchRun) return;
+
+  /* Keep the list the search is covering up, once, so clearing restores it. */
+  if (!state.colStash) state.colStash = { list: state.colList, sig: filterSig() };
+  state.colFeed = { path, page: 1, total: (got && got.total) || 0, kind };
+  state.colList = ((got && got.items) || [])
+    .map(w => catItem(kind === 'movies' ? 'movie' : 'series', w));
+  colPaint('<div class="big">' + svg('i-search') + '</div><h3>Nothing matches \u201c' +
+    escapeHtml(term) + '\u201d</h3><p>' +
+    (kind === 'movies' ? 'No film in the library has that in its title.'
+                       : 'No series in the library has that in its name.') +
+    ' Try part of the title, or clear the box to see everything again.</p>');
+}
+
+/* Typing is debounced; Enter and the clear button are not — somebody who has
+   finished typing should not wait for a timer. */
+$('#colSearch').oninput = () => {
+  $('#colSearchClear').hidden = !colTerm();
+  clearTimeout(catSearchTimer);
+  catSearchTimer = setTimeout(runSearch, SEARCH_WAIT);
+};
+$('#colSearch').onkeydown = (ev) => {
+  if (ev.key === 'Enter'){ ev.preventDefault(); clearTimeout(catSearchTimer); runSearch(); }
+  if (ev.key === 'Escape' && colTerm()){ ev.preventDefault(); clearColSearch(); }
+};
+$('#colSearchClear').onclick = () => clearColSearch();
+
+function clearColSearch(){
+  clearTimeout(catSearchTimer);
+  $('#colSearch').value = '';
+  $('#colSearchClear').hidden = true;
+  runSearch();
+  $('#colSearch').focus();
+}
+
+/* A filter change while searching re-runs the search with that filter on. */
+const refreshCollection = () => (colTerm() ? runSearch() : applyFilters());
 
 FILTER_FIELDS.forEach(([id, key]) => {
   $('#' + id).onchange = () => {
     const v = $('#' + id).value;
     if (v) state.colFilter[key] = v; else delete state.colFilter[key];
-    applyFilters();
+    /* The stash was taken under the old filters, so it no longer applies. */
+    state.colStash = null;
+    refreshCollection();
   };
 });
-$('#fClear').onclick = () => { state.colFilter = {}; applyFilters(); };
+$('#fClear').onclick = () => { state.colFilter = {}; state.colStash = null; refreshCollection(); };
 
 function moreCollection(){
   const grid = $('#colGrid');
@@ -4373,26 +4546,58 @@ function moreCollection(){
       th.appendChild(play);
       const badge = document.createElement('span');
       badge.className = 'badge';
+      /* The episode count comes with the series row, so a card says how big
+         the box set is before anybody opens it and the episodes are fetched.
+         Falls back to the fetched list for a source that sends no count. */
+      const eps = ch.episodeCount || (ch.episodes ? ch.episodes.length : 0);
       badge.textContent = isShow
-        ? (ch.episodes ? fmt(ch.episodes.length) + ' EP' : 'SERIES')
+        ? (eps ? fmt(eps) + ' EP' : 'SERIES')
         : (ch.year ? String(ch.year) : 'FILM');
       th.appendChild(badge);
     }
 
     /* A series is a thing to open, not a thing to play. A film opens too:
        its own screen has the artwork, the facts and the button. */
-    b.querySelector('i').textContent = isShow && ch.episodes
-      ? fmt(ch.episodes.length) + (ch.episodes.length === 1 ? ' episode' : ' episodes')
-      : ch.group;
+    const epn = ch.episodeCount || (ch.episodes ? ch.episodes.length : 0);
+    const ssn = ch.seasonCount || 0;
+    b.querySelector('i').textContent = isShow && epn
+      ? (ssn ? fmt(ssn) + (ssn === 1 ? ' season \u00b7 ' : ' seasons \u00b7 ') : '') +
+        fmt(epn) + (epn === 1 ? ' episode' : ' episodes')
+      : (isShow && ch.year ? String(ch.year) : ch.group);
     b.onclick = posters ? () => openTitle(ch) : () => { play(ch); go('live'); };
     frag.appendChild(b);
   });
   grid.appendChild(frag);
   state.colShown += chunk.length;
-  $('#colMore').hidden = state.colShown >= state.colList.length;
-  $('#colMore').textContent = 'Show more (' + fmt(state.colList.length - state.colShown) + ' left)';
+  /* With a search running the total is the server's, so "Show more" keeps
+     offering until every match has been through here. */
+  const left = (state.colFeed ? state.colFeed.total : state.colList.length) - state.colShown;
+  $('#colMore').hidden = left <= 0;
+  $('#colMore').textContent = 'Show more (' + fmt(Math.max(left, 0)) + ' left)';
 }
-$('#colMore').onclick = moreCollection;
+
+/* Pressing it either draws more of what is already here or, on a search that
+   has run out of fetched rows, asks the server for the next page first.
+   Not wrapped in working(): that puts the button's old label back when it
+   finishes, and the old label is the old count. */
+$('#colMore').onclick = async (ev) => {
+  const b = ev.currentTarget;
+  if (b.disabled) return;
+  const was = b.textContent;
+  b.disabled = true;
+  if (state.colFeed && state.colShown >= state.colList.length) b.textContent = 'Loading\u2026';
+  try {
+    if (state.colFeed && state.colShown >= state.colList.length){
+      if (!await colFeedNext()){ b.hidden = true; return; }
+    }
+    moreCollection();                       // sets the label to the new count
+  } catch(e){
+    b.textContent = was;
+    toast(String((e && e.message) || e));
+  } finally {
+    b.disabled = false;
+  }
+};
 
 /* ================================================================
    GUIDE SCREEN — honest about having no EPG feed
