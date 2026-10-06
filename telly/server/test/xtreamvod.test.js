@@ -352,7 +352,14 @@ describe('importing a panel into the Movies and Series library', () => {
     assert.ok(arrival.cast.some(c => c.name === 'Amy Adams'));
     assert.ok(arrival.directors.includes('Denis Villeneuve'));
     assert.equal(arrival.externalIds.tmdb, '329865');
-    assert.ok(arrival.poster, 'a poster address');
+    /* The panel's poster address is on the row; what the API hands out is a
+       different question — see the artwork tests. This fixture serves no
+       images, so the cache records the fetch as failed and the work is
+       answered with no poster rather than a broken one. */
+    const stored = openDb().prepare('SELECT poster_url FROM catalogue_movies WHERE id = ?')
+      .get(arrival.id).poster_url;
+    assert.equal(stored, 'http://panel.example/arrival-poster.jpg', 'the panel\'s own address');
+    assert.equal(arrival.poster, '', 'and not handed out, because it would not load');
   });
 
   test('a film with no metadata of its own takes the panel\'s category as its genre', () => {

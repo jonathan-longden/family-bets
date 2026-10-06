@@ -5,6 +5,7 @@ import { listEpgSources, syncEpgSource, epgNeedsSync } from './xmltv.js';
 import { listRoots, scanRoot } from './media.js';
 import { sweep } from './health.js';
 import { runAllImports, syncLocalProvider } from './importer.js';
+import { artworkPass } from './posters.js';
 
 /**
  * The background refresher.
@@ -59,7 +60,7 @@ export function dueForScan(root, now = Date.now()) {
 
 /** One pass. Returns what it did, which is what the tests read. */
 export async function runOnce({ log = null, fetchImpl = fetch, now = Date.now(), checker = null } = {}) {
-  const done = { playlists: [], guides: [], scans: [], health: null, imports: [] };
+  const done = { playlists: [], guides: [], scans: [], health: null, imports: [], artwork: null };
   const db = openDb();
 
   for (const src of listSources()) {
@@ -110,6 +111,16 @@ export async function runOnce({ log = null, fetchImpl = fetch, now = Date.now(),
     done.imports = await runAllImports({ fetchImpl, log, dueOnly: true });
   } catch (e) {
     if (log) log.warn(`Catalogue import pass failed: ${e.message}`);
+  }
+
+  /* Posters for whatever has not got one, a batch at a time. Deliberately
+     after the imports, so anything that has just arrived is considered, and
+     deliberately bounded: the TMDB ration is per pass, and a title nothing
+     has a poster for is marked so the next pass leaves it alone. */
+  try {
+    done.artwork = await artworkPass({ log });
+  } catch (e) {
+    if (log) log.warn(`Artwork pass failed: ${e.message}`);
   }
 
   /* A slice of the channels whose checks are due, never all of them: a few

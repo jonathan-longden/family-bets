@@ -142,7 +142,13 @@ its own — every five minutes it looks for anything due.
     GET    /api/v1/catalogue/search?q=         one query, over the canonical rows
     GET    /api/v1/catalogue/facets?kind=      what the filter menus offer
     GET    /api/v1/catalogue/counts
-    GET    /api/v1/catalogue/art/:id           a cached poster, by id
+
+  No sign-in, because a browser cannot put a token on an <img>:
+
+    GET    /api/v1/catalogue/art/:id/:sig      a cached poster, by signed id
+    GET    /api/v1/catalogue/art/placeholder/:kind?title=
+                              a plain generated poster, for a client that
+                              wants an image URL rather than nothing
 
     POST   /api/v1/stream/catalogue/:kind/:id/ticket?source=&provider=
                               play this work; answers local, direct or WEB_ONLY
@@ -160,6 +166,8 @@ its own — every five minutes it looks for anything due.
     GET    /api/v1/admin/catalogue/reviews     possible duplicates
     POST   /api/v1/admin/catalogue/reviews/:id {decision: merge|reject}
     POST   /api/v1/admin/catalogue/merge       {kind, keep, drop}
+    GET    /api/v1/admin/catalogue/artwork     what has a poster, and from where
+    POST   /api/v1/admin/catalogue/artwork     {limit, kinds} — run a pass now
     POST   /api/v1/admin/catalogue/artwork/prune
 
     GET    /api/v1/admin/sources              POST, PATCH, DELETE
@@ -503,12 +511,119 @@ directly, and so cannot accidentally be impolite.
 - **One bad record does not end an import of four thousand.** It is counted and
   the next one is read.
 
-Artwork is fetched once. The row remembers the URL, where the copy went and the
-validators, so the next import sends `If-None-Match` and gets a 304 — a few
-hundred bytes instead of a few hundred kilobytes, across a few thousand films.
-Clients are given `/catalogue/art/:id` where a copy exists, so the provider is
-not asked for the same poster by every device in the house. A provider whose
-terms do not permit a local copy is recorded `reference_only` and simply linked.
+Artwork is fetched once, and once means once: a poster already on disk is not
+re-requested by the next import, or the one after it. The row remembers the URL,
+where the copy went and the validators it was served with. Clients are given a
+Telly address where a copy exists, so the provider is not asked for the same
+poster by every device in the house. A provider whose terms do not permit a
+local copy is recorded `reference_only` and simply linked.
+
+A copy that is no longer on disk — pruned, or a restored data directory — is
+fetched whole rather than revalidated. `If-None-Match` would invite a 304,
+and a 304 means "keep what you have", which is not an answer when there is
+nothing to keep.
+
+### Getting a poster onto every card
+
+A catalogue is a wall of pictures, and an Xtream panel's poster field is empty
+or broken often enough that a real subscription arrives with holes in it. So
+there is a ladder, run as a pass over rows that already exist — it imports
+nothing, it touches no source, and it never downloads a video.
+
+1. **The provider's own.** If a provider published a poster and it is a real
+   picture, that is the answer. It is the artwork for the copy the household
+   can actually play, and no outside service is asked. A poster already in the
+   cache is not even re-fetched, which is what makes a second pass over a
+   settled catalogue nearly free.
+2. **TMDB by id.** A provider that supplies a TMDB id has said exactly which
+   film this is — one request, no judgement, nothing to get wrong. Xtream
+   panels supply these, so on a real subscription this is the common case.
+   Ids come out of the catalogue's own `catalogue_ids` table, the same one the
+   deduplicator reads, and an id found this way is written back to it.
+3. **TMDB by title and year, rationed.** Only where it is safe to guess: a
+   year is required, the candidate's year must match or be one out, and the
+   name must score at least `TELLY_TMDB_MIN_SCORE` on the same comparison form
+   the deduplicator uses. A wrong poster is worse than no poster. A pass
+   spends at most `TELLY_TMDB_LOOKUPS` searches in total — twenty-four
+   thousand films do not become twenty-four thousand searches.
+4. **Nothing**, which is a perfectly good answer. The web app draws its own
+   generated artwork from the title, and anything that would rather have an
+   image URL can use `/catalogue/art/placeholder/:kind`.
+
+TMDB is the only external metadata source, it is off unless you set a key, and
+it is their documented public API. Nothing here scrapes a web page and nothing
+here reads IMDb: an IMDb id is stored when a provider or TMDB supplies one, but
+it is never followed, because IMDb publishes no interface for this.
+
+TMDB is a fallback, not an authority. It fills only empty columns — a provider
+that gave a plot keeps its plot — and it never overrules a provider's poster.
+
+Each work records what was tried, so the next pass does not try it again from
+scratch:
+
+| `art_state` | what it means | when it is looked at again |
+|---|---|---|
+| *(blank)* | nobody has looked yet | next pass |
+| `provider` | the provider's own poster, cached | only if it falls out of the cache |
+| `tmdb` | TMDB supplied one, cached | only if it falls out of the cache |
+| `none` | looked, found nothing | after thirty days |
+| `nokey` | nowhere to look — TMDB was off | next pass, so setting a key takes effect at once |
+
+Run one by hand, or let the refresh scheduler do it:
+
+    node bin/telly-admin.js artwork [limit]
+
+    TMDB is configured (w342 posters, 250 searches a pass).
+    Looked at 9: 1 from the provider, 4 from TMDB, 4 with nothing to find.
+    TMDB: 2 by id, 5 by title and year, 245 search(es) left in this pass's ration.
+    Cache: 5 picture(s), 0.0 MB of 2048.0 MB, 3 that would not load.
+    Films : 4 of 8 have a poster (1 provider, 3 TMDB), 4 without, 0 not looked at yet.
+
+### What a client is handed
+
+Never somebody else's image URL. A work's `poster` is an address on this
+server, signed:
+
+    /api/v1/catalogue/art/417/hT9mKq2bXnR4vD8sLw0ZaQ
+
+The signature is an HMAC over the id with the server's secret, which is what
+lets this one route sit outside the authenticated plugin — a browser cannot put
+an `Authorization` header on an `<img>`, and the alternative, bare sequential
+ids, would let anyone walk the cache. It is `immutable` for a year, because the
+id changes when the picture does. A work with no artwork has an empty `poster`
+and a `posterFallback` pointing at the placeholder, so a client chooses between
+drawing its own and asking for a plain one rather than showing a broken image.
+
+### Keeping it to a sensible size
+
+A poster is small; twenty-four thousand of them are not. Posters are fetched at
+a card's size rather than at print resolution — about forty kilobytes a film,
+so a twenty-four-thousand-title catalogue settles near a gigabyte — and two
+ceilings keep it there:
+
+| | | |
+|---|---|---|
+| `TELLY_ART_MAX_BYTES` | 768 KB | anything bigger is refused, not stored |
+| `TELLY_ART_MAX_MB` | 2048 | once the cache is this big, nothing new is fetched until a prune frees room |
+| `TELLY_ART_BATCH` | 200 | how many works one pass looks at |
+| `TELLY_ART_RETRY_DAYS` | 7 | a picture that would not load is tried again after this, so one bad afternoon on somebody's image host does not blank a poster for good |
+
+### Switching TMDB on
+
+    TELLY_TMDB_KEY=…            off unless this is set
+    TELLY_TMDB_POSTER=w342      the size fetched; bigger is wasted on a grid
+    TELLY_TMDB_BACKDROP=w780
+    TELLY_TMDB_LANG=en-GB
+    TELLY_TMDB_LOOKUPS=250      title-and-year searches per pass
+    TELLY_TMDB_MIN_SCORE=0.82   below this the match is thrown away
+    TELLY_TMDB_DELAY=120        milliseconds between requests
+    TELLY_TMDB_TIMEOUT=12000
+
+Get a key from [themoviedb.org](https://www.themoviedb.org/settings/api). Their
+terms ask for an acknowledgement wherever the data is used, which Settings
+carries and which is repeated here:
+
+> This product uses the TMDB API but is not endorsed or certified by TMDB.
 
 ### The import log
 

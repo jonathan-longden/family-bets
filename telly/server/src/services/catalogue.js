@@ -3,7 +3,8 @@ import { notFound } from '../lib/errors.js';
 import { resolve, queueReview, normalizeTitle, betterTitle, matchKey, nameKey, MERGE_AT }
   from './dedupe.js';
 import { PLAYBACK } from './providers/index.js';
-import { cachedIdFor } from './artwork.js';
+import { artworkState } from './artwork.js';
+import { artSignature } from '../lib/tickets.js';
 
 /**
  * The unified catalogue.
@@ -921,8 +922,14 @@ const idsOf = (kind, id) => Object.fromEntries(openDb()
 function artUrl(url) {
   if (!url) return '';
   if (!/^https?:\/\//i.test(url)) return url;      // already one of ours
-  const id = cachedIdFor(url);
-  return id ? `/api/v1/catalogue/art/${id}` : url;
+  const { id, state } = artworkState(url);
+  /* The copy, at an address that carries its own signature — a poster is
+     fetched by <img src>, which cannot send a header. */
+  if (id) return `/api/v1/catalogue/art/${id}/${artSignature(id)}`;
+  /* Known not to load: better no poster than a broken one on every device. */
+  if (state === 'failed') return '';
+  /* Not tried yet, or a provider whose terms say link rather than copy. */
+  return url;
 }
 
 export function publicMovie(m, extra = {}) {
@@ -938,6 +945,10 @@ export function publicMovie(m, extra = {}) {
     ageRating: m.age_rating || undefined,
     poster: artUrl(m.poster_url), backdrop: artUrl(m.backdrop_url),
     thumbnail: artUrl(m.thumbnail_url),
+    /* For a client that would rather have an image than draw its own when
+       there is no poster. The web app draws a better one; this is for the
+       rest. */
+    posterFallback: `/api/v1/catalogue/art/placeholder/movie`,
     genres: tagsOf('movie', m.id, 'genre'),
     countries: tagsOf('movie', m.id, 'country'),
     languages: tagsOf('movie', m.id, 'language'),
@@ -962,6 +973,10 @@ export function publicSeries(s, extra = {}) {
     ageRating: s.age_rating || undefined,
     poster: artUrl(s.poster_url), backdrop: artUrl(s.backdrop_url),
     thumbnail: artUrl(s.thumbnail_url),
+    /* For a client that would rather have an image than draw its own when
+       there is no poster. The web app draws a better one; this is for the
+       rest. */
+    posterFallback: `/api/v1/catalogue/art/placeholder/series`,
     seasonCount: s.season_count ?? undefined,
     episodeCount: s.episode_count ?? undefined,
     genres: tagsOf('series', s.id, 'genre'),

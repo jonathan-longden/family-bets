@@ -11,7 +11,7 @@ import meRoutes from './routes/me.js';
 import libraryRoutes from './routes/library.js';
 import streamRoutes from './routes/stream.js';
 import catalogueRoutes from './routes/catalogue.js';
-import unifiedCatalogueRoutes from './routes/catalogue-unified.js';
+import unifiedCatalogueRoutes, { openArtworkRoutes } from './routes/catalogue-unified.js';
 import adminRoutes from './routes/admin.js';
 import healthRoutes from './routes/health.js';
 import appRoutes from './routes/app.js';
@@ -61,6 +61,10 @@ export async function buildServer({ logger = true } = {}) {
   await app.register(libraryRoutes, { prefix: '/api/v1' });
   await app.register(catalogueRoutes, { prefix: '/api/v1' });
   await app.register(unifiedCatalogueRoutes, { prefix: '/api/v1' });
+  /* Pictures, which an <img> fetches with no header: registered as their own
+     plugin so the authenticate hook inside the one above does not apply.
+     The address carries a signature instead — see artSignature. */
+  await app.register(openArtworkRoutes, { prefix: '/api/v1' });
   await app.register(streamRoutes, { prefix: '/api/v1' });
   await app.register(adminRoutes, { prefix: '/api/v1/admin' });
   /* The short, unversioned paths, pointing at the catalogue. */

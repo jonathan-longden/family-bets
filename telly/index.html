@@ -1633,6 +1633,8 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <div class="kv"><span>Series · episodes</span><b id="catSeries">—</b></div>
         <div class="kv"><span>On more than one provider</span><b id="catShared">—</b></div>
         <div class="kv"><span>Artwork cached</span><b id="catArt">—</b></div>
+        <div class="kv"><span>Titles with a poster</span><b id="catPosters">—</b></div>
+        <p class="hint" id="tmdbNote" style="margin-top:10px;font-size:13px" hidden></p>
       </div>
 
       <div class="spanel" id="dupPanel" hidden>
@@ -5010,6 +5012,7 @@ async function loadAdmin(){
     admin.providers = (provs && provs.providers) || [];
     admin.catalogue = (provs && provs.catalogue) || (counts || null);
     admin.artwork = (provs && provs.artwork) || null;
+    admin.posters = (provs && provs.posters) || null;
     admin.reviews = (reviews && reviews.items) || [];
     $('#provPanel').hidden = !admin.providers.length;
     paintFolders(); paintScan(); paintSources(); paintProviders(); paintDuplicates();
@@ -5171,6 +5174,22 @@ function paintProviders(){
   const art = admin.artwork || {};
   $('#catArt').textContent = art.cached != null
     ? plural(art.cached, 'picture') + (art.bytes ? ' · ' + mb(art.bytes) : '') : '—';
+
+  /* How much of the wall actually has a picture on it, which is the figure
+     somebody looking at a half-empty Movies screen wants. */
+  const po = admin.posters || null;
+  const m = (po && po.movies) || null, sr = (po && po.series) || null;
+  $('#catPosters').textContent = m
+    ? fmt((m.withPoster || 0) + ((sr && sr.withPoster) || 0)) + ' of ' +
+      fmt((m.total || 0) + ((sr && sr.total) || 0)) +
+      ((m.nokey || (sr && sr.nokey)) ? ' · no TMDB key set' : '')
+    : '—';
+
+  /* Their terms ask for this wherever the data is used, so it is shown where
+     the figures are — and only when the key is actually set. */
+  const note = $('#tmdbNote'), t = (po && po.tmdb) || null;
+  note.hidden = !(t && t.configured);
+  note.textContent = (t && t.attribution) || '';
 }
 
 async function toggleProvider(p){

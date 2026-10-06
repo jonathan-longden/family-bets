@@ -10,6 +10,7 @@
  *   node bin/telly-admin.js sync <sourceId>
  *   node bin/telly-admin.js probe <sourceId>        what an Xtream panel exposes
  *   node bin/telly-admin.js import-vod [sourceId]   its films and series
+ *   node bin/telly-admin.js artwork [limit]         find missing posters
  *   node bin/telly-admin.js add-media <label> <movies|series|recordings> <folder>
  *   node bin/telly-admin.js scan [rootId]
  *   node bin/telly-admin.js add-epg <name> <xmltv url>
@@ -28,6 +29,8 @@ import { syncLocalProvider, runImport } from '../src/services/importer.js';
 import { providerByKey } from '../src/services/providers/index.js';
 import { probeXtream } from '../src/services/xtream.js';
 import { catalogueCounts } from '../src/services/catalogue.js';
+import { artworkPass, artworkSummary } from '../src/services/posters.js';
+import { artworkStats } from '../src/services/artwork.js';
 import { createEpgSource, listEpgSources, publicEpgSource, syncEpgSource } from '../src/services/xmltv.js';
 import { exportM3u } from '../src/services/library.js';
 
@@ -35,6 +38,7 @@ const [, , command, ...args] = process.argv;
 
 /* A figure that may be null, because the panel refused that question. */
 const fig = (n) => (n == null ? '—' : String(n));
+const mb = (b) => (Number(b || 0) / (1024 * 1024)).toFixed(1) + ' MB';
 
 function usage(code = 0) {
   console.log(readUsage());
@@ -51,6 +55,7 @@ function readUsage() {
   sync         <sourceId>            the live channels from one source
   probe        <sourceId>            what an Xtream panel actually exposes
   import-vod   [sourceId]            import an Xtream panel's films and series
+  artwork      [limit]               find posters for titles that have none
 
   add-media    <label> <movies|series|recordings> <folder>
   scan         [rootId]            scan one media folder, or every one of them
@@ -211,6 +216,50 @@ try {
         `and ${counts.episodes} episodes.`);
       break;
     }
+    /**
+     * Posters for whatever has not got one.
+     *
+     * A pass over rows that already exist: the provider's own poster first,
+     * then The Movie Database where a key is configured. It imports nothing
+     * and it does not touch a source, so it is safe to run against a
+     * catalogue you do not want re-imported.
+     */
+    case 'artwork': {
+      ensureProviders();
+      const [limit] = args;
+      const before = artworkSummary();
+      const t = artworkSummary().tmdb;
+      console.log(t.configured
+        ? `TMDB is configured (${t.posterSize} posters, ${t.lookupsPerRun} searches a pass).`
+        : 'TMDB is not configured, so only providers\' own posters are considered. ' +
+          'Set TELLY_TMDB_KEY to use it as a fallback.');
+      const got = await artworkPass({ limit: limit ? Number(limit) : undefined });
+      console.log(`Looked at ${got.looked}: ${got.provider} from the provider, ` +
+        `${got.tmdb} from TMDB, ${got.none + got.nokey} with nothing to find` +
+        (got.errors ? `, ${got.errors} error(s)` : '') + '.');
+      if (got.nokey) {
+        console.log(`${got.nokey} of those will be looked at again as soon as a TMDB key is set.`);
+      }
+      if (got.searches || got.byId) {
+        console.log(`TMDB: ${got.byId} by id, ${got.searches} by title and year, ` +
+          `${got.budgetLeft} search(es) left in this pass's ration.`);
+      }
+      const a = artworkStats();
+      console.log(`Cache: ${a.cached} picture(s), ${mb(a.bytes)} of ${mb(a.maxBytes)}` +
+        (a.full ? ' — full, prune to make room' : '') + `, ${a.failed} that would not load.`);
+      const s2 = artworkSummary();
+      for (const kind of ['movies', 'series']) {
+        const k = s2[kind];
+        console.log(`${kind === 'movies' ? 'Films ' : 'Series'}: ${k.withPoster} of ${k.total} ` +
+          `have a poster (${k.provider} provider, ${k.tmdb} TMDB), ` +
+          `${k.none + k.nokey} without, ${k.unchecked} not looked at yet.`);
+      }
+      if (before.movies.unchecked + before.series.unchecked > got.looked) {
+        console.log('More remain: run it again, or let the refresh timer work through them.');
+      }
+      break;
+    }
+
     case 'add-media': {
       const [label, kind, folder] = args;
       if (!label || !kind || !folder) usage(1);

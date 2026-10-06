@@ -5,7 +5,10 @@ import {
   search, facets, preferredSource, catalogueCounts
 } from '../services/catalogue.js';
 import { cachedArtworkPath } from '../services/artwork.js';
+import { artSignatureOk } from '../lib/tickets.js';
+import { placeholderSvg } from '../services/placeholder.js';
 import { paging } from './catalogue.js';
+import { notFound } from '../lib/errors.js';
 
 /**
  * The unified catalogue, as clients read it.
@@ -120,5 +123,37 @@ export default async function unifiedCatalogueRoutes(app) {
     reply.header('content-type', contentType);
     reply.header('cache-control', 'private, max-age=604800');
     return reply.send(createReadStream(file));
+  });
+}
+
+/**
+ * The two picture routes a client can use without a header, registered
+ * outside the authenticated plugin above because an <img> cannot send one.
+ *
+ *   /catalogue/art/:id/:sig   a cached poster. The signature is the
+ *                             credential: unguessable, tied to that one id,
+ *                             and it carries no user — a poster is a picture
+ *                             of a film, not somebody's private file.
+ *   /catalogue/art/placeholder/:kind
+ *                             a plain poster-shaped SVG for a title that has
+ *                             no artwork at all, so a client that would
+ *                             rather have an image than draw one has one.
+ */
+export async function openArtworkRoutes(app) {
+  app.get('/catalogue/art/:id/:sig', async (request, reply) => {
+    const id = Number(request.params.id);
+    if (!artSignatureOk(id, request.params.sig)) throw notFound('No artwork for that.');
+    const { file, contentType } = cachedArtworkPath(id);
+    reply.header('content-type', contentType);
+    /* Immutable: the id and the signature both change if the picture does. */
+    reply.header('cache-control', 'public, max-age=31536000, immutable');
+    return reply.send(createReadStream(file));
+  });
+
+  app.get('/catalogue/art/placeholder/:kind', async (request, reply) => {
+    const kind = String(request.params.kind) === 'series' ? 'series' : 'movie';
+    reply.header('content-type', 'image/svg+xml; charset=utf-8');
+    reply.header('cache-control', 'public, max-age=31536000, immutable');
+    return reply.send(placeholderSvg(kind, request.query && request.query.title));
   });
 }

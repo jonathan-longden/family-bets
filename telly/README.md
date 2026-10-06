@@ -589,9 +589,15 @@ that instead of showing empty shelves. Movies and Series are drawn from the
 playlist's own group titles; if a playlist has none, they say so.
 
 Neither M3U nor Xtream carries artwork beyond the one image field per entry,
-so Telly does not go looking for posters elsewhere — no third-party metadata
-service is called, and nothing about your playlist leaves the device. Where a
-title has no picture, the generated scene is what you get.
+and the app on its own does not go looking for posters elsewhere: no
+third-party metadata service is called, and nothing about your playlist leaves
+the device. Where a title has no picture, the generated scene is what you get.
+
+Signed in to a Telly server, the server can fill those gaps from The Movie
+Database — but only if whoever runs it has set a TMDB key, and the lookups
+happen there rather than on your device. The app is handed a poster on the
+server's own address either way; it never fetches from a metadata service
+itself. See the backend's README.
 
 ## Notes
 
