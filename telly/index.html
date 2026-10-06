@@ -783,6 +783,12 @@ body.playing #backdrop{opacity:.12}
 .pill.warn{color:var(--gold);border-color:rgba(231,193,122,.45);background:var(--gold-dim)}
 .pill.bad{color:#ffb3ba;border-color:rgba(255,77,94,.34);background:rgba(255,77,94,.11)}
 .lnone{color:var(--faint);font-size:14px;padding:12px 0;line-height:1.6}
+.hidlist{margin:2px 0 14px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.04)}
+.hidlist .hint{margin:0 0 8px}
+.hidrow{padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+.hidrow:last-child{border-bottom:0}
+.hidrow b{display:block;font-size:14px;font-weight:600}
+.hidrow span{display:block;color:var(--faint);font-size:12.5px;line-height:1.5}
 /* Connected or not, and to what. */
 .connrow{display:flex;align-items:center;gap:14px;padding:4px 0 16px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:8px}
 .connrow>div{flex:1;min-width:0}
@@ -4650,7 +4656,10 @@ $('#setSrvOut').onclick = () => {
    below is an admin route, checked again at the server, so a browser that
    lies about its role gets a 403 rather than a media folder. */
 const admin = { folders: [], sources: [], builtin: [], job: null, unmatched: 0, loading: false,
-                providers: [], catalogue: null, artwork: null, reviews: [] };
+                providers: [], catalogue: null, artwork: null, reviews: [],
+                /* The hidden-channel list, per source, only while it is open:
+                   { [sourceId]: { state, total, items } }. */
+                hidden: {} };
 
 const mk = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
 
@@ -5044,23 +5053,82 @@ function paintSources(){
   }
   admin.sources.forEach(s => {
     const h = s.health || {};
+    /* The five figures, said in full. "Imported" counts everything the
+       playlist ever brought in, including the channels it has since dropped,
+       because nothing is deleted — which is the point. */
+    const imported = h.imported != null ? h.imported : (s.channelCount || 0);
     const off = (h.temporarily_unavailable || 0) + (h.failed || 0);
+    const bad = h.browser_incompatible || 0;
     const bits = [
       [s.enabled ? pill('ok', 'on') : pill('warn', 'off'),
-       plural(s.channelCount || 0, 'channel') + ' imported',
+       plural(imported, 'channel') + ' imported',
        plural(h.working || 0, 'working', 'working'),
-       off ? plural(off, 'unavailable', 'unavailable') : null,
+       off ? fmt(off) + ' temporarily unavailable' : null,
+       bad ? fmt(bad) + ' browser incompatible' : null,
        (h.unchecked || 0) ? plural(h.unchecked, 'unchecked', 'unchecked') : null
       ].filter(Boolean).join(' · '),
-      'Playlist updated ' + ago(s.lastSyncedAt) + ' · channels checked ' + ago(s.lastHealthAt)
+      'Playlist updated ' + ago(s.lastSyncedAt) +
+        ' · last health check ' + ago(h.lastHealthAt || s.lastHealthAt) +
+        (s.checking ? ' · ' + pill('warn', 'checking now') : '')
     ];
+    if (off + bad) {
+      bits.push('Hidden channels are kept, rechecked on their own, and come back by themselves.');
+    }
     if (s.lastError) bits.push(pill('bad', 'problem') + ' ' + escapeHtml(s.lastError));
+    const open = !!admin.hidden[s.id];
     box.appendChild(lrow(s.name, bits.join('<br>'), [
       { label: 'Refresh playlist', run: (b) => working(b, 'Refreshing…', () => sourceAction(s, 'sync')) },
       { label: 'Check channels', run: (b) => working(b, 'Checking…', () => sourceAction(s, 'health')) },
-      { label: 'Refresh + check', run: (b) => working(b, 'Working…', () => sourceAction(s, 'refresh-and-check')) }
+      { label: 'Refresh + check', run: (b) => working(b, 'Working…', () => sourceAction(s, 'refresh-and-check')) },
+      (off + bad + (h.inactive || 0))
+        ? { label: open ? 'Hide the list' : 'Show hidden channels',
+            run: (b) => working(b, 'Loading…', () => toggleHidden(s)) }
+        : null
     ]));
+    if (open) box.appendChild(hiddenList(s));
   });
+}
+
+/* What Live TV is leaving out, and why. Only answerable because the rows were
+   kept: a channel off the air for a month still has its name, its category
+   and the last thing that went wrong. */
+function hiddenList(s){
+  const got = admin.hidden[s.id] || { items: [], total: 0 };
+  const wrap = mk('div', 'hidlist');
+  if (!got.items.length){
+    const p = mk('p', 'lnone');
+    p.textContent = 'Nothing is being hidden from this playlist.';
+    wrap.appendChild(p);
+    return wrap;
+  }
+  const head = mk('p', 'hint');
+  head.textContent = plural(got.total, 'hidden channel') +
+    ', still on the server. ' +
+    (got.total > got.items.length ? 'The first ' + fmt(got.items.length) + ' are shown. ' : '') +
+    'Each is rechecked on its own and reappears in Live TV the moment it works.';
+  wrap.appendChild(head);
+  got.items.forEach(c => {
+    const row = mk('div', 'hidrow');
+    const why = c.healthState === 'browser_incompatible'
+      ? pill('warn', 'browser incompatible')
+      : (c.active === false ? pill('warn', 'left the playlist') : pill('bad', 'unavailable'));
+    row.innerHTML = '<b>' + escapeHtml(c.name) + '</b>' +
+      '<span>' + why + ' ' + escapeHtml(c.group || '') +
+      (c.failureReason ? ' · ' + escapeHtml(c.failureReason) : '') +
+      '<br>checked ' + escapeHtml(ago(c.lastCheckedAt)) +
+      ' · last worked ' + escapeHtml(ago(c.lastWorkingAt)) + '</span>';
+    wrap.appendChild(row);
+  });
+  return wrap;
+}
+
+async function toggleHidden(s){
+  if (admin.hidden[s.id]) { delete admin.hidden[s.id]; paintSources(); return; }
+  try {
+    const got = await srvAuthed('/admin/sources/' + s.id + '/channels?state=hidden&limit=200');
+    admin.hidden[s.id] = { state: got.state, total: got.total || 0, items: got.items || [] };
+    paintSources();
+  } catch(e){ toast(String((e && e.message) || e)); }
 }
 
 async function sourceAction(s, what){
@@ -5071,7 +5139,8 @@ async function sourceAction(s, what){
     await loadAdmin();
     const h = got.health || {};
     toast(what === 'sync'
-      ? s.name + ' · ' + plural(got.channels || 0, 'channel') + ' imported'
+      ? s.name + ' · ' + plural(got.channels || 0, 'channel') + ' imported' +
+        (got.checking ? ' · checking which of them play' : '')
       : s.name + ' · ' + plural(h.working || 0, 'working', 'working') + ' of ' + fmt(h.total || 0));
     if (srvOn()) restore(true);
   } catch(e){ toast(String((e && e.message) || e)); }
