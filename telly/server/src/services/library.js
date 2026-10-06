@@ -1,5 +1,6 @@
 import { openDb } from '../db/index.js';
 import { forbidden, notFound } from '../lib/errors.js';
+import { VISIBLE, HIDDEN, STATUS, plainStatus } from './health.js';
 
 /**
  * Reading the catalogue. Every query is scoped by the user's assigned sources,
@@ -33,12 +34,27 @@ const SORTS = {
  *
  * Three filters are on by default and are the reason a public playlist is
  * usable at all: a channel that has left the playlist (`active`), a channel
- * this person has hidden, and — once a source has been checked — a channel
- * whose stream does not work. `health: 'any'` turns the last one off, which
- * is what the settings screen uses to show what is failing.
+ * this person has hidden, and a channel whose stream has been looked at and
+ * does not work.
+ *
+ * That last one is the default, in SQL, here — not in the app. The server is
+ * the only thing that knows whether a stream answers, so it is the only thing
+ * that can decide, and a client cannot ask for broken channels by accident.
+ * The other modes exist for the settings screen, which has to be able to show
+ * what is being hidden and why:
+ *
+ *   visible (default)  working, and not-yet-checked
+ *   working            proved to play, nothing else
+ *   failed             unreachable: temporarily unavailable or failed
+ *   incompatible       answers, but no browser can decode it
+ *   hidden             everything Live TV is leaving out
+ *   any                no health filter at all
+ *
+ * `playable` is kept as a synonym of the default so an older client that
+ * sends it gets the same answer as one that sends nothing.
  */
 export function channels(userId, { kind = 'live', group = null, search = null,
-                                   country = null, language = null, health = 'playable',
+                                   country = null, language = null, health = 'visible',
                                    includeInactive = false, includeHidden = false,
                                    sort = 'number', limit = 500, offset = 0 } = {}) {
   const ids = assignedIds(userId);
@@ -56,11 +72,16 @@ export function channels(userId, { kind = 'live', group = null, search = null,
     where.push('id NOT IN (SELECT channel_id FROM hidden_channels WHERE user_id = ?)');
     args.push(userId);
   }
-  /* 'playable' keeps anything not yet known to be broken: a library that has
-     never been checked is shown in full rather than hidden wholesale. */
-  if (health === 'playable') where.push("health_status IN ('working', 'unchecked', 'temporarily_unavailable')");
-  else if (health === 'working') where.push("health_status = 'working'");
-  else if (health === 'failed') where.push("health_status IN ('failed', 'temporarily_unavailable')");
+  const healthWhere = (list) => {
+    where.push(`health_status IN (${placeholders(list.length)})`);
+    args.push(...list);
+  };
+  if (health === 'any') { /* no filter — the settings screen's own view */ }
+  else if (health === 'working') healthWhere([STATUS.working]);
+  else if (health === 'failed') healthWhere([STATUS.temporary, STATUS.failed]);
+  else if (health === 'incompatible') healthWhere([STATUS.incompatible]);
+  else if (health === 'hidden') healthWhere(HIDDEN);
+  else healthWhere(VISIBLE);              // 'visible', 'playable', or anything unrecognised
 
   const order = SORTS[sort] || SORTS.number;
   const db = openDb();
@@ -70,6 +91,34 @@ export function channels(userId, { kind = 'live', group = null, search = null,
     .all(...args, Math.min(Number(limit) || 500, 2000), Number(offset) || 0);
 
   return { total, items: rows.map(publicChannel) };
+}
+
+/**
+ * Every channel of one source, whatever its state — the administrator's view.
+ *
+ * Deliberately not scoped by a user's assigned sources, because the question
+ * it answers is about the source and not about an entitlement: "what did this
+ * playlist bring in, and which of it is Live TV leaving out?" Only the admin
+ * routes call it. It is also the proof that nothing was deleted: a channel
+ * hidden for weeks still lists here with everything the playlist said about
+ * it.
+ */
+export function sourceChannels(sourceId, { health = 'hidden', limit = 500, offset = 0 } = {}) {
+  const where = ['source_id = ?'];
+  const args = [sourceId];
+  if (health === 'any') { /* everything, inactive rows included */ }
+  else if (health === 'hidden') { where.push(`(active = 0 OR health_status IN (${placeholders(HIDDEN.length)}))`); args.push(...HIDDEN); }
+  else if (health === 'failed') { where.push(`health_status IN (${placeholders(2)})`); args.push(STATUS.temporary, STATUS.failed); }
+  else if (health === 'incompatible') { where.push('health_status = ?'); args.push(STATUS.incompatible); }
+  else if (health === 'working') { where.push('health_status = ?'); args.push(STATUS.working); }
+  else { where.push(`active = 1 AND health_status IN (${placeholders(VISIBLE.length)})`); args.push(...VISIBLE); }
+
+  const db = openDb();
+  const sql = `FROM channels WHERE ${where.join(' AND ')}`;
+  const total = db.prepare(`SELECT COUNT(*) n ${sql}`).get(...args).n;
+  const rows = db.prepare(`SELECT * ${sql} ORDER BY name_key, number
+      LIMIT ? OFFSET ?`).all(...args, Math.min(Number(limit) || 500, 2000), Number(offset) || 0);
+  return { total, state: health, items: rows.map(publicChannel) };
 }
 
 export function oneChannel(userId, channelId) {
@@ -121,10 +170,16 @@ export function tvgIdsFor(userId) {
  * It carries real stream addresses, which is the point of an export and the
  * reason it is an admin action rather than something a client may fetch.
  */
-export function exportM3u({ sourceId = null, kind = null } = {}) {
+export function exportM3u({ sourceId = null, kind = null, health = null } = {}) {
   const where = [], args = [];
   if (sourceId) { where.push('source_id = ?'); args.push(Number(sourceId)); }
   if (kind) { where.push('kind = ?'); args.push(String(kind)); }
+  /* Everything by default, because an export is an export and the dead rows
+     are part of what this server holds. `health: 'working'` is there for the
+     operator who wants a file to hand to another player, where a dead address
+     is just a channel that does not play. */
+  if (health === 'working') { where.push('active = 1 AND health_status = ?'); args.push(STATUS.working); }
+  else if (health === 'visible') { where.push(`active = 1 AND health_status IN (${placeholders(VISIBLE.length)})`); args.push(...VISIBLE); }
   const rows = openDb().prepare(`SELECT * FROM channels
       ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
       ORDER BY source_id, number, name`).all(...args);
@@ -154,10 +209,15 @@ export function searchAll(userId, term, { limit = 20 } = {}) {
   const db = openDb();
   const ids = assignedIds(userId);
 
+  /* Search answers with the same channels Live TV lists, for the same
+     reason: a channel that does not play is not a useful search result. */
   const chans = ids.length
-    ? db.prepare(`SELECT id, source_id, ext_id, kind, number, name, group_title, logo, tvg_id, country, language
+    ? db.prepare(`SELECT id, source_id, ext_id, kind, number, name, group_title, logo, tvg_id,
+          country, language, health_status, last_checked_at, last_success_at, failure_reason,
+          consecutive_failures, consecutive_successes, response_time_ms, active
         FROM channels WHERE source_id IN (${placeholders(ids.length)}) AND name_key LIKE ?
-        ORDER BY name LIMIT ?`).all(...ids, like, n).map(publicChannel)
+          AND active = 1 AND health_status IN (${placeholders(VISIBLE.length)})
+        ORDER BY name LIMIT ?`).all(...ids, like, ...VISIBLE, n).map(publicChannel)
     : [];
 
   return {
@@ -189,10 +249,17 @@ export function publicChannel(row) {
     kind: row.kind,
     active: row.active === undefined ? true : Boolean(row.active),
     /* Said plainly, so a client can show a channel it knows is off rather
-       than silently dropping it. */
-    health: row.health_status || 'unchecked',
+       than silently dropping it. `health` keeps the stored word for the
+       settings screen; `healthState` is the plain one — working, unavailable,
+       browser_incompatible, unknown. */
+    health: row.health_status || STATUS.unchecked,
+    healthState: plainStatus(row.health_status || STATUS.unchecked),
     lastCheckedAt: row.last_checked_at || null,
     lastSuccessAt: row.last_success_at || null,
+    lastWorkingAt: row.last_success_at || null,
+    consecutiveFailures: row.consecutive_failures || 0,
+    consecutiveSuccesses: row.consecutive_successes || 0,
+    responseTimeMs: row.response_time_ms || 0,
     failureReason: row.failure_reason || '',
     playback: `/api/v1/stream/${row.id}`
   };

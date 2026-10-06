@@ -136,10 +136,17 @@ describe('hiding and sorting', () => {
 
 describe('deciding whether a stream works', () => {
   test('an address nothing could play is refused before a connection is made', () => {
-    assert.match(addressProblem(''), /no address/);
-    assert.match(addressProblem('[NO PUBLIC STREAM]'), /not a stream address/);
-    assert.match(addressProblem('rtmp://x/y'), /rtmp:\/\/ stream/);
+    assert.match(addressProblem('').reason, /no address/);
+    assert.match(addressProblem('[NO PUBLIC STREAM]').reason, /not a stream address/);
+    assert.equal(addressProblem('[NO PUBLIC STREAM]').incompatible, false);
     assert.equal(addressProblem('https://ok.example/x.m3u8'), null);
+  });
+
+  test('an rtmp address is a browser problem, not a dead channel', () => {
+    const bad = addressProblem('rtmp://x/y');
+    assert.match(bad.reason, /rtmp:\/\/ stream/);
+    assert.match(bad.reason, /VLC/);
+    assert.equal(bad.incompatible, true, 'not counted among the dead');
   });
 
   test('an HTTP 200 carrying a web page is not a working channel', () => {
@@ -224,6 +231,11 @@ describe('sweeping a source', () => {
     /* A stand-in for the probe, so this tests the sweep rather than the
        internet: Three works, the rest do not. */
     const seen = [];
+    /* Back to the state an import leaves behind, because the tests above have
+       been writing results against these rows. */
+    openDb().prepare(`UPDATE channels SET health_status = 'unchecked', last_checked_at = NULL,
+        consecutive_failures = 0, consecutive_successes = 0, failure_reason = ''
+        WHERE source_id = ?`).run(sourceId);
     const counts = await sweep({
       sourceId, force: true, concurrency: 3,
       checker: async (url) => {
@@ -245,10 +257,19 @@ describe('sweeping a source', () => {
   });
 
   test('by default a user is not offered the channels known to be broken', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/v1/channels?kind=live&health=working', headers: auth(token) });
-    assert.equal(res.json().total, 1);
-    const all = await app.inject({ method: 'GET', url: '/api/v1/channels?kind=live&health=any', headers: auth(token) });
-    assert.equal(all.json().total, 3, 'but they can still be looked at');
+    const res = await app.inject({ method: 'GET', url: '/api/v1/channels?kind=live', headers: auth(token) });
+    assert.equal(res.json().total, 1, 'the one that answered');
+    assert.equal(res.json().items[0].name, 'Channel Three');
+  });
+
+  test('and cannot ask for them either: the server decides, not the client', async () => {
+    const asked = await app.inject({
+      method: 'GET', url: '/api/v1/channels?kind=live&health=any', headers: auth(token) });
+    assert.equal(asked.json().total, 1, 'health=any from an ordinary account is ignored');
+
+    const admin = await app.inject({
+      method: 'GET', url: '/api/v1/channels?kind=live&health=any', headers: auth(adminToken) });
+    assert.equal(admin.json().total, 0, 'the admin has no channels of their own assigned');
   });
 
   test('the health sweep is admin work, and reports what it did', async () => {

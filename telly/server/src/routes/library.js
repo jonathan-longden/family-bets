@@ -1,6 +1,7 @@
 import { categories, channels, oneChannel, hideChannel, hiddenChannelIds } from '../services/library.js';
 import { paging } from './catalogue.js';
 import { sourcesForUser, syncSource, needsSync } from '../services/sources.js';
+import { startImportCheck } from '../services/health.js';
 
 /** The catalogue, always filtered to what this user is entitled to. */
 export default async function libraryRoutes(app) {
@@ -26,7 +27,7 @@ export default async function libraryRoutes(app) {
           search: { type: 'string', maxLength: 100 },
           country: { type: 'string', maxLength: 60 },
           language: { type: 'string', maxLength: 60 },
-          health: { type: 'string', enum: ['playable', 'working', 'failed', 'any'] },
+          health: { type: 'string', enum: ['visible', 'playable', 'working', 'failed', 'incompatible', 'hidden', 'any'] },
           sort: { type: 'string', enum: ['number', 'name', 'group', 'country', 'recent'] },
           includeInactive: { type: 'boolean' },
           includeHidden: { type: 'boolean' },
@@ -42,7 +43,11 @@ export default async function libraryRoutes(app) {
     search: request.query.search,
     country: request.query.country,
     language: request.query.language,
-    health: request.query.health,
+    /* Which channels are fit to watch is the server's decision, not the
+       client's: an ordinary account gets the working ones whatever it asks
+       for. The other modes exist for the settings screen, so only an
+       administrator can select one. */
+    health: request.auth.user.role === 'admin' ? request.query.health : undefined,
     sort: request.query.sort,
     includeInactive: request.query.includeInactive,
     includeHidden: request.query.includeHidden,
@@ -72,6 +77,10 @@ export default async function libraryRoutes(app) {
       return { refreshed: false, reason: 'still_fresh', lastSyncedAt: mine.last_synced_at };
     }
     const result = await syncSource(id);
-    return { refreshed: true, ...result };
+    /* And find out which of what came back actually plays, so the list this
+       person sees next is the working one. Behind the response: see the
+       admin sync route for why. */
+    const checking = startImportCheck(id, { log: app.log });
+    return { refreshed: true, ...result, checking };
   });
 }

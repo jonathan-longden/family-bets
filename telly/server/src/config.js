@@ -145,6 +145,12 @@ export const config = {
     workingIntervalHours: int('TELLY_HEALTH_OK_HOURS', 24),
     retryBaseMinutes: int('TELLY_HEALTH_RETRY_MINUTES', 30),
     maxRetryHours: int('TELLY_HEALTH_MAX_RETRY_HOURS', 24),
+    /* Two refusals in a row, not one, before a channel that was working
+       disappears from Live TV. One bad check is a bad moment on somebody
+       else's server; hiding on it would make the list flicker. One good check
+       is enough to bring it back, because a stream that answers properly is
+       answering properly. */
+    hideAfter: int('TELLY_HEALTH_HIDE_AFTER', 2),
     // Several refusals in a row, not one, before a channel is called failed.
     failAfter: int('TELLY_HEALTH_FAIL_AFTER', 3),
     // How little of a stream ffprobe is allowed to pull before deciding.

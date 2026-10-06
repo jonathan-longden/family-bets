@@ -4,10 +4,11 @@ import { createSource, updateSource, deleteSource, listSources, publicSource, as
          syncSource, getSource, ensureBuiltinSources, builtinCatalogue } from '../services/sources.js';
 import { createRoot, updateRoot, deleteRoot, listRoots, publicRoot, scanRoot, scanAll,
          runScanLive, scanInFlight, getJob, latestJob, unmatched } from '../services/media.js';
-import { sweep, healthSummary, checkStream } from '../services/health.js';
+import { sweep, healthSummary, checkStream, startImportCheck, checkInProgress }
+  from '../services/health.js';
 import { createEpgSource, updateEpgSource, deleteEpgSource, listEpgSources, publicEpgSource,
          syncEpgSource, getEpgSource } from '../services/xmltv.js';
-import { exportM3u } from '../services/library.js';
+import { exportM3u, sourceChannels } from '../services/library.js';
 import {
   listProviders, getProvider, publicProvider, setProviderEnabled, updateProvider,
   adapterFor, importable, NO_INTERFACE
@@ -102,7 +103,9 @@ export default async function adminRoutes(app) {
   /* Each source with what its last import and its last health sweep found —
      the figures the settings screen shows, rather than a bare "synced". */
   app.get('/sources', async () => ({
-    sources: listSources().map(s => ({ ...publicSource(s), health: healthSummary(s.id) }))
+    sources: listSources().map(s => ({
+      ...publicSource(s), health: healthSummary(s.id), checking: checkInProgress(s.id)
+    }))
   }));
 
   /**
@@ -169,9 +172,23 @@ export default async function adminRoutes(app) {
     return { ok: true };
   });
 
+  /**
+   * Refresh the playlist, then check what it brought in.
+   *
+   * The check is not awaited. Several hundred channels take minutes to look
+   * at and no browser should be made to hold a request open for that, so the
+   * sync answers straight away and the channels appear in Live TV as they are
+   * found working. `checking` says whether it is still going on; the figures
+   * come back from /sources or /health-summary.
+   */
   app.post('/sources/:id/sync', async (request) => {
-    const result = await syncSource(Number(request.params.id));
-    return { ...result, source: publicSource(getSource(Number(request.params.id))) };
+    const id = Number(request.params.id);
+    const result = await syncSource(id);
+    const started = startImportCheck(id, { log: app.log });
+    return {
+      ...result, checking: started || checkInProgress(id),
+      source: publicSource(getSource(id)), health: healthSummary(id)
+    };
   });
 
   /**
@@ -184,7 +201,10 @@ export default async function adminRoutes(app) {
         type: 'object',
         properties: {
           sourceId: { type: 'integer', minimum: 1 },
-          kind: { type: 'string', enum: ['live', 'movie', 'series'] }
+          kind: { type: 'string', enum: ['live', 'movie', 'series'] },
+          /* Omitted, the export is everything this server holds. 'working'
+             or 'visible' leaves out what Live TV is hiding. */
+          health: { type: 'string', enum: ['working', 'visible'] }
         }
       }
     }
@@ -311,8 +331,41 @@ export default async function adminRoutes(app) {
 
   app.get('/health-summary', async () => ({
     overall: healthSummary(),
-    sources: listSources().map(s => ({ id: s.id, name: s.name, health: healthSummary(s.id) }))
+    checking: checkInProgress(),
+    sources: listSources().map(s => ({
+      id: s.id, name: s.name, health: healthSummary(s.id), checking: checkInProgress(s.id)
+    }))
   }));
+
+  /**
+   * What Live TV is leaving out, and why — administrators only.
+   *
+   * The point of this view is that it is answerable at all: nothing was
+   * deleted, so every hidden channel can be listed with its name, its
+   * category, when it last worked and what went wrong. `state` picks which
+   * kind: hidden (the default, everything left out), failed, incompatible,
+   * working, visible or any.
+   */
+  app.get('/sources/:id/channels', {
+    schema: {
+      querystring: {
+        type: 'object',
+        properties: {
+          state: { type: 'string', enum: ['hidden', 'failed', 'incompatible', 'working', 'visible', 'any'] },
+          limit: { type: 'integer', minimum: 1, maximum: 2000 },
+          offset: { type: 'integer', minimum: 0 }
+        }
+      }
+    }
+  }, async (request) => {
+    const id = Number(request.params.id);
+    getSource(id);
+    const q = request.query || {};
+    return {
+      ...sourceChannels(id, { health: q.state || 'hidden', limit: q.limit, offset: q.offset }),
+      health: healthSummary(id)
+    };
+  });
 
   /** Refresh the playlist and then check what came back, in one go. */
   app.post('/sources/:id/refresh-and-check', async (request) => {

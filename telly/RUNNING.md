@@ -198,6 +198,8 @@ https it cannot even reach your server over http. Use
 | `Movies found: 0` after a scan | The path is wrong, or wrong as the *server* sees it. The folder row shows an error if it does not exist. |
 | Films appear, Play fails on `.mkv` | FFmpeg is not installed. Films in mp4/m4v/webm play without it. |
 | Channels showing in Movies | Fixed. A channel is never a film; film channels live in Live TV under "Film channels". |
+| Live TV showing fewer channels than the playlist imported | Working as intended. A channel whose stream does not answer is hidden, kept in the database, rechecked on its own and put back the moment it works. **Settings → IPTV sources → Show hidden channels** says which and why. |
+| A channel you know works is not listed | It may be `browser_incompatible` — a raw MPEG-TS or `rtmp://` stream, which answers but which no browser can decode. The hidden list says so. Press **Check channels** to look again now. |
 
 A scan that finds files now publishes them to the catalogue in the same
 operation, so there is no second button to find. If you ever want to force it:

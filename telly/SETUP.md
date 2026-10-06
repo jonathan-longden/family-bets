@@ -79,9 +79,12 @@ panel:
     node bin/telly-admin.js assign yourname 1
 
 Each source in the panel shows **channels imported**, **working**,
-**unavailable**, **unchecked**, when the playlist last updated and when the
-channels were last checked, with three buttons: **Refresh playlist**, **Check
-channels**, **Refresh + check**.
+**temporarily unavailable**, **browser incompatible**, **unchecked**, when the
+playlist last updated and when the **last health check** ran, with four
+buttons: **Refresh playlist**, **Check channels**, **Refresh + check** and
+**Show hidden channels** — which lists what Live TV is leaving out and why,
+with when each one last worked. That list is only answerable because nothing
+is deleted.
 
 Re-importing does not duplicate anything. Identity is the stream URL within
 the source, so a channel already there is updated in place — keeping its id,
@@ -211,14 +214,40 @@ variants; MPEG-TS must have the 0x47 sync byte at 188-byte intervals; MP4 must
 carry `ftyp`, `styp`, `moov` or `moof`. Short timeout, about a megabyte at
 most.
 
-A channel is only `working` if that succeeds. One failure makes it
-`temporarily_unavailable` — kept, still offered, retried in half an hour, then
-an hour, widening to a day. Three in a row makes it `failed` — still kept and
-still visible to you, never deleted. Viewers see `working` and `unchecked`
-channels; `?health=failed` is there for working out why.
+A channel is only `working` if that succeeds.
 
-    GET /api/v1/channels?health=working
-    GET /api/v1/admin/health-summary
+**What happens to one that fails.** Nothing is deleted, ever. A channel that
+was working is given the benefit of the doubt: the first failure leaves it on
+the list and puts it on the short retry clock, because somebody else's server
+having a bad minute should not make the channel list flicker. The second
+failure in a row takes it off Live TV — `temporarily_unavailable`, kept,
+retried in half an hour, then an hour, widening to a day. Three in a row makes
+it `failed`, which is still kept and still rechecked. **One good check puts it
+straight back**, with no resync and nothing for you to press: the scheduled
+sweep finds it answering and it reappears.
+
+**Reachable but unplayable here is a different answer.** A raw MPEG-TS stream
+or an `rtmp://` address answers perfectly well and no browser can decode it.
+Those are `browser_incompatible`: hidden from Live TV in a browser, counted
+separately, and told the truth about — the reason says a native player opens
+it rather than claiming the channel is off.
+
+**The server decides, not the app.** `/api/v1/channels` returns working and
+not-yet-checked channels and nothing else, in SQL, and an ordinary account
+asking for anything else is ignored. The other views are for administrators:
+
+    GET /api/v1/channels                                  working + unchecked
+    GET /api/v1/admin/health-summary                      the figures, per source
+    GET /api/v1/admin/sources/1/channels?state=hidden     what is being left out
+    GET /api/v1/admin/sources/1/channels?state=incompatible
+    GET /api/v1/admin/sources/1/channels?state=any        everything ever imported
+
+A sync checks what it brought in, behind the response — several hundred
+channels take minutes and no browser should hold a request open for that, so
+the sync answers at once with `"checking": true` and the channels appear as
+they are found. A sync never reopens a channel already known to be bad: its
+row carries its history, so only the never-checked ones are looked at and a
+refresh cannot put a dead channel back on the list.
 
 ### A film
 
