@@ -14,6 +14,33 @@ function sign(payload) {
 }
 
 /**
+ * A signature for one piece of cached artwork.
+ *
+ * Posters are the one thing a client fetches with a plain <img src>, which
+ * cannot carry an Authorization header — so the authenticated route for them
+ * has never actually worked in a browser: every cached poster 401'd and the
+ * card fell back to Telly's generated artwork. A ticket is the wrong shape
+ * here too, because a lazily-loaded rail is fetched minutes or hours after
+ * the page was opened and a five-minute ticket would have expired.
+ *
+ * So the address itself is the credential: an id plus a short signature over
+ * it, which cannot be guessed and does not expire. Somebody who can already
+ * read the catalogue has the address; somebody who cannot has nothing to
+ * enumerate. It carries no user and no device, because a poster is not
+ * somebody's private file — it is a picture of a film, fetched once for the
+ * whole house.
+ */
+export function artSignature(id) {
+  return sign(`art:${Number(id)}`).slice(0, 22);
+}
+
+export function artSignatureOk(id, sig) {
+  const want = Buffer.from(artSignature(id));
+  const got = Buffer.from(String(sig || ''));
+  return want.length === got.length && timingSafeEqual(want, got);
+}
+
+/**
  * `resource` is what the ticket is for. A live channel is its numeric id, as
  * it always was; a file from the server's own library is "movie-12",
  * "episode-98", "recording-3". One mechanism, so a personal film is no more

@@ -220,11 +220,61 @@ first, because it needs no internet.
 A provider that keeps a title in its own app is greyed and labelled **web
 only**. That is the honest answer, not a failure.
 
+### Search
+
+A box above Movies and Series, searching the whole catalogue in SQLite rather
+than the page that happens to be on screen. On a subscription with twenty
+thousand films that distinction is the feature: *Zodiac* is nowhere near the
+first page, and typing `zodiac` finds it.
+
+The title is matched three ways — as written, as the comparison form (so
+"zone of interest" finds *The Zone of Interest*) and as the original title (so
+`Rencontre` finds *Arrival*). Typing is debounced, so a word is one request
+rather than one per letter, and results page in like the rest of the
+catalogue. Clearing the box puts the list back as it was without fetching it
+again.
+
+Search and the filters compose: a genre chosen while searching narrows the
+search rather than replacing it. Live TV has its own box over its own channel
+list and is not involved.
+
+### Posters
+
+A provider's own poster is preferred and always will be. Where it has none, or
+where the address it gave does not load, Telly can ask The Movie Database —
+by the id the provider supplied, which is exact, or by title and year, which
+is only trusted when the year agrees and the name is close.
+
+That is off until you set a key, and a catalogue works perfectly well without
+one: a title with no poster gets the app's own generated artwork rather than a
+hole. To switch it on, get a key from
+[themoviedb.org](https://www.themoviedb.org/settings/api) and set it before
+starting the server:
+
+    set TELLY_TMDB_KEY=your-key-here         (Windows)
+    export TELLY_TMDB_KEY=your-key-here      (macOS, Linux)
+
+Posters are then filled in a batch at a time by the same background pass that
+refreshes providers, so a big catalogue fills over a few runs rather than
+in one stampede. To run one now and see where you are:
+
+    node bin/telly-admin.js artwork
+
+Pictures are fetched once, cached on the server and handed to the app on the
+server's own address — the app never asks a provider or TMDB for an image, and
+nothing about your library is sent to them beyond the title and year of a film
+with no id. Posters are fetched at a card's size, so twenty-four thousand
+films cost about a gigabyte rather than tens of them; the cache stops at
+`TELLY_ART_MAX_MB` (2048 by default) until you prune it.
+
+This product uses the TMDB API but is not endorsed or certified by TMDB.
+
 ### Filters
 
 Above Movies and Series: provider, genre, year, rating, country, language.
 `Movies → Provider → Internet Archive` narrows the list; *Inception* is still
-one card.
+one card. A series card carries its season and episode counts, which come with
+the row rather than needing the series to be opened first.
 
 ### Possible duplicates
 

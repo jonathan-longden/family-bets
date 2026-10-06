@@ -19,6 +19,7 @@ import { openReviews } from '../services/dedupe.js';
 import { decideReview, mergeWorks, catalogueCounts, forgetProvider }
   from '../services/catalogue.js';
 import { artworkStats, pruneArtwork } from '../services/artwork.js';
+import { artworkPass, artworkSummary } from '../services/posters.js';
 import { runOnce } from '../services/scheduler.js';
 import { revokeAllForUser } from '../services/sessions.js';
 import { openDb, nowIso } from '../db/index.js';
@@ -434,7 +435,11 @@ export default async function adminRoutes(app) {
       });
     }),
     catalogue: catalogueCounts(),
-    artwork: artworkStats()
+    artwork: artworkStats(),
+    /* How many titles actually have a picture, and where it came from — the
+       cache's size says nothing about the holes in the wall. Carries TMDB's
+       required acknowledgement, and never the key. */
+    posters: artworkSummary()
   }));
 
   app.get('/providers/:id', async (request) => {
@@ -556,6 +561,39 @@ export default async function adminRoutes(app) {
   }));
 
   /* ---------------------------------------------------------- artwork ----- */
+  /**
+   * Look for posters for the titles that have not got one.
+   *
+   * A pass, not an import: it reads rows that already exist, asks the
+   * provider's own poster first, then TMDB where a key is configured, and
+   * records what it settled on so the next pass does not redo the work.
+   * Nothing about a source, a stream or the Xtream import is touched.
+   */
+  app.post('/catalogue/artwork', {
+    schema: {
+      body: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', minimum: 1, maximum: 5000 },
+          kind: { type: 'string', enum: ['movie', 'series'] }
+        }
+      }
+    }
+  }, async (request) => {
+    const body = request.body || {};
+    const got = await artworkPass({
+      limit: body.limit,
+      kinds: body.kind ? [body.kind] : ['movie', 'series'],
+      log: request.log
+    });
+    return { ...got, artwork: artworkStats(), summary: artworkSummary() };
+  });
+
+  app.get('/catalogue/artwork', async () => ({
+    artwork: artworkStats(),
+    summary: artworkSummary()
+  }));
+
   app.post('/catalogue/artwork/prune', {
     schema: { body: { type: 'object', properties: { keepDays: { type: 'integer', minimum: 1, maximum: 3650 } } } }
   }, async (request) => pruneArtwork({ keepDays: (request.body || {}).keepDays }));

@@ -383,23 +383,27 @@ describe('artwork is fetched once', () => {
     assert.equal(row.state, 'cached');
   });
 
-  test('a validator is sent when a copy has to be rechecked, and a 304 costs nothing', async () => {
+  test('a copy that went missing is fetched whole, not revalidated away', async () => {
     const db = openDb();
     const row = db.prepare('SELECT * FROM artwork_cache WHERE url = ?')
       .get('https://img.example/poster.png');
-    /* Pretend the copy went missing, so it is revalidated rather than skipped. */
+    assert.equal(row.etag, '"v1"', 'the validator was stored when it was first fetched');
+    /* Pretend the copy went missing — a prune, a wiped disk, a restore. */
     db.prepare("UPDATE artwork_cache SET rel_path = 'gone/missing.png' WHERE id = ?").run(row.id);
 
+    /* Asking "has it changed?" about a picture we no longer hold invites a
+       304, and a 304 means "keep what you have" — which would mark the row
+       cached with nothing on disk, and hand every device in the house an
+       address that cannot be served. So the validator stays at home and the
+       whole picture comes back. */
     let sent = null;
     const got = await fetchArtwork('https://img.example/poster.png', {
-      fetchImpl: async (_u, opts) => {
-        sent = opts.headers;
-        return { ok: false, status: 304, headers: new Map(), json: async () => ({}),
-                 arrayBuffer: async () => new ArrayBuffer(0) };
-      }
+      fetchImpl: async (_u, opts) => { sent = opts.headers; return imageReply(PNG); }
     });
-    assert.equal(sent['if-none-match'], '"v1"', 'the etag went out');
+    assert.equal(sent['if-none-match'], undefined, 'no validator for a picture we have not got');
+    assert.equal(sent['if-modified-since'], undefined);
     assert.equal(got.state, 'cached');
+    assert.ok(existsSync(path.join(artworkDir(), got.rel_path)), 'and the file is really there');
   });
 
   test('something that is not an image is refused and remembered as such', async () => {

@@ -181,6 +181,66 @@ export const config = {
   },
 
   /**
+   * Artwork. A poster is small; twenty-four thousand of them are not.
+   *
+   * The cache already fetches once and revalidates with an ETag. These are
+   * the ceilings: a poster that arrives bigger than `maxPosterBytes` is
+   * refused rather than stored, and once the cache passes `maxMb` nothing new
+   * is fetched until a prune frees room. At the default poster size that is
+   * about forty kilobytes a film, so a twenty-four-thousand-title catalogue
+   * settles around a gigabyte — and the ceiling stops it going further on its
+   * own.
+   */
+  artwork: {
+    maxPosterBytes: int('TELLY_ART_MAX_BYTES', 768 * 1024),
+    maxMb: int('TELLY_ART_MAX_MB', 2048),
+    /* How many works one artwork pass will look at. A pass is cheap to
+       repeat and the scheduler runs it again, so this is a trickle rather
+       than a stampede. */
+    batch: int('TELLY_ART_BATCH', 200),
+    /* A picture that would not load is not asked for again straight away —
+       but nor is it written off for good, because one bad moment on somebody
+       else's image host should not blank a poster permanently. */
+    retryFailedDays: int('TELLY_ART_RETRY_DAYS', 7)
+  },
+
+  /**
+   * The Movie Database, as the fallback when a provider has no poster.
+   *
+   * Off unless a key is set: TELLY_TMDB_KEY. It is their documented public
+   * API, read with a key the operator obtained themselves, and it is the only
+   * external metadata source Telly uses — nothing here scrapes IMDb or
+   * anywhere else, and a provider that supplies its own poster is never
+   * second-guessed.
+   *
+   * `lookupsPerRun` is the important one. Asking TMDB by an id a provider
+   * already gave is cheap and exact; searching by title and year is neither,
+   * so it is rationed. A pass spends at most this many searches and stops,
+   * and what it could not resolve is marked so the next pass does not try it
+   * again from scratch.
+   *
+   * Using it obliges an acknowledgement, which Settings and the docs carry:
+   * this product uses the TMDB API but is not endorsed or certified by TMDB.
+   */
+  tmdb: {
+    key: env('TELLY_TMDB_KEY', ''),
+    apiBase: env('TELLY_TMDB_API', 'https://api.themoviedb.org/3'),
+    imageBase: env('TELLY_TMDB_IMAGES', 'https://image.tmdb.org/t/p'),
+    /* w342 is the poster size a card wants. Bigger is wasted on a grid and
+       multiplies by every title in the catalogue. */
+    posterSize: env('TELLY_TMDB_POSTER', 'w342'),
+    backdropSize: env('TELLY_TMDB_BACKDROP', 'w780'),
+    language: env('TELLY_TMDB_LANG', 'en-GB'),
+    lookupsPerRun: int('TELLY_TMDB_LOOKUPS', 250),
+    requestDelayMs: int('TELLY_TMDB_DELAY', 120),
+    timeoutMs: int('TELLY_TMDB_TIMEOUT', 12000),
+    /* A title-and-year search is only trusted when the year matches and the
+       name is close. Below this the answer is thrown away: a wrong poster is
+       worse than none. */
+    minTitleScore: Number(env('TELLY_TMDB_MIN_SCORE', '0.82'))
+  },
+
+  /**
    * The playlists Telly can set up for you. Fetched live from iptv-org so a
    * channel change upstream arrives on the next refresh; nothing is copied
    * into this repository. Public free-to-air and free ad-supported streams

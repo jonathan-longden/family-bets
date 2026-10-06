@@ -161,6 +161,13 @@ genre, year, rating, country and language. Filtering by provider narrows the
 list without a provider ever becoming part of a film's identity, so *Inception*
 is still one card under `Provider → Tubi`.
 
+**Search** sits above both, and it is the server that searches: the term goes
+into the same query the filters use and SQL matches it against the written
+title, the comparison form and the original title across the entire
+catalogue — not across the page that happens to be loaded, which on a
+twenty-thousand-film subscription is the difference between finding a film and
+not. Typing is debounced, results page in, and an empty box puts the list back.
+
 Search runs over the canonical catalogue rather than asking each provider, so
 "Matrix" returns the four films once each.
 
@@ -582,9 +589,15 @@ that instead of showing empty shelves. Movies and Series are drawn from the
 playlist's own group titles; if a playlist has none, they say so.
 
 Neither M3U nor Xtream carries artwork beyond the one image field per entry,
-so Telly does not go looking for posters elsewhere — no third-party metadata
-service is called, and nothing about your playlist leaves the device. Where a
-title has no picture, the generated scene is what you get.
+and the app on its own does not go looking for posters elsewhere: no
+third-party metadata service is called, and nothing about your playlist leaves
+the device. Where a title has no picture, the generated scene is what you get.
+
+Signed in to a Telly server, the server can fill those gaps from The Movie
+Database — but only if whoever runs it has set a TMDB key, and the lookups
+happen there rather than on your device. The app is handed a poster on the
+server's own address either way; it never fetches from a metadata service
+itself. See the backend's README.
 
 ## Notes
 

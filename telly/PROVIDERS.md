@@ -21,6 +21,7 @@ is which, and why, so the answer is checkable rather than taken on trust.
 | **Xtream panels** (your own subscriptions) | `official_api` | `available` | **Yes** |
 | Internet Archive | `official_api` | `available` | **Yes** |
 | This server's media folders | `local_filesystem` | `available` | **Yes** |
+| The Movie Database | `official_api` | off unless a key is set | **Artwork and metadata only** — never a playback source |
 
 Every one of the five is registered, visible in Settings with its reason, and
 cannot be switched on. Telly reports:
@@ -288,6 +289,39 @@ Three things the framework will not let an adapter do:
 3. **Claim identity.** A work an adapter yields carries no provider field. The
    provider belongs to the source, which is what makes one film one card.
 
+## Metadata and artwork: TMDB, and only TMDB
+
+The providers above are catalogues — they say what a title is and how to play
+it. One source is neither: **The Movie Database** is read only to fill in a
+poster, and a few fields beside it, that a provider left empty.
+
+| | |
+|---|---|
+| Access | `official_api` — [documented](https://developer.themoviedb.org/docs), read with a key the operator obtains themselves |
+| Default | **Off.** No key, no requests. |
+| Read by id | `/3/movie/{id}`, `/3/tv/{id}` — where a provider supplied a TMDB id |
+| Read by name | `/3/search/movie`, `/3/search/tv` — rationed, and only with a year |
+| Written | A poster and backdrop, cached locally at card size; description, rating and the TMDB and IMDb ids, into empty columns only |
+| Attribution | *This product uses the TMDB API but is not endorsed or certified by TMDB.* |
+
+Three things it deliberately is not:
+
+- **Not a scraper.** It is their JSON API. No web page is parsed, here or
+  anywhere else in Telly.
+- **Not IMDb.** An IMDb id is stored when a provider or TMDB hands one over,
+  because it is useful for matching two records of the same film. It is never
+  followed: IMDb publishes no interface for this and its terms do not permit
+  taking one.
+- **Not an authority.** A provider's own poster wins. TMDB fills gaps; it
+  never overwrites a field a provider filled.
+
+And it is rationed, because twenty-four thousand films must not become
+twenty-four thousand searches: a lookup by id is exact and cheap, a search by
+title and year is neither, so a pass spends at most `TELLY_TMDB_LOOKUPS` of
+them and every outcome is recorded so the next pass does not repeat it. A
+search with no year, or whose best candidate's name or year does not agree, is
+thrown away rather than guessed at — a wrong poster is worse than none.
+
 ## The boundaries, restated
 
 Telly stores metadata and authorised playback sources. It does not:
@@ -298,6 +332,8 @@ Telly stores metadata and authorised playback sources. It does not:
 - download films from third-party services
 - redistribute third-party content
 - scrape a provider whose terms prohibit it
+- read any metadata service other than TMDB, and that only with a key the
+  operator set and only through its documented API
 
 Where a provider offers playback only through its own app or site, the source
 is marked `web_only`: the catalogue stays honest about who carries the title,
