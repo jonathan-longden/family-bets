@@ -1004,9 +1004,13 @@ export function catalogueCounts() {
     movieSources: n('SELECT COUNT(*) n FROM catalogue_movie_sources'),
     episodeSources: n('SELECT COUNT(*) n FROM catalogue_episode_sources'),
     openReviews: n("SELECT COUNT(*) n FROM catalogue_merge_reviews WHERE status = 'open'"),
-    /* How much the deduplication is actually doing: works carried by more than
-       one provider, which would otherwise be that many extra cards. */
+    /* How much the deduplication is actually doing: films with more than one
+       way to play, which would otherwise be that many extra cards.
+       Counted per place rather than per provider, because two Xtream
+       subscriptions are one provider and two places — an operator with two
+       panels carrying the same film has one card and two sources, and a
+       figure that read 0 would be telling them otherwise. */
     multiSourceMovies: n(`SELECT COUNT(*) n FROM (SELECT movie_id FROM catalogue_movie_sources
-        GROUP BY movie_id HAVING COUNT(DISTINCT provider_id) > 1)`)
+        GROUP BY movie_id HAVING COUNT(DISTINCT provider_id || ':' || COALESCE(source_id, 0)) > 1)`)
   };
 }
