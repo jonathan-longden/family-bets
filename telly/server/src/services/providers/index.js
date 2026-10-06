@@ -23,6 +23,7 @@ import { ACCESS, STATUS, PLAYBACK, NO_INTERFACE, importable } from './contract.j
 /* ------------------------------------------------------------- registry --- */
 
 import localAdapter from './local.js';
+import xtreamAdapter from './xtream.js';
 import archiveAdapter from './archive.js';
 import tubiAdapter from './tubi.js';
 import rokuAdapter from './roku.js';
@@ -36,6 +37,7 @@ import movyAdapter from './movy.js';
  */
 export const ADAPTERS = [
   localAdapter,
+  xtreamAdapter,
   archiveAdapter,
   tubiAdapter,
   rokuAdapter,

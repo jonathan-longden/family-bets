@@ -177,14 +177,16 @@ export function ingestSeries(providerId, work, stats = {}) {
   if (work.source && work.source.contentId) {
     db.prepare(`INSERT INTO catalogue_series_sources
         (series_id, provider_id, provider_content_id, metadata_url, availability_status,
-         last_checked, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?)
+         source_id, source_label, last_checked, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(provider_id, provider_content_id) DO UPDATE SET
           series_id = excluded.series_id, metadata_url = excluded.metadata_url,
           availability_status = excluded.availability_status,
+          source_id = excluded.source_id, source_label = excluded.source_label,
           last_checked = excluded.last_checked, updated_at = excluded.updated_at`)
       .run(seriesId, providerId, String(work.source.contentId), work.source.metadataUrl || '',
-           work.source.availability || 'unchecked', at, at, at);
+           work.source.availability || 'unchecked', work.source.sourceId ?? null,
+           work.source.sourceLabel || '', at, at, at);
   }
 
   /* Episodes are identified by (series, season, episode) and nothing else, so
@@ -254,19 +256,23 @@ function upsertEpisode(seriesId, seasonId, seasonNumber, ep, providerId, at, sta
   if (ep.source && ep.source.contentId) {
     db.prepare(`INSERT INTO catalogue_episode_sources
         (episode_id, provider_id, provider_content_id, metadata_url, playback_url, playback_type,
-         availability_status, local_kind, local_id, quality, last_checked, created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+         availability_status, local_kind, local_id, quality, credentialed, source_id, source_label,
+         last_checked, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         ON CONFLICT(provider_id, provider_content_id) DO UPDATE SET
           episode_id = excluded.episode_id, metadata_url = excluded.metadata_url,
           playback_url = excluded.playback_url, playback_type = excluded.playback_type,
           availability_status = excluded.availability_status,
           local_kind = excluded.local_kind, local_id = excluded.local_id,
-          quality = excluded.quality, last_checked = excluded.last_checked,
-          updated_at = excluded.updated_at`)
+          quality = excluded.quality, credentialed = excluded.credentialed,
+          source_id = excluded.source_id, source_label = excluded.source_label,
+          last_checked = excluded.last_checked, updated_at = excluded.updated_at`)
       .run(episodeId, providerId, String(ep.source.contentId), ep.source.metadataUrl || '',
            ep.source.playbackUrl || '', ep.source.playbackType || PLAYBACK.webOnly,
            ep.source.availability || 'unchecked', ep.source.localKind || '',
-           ep.source.localId ?? null, ep.source.quality || '', at, at, at);
+           ep.source.localId ?? null, ep.source.quality || '',
+           ep.source.credentialed ? 1 : 0, ep.source.sourceId ?? null,
+           ep.source.sourceLabel || '', at, at, at);
   }
   return episodeId;
 }
@@ -275,19 +281,22 @@ function attachMovieSource(movieId, providerId, source, at) {
   if (!source || !source.contentId) return;
   openDb().prepare(`INSERT INTO catalogue_movie_sources
       (movie_id, provider_id, provider_content_id, metadata_url, playback_url, playback_type,
-       availability_status, local_kind, local_id, quality, last_checked, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+       availability_status, local_kind, local_id, quality, credentialed, source_id, source_label,
+       last_checked, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(provider_id, provider_content_id) DO UPDATE SET
         movie_id = excluded.movie_id, metadata_url = excluded.metadata_url,
         playback_url = excluded.playback_url, playback_type = excluded.playback_type,
         availability_status = excluded.availability_status,
         local_kind = excluded.local_kind, local_id = excluded.local_id,
-        quality = excluded.quality, last_checked = excluded.last_checked,
-        updated_at = excluded.updated_at`)
+        quality = excluded.quality, credentialed = excluded.credentialed,
+        source_id = excluded.source_id, source_label = excluded.source_label,
+        last_checked = excluded.last_checked, updated_at = excluded.updated_at`)
     .run(movieId, providerId, String(source.contentId), source.metadataUrl || '',
          source.playbackUrl || '', source.playbackType || PLAYBACK.webOnly,
          source.availability || 'unchecked', source.localKind || '', source.localId ?? null,
-         source.quality || '', at, at, at);
+         source.quality || '', source.credentialed ? 1 : 0, source.sourceId ?? null,
+         source.sourceLabel || '', at, at, at);
 }
 
 function writeIds(kind, workId, ids) {
@@ -448,6 +457,57 @@ function moveEpisodes(db, keepId, dropId, at) {
  * provider off does not do it on its own: switching off is reversible in a
  * second, and forgetting is not.
  */
+/**
+ * Forget one source's catalogue entries — the subscription has been removed.
+ *
+ * The same rule as forgetProvider, narrowed to one `sources` row: a film this
+ * panel was the only carrier of goes, and a film the household also owns on
+ * disk simply loses one of its ways to play. Called when an Xtream source is
+ * deleted, because leaving behind rows whose only address needs credentials
+ * that no longer exist would put unplayable films in the library.
+ */
+export function forgetSourceCatalogue(sourceId) {
+  const db = openDb();
+  const id = Number(sourceId);
+  const out = { movieSources: 0, seriesSources: 0, episodeSources: 0,
+                movies: 0, series: 0, episodes: 0, seasons: 0 };
+
+  const tx = db.transaction(() => {
+    out.movieSources = db.prepare('DELETE FROM catalogue_movie_sources WHERE source_id = ?')
+      .run(id).changes;
+    out.episodeSources = db.prepare('DELETE FROM catalogue_episode_sources WHERE source_id = ?')
+      .run(id).changes;
+    out.seriesSources = db.prepare('DELETE FROM catalogue_series_sources WHERE source_id = ?')
+      .run(id).changes;
+    if (!(out.movieSources + out.episodeSources + out.seriesSources)) return;
+    out.episodes = db.prepare(`DELETE FROM catalogue_episodes WHERE id NOT IN
+        (SELECT episode_id FROM catalogue_episode_sources)`).run().changes;
+    out.seasons = db.prepare(`DELETE FROM catalogue_seasons WHERE id NOT IN
+        (SELECT season_id FROM catalogue_episodes WHERE season_id IS NOT NULL)`).run().changes;
+    out.series = db.prepare(`DELETE FROM catalogue_series WHERE id NOT IN
+          (SELECT series_id FROM catalogue_episodes)
+        AND id NOT IN (SELECT series_id FROM catalogue_series_sources)`).run().changes;
+    out.movies = db.prepare(`DELETE FROM catalogue_movies WHERE id NOT IN
+        (SELECT movie_id FROM catalogue_movie_sources)`).run().changes;
+
+    /* And whatever hung off a work that has gone, including a duplicate
+       review about one: a question about two rows, one of which no longer
+       exists, cannot be answered and would break the list it sits in. */
+    for (const [kind, table] of [['movie', 'catalogue_movies'], ['series', 'catalogue_series'],
+                                 ['episode', 'catalogue_episodes']]) {
+      for (const t of ['catalogue_ids', 'catalogue_tags', 'catalogue_credits']) {
+        db.prepare(`DELETE FROM ${t} WHERE work_kind = ?
+            AND work_id NOT IN (SELECT id FROM ${table})`).run(kind);
+      }
+      db.prepare(`DELETE FROM catalogue_merge_reviews WHERE work_kind = ?
+          AND (left_id NOT IN (SELECT id FROM ${table})
+            OR right_id NOT IN (SELECT id FROM ${table}))`).run(kind);
+    }
+  });
+  tx();
+  return out;
+}
+
 export function forgetProvider(providerId) {
   const db = openDb();
   const id = Number(providerId);
@@ -767,6 +827,9 @@ export function publicSource(s) {
     providerKey: s.provider_key,
     providerName: s.provider_name,
     providerEnabled: Boolean(s.provider_enabled),
+    /* Which subscription or folder this copy is on, where the provider is not
+       the whole answer: an operator with two Xtream panels sees which one. */
+    sourceLabel: s.source_label || '',
     playbackType: s.playback_type,
     playable,
     availability: s.availability_status,
@@ -779,6 +842,15 @@ export function publicSource(s) {
     out.local = true;
     out.localKind = s.local_kind;
     out.localId = s.local_id;
+  } else if (playable && s.credentialed) {
+    /* The address has a subscription's username and password in it, so it
+       stays here. The client is given a path on this server, which cuts a
+       ticket and redirects — the arrangement live channels have always used.
+       Nothing is downloaded: the video still comes from the provider. */
+    out.credentialed = true;
+    out.remote = true;
+    out.playback = `/api/v1/stream/catalogue/${s.movie_id ? 'movie' : 'episode'}/` +
+      `${s.movie_id || s.episode_id}`;
   } else if (playable) {
     out.url = webAddress(s.playback_url);
   } else {
@@ -786,6 +858,28 @@ export function publicSource(s) {
     out.webUrl = webAddress(s.metadata_url);
   }
   return out;
+}
+
+/**
+ * The real address behind a source — for this server only.
+ *
+ * Deliberately separate from publicSource, and deliberately not reachable
+ * through it: the only way to the stored URL of a credentialed source is a
+ * server-side call that names the kind and the source id. A route that wants
+ * to redirect a player to a panel asks here; nothing that answers a client
+ * ever sees the result.
+ */
+export function sourceAddress(kind, sourceId) {
+  const table = kind === 'movie' ? 'catalogue_movie_sources' : 'catalogue_episode_sources';
+  const row = openDb().prepare(`SELECT * FROM ${table} WHERE id = ?`).get(Number(sourceId));
+  if (!row) return null;
+  return {
+    url: webAddress(row.playback_url),
+    playbackType: row.playback_type,
+    credentialed: Boolean(row.credentialed),
+    workId: kind === 'movie' ? row.movie_id : row.episode_id,
+    sourceLabel: row.source_label || ''
+  };
 }
 
 /** The one source Play should use, or null when nothing here can be played. */

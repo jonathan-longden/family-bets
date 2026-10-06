@@ -87,6 +87,28 @@ export const config = {
   // never reaches the device — at the cost of your bandwidth.
   streamMode: env('TELLY_STREAM_MODE', 'redirect'),
 
+  /**
+   * The same choice for a catalogue source whose address carries a
+   * subscription's username and password — an Xtream panel's films and
+   * series.
+   *
+   * This one defaults the other way round, and deliberately. A redirect is
+   * cheaper, but the address it sends is
+   *
+   *     http://panel:8080/movie/USERNAME/PASSWORD/1234.mkv
+   *
+   * so redirecting hands every television and phone in the house the
+   * subscription itself. Relaying costs the bytes and keeps the credential
+   * where it belongs: the panel is asked by this server, over the same
+   * internet connection it would have used anyway, and the device sees only
+   * an address on this server.
+   *
+   * Set TELLY_VOD_MODE=redirect to trade that back for the bandwidth. It is
+   * a reasonable choice on a network you trust; it is not the default,
+   * because it is not the safe one.
+   */
+  vodMode: env('TELLY_VOD_MODE', 'proxy'),
+
   rateLimit: {
     loginPerMinute: int('TELLY_RL_LOGIN', 10),
     apiPerMinute: int('TELLY_RL_API', 300)

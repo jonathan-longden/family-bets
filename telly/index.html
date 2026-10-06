@@ -2703,10 +2703,12 @@ async function srvTicket(ch, sourceId){
   const st = srvState();
 
   /* A work in the catalogue. The server decides which provider to use —
-     or honours the one that was picked — and answers with one of three
-     things: a ticket for a file on its own disk, a provider's own published
+     or honours the one that was picked — and answers with one of four
+     things: a ticket for a file on its own disk, a ticket for a stream the
+     server resolves on our behalf (an Xtream subscription, whose address
+     carries credentials and so never comes here), a provider's own published
      stream address, or a refusal saying the provider plays this only in its
-     own app. The third is not worked around. */
+     own app. The last is not worked around. */
   if (ch.catKind && ch.catKind !== 'series'){
     const q = sourceId ? '?source=' + encodeURIComponent(sourceId) : '';
     let got;
@@ -2722,7 +2724,9 @@ async function srvTicket(ch, sourceId){
       }
       throw e;
     }
-    if (got.mode === 'local'){
+    /* Both of these are paths on the Telly server rather than addresses
+       elsewhere, so both are resolved against it. */
+    if (got.mode === 'local' || got.mode === 'remote'){
       return st.host + String(got.url).replace(/^\/api\/v1/, SRV_API);
     }
     /* The provider's own address, exactly as it published it. */

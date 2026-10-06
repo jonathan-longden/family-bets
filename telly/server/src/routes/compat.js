@@ -1,7 +1,7 @@
 import {
   movies, movie, publicMovie, movieSources, seriesList, oneSeries, publicSeries,
   seasonsOf, episodesOf, episode, publicEpisode, episodeSources, seriesSources,
-  search, facets, preferredSource, catalogueCounts
+  search, facets, preferredSource, catalogueCounts, sourceAddress
 } from '../services/catalogue.js';
 import { playableMedia } from '../services/media.js';
 import { decide, sendDirect, sendTranscoded, MIME } from '../services/playback.js';
@@ -9,6 +9,7 @@ import { readTicket } from '../lib/tickets.js';
 import { paging } from './catalogue.js';
 import { badRequest, forbidden, notFound, upstreamFailed } from '../lib/errors.js';
 import { openDb } from '../db/index.js';
+import { config } from '../config.js';
 
 /**
  * The unversioned paths, which are the ones people actually type.
@@ -71,15 +72,27 @@ async function streamByCatalogueId(app, request, reply, kind) {
   if (!source) {
     throw notFound(`Nothing can play that ${kind}. No provider offers a stream for it.`);
   }
-  if (!source.local) {
-    /* A provider's own stream is theirs to serve, and proxying a film through
-       this server would be both slow and a redistribution. */
+  /* What a ticket for this has to say, which differs by what is playing:
+     a file on this server is named by its row, and a subscription's stream by
+     the catalogue source it came from. */
+  const resource = source.local
+    ? `${source.localKind}-${source.localId}`
+    : `cat-${kind}-${source.id}`;
+
+  /* A source whose address carries a subscription's username and password is
+     never redirected to without an account behind the request. Before this,
+     every non-local source was public and a redirect to one gave nothing
+     away; an Xtream panel's address gives away the subscription, so it is
+     checked first and resolved server-side. */
+  if (!source.local && !source.credentialed) {
+    /* A provider's own public stream is theirs to serve, and proxying a film
+       through this server would be both slow and a redistribution. */
     return reply.redirect(302, source.url);
   }
 
   const ticket = readTicket(request.query.ticket);
   if (ticket) {
-    if (ticket.resource !== `${source.localKind}-${source.localId}`) {
+    if (ticket.resource !== resource) {
       throw forbidden('That playback link is for something else.');
     }
     const device = openDb().prepare('SELECT revoked_at FROM devices WHERE id = ? AND user_id = ?')
@@ -89,6 +102,16 @@ async function streamByCatalogueId(app, request, reply, kind) {
     /* No ticket: then a token, verified the ordinary way. */
     await app.authenticate(request, reply);
     if (reply.sent) return reply;
+  }
+
+  if (source.credentialed) {
+    /* Resolved here, after the check above. Relayed rather than redirected
+       to, for the reason in config.vodMode: a redirect would put the
+       subscription's username and password on the device. */
+    const address = sourceAddress(kind, source.id);
+    if (!address || !address.url) throw upstreamFailed('That source has no usable address.');
+    if (config.vodMode === 'redirect') return reply.redirect(302, address.url);
+    return relayUpstream(address.url, request, reply);
   }
 
   const item = playableMedia(source.localKind, source.localId);
@@ -101,6 +124,33 @@ async function streamByCatalogueId(app, request, reply, kind) {
     return sendTranscoded(item.path, reply, { encode: request.query.encode === '1' });
   }
   throw upstreamFailed(plan.reason || 'That file cannot be played by this server.');
+}
+
+/**
+ * Relay an upstream stream, so its address never reaches the device.
+ *
+ * The same thing stream.js does for a live channel in proxy mode: range
+ * headers are passed through both ways, so seeking works, and the body is
+ * streamed rather than buffered — nothing is stored on this server.
+ */
+async function relayUpstream(url, request, reply) {
+  const headers = { 'user-agent': 'Telly-Server/1.0' };
+  if (request.headers.range) headers.range = request.headers.range;
+  let upstream;
+  try {
+    upstream = await fetch(url, { headers, redirect: 'follow' });
+  } catch (e) {
+    throw upstreamFailed(`The provider did not answer: ${e.message}`);
+  }
+  if (!upstream.ok && upstream.status !== 206) {
+    throw upstreamFailed(`The provider replied ${upstream.status} ${upstream.statusText}.`);
+  }
+  for (const h of ['content-type', 'content-length', 'accept-ranges', 'content-range']) {
+    const v = upstream.headers.get(h);
+    if (v) reply.header(h, v);
+  }
+  reply.status(upstream.status);
+  return reply.send(upstream.body);
 }
 
 export default async function compatRoutes(app) {

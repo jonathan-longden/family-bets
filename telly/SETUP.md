@@ -92,6 +92,69 @@ and with it your favourites and its health history. A channel that has gone
 from the playlist is marked inactive rather than deleted, so it comes straight
 back if the publisher restores it.
 
+### An Xtream subscription
+
+    node bin/telly-admin.js add-source "My panel" xtream "http://panel:8080" username password
+    node bin/telly-admin.js assign yourname 2
+
+A panel publishes **three** catalogues through one API, and they go to three
+different places in Telly:
+
+| the panel's | Telly reads it with | and it appears in |
+|---|---|---|
+| live channels | `sync <id>` | **Live TV** |
+| films | `import-vod <id>` | **Movies** |
+| series, seasons, episodes | `import-vod <id>` | **Series** |
+
+`sync` is the live line-up only — which is why a panel full of films used to
+report nothing but "Synced 15 channels". Before importing, you can ask the
+panel what it actually has:
+
+    node bin/telly-admin.js probe 2
+
+    My panel — http://panel:8080
+      account        username · Active · expires 2027-01-31 · 2 connection(s)
+      output formats m3u8, ts
+
+      live channels  15 in 3 categories   → Live TV
+      films          812 in 14 categories → Movies
+      series         96 in 7 categories    → Series
+
+      a film:   "Arrival (2016) 1080p" (.mp4)
+                carries plot, poster, backdrop, genre, cast, director, year, rating, runtime
+                no tmdbId
+      a series: "The Bear" — 2 season(s), 18 episode(s)
+
+      to import the films and series:  import-vod 2
+
+Then:
+
+    node bin/telly-admin.js import-vod 2
+
+which reads every film's details and every series in full, and files them in
+the same Movies and Series library as your own disk. It is **not** a download:
+each row holds the panel's own address and the video is fetched when you press
+Play. Running it again updates rather than duplicates — a title is filed under
+the panel's own id for it, so a renamed film stays one film.
+
+From the app, the same thing happens on the catalogue's own schedule
+(**Settings → Catalogue providers → Xtream panels → Refresh**, every six hours
+by default).
+
+**A film from two places becomes one card with two ways to play.** If you own
+*Arrival* on disk and your panel carries it too, Movies shows one *Arrival*
+and Play prefers the copy that needs no internet. Where the match is not
+certain — the same title with no year to confirm it — both stay visible and
+the pair is queued under **Possible duplicates** for you to decide, rather
+than merged on a guess.
+
+**Your subscription stays on the server.** A panel's stream address has the
+username and password in the path, so Telly never gives one to a client: the
+app receives a short-lived ticket for an address on your own server, and the
+server fetches from the panel. That costs bandwidth on the machine running
+Telly; `TELLY_VOD_MODE=redirect` trades it back for speed, at the price of
+every television in the house learning the subscription.
+
 ---
 
 ## 5. Scan the libraries
@@ -237,6 +300,7 @@ not-yet-checked channels and nothing else, in SQL, and an ordinary account
 asking for anything else is ignored. The other views are for administrators:
 
     GET /api/v1/channels                                  working + unchecked
+    POST /api/v1/admin/providers/<xtream id>/refresh      import a panel's films and series
     GET /api/v1/admin/health-summary                      the figures, per source
     GET /api/v1/admin/sources/1/channels?state=hidden     what is being left out
     GET /api/v1/admin/sources/1/channels?state=incompatible
