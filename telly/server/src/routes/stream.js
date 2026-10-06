@@ -6,7 +6,8 @@ import { playableMedia } from '../services/media.js';
 import { decide, sendDirect, sendTranscoded, MIME } from '../services/playback.js';
 import { badRequest, forbidden, notFound, upstreamFailed, webOnly } from '../lib/errors.js';
 import {
-  movie as catMovie, episode as catEpisode, movieSources, episodeSources, preferredSource
+  movie as catMovie, episode as catEpisode, movieSources, episodeSources, preferredSource,
+  sourceAddress
 } from '../services/catalogue.js';
 import { openDb } from '../db/index.js';
 
@@ -162,18 +163,115 @@ export default async function streamRoutes(app) {
       };
     }
 
+    const alternatives = all.filter(s => s.playable && s.id !== chosen.id)
+      .map(s => ({ sourceId: s.id, provider: s.providerName,
+                   source: s.sourceLabel || undefined, playbackType: s.playbackType }));
+
+    if (chosen.credentialed) {
+      /* A subscription's address has its username and password in it, so the
+         client is given a ticket for this server instead. The server redirects
+         the player to the panel when the ticket is presented; the video never
+         passes through here unless the operator asked for proxy mode, and the
+         credentials never reach the device. */
+      const ticket = issueTicket({
+        userId: request.auth.user.id,
+        deviceId: request.auth.deviceId,
+        resource: `cat-${kind}-${chosen.id}`
+      });
+      return {
+        mode: 'remote',
+        provider: chosen.providerName,
+        source: chosen.sourceLabel || undefined,
+        sourceId: chosen.id,
+        url: `/api/v1/stream/catalogue/${kind}/${id}?source=${chosen.id}` +
+             `&ticket=${encodeURIComponent(ticket)}`,
+        expiresIn: config.tokens.ticketTtlSeconds,
+        playbackType: chosen.playbackType,
+        quality: chosen.quality || undefined,
+        title: titleOf(work),
+        alternatives
+      };
+    }
+
     return {
       mode: 'direct',
       provider: chosen.providerName,
+      source: chosen.sourceLabel || undefined,
       sourceId: chosen.id,
       /* The provider's own published address, unchanged. */
       url: chosen.url,
       playbackType: chosen.playbackType,
       quality: chosen.quality || undefined,
       title: titleOf(work),
-      alternatives: all.filter(s => s.playable && s.id !== chosen.id)
-        .map(s => ({ sourceId: s.id, provider: s.providerName, playbackType: s.playbackType }))
+      alternatives
     };
+  });
+
+  /**
+   * A catalogue source played through this server.
+   *
+   * The same shape as the live-channel route below it, and for the same
+   * reason: the address belongs to the operator's subscription, so it is
+   * resolved here and the player is sent to it. A ticket is accepted because a
+   * `<video>` element cannot send a header; a bearer token is accepted too, so
+   * the Android app and curl can use it directly.
+   *
+   * Nothing is stored and nothing is downloaded. In the default mode the
+   * server answers with a redirect and steps out of the way; in proxy mode it
+   * relays, which is the operator's choice and is what keeps the upstream
+   * address off the device entirely.
+   */
+  app.get('/stream/catalogue/:kind/:id', async (request, reply) => {
+    const kind = String(request.params.kind);
+    if (!['movie', 'episode'].includes(kind)) throw badRequest('Play a movie or an episode.');
+    const id = Number(request.params.id);
+
+    /* 404 before anything else, so a bad id never reaches a lookup. */
+    const work = kind === 'movie' ? catMovie(id) : catEpisode(id);
+    if (!work) throw notFound('No such title.');
+
+    const all = kind === 'movie' ? movieSources(id) : episodeSources(id);
+    const chosen = request.query.source
+      ? all.find(s => s.id === Number(request.query.source)) || null
+      : preferredSource(kind, id);
+    if (!chosen || !chosen.playable) throw notFound('Nothing here can play that.');
+
+    const ticket = readTicket(request.query.ticket);
+    if (ticket) {
+      if (ticket.resource !== `cat-${kind}-${chosen.id}`) {
+        throw forbidden('That playback link is for something else.');
+      }
+      const device = openDb().prepare('SELECT revoked_at FROM devices WHERE id = ? AND user_id = ?')
+        .get(ticket.deviceId, ticket.userId);
+      if (!device || device.revoked_at) throw forbidden('This device has been removed from the account.');
+    } else {
+      /* No ticket, then a token. Never neither: an address that carries a
+         subscription is not something to hand to whoever asks. */
+      await app.authenticate(request, reply);
+      if (reply.sent) return reply;
+    }
+
+    if (chosen.local) {
+      /* Not this route's job — the file path, the guard and the remux
+         decision belong to /stream/media, which is where this points. */
+      return reply.redirect(302, `/api/v1/stream/media/${chosen.localKind}/${chosen.localId}` +
+        (request.query.ticket ? `?ticket=${encodeURIComponent(request.query.ticket)}` : ''));
+    }
+
+    const address = sourceAddress(kind, chosen.id);
+    if (!address || !address.url) throw upstreamFailed('That source has no usable address.');
+
+    /* A credentialed address is relayed rather than redirected to, because a
+       302 would put the subscription's username and password in a Location
+       header on the device. The operator can trade that back for the
+       bandwidth with TELLY_VOD_MODE=redirect. A public address — the Internet
+       Archive's, say — is redirected to as before: there is nothing in it to
+       keep back, and relaying a film nobody is hiding would be pure cost. */
+    const relay = address.credentialed
+      ? config.vodMode !== 'redirect'
+      : config.streamMode === 'proxy';
+    if (relay) return proxy(address.url, request, reply);
+    return reply.redirect(302, address.url);
   });
 
   app.get('/stream/media/:kind/:id', async (request, reply) => {

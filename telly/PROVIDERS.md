@@ -18,6 +18,7 @@ is which, and why, so the answer is checkable rather than taken on trust.
 | **The Roku Channel** | none | `no_official_api` | **No** — no read API exists |
 | **Fawesome** | none | `no_official_api` | **No** — nothing published |
 | **Xumo Play** (on demand) | none | `no_official_api` | **No** — nothing published |
+| **Xtream panels** (your own subscriptions) | `official_api` | `available` | **Yes** |
 | Internet Archive | `official_api` | `available` | **Yes** |
 | This server's media folders | `local_filesystem` | `available` | **Yes** |
 
@@ -124,7 +125,72 @@ If one of these opens a feed, the change is a `discover` function and a new
 catalogue, the deduplication, the player and the UI do not know one provider
 from another.
 
-## The two that do work
+## The three that do work
+
+### Xtream panels — your own subscription, read with your own credentials
+
+The provider that was hiding in plain sight. Telly has read Xtream panels
+since the beginning, but only `get_live_streams` — so a subscription carrying
+eight hundred films and a hundred box sets reported "Synced 15 channels" and
+left Movies and Series empty.
+
+A panel publishes three catalogues through one documented client API:
+
+```
+player_api.php?username=…&password=…                     the account
+  &action=get_live_categories / get_live_streams          → Live TV, as before
+  &action=get_vod_categories  / get_vod_streams           → Movies
+  &action=get_vod_info&vod_id=…                             plot, poster, backdrop,
+                                                            genre, cast, director,
+                                                            year, rating, runtime,
+                                                            tmdb id, age rating
+  &action=get_series_categories / get_series              → Series
+  &action=get_series_info&series_id=…                       seasons, episodes, their
+                                                            titles, plots, air dates,
+                                                            thumbnails and runtimes
+```
+
+and three stream address forms, which the API does not hand out and a client
+builds:
+
+```
+/live/<user>/<pass>/<stream_id>.<ext>
+/movie/<user>/<pass>/<stream_id>.<container_extension>
+/series/<user>/<pass>/<episode_id>.<container_extension>
+```
+
+**Why this one qualifies on every count.** It is the panel's own client API,
+documented and meant to be read; the credentials are the operator's, entered
+by them for their own subscription; nothing is bypassed, because there is
+nothing to bypass — the panel either accepts those credentials or does not,
+and when it does not, Telly reports that and stops. There is no second way in.
+
+**Two things it is careful about.**
+
+*Panels disagree with their own documentation.* A number arrives as a string.
+`rating` is out of ten on one panel and out of five on the next. A backdrop is
+an array of addresses, or one address. A release date is `releasedate` on a
+film and `releaseDate` on a series. `episodes` is keyed by season number, or
+is a flat array. `info` is an object — or, when the panel has nothing to say,
+an empty array, which is what makes the obvious implementation throw. All of
+that is read through one set of coercions, because a reader that only copes
+with the tidy version imports a third of a real catalogue and reports success.
+
+*The address is not fit to hand out.* It has the subscription's username and
+password in it. So a panel's source is marked `credentialed`, and a
+credentialed source's address never leaves the server: a client is given a
+short-lived ticket for a path on its own Telly server, and the server fetches
+from the panel. `TELLY_VOD_MODE=redirect` turns that into a 302 for an
+operator who would rather spend the address than the bandwidth.
+
+**One adapter, every panel.** There is one provider row, not one per
+subscription, because the subscriptions are rows in `sources` that an operator
+adds and removes. Identity is kept where it matters: every source is filed
+under `s<sourceId>:movie:<streamId>`, so re-importing updates rather than
+duplicates, two panels carrying the same film give that film two ways to play,
+and removing a panel takes its own entries with it and nobody else's.
+
+## The two that need nobody's permission
 
 ### The Internet Archive
 

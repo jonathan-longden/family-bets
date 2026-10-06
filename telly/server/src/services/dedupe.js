@@ -322,9 +322,14 @@ export function openReviews({ kind = null, limit = 100, offset = 0 } = {}) {
     total,
     items: rows.map(r => {
       const table = TABLE[r.work_kind];
+      /* A series has no runtime of its own — its episodes do — so asking for
+         one threw, and the whole duplicate list went with it as soon as a
+         series was ever queued for review. */
+      const cols = r.work_kind === 'series'
+        ? 'id, canonical_title, year'
+        : 'id, canonical_title, year, runtime_minutes';
       const side = (id) => table
-        ? db.prepare(`SELECT id, canonical_title, year, runtime_minutes FROM ${table} WHERE id = ?`)
-            .get(id) || null
+        ? db.prepare(`SELECT ${cols} FROM ${table} WHERE id = ?`).get(id) || null
         : null;
       return {
         id: r.id, workKind: r.work_kind, confidence: r.confidence, reason: r.reason,

@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { parseM3u } from './m3u.js';
 import { loadXtream } from './xtream.js';
 import { badRequest, notFound, upstreamFailed } from '../lib/errors.js';
+import { forgetSourceCatalogue } from './catalogue.js';
 
 /**
  * An IPTV source belongs to the operator. Its credentials live here and are
@@ -47,9 +48,20 @@ export function updateSource(id, patch = {}) {
   return getSource(id);
 }
 
+/**
+ * Remove a source, and everything it was the only carrier of.
+ *
+ * Its channels go with the row, as they always have. Its catalogue entries go
+ * too, which matters for an Xtream panel: a film whose only address needs a
+ * subscription that has just been removed cannot be played by anybody, so
+ * leaving it in Movies would be leaving a ghost. A film the household also
+ * has on disk keeps its card and loses one way to play.
+ */
 export function deleteSource(id) {
   getSource(id);
+  const forgotten = forgetSourceCatalogue(id);
   openDb().prepare('DELETE FROM sources WHERE id = ?').run(id);
+  return forgotten;
 }
 
 export function getSource(id) {

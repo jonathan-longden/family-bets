@@ -199,6 +199,7 @@ https it cannot even reach your server over http. Use
 | Films appear, Play fails on `.mkv` | FFmpeg is not installed. Films in mp4/m4v/webm play without it. |
 | Channels showing in Movies | Fixed. A channel is never a film; film channels live in Live TV under "Film channels". |
 | Live TV showing fewer channels than the playlist imported | Working as intended. A channel whose stream does not answer is hidden, kept in the database, rechecked on its own and put back the moment it works. **Settings → IPTV sources → Show hidden channels** says which and why. |
+| An Xtream panel's films and series are missing from Movies and Series | `sync` reads the live channels only. Run `node bin/telly-admin.js probe <id>` to see what the panel has, then `import-vod <id>` to bring the films and series in. |
 | A channel you know works is not listed | It may be `browser_incompatible` — a raw MPEG-TS or `rtmp://` stream, which answers but which no browser can decode. The hidden list says so. Press **Check channels** to look again now. |
 
 A scan that finds files now publishes them to the catalogue in the same

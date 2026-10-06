@@ -142,7 +142,25 @@ function makeContext(provider, adapter, run, { fetchImpl = fetch } = {}) {
   return ctx;
 }
 
-const short = (u) => String(u).slice(0, 120);
+/**
+ * A URL as it may appear in the import log.
+ *
+ * The log is shown in Settings, so nothing that goes through here may carry a
+ * credential. An Xtream panel puts the subscription's username and password
+ * in both halves of its addresses —
+ *
+ *     player_api.php?username=NAME&password=SECRET
+ *     /movie/NAME/SECRET/1234.mkv
+ *
+ * — so both are blanked before the address is shortened. Written once, here,
+ * rather than trusted to each adapter's error messages.
+ */
+export function short(u) {
+  return String(u)
+    .replace(/([?&](?:username|password|user|pass|token|api_key)=)[^&#]*/gi, '$1…')
+    .replace(/\/(live|movie|series)\/[^/]+\/[^/]+\//g, '/$1/…/…/')
+    .slice(0, 120);
+}
 
 /* ----------------------------------------------------------------- the run -- */
 
