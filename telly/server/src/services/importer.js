@@ -56,6 +56,23 @@ function makeContext(provider, adapter, run, { fetchImpl = fetch } = {}) {
     setting: (key, fallback) => (settings[key] !== undefined ? settings[key] : fallback),
     log: (msg) => { run.notes.push(String(msg).slice(0, 200)); },
 
+    /** A figure this run is keeping. One place, so the log can show it. */
+    count: (key, by = 1) => bump(key, by),
+
+    /**
+     * A record that was discovered and deliberately not imported.
+     *
+     * Not an error: an importer that looks at four thousand videos and takes
+     * nine has done its job, and without this the log would make that look
+     * like a fault. The reason is one of the columns the import row carries,
+     * so "how many did the licence filter refuse" is a question the settings
+     * screen can answer.
+     */
+    skip: (reason) => {
+      const known = ['licence', 'short', 'nsfw', 'live', 'unplayable', 'duplicate', 'instance'];
+      bump(`skipped_${known.includes(reason) ? reason : 'other'}`);
+    },
+
     /** One request, no sooner than the provider's delay allows. */
     async get(url, opts = {}) {
       const since = Date.now() - lastAt;
@@ -174,7 +191,12 @@ function startRun(providerId) {
 
 const FIGURES = ['movies_discovered', 'series_discovered', 'episodes_discovered', 'new_items',
   'updated_items', 'duplicates_merged', 'review_queued', 'unmatched_items', 'errors',
-  'requests_made'];
+  'requests_made',
+  /* What was discovered and deliberately not taken, and what it took to look.
+     Zero for a provider that has nothing to refuse, which is most of them. */
+  'skipped_licence', 'skipped_short', 'skipped_nsfw', 'skipped_live', 'skipped_unplayable',
+  'skipped_duplicate', 'skipped_instance', 'skipped_other',
+  'instances_checked', 'queries_run', 'videos_discovered'];
 
 function saveRun(runId, stats) {
   const sets = FIGURES.map(f => `${f} = ?`).join(', ');
@@ -376,6 +398,25 @@ export function publicImport(i) {
     unmatchedItems: i.unmatched_items,
     errors: i.errors,
     requestsMade: i.requests_made,
+    /* What was looked at and deliberately not taken. Nested, because for most
+       providers every one of these is zero and a flat shape would bury the
+       figures that matter in eight that never move. */
+    skipped: {
+      licence: i.skipped_licence || 0,
+      tooShort: i.skipped_short || 0,
+      nsfw: i.skipped_nsfw || 0,
+      live: i.skipped_live || 0,
+      noPlayableMedia: i.skipped_unplayable || 0,
+      duplicate: i.skipped_duplicate || 0,
+      instanceNotAllowed: i.skipped_instance || 0,
+      other: i.skipped_other || 0,
+      total: ['skipped_licence', 'skipped_short', 'skipped_nsfw', 'skipped_live',
+              'skipped_unplayable', 'skipped_duplicate', 'skipped_instance', 'skipped_other']
+        .reduce((n, k) => n + (i[k] || 0), 0)
+    },
+    instancesChecked: i.instances_checked || 0,
+    queriesRun: i.queries_run || 0,
+    videosDiscovered: i.videos_discovered || 0,
     message: i.message
   };
 }

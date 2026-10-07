@@ -136,11 +136,26 @@ export default async function adminRoutes(app) {
         required: ['name', 'kind'],
         properties: {
           name: { type: 'string', minLength: 1, maxLength: 80 },
-          kind: { type: 'string', enum: ['m3u_url', 'm3u_text', 'xtream'] },
+          kind: { type: 'string', enum: ['m3u_url', 'm3u_text', 'xtream', 'peertube'] },
           url: { type: 'string', maxLength: 2000 },
           username: { type: 'string', maxLength: 200 },
           password: { type: 'string', maxLength: 200 },
-          epgUrl: { type: 'string', maxLength: 2000 }
+          epgUrl: { type: 'string', maxLength: 2000 },
+          settings: {
+            type: 'object',
+            /* A PeerTube instance's own filters. Narrowing only: the licence
+               list is intersected with what Telly permits, never widened. */
+            properties: {
+              searches: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 120 } },
+              minDuration: { type: 'integer', minimum: 0, maximum: 86400 },
+              maxDuration: { type: 'integer', minimum: 0, maximum: 86400 },
+              licences: { type: 'array', maxItems: 8, items: { type: 'integer' } },
+              requireHls: { type: 'boolean' },
+              webVideoAccepted: { type: 'boolean' },
+              pageSize: { type: 'integer', minimum: 1, maximum: 100 },
+              maxPages: { type: 'integer', minimum: 1, maximum: 20 }
+            }
+          }
         }
       }
     }
@@ -162,7 +177,22 @@ export default async function adminRoutes(app) {
           password: { type: 'string', maxLength: 200 },
           epgUrl: { type: 'string', maxLength: 2000 },
           enabled: { type: 'boolean' },
-          refreshIntervalSeconds: { type: 'integer', minimum: 60, maximum: 2592000 }
+          refreshIntervalSeconds: { type: 'integer', minimum: 60, maximum: 2592000 },
+          settings: {
+            type: 'object',
+            /* A PeerTube instance's own filters. Narrowing only: the licence
+               list is intersected with what Telly permits, never widened. */
+            properties: {
+              searches: { type: 'array', maxItems: 12, items: { type: 'string', maxLength: 120 } },
+              minDuration: { type: 'integer', minimum: 0, maximum: 86400 },
+              maxDuration: { type: 'integer', minimum: 0, maximum: 86400 },
+              licences: { type: 'array', maxItems: 8, items: { type: 'integer' } },
+              requireHls: { type: 'boolean' },
+              webVideoAccepted: { type: 'boolean' },
+              pageSize: { type: 'integer', minimum: 1, maximum: 100 },
+              maxPages: { type: 'integer', minimum: 1, maximum: 20 }
+            }
+          }
         }
       }
     }

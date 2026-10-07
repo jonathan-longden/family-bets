@@ -25,6 +25,7 @@ import { ACCESS, STATUS, PLAYBACK, NO_INTERFACE, importable } from './contract.j
 import localAdapter from './local.js';
 import xtreamAdapter from './xtream.js';
 import archiveAdapter from './archive.js';
+import peertubeAdapter from './peertube.js';
 import tubiAdapter from './tubi.js';
 import rokuAdapter from './roku.js';
 import fawesomeAdapter from './fawesome.js';
@@ -39,6 +40,7 @@ export const ADAPTERS = [
   localAdapter,
   xtreamAdapter,
   archiveAdapter,
+  peertubeAdapter,
   tubiAdapter,
   rokuAdapter,
   fawesomeAdapter,

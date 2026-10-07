@@ -21,6 +21,7 @@ is which, and why, so the answer is checkable rather than taken on trust.
 | **Xtream panels** (your own subscriptions) | `official_api` | `available` | **Yes** |
 | Internet Archive | `official_api` | `available` | **Yes** |
 | This server's media folders | `local_filesystem` | `available` | **Yes** |
+| **PeerTube** (instances on Telly's allowlist) | `official_api` | `available` | **Yes** — openly licensed video only |
 | The Movie Database | `official_api` | off unless a key is set | **Artwork and metadata only** — never a playback source |
 
 Every one of the five is registered, visible in Settings with its reason, and
@@ -289,6 +290,60 @@ Three things the framework will not let an adapter do:
 3. **Claim identity.** A work an adapter yields carries no provider field. The
    provider belongs to the source, which is what makes one film one card.
 
+### PeerTube — a federation, asked one instance at a time
+
+PeerTube is not a service. It is software anybody may run, so "importing from
+PeerTube" is meaningless until you say *whose* PeerTube. That shapes every
+decision here.
+
+| | |
+|---|---|
+| Access | `official_api` — the documented REST API, `/api/v1/search/videos` and `/api/v1/videos/{uuid}` |
+| Who is asked | Named instances on Telly's own allowlist, and nobody else |
+| What is taken | Only videos licensed **CC0**, **CC BY** or **CC BY-SA** |
+| Playback | Public HLS, or a public progressive file — played by the client, from the instance |
+| Default | Off, with no instances configured |
+
+**The global search index is never used.** PeerTube's `searchTarget=search-index`
+aggregates whoever asks to be aggregated, which means videos from servers
+nobody has assessed under rules nobody has read. Telly asks instances it has
+an allowlist for, and `searchTarget` is deliberately absent from every request
+it sends.
+
+**The allowlist is checked twice** — when a source is added, and again on every
+import. A list enforced only at creation time is not enforced: an operator may
+tighten it, and a source added under the old list has to stop being read the
+moment they do. `TELLY_PEERTUBE_HOSTS` replaces the shipped list rather than
+adding to it.
+
+**The licence is the permission.** The three permitted licences are the ones
+that unambiguously allow redistribution. The rest are refused, and two of the
+refusals are worth stating plainly:
+
+- **ND (no derivatives)** forbids derivative works, and transcoding and
+  re-presentation can amount to one.
+- **NC (non-commercial)** turns on whether a particular use is commercial —
+  a question about the household running the server, not about the video, and
+  one Telly is in no position to answer. Where the answer is unclear the video
+  is not taken.
+
+A video whose licence is missing, unrecognised, or anything other than the
+three is not imported — not greyed out, not queued for review, not imported.
+There is no setting that widens the list to "anything", and `All rights
+reserved` can never be added to it.
+
+**Attribution is kept and shown.** Under CC BY and CC BY-SA it is a condition
+of use rather than a courtesy, so the credit line, the author, the licence,
+the licence URL and a link to the original are stored with the copy and
+displayed on the title's own screen.
+
+**Nothing is downloaded.** The address Telly stores is a public HLS manifest or
+a public file on the instance that published it, and the client opens it
+directly — the same arrangement the Internet Archive uses. An address that
+looks signed or time-limited is treated as having no playable media at all,
+because storing one would give the catalogue an entry that stops working in an
+hour.
+
 ## Metadata and artwork: TMDB, and only TMDB
 
 The providers above are catalogues — they say what a title is and how to play
@@ -334,6 +389,10 @@ Telly stores metadata and authorised playback sources. It does not:
 - scrape a provider whose terms prohibit it
 - read any metadata service other than TMDB, and that only with a key the
   operator set and only through its documented API
+- import a PeerTube video whose licence is missing, unknown, or anything other
+  than CC0, CC BY or CC BY-SA — and a TMDB match never changes that answer
+- read a PeerTube instance that is not on Telly's own allowlist, or the
+  federation-wide search index
 
 Where a provider offers playback only through its own app or site, the source
 is marked `web_only`: the catalogue stays honest about who carries the title,

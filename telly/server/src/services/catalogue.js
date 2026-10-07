@@ -283,8 +283,9 @@ function attachMovieSource(movieId, providerId, source, at) {
   openDb().prepare(`INSERT INTO catalogue_movie_sources
       (movie_id, provider_id, provider_content_id, metadata_url, playback_url, playback_type,
        availability_status, local_kind, local_id, quality, credentialed, source_id, source_label,
-       last_checked, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       licence, licence_id, licence_url, attribution, author, source_instance, source_url,
+       external_uuid, last_seen_at, last_checked, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(provider_id, provider_content_id) DO UPDATE SET
         movie_id = excluded.movie_id, metadata_url = excluded.metadata_url,
         playback_url = excluded.playback_url, playback_type = excluded.playback_type,
@@ -292,12 +293,28 @@ function attachMovieSource(movieId, providerId, source, at) {
         local_kind = excluded.local_kind, local_id = excluded.local_id,
         quality = excluded.quality, credentialed = excluded.credentialed,
         source_id = excluded.source_id, source_label = excluded.source_label,
+        licence = excluded.licence, licence_id = excluded.licence_id,
+        licence_url = excluded.licence_url, attribution = excluded.attribution,
+        author = excluded.author, source_instance = excluded.source_instance,
+        source_url = excluded.source_url, external_uuid = excluded.external_uuid,
+        -- Seen again today, whether or not anything about it changed, which
+        -- updated_at cannot say and an operator auditing a licensed copy
+        -- needs to know.
+        last_seen_at = excluded.last_seen_at,
         last_checked = excluded.last_checked, updated_at = excluded.updated_at`)
     .run(movieId, providerId, String(source.contentId), source.metadataUrl || '',
          source.playbackUrl || '', source.playbackType || PLAYBACK.webOnly,
          source.availability || 'unchecked', source.localKind || '', source.localId ?? null,
          source.quality || '', source.credentialed ? 1 : 0, source.sourceId ?? null,
-         source.sourceLabel || '', at, at, at);
+         source.sourceLabel || '',
+         /* Provenance. Empty for a provider whose right to carry a title was
+            never in question — a file on this server's own disk, a panel the
+            household subscribes to — and the whole permission for one whose
+            licence is why it may be here at all. */
+         source.licence || '', source.licenceId || '', source.licenceUrl || '',
+         source.attribution || '', source.author || '', source.sourceInstance || '',
+         source.sourceUrl || '', source.externalUuid || '',
+         at, at, at, at);
 }
 
 function writeIds(kind, workId, ids) {
@@ -838,6 +855,25 @@ export function publicSource(s) {
     metadataUrl: s.metadata_url || '',
     lastChecked: s.last_checked
   };
+
+  /* Provenance, where there is any. For an openly licensed copy the licence
+     IS the permission to carry it, so it travels with the source to the
+     client and is shown on the title's own screen — attribution especially,
+     which under CC BY is a condition of use rather than a nicety. Absent for
+     a file on this server's own disk or a panel the household subscribes to,
+     where the right to play was never in question. */
+  if (s.licence) {
+    out.licence = s.licence;
+    out.licenceUrl = s.licence_url || '';
+    out.attribution = s.attribution || '';
+    /* The badge the catalogue shows: this is free to watch and openly
+       licensed, as distinct from something a subscription carries. */
+    out.openLicence = true;
+  }
+  if (s.author) out.author = s.author;
+  if (s.source_instance) out.sourceInstance = s.source_instance;
+  if (s.source_url) out.sourceUrl = s.source_url;
+  if (s.last_seen_at) out.lastSeen = s.last_seen_at;
   if (s.local_kind) {
     out.playback = `/api/v1/stream/media/${s.local_kind}/${s.local_id}`;
     out.local = true;

@@ -241,6 +241,46 @@ export const config = {
   },
 
   /**
+   * PeerTube — openly licensed video, from instances Telly is willing to ask.
+   *
+   * PeerTube is a federation, not a service. Anybody may run an instance, and
+   * the global search index aggregates whoever asks to be aggregated — so
+   * "search PeerTube" is not a thing Telly does. It asks named instances,
+   * and only ones on this list.
+   *
+   * `allowedHosts` is Telly's own allowlist and is the outer gate: an
+   * operator may add a source for any host on it and for no other. It is
+   * checked when the source is created AND again on every import, because a
+   * list that is only enforced at creation time is not enforced at all.
+   *
+   * The hosts shipped here run under their own published rules and carry
+   * material their uploaders have licensed openly. An operator who wants a
+   * different one — their own instance, most obviously — sets
+   * TELLY_PEERTUBE_HOSTS, which replaces the list rather than adding to it.
+   */
+  peertube: {
+    allowedHosts: String(env('TELLY_PEERTUBE_HOSTS',
+      'framatube.org,tilvids.com,peertube.tv,video.blender.org'))
+      .split(',').map(h => h.trim().toLowerCase()).filter(Boolean),
+
+    /* Feature-length by default, which is what Movies is for. A short is not
+       a film, and a trailer is certainly not. */
+    minDurationSeconds: int('TELLY_PEERTUBE_MIN_SECONDS', 45 * 60),
+    maxDurationSeconds: int('TELLY_PEERTUBE_MAX_SECONDS', 6 * 60 * 60),
+
+    /* How many results one search asks for, and how many pages deep it goes.
+       Small on purpose: an instance is somebody's server. */
+    pageSize: int('TELLY_PEERTUBE_PAGE', 50),
+    maxPages: int('TELLY_PEERTUBE_PAGES', 4),
+
+    /* Required by default. An instance that only offers progressive files is
+       still usable — see `webVideoAccepted` — but HLS is what plays well on
+       a television. */
+    requireHls: bool('TELLY_PEERTUBE_REQUIRE_HLS', 'false'),
+    webVideoAccepted: bool('TELLY_PEERTUBE_WEB_VIDEO', 'true')
+  },
+
+  /**
    * The playlists Telly can set up for you. Fetched live from iptv-org so a
    * channel change upstream arrives on the next refresh; nothing is copied
    * into this repository. Public free-to-air and free ad-supported streams
