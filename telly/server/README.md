@@ -604,9 +604,48 @@ ceilings keep it there:
 | | | |
 |---|---|---|
 | `TELLY_ART_MAX_BYTES` | 768 KB | anything bigger is refused, not stored |
-| `TELLY_ART_MAX_MB` | 2048 | once the cache is this big, nothing new is fetched until a prune frees room |
+| `TELLY_ART_MAX_MB` | 2048 | the size of the cache. A real ceiling: see below |
 | `TELLY_ART_BATCH` | 200 | how many works one pass looks at |
 | `TELLY_ART_RETRY_DAYS` | 7 | a picture that would not load is tried again after this, so one bad afternoon on somebody's image host does not blank a poster for good |
+
+#### `TELLY_ART_MAX_MB` is a ceiling, not a suggestion
+
+A new picture is written only once there is room for it, and room is **made**
+rather than waited for: the least recently used pictures are evicted until the
+cache will hold the one that has arrived. Nothing is refused for want of space
+— the only thing eviction cannot help with is a single image larger than the
+whole cache, and the per-image limit rules that out long before.
+
+The ceiling is checked against the picture's **real size**, after the body has
+been read, so the picture that crosses the line cannot sneak in. And it is
+checked against **the folder**, not only against the `size_bytes` column: the
+two drift, always in the same direction — files on disk that no row claims,
+left by a write whose row update did not land, a picture that came back under
+a different content type, a data directory restored from a backup older than
+its database. Any prune reconciles the folder against the ledger, deletes
+what nothing claims, and relists any cached row whose file has gone (clearing
+its validators with it, so a later fetch cannot take a `304` as permission to
+keep a file that is not there).
+
+A picture evicted for space is marked `evicted` rather than dropped: the
+artwork pass leaves those rows alone, because re-fetching a picture that was
+just deleted for want of room would evict another to pay for it — a treadmill
+against somebody else's image host for no gain. Their works keep their poster
+URL and are handed the provider's address, so the card still shows a picture.
+When there is room again — the limit raised, or a prune by age — those rows
+go back in the queue on the next pass.
+
+So on a catalogue larger than the cache, the steady state is: the cache holds
+its ceiling's worth of the most recently used posters, and the rest are shown
+from their provider. Raising the limit is how you keep more of them.
+
+    node bin/telly-admin.js artwork-prune [keepDays]
+
+Drops what nothing has asked for in `keepDays` (90 by default), reclaims
+anything on disk the cache no longer has a record of, and then brings the
+whole thing under the ceiling however recently the pictures were used. It
+removes **only cached picture files** — never a catalogue record, never a
+poster URL, never a source.
 
 ### Switching TMDB on
 

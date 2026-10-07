@@ -1,6 +1,6 @@
 import { openDb, nowIso } from '../db/index.js';
 import { config } from '../config.js';
-import { fetchArtwork, cachedIdFor, cacheFull } from './artwork.js';
+import { fetchArtwork, cachedIdFor, cacheFull, reviveEvicted } from './artwork.js';
 import * as tmdb from './tmdb.js';
 
 /**
@@ -57,8 +57,13 @@ export function needingArtwork(kind, limit = config.artwork.batch) {
             moment one is set, so it is due now rather than in a month. */
          OR w.art_state = 'nokey'
          OR (w.art_state = 'none' AND (w.art_checked_at IS NULL OR w.art_checked_at < ?))
+         /* A poster that has fallen out of the cache needs fetching again —
+            unless it was evicted to make room, in which case fetching it
+            would evict another to pay for it. Those rows come back on their
+            own once the cache is under its ceiling again; see reviveEvicted. */
          OR (w.art_state IN ('provider', 'tmdb') AND NOT EXISTS (
-               SELECT 1 FROM artwork_cache a WHERE a.url = w.poster_url AND a.state = 'cached'))
+               SELECT 1 FROM artwork_cache a WHERE a.url = w.poster_url
+                 AND a.state IN ('cached', 'evicted')))
       ORDER BY w.art_state <> '', w.art_checked_at IS NOT NULL, w.art_checked_at, w.id
       LIMIT ?`)
     .all(retryAfter(), Math.max(Number(limit) || 1, 1));
@@ -134,8 +139,11 @@ export async function resolveArtwork(kind, row, { budget = null, fetchImpl = fet
       /* A poster that will not load is not a poster. Fall through. */
     }
 
-    /* 2 and 3. TMDB, by the id if there is one and by name if there is not. */
-    if (tmdb.configured() && !cacheFull()) {
+    /* 2 and 3. TMDB, by the id if there is one and by name if there is not.
+       A full cache is no longer a reason to skip this: the picture that
+       comes back makes room for itself by evicting the least recently used
+       ones, so the ceiling holds without the catalogue stopping. */
+    if (tmdb.configured()) {
       const found = await tmdb.resolve(kind, {
         tmdbId: storedTmdbId(kind, row.id),
         title: row.canonical_title,
@@ -179,11 +187,16 @@ export async function resolveArtwork(kind, row, { budget = null, fetchImpl = fet
 export async function artworkPass({ limit = config.artwork.batch, kinds = ['movie', 'series'],
                                     budget = tmdb.makeBudget(), fetchImpl = fetch,
                                     log = null } = {}) {
+  /* Room may have been made since the last pass — a bigger limit, or a
+     housekeeping prune — and if so the pictures evicted for space are worth
+     collecting again. */
+  const revived = reviveEvicted();
+
   const out = {
     looked: 0, provider: 0, tmdb: 0, none: 0, nokey: 0, errors: 0,
     tmdbConfigured: tmdb.configured(),
     searches: 0, byId: 0, budgetLeft: budget.left,
-    cacheFull: cacheFull()
+    cacheFull: cacheFull(), revived
   };
 
   for (const kind of kinds) {
