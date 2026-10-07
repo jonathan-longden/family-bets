@@ -201,6 +201,7 @@ https it cannot even reach your server over http. Use
 | Live TV showing fewer channels than the playlist imported | Working as intended. A channel whose stream does not answer is hidden, kept in the database, rechecked on its own and put back the moment it works. **Settings → IPTV sources → Show hidden channels** says which and why. |
 | An Xtream panel's films and series are missing from Movies and Series | `sync` reads the live channels only. Run `node bin/telly-admin.js probe <id>` to see what the panel has, then `import-vod <id>` to bring the films and series in. |
 | Films appear, but most of the posters are missing | A provider's own poster is used where it has one. For the rest, set a TMDB key (`TELLY_TMDB_KEY`) and the background pass fills them in a batch at a time — `node bin/telly-admin.js artwork` runs one now and says where you are. Without a key the app draws its own artwork, which is a choice, not a fault. |
+| The artwork folder is bigger than `TELLY_ART_MAX_MB` | Run `node bin/telly-admin.js artwork-prune`. It reclaims files the cache has lost track of and evicts the least recently used pictures until the folder is under the limit. New posters now make room for themselves, so it should not run away again. |
 | A channel you know works is not listed | It may be `browser_incompatible` — a raw MPEG-TS or `rtmp://` stream, which answers but which no browser can decode. The hidden list says so. Press **Check channels** to look again now. |
 
 A scan that finds files now publishes them to the catalogue in the same

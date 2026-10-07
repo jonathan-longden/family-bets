@@ -596,7 +596,11 @@ export default async function adminRoutes(app) {
 
   app.post('/catalogue/artwork/prune', {
     schema: { body: { type: 'object', properties: { keepDays: { type: 'integer', minimum: 1, maximum: 3650 } } } }
-  }, async (request) => pruneArtwork({ keepDays: (request.body || {}).keepDays }));
+    /* Reconciled: a prune by hand is the moment to also reclaim anything on
+       the disk that no row claims, which is the drift between what the cache
+       believes it holds and what the folder actually weighs. */
+  }, async (request) => pruneArtwork({ keepDays: (request.body || {}).keepDays,
+                                       reconcile: true }));
 
   /* One refresh pass by hand, for when waiting for the timer is silly. */
   app.post('/refresh', async (request) => runOnce({ log: request.log }));

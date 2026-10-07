@@ -11,6 +11,7 @@
  *   node bin/telly-admin.js probe <sourceId>        what an Xtream panel exposes
  *   node bin/telly-admin.js import-vod [sourceId]   its films and series
  *   node bin/telly-admin.js artwork [limit]         find missing posters
+ *   node bin/telly-admin.js artwork-prune [days]   bring the cache under its limit
  *   node bin/telly-admin.js add-media <label> <movies|series|recordings> <folder>
  *   node bin/telly-admin.js scan [rootId]
  *   node bin/telly-admin.js add-epg <name> <xmltv url>
@@ -30,7 +31,7 @@ import { providerByKey } from '../src/services/providers/index.js';
 import { probeXtream } from '../src/services/xtream.js';
 import { catalogueCounts } from '../src/services/catalogue.js';
 import { artworkPass, artworkSummary } from '../src/services/posters.js';
-import { artworkStats } from '../src/services/artwork.js';
+import { artworkStats, pruneArtwork, diskUsage, ceilingBytes } from '../src/services/artwork.js';
 import { createEpgSource, listEpgSources, publicEpgSource, syncEpgSource } from '../src/services/xmltv.js';
 import { exportM3u } from '../src/services/library.js';
 
@@ -56,6 +57,8 @@ function readUsage() {
   probe        <sourceId>            what an Xtream panel actually exposes
   import-vod   [sourceId]            import an Xtream panel's films and series
   artwork      [limit]               find posters for titles that have none
+  artwork-prune [keepDays]          reclaim disk: drop unused pictures and anything
+                                    on disk the cache no longer claims
 
   add-media    <label> <movies|series|recordings> <folder>
   scan         [rootId]            scan one media folder, or every one of them
@@ -224,6 +227,43 @@ try {
      * and it does not touch a source, so it is safe to run against a
      * catalogue you do not want re-imported.
      */
+    case 'artwork-prune': {
+      const [days] = args;
+      const keepDays = days ? Number(days) : 90;
+      const before = artworkStats();
+      const disk = diskUsage();
+      console.log(`Cache holds ${before.cached} picture(s), ${mb(before.bytes)} on the ledger, ` +
+        `${mb(disk.bytes)} across ${disk.files} file(s) on disk, limit ${mb(before.maxBytes)}.`);
+
+      /* Reconciled first — anything on disk no row claims is free room, and
+         taking it may mean dropping nothing anybody is still looking at. */
+      const got = pruneArtwork({ keepDays, reconcile: true });
+      if (got.orphans) {
+        console.log(`Reclaimed ${got.orphans} file(s), ${mb(got.orphanBytes)}, ` +
+          'that the cache no longer had any record of.');
+      }
+      console.log(`Dropped ${got.dropped} picture(s) nothing has asked for in ${keepDays} day(s), ` +
+        `freeing ${mb(got.freed)}.`);
+
+      /* And then down to the limit itself, however recently used, because a
+         limit that only applies to old pictures is not a limit. */
+      const over = pruneArtwork({ downTo: ceilingBytes(), mark: 'evicted' });
+      if (over.dropped) {
+        console.log(`Evicted a further ${over.dropped} least recently used picture(s), ` +
+          `freeing ${mb(over.freed)}, to come under the limit.`);
+      }
+
+      const now = diskUsage();
+      const a = artworkStats();
+      console.log(`Now: ${a.cached} picture(s), ${mb(a.bytes)} on the ledger, ` +
+        `${mb(now.bytes)} across ${now.files} file(s) on disk, limit ${mb(a.maxBytes)}.`);
+      if (a.evicted) {
+        console.log(`${a.evicted} picture(s) are evicted and will not be re-fetched while ` +
+          'the cache is this full. Raise TELLY_ART_MAX_MB to keep more of them.');
+      }
+      break;
+    }
+
     case 'artwork': {
       ensureProviders();
       const [limit] = args;
@@ -246,7 +286,15 @@ try {
       }
       const a = artworkStats();
       console.log(`Cache: ${a.cached} picture(s), ${mb(a.bytes)} of ${mb(a.maxBytes)}` +
-        (a.full ? ' — full, prune to make room' : '') + `, ${a.failed} that would not load.`);
+        (a.evicted ? `, ${a.evicted} evicted for room` : '') +
+        `, ${a.failed} that would not load.`);
+      if (got.revived) {
+        console.log(`${got.revived} picture(s) evicted earlier are due again: there is room now.`);
+      }
+      if (a.evicted) {
+        console.log('The catalogue wants more artwork than the cache may hold. ' +
+          'Raise TELLY_ART_MAX_MB to keep more of it.');
+      }
       const s2 = artworkSummary();
       for (const kind of ['movies', 'series']) {
         const k = s2[kind];

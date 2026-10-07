@@ -264,8 +264,23 @@ Pictures are fetched once, cached on the server and handed to the app on the
 server's own address — the app never asks a provider or TMDB for an image, and
 nothing about your library is sent to them beyond the title and year of a film
 with no id. Posters are fetched at a card's size, so twenty-four thousand
-films cost about a gigabyte rather than tens of them; the cache stops at
-`TELLY_ART_MAX_MB` (2048 by default) until you prune it.
+films cost about a gigabyte rather than tens of them.
+
+`TELLY_ART_MAX_MB` (2048 by default) is a hard ceiling on the artwork folder.
+When the cache is full and a new poster arrives, the least recently used
+pictures are dropped to make room for it — so the folder stays at the size you
+set without you having to watch it. If your catalogue has more posters than
+the cache may hold, the ones that were dropped are shown from the provider's
+own address instead, and raising the limit brings them back on the next pass.
+
+To see where you stand, and to bring an overgrown folder back under the limit
+now:
+
+    node bin/telly-admin.js artwork-prune
+
+It drops pictures nothing has asked for in ninety days, reclaims any files in
+the folder the cache has no record of, and then evicts down to the limit. It
+removes picture files only — never a film, a series, a source or a poster URL.
 
 This product uses the TMDB API but is not endorsed or certified by TMDB.
 
