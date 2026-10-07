@@ -4,21 +4,38 @@ import { parseM3u } from './m3u.js';
 import { loadXtream } from './xtream.js';
 import { badRequest, notFound, upstreamFailed } from '../lib/errors.js';
 import { forgetSourceCatalogue } from './catalogue.js';
+import { instanceAllowed, hostOf, publicSettings, sourceSettings } from './peertube.js';
 
 /**
  * An IPTV source belongs to the operator. Its credentials live here and are
  * used only by this process; clients receive channels, never addresses.
  */
 export function createSource({ name, kind, url = '', username = '', password = '', epgUrl = '',
-                               refreshIntervalSeconds } = {}) {
-  if (!['m3u_url', 'm3u_text', 'xtream'].includes(kind)) throw badRequest('kind must be m3u_url, m3u_text or xtream.');
+                               refreshIntervalSeconds, settings = null } = {}) {
+  if (!['m3u_url', 'm3u_text', 'xtream', 'peertube'].includes(kind)) {
+    throw badRequest('kind must be m3u_url, m3u_text, xtream or peertube.');
+  }
   if (!String(name || '').trim()) throw badRequest('A source needs a name.');
+
+  /* A PeerTube instance has to be one Telly is willing to ask. The check is
+     here as well as at import time: refusing at the point of adding is the
+     only way an operator finds out before a sync reports nothing. */
+  if (kind === 'peertube') {
+    if (!String(url || '').trim()) throw badRequest('A PeerTube source needs the instance address.');
+    if (!instanceAllowed(url)) {
+      throw badRequest(`${hostOf(url) || 'That host'} is not on Telly's PeerTube allowlist. ` +
+        'Set TELLY_PEERTUBE_HOSTS to change which instances may be added.');
+    }
+  }
+
   const now = nowIso();
   const info = openDb().prepare(`INSERT INTO sources
-      (name, kind, url, username, password, epg_url, refresh_interval_seconds, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      (name, kind, url, username, password, epg_url, refresh_interval_seconds, settings,
+       created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(String(name).trim(), kind, url, username, password, epgUrl,
-         Number(refreshIntervalSeconds) || config.playlistTtlSeconds, now, now);
+         Number(refreshIntervalSeconds) || config.playlistTtlSeconds,
+         settings ? JSON.stringify(settings) : '', now, now);
   return getSource(Number(info.lastInsertRowid));
 }
 
@@ -38,13 +55,19 @@ export function updateSource(id, patch = {}) {
     enabled: patch.enabled === undefined ? row.enabled : (patch.enabled ? 1 : 0),
     interval: patch.refreshIntervalSeconds === undefined
       ? row.refresh_interval_seconds
-      : Math.max(Number(patch.refreshIntervalSeconds) || 0, 60)
+      : Math.max(Number(patch.refreshIntervalSeconds) || 0, 60),
+    settings: patch.settings === undefined ? row.settings : JSON.stringify(patch.settings || {})
   };
   if (!next.name) throw badRequest('A source needs a name.');
+  /* Re-pointing a PeerTube source is still adding an instance, so it faces
+     the same allowlist. */
+  if (row.kind === 'peertube' && next.url !== row.url && !instanceAllowed(next.url)) {
+    throw badRequest(`${hostOf(next.url) || 'That host'} is not on Telly's PeerTube allowlist.`);
+  }
   openDb().prepare(`UPDATE sources SET name = ?, url = ?, username = ?, password = ?, epg_url = ?,
-      enabled = ?, refresh_interval_seconds = ?, updated_at = ? WHERE id = ?`)
+      enabled = ?, refresh_interval_seconds = ?, settings = ?, updated_at = ? WHERE id = ?`)
     .run(next.name, next.url, next.username, next.password, next.epgUrl,
-         next.enabled, next.interval, nowIso(), id);
+         next.enabled, next.interval, next.settings, nowIso(), id);
   return getSource(id);
 }
 
@@ -86,7 +109,12 @@ export function publicSource(s) {
     lastHealthAt: s.last_health_at,
     lastImport: {
       added: s.last_import_added, updated: s.last_import_updated, removed: s.last_import_removed
-    }
+    },
+    /* What this instance has been told to take, and whether Telly is still
+       willing to ask it — an allowlist can be tightened after a source was
+       added, and the admin screen should say so rather than the next sync
+       quietly importing nothing. */
+    ...(s.kind === 'peertube' ? { peertube: publicSettings(s) } : {})
   };
 }
 
@@ -105,11 +133,52 @@ export function sourcesForUser(userId) {
       WHERE us.user_id = ? AND s.enabled = 1 ORDER BY s.name`).all(userId);
 }
 
+/**
+ * Syncing a PeerTube instance: the catalogue importer, for this provider.
+ *
+ * It runs the provider rather than this one source, because that is where the
+ * politeness, the retries, the run record and the figures live — and the
+ * importer already walks every enabled instance. A sync asked for from one
+ * source's row therefore reads them all, which is the same thing the Refresh
+ * button on the provider does, and the result says what was imported.
+ */
+async function syncPeertube(source, { fetchImpl = fetch } = {}) {
+  const { providerByKey } = await import('./providers/index.js');
+  const { runImport } = await import('./importer.js');
+  const provider = providerByKey('peertube');
+  if (!provider) throw upstreamFailed('The PeerTube provider is not registered.');
+  if (!provider.enabled) {
+    throw badRequest('The PeerTube provider is switched off. Turn it on in ' +
+      'Settings → Catalogue providers, then sync.');
+  }
+
+  const got = await runImport(provider.id, { fetchImpl });
+  const run = (got && got.run) || {};
+  const at = nowIso();
+  openDb().prepare(`UPDATE sources SET last_synced_at = ?, last_error = ?, updated_at = ?
+      WHERE id = ?`)
+    .run(at, run.status === 'failed' ? String(run.message || 'Import failed') : null, at, source.id);
+
+  return {
+    source: getSource(source.id),
+    /* No channels were added, and saying so plainly is better than a zero
+       that looks like a failure. */
+    added: 0, updated: 0, removed: 0, total: 0,
+    catalogue: run
+  };
+}
+
 /** Fetches the source and replaces its cached channels in one transaction. */
 export async function syncSource(sourceId, { fetchImpl = fetch, text = null } = {}) {
   const db = openDb();
   const source = getSource(sourceId);
   let parsed;
+
+  /* A PeerTube instance has no channels — it is a library of films, and
+     syncing it means running the catalogue import that reads it. Routed here
+     so that one Sync button does the right thing for whichever kind of source
+     the operator is looking at, rather than this kind needing its own. */
+  if (source.kind === 'peertube') return syncPeertube(source, { fetchImpl });
 
   try {
     if (source.kind === 'xtream') {

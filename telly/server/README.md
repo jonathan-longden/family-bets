@@ -523,6 +523,65 @@ fetched whole rather than revalidated. `If-None-Match` would invite a 304,
 and a 304 means "keep what you have", which is not an answer when there is
 nothing to keep.
 
+### PeerTube
+
+A catalogue provider like any other, with one difference that drives its whole
+design: PeerTube is a federation, so "the provider" is not one service with one
+set of rules but any number of independent servers.
+
+    sources   kind = 'peertube', one row per instance, with a `settings` JSON
+              column carrying that instance's own filters
+    adapter   src/services/providers/peertube.js — walks the enabled instances
+    policy    src/services/peertube.js — licence, admissibility, playback
+              choice. Touches neither the network nor the database, which is
+              what makes the policy exhaustively testable.
+
+**Two gates, and both are checked on every import.** The instance has to be on
+`config.peertube.allowedHosts`, and the video's licence has to be one of CC0,
+CC BY or CC BY-SA. The allowlist is re-checked at import time rather than
+trusted from when the source was created, because an operator may tighten it
+and a source added under the old list must stop being read.
+
+**`admissible(video, opts)` is the whole policy**, in one function, in this
+order: allowed instance → not live → not NSFW (and a video that never said is
+treated as unsafe) → long enough → not longer than the ceiling → not titled as
+a trailer or clip → licence known → licence permitted → licence permitted for
+*this source* → something public to play. It returns the reason it refused,
+and the reason is one of the counters the import log carries.
+
+**Playback is remote and direct.** A public HLS manifest where the instance has
+one, a public progressive file where it does not, played by the client from the
+instance. The source is not `credentialed`, so `publicSource()` hands the client
+the address rather than a path on this server — nothing is proxied and nothing
+is downloaded. An address carrying a token, an expiry or a signature is treated
+as no playable media at all: storing one would give the catalogue an entry that
+dies in an hour, so the identity (`external_uuid`, `source_instance`) is kept
+and the address re-derived on the next sync.
+
+**Deduplication** is the existing ladder, unchanged. `provider_content_id` is
+`<instance>:<uuid>` — including the port, because two instances on one machine
+are two libraries — so rung 0 handles the same video from the same instance,
+and two different films with similar titles cannot collide on it.
+
+**Provenance travels with the copy, not the work**, because the same film could
+come from one instance under CC BY and another under a licence Telly refuses:
+`licence`, `licence_url`, `attribution`, `author`, `source_instance`,
+`source_url`, `external_uuid` and `last_seen_at` are columns on
+`catalogue_movie_sources`. The licence and the attribution reach the client and
+are shown on the title's screen — under CC BY that is a condition of use.
+
+**TMDB may improve a record and can never license one.** `admissible()` has no
+way to be told about TMDB at all; the licence decision is made from the
+PeerTube record alone, before any artwork pass runs.
+
+    TELLY_PEERTUBE_HOSTS        the allowlist; replaces the shipped one
+    TELLY_PEERTUBE_MIN_SECONDS  2700 — feature length
+    TELLY_PEERTUBE_MAX_SECONDS  21600
+    TELLY_PEERTUBE_PAGE         50 results a request
+    TELLY_PEERTUBE_PAGES        4 pages a search
+    TELLY_PEERTUBE_REQUIRE_HLS  false
+    TELLY_PEERTUBE_WEB_VIDEO    true
+
 ### Getting a poster onto every card
 
 A catalogue is a wall of pictures, and an Xtream panel's poster field is empty

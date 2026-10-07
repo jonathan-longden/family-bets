@@ -701,6 +701,21 @@ body.playing #backdrop{opacity:.12}
   color:var(--dim);font-size:14px}
 .colnote span{min-width:0;flex:1}
 
+/* An openly licensed copy says so, on the card and on its own screen. The
+   green is the one Telly already uses for "this works", which is the right
+   association: free to watch, and nothing in the way. */
+.freechip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:999px;
+  font-size:11px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+  background:rgba(60,190,120,.15);color:#6fe0a6;border:1px solid rgba(60,190,120,.35)}
+.pcard.poster .freechip{position:absolute;z-index:5;top:8px;right:8px}
+.licencebox{margin-top:14px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;
+  background:rgba(255,255,255,.02);max-width:70ch}
+.licencebox h4{margin:0 0 6px;font-size:13px;letter-spacing:.5px;text-transform:uppercase;
+  color:var(--dim);font-weight:700}
+.licencebox p{margin:0 0 6px;font-size:14px;line-height:1.6;color:var(--fg)}
+.licencebox .attrib{color:var(--dim);font-size:13px;word-break:break-word}
+.licencebox a{color:#9ec5ff}
+
 /* ---------------- poster wall (films and series) ----------------
    A channel is a logo on a tile; a film is artwork. Posters are 2:3,
    fill their tile, and carry their title over a scrim rather than under
@@ -1525,6 +1540,10 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
         <!-- Who has it. One film, several providers: the list is here rather
              than being four separate cards in Movies. -->
         <div id="showSources" class="srcs" hidden></div>
+        <!-- Where a copy is here because somebody licensed it openly, that
+             licence is the permission and attribution may be a condition of
+             it. Both are shown, not filed away. -->
+        <div id="showLicence" class="licencebox" hidden></div>
         <div id="showCast" class="castrow" hidden></div>
         <div id="showSeasons" class="segs"></div>
         <div id="showEps"></div>
@@ -1618,6 +1637,18 @@ body.scale-l{font-size:20px;--rowH:88px;--grpH:58px}
           <button class="btn f" data-f id="iptvUs">United States</button>
         </div>
         <p class="hint" id="iptvNote">Public free-to-air and free ad-supported streams only.</p>
+
+        <!-- PeerTube: a library of openly licensed film, not a playlist of
+             channels, so it is added by instance and synced into Movies. -->
+        <h4 style="margin:18px 0 6px;font-size:13px;letter-spacing:.5px;text-transform:uppercase;color:var(--dim)">Add a PeerTube instance</h4>
+        <p class="hint">Only instances on Telly's allowlist may be added, and only videos
+          licensed CC0, CC BY or CC BY-SA are imported. Films appear in Movies, played from
+          the instance that published them.</p>
+        <div class="segs" style="margin-top:8px">
+          <input id="ptUrl" class="inp" placeholder="https://instance.example" style="flex:1;min-width:220px"
+                 aria-label="PeerTube instance address">
+          <button class="btn f" data-f id="ptAdd">Add instance</button>
+        </div>
       </div>
 
       <div class="spanel" id="provPanel" hidden>
@@ -2647,6 +2678,10 @@ function catItem(kind, w){
     writers: w.writers || [],
     externalIds: w.externalIds || {},
     sources: w.sources || [],
+    /* Free to watch and openly licensed, as distinct from something a
+       subscription carries. Computed once here so a card and a details
+       screen cannot disagree about it. */
+    openLicence: (w.sources || []).some(s => s.openLicence),
     playableSources: playable,
     preferred: w.preferred || playable[0] || null,
     seasonCount: w.seasonCount || 0,
@@ -4084,9 +4119,15 @@ function titleSources(t){
     if (src.playable && src.quality) bits.push('<small>' + escapeHtml(src.quality) + '</small>');
     if (!src.playable) bits.push('<small>web only</small>');
     else if (src.local) bits.push('<small>on this server</small>');
+    /* Which instance, where the provider is a federation rather than one
+       service: "PeerTube" does not tell you who published it. */
+    else if (src.sourceInstance) bits.push('<small>' + escapeHtml(src.sourceInstance) + '</small>');
+    if (src.licence) bits.push('<small>' + escapeHtml(src.licence) + '</small>');
     b.innerHTML = bits.join('');
     box.appendChild(b);
   });
+
+  titleLicence(list);
 
   /* The main Play button is only offered where something can actually play.
      Where nothing can, it says so instead of failing when pressed. */
@@ -4101,6 +4142,41 @@ function titleSources(t){
       act.lastChild.textContent = 'Not playable here';
     }
   }
+}
+
+/**
+ * The licence, where a copy is here because of one.
+ *
+ * Shown rather than stored: under CC BY and CC BY-SA attribution is a
+ * condition of use, not a footnote, and a viewer who wants to know what they
+ * are allowed to do with a film should not have to ask the operator. Where
+ * several providers carry the same title, only the openly licensed ones say
+ * anything — a film the household owns on disk needs no licence note.
+ */
+function titleLicence(list){
+  const box = $('#showLicence');
+  const open = (list || []).filter(s => s.licence);
+  if (!open.length){ box.hidden = true; box.innerHTML = ''; return; }
+
+  box.hidden = false;
+  box.innerHTML = open.map(src => {
+    const rows = [];
+    const name = src.licenceUrl
+      ? '<a href="' + escapeHtml(src.licenceUrl) + '" target="_blank" rel="noopener noreferrer">' +
+        escapeHtml(src.licence) + '</a>'
+      : escapeHtml(src.licence);
+    rows.push('<p>Licensed <b>' + name + '</b>' +
+      (src.author ? ' by ' + escapeHtml(src.author) : '') +
+      (src.sourceInstance ? ', published on ' + escapeHtml(src.sourceInstance) : '') + '.</p>');
+    if (src.attribution){
+      rows.push('<p class="attrib">' + escapeHtml(src.attribution) + '</p>');
+    }
+    if (src.sourceUrl){
+      rows.push('<p class="attrib"><a href="' + escapeHtml(src.sourceUrl) +
+        '" target="_blank" rel="noopener noreferrer">See the original</a></p>');
+    }
+    return '<h4>Free and openly licensed</h4>' + rows.join('');
+  }).join('');
 }
 
 /* Play this title from one named provider. */
@@ -4556,6 +4632,17 @@ function moreCollection(){
         ? (eps ? fmt(eps) + ' EP' : 'SERIES')
         : (ch.year ? String(ch.year) : 'FILM');
       th.appendChild(badge);
+
+      /* Openly licensed, said on the wall rather than only on the title's
+         own screen: it is the difference between "free to watch" and "if you
+         have the subscription", and that is worth knowing before you click. */
+      if (ch.openLicence){
+        const free = document.createElement('span');
+        free.className = 'freechip';
+        free.textContent = 'Free';
+        free.title = 'Openly licensed — free to watch';
+        th.appendChild(free);
+      }
     }
 
     /* A series is a thing to open, not a thing to play. A film opens too:
@@ -5269,6 +5356,30 @@ async function decideDup(r, decision){
   } catch(e){ toast(String((e && e.message) || e)); }
 }
 
+/* Adding a PeerTube instance. The allowlist is the server's, so a refusal
+   comes back from it with the reason rather than being guessed at here. */
+function wirePeertubeAdd(){
+  const btn = $('#ptAdd');
+  if (!btn) return;
+  btn.onclick = (ev) => working(ev.currentTarget, 'Adding…', async () => {
+    const url = $('#ptUrl').value.trim();
+    if (!url){ toast('Type the instance address'); $('#ptUrl').focus(); return; }
+    try {
+      let host = url;
+      try { host = new URL(/^https?:/i.test(url) ? url : 'https://' + url).hostname; } catch(e){}
+      await srvAuthed('/admin/sources', {
+        method:'POST', headers:{ 'content-type':'application/json' },
+        body: JSON.stringify({ name: host, kind: 'peertube',
+                               url: /^https?:/i.test(url) ? url : 'https://' + url })
+      });
+      $('#ptUrl').value = '';
+      await loadAdmin();
+      toast('Instance added. Press Sync to import its openly licensed films.');
+    } catch(e){ toast(String((e && e.message) || e)); }
+  });
+}
+wirePeertubeAdd();
+
 /* --------------------------------------------------------- IPTV sources -- */
 function paintSources(){
   const box = $('#iptvList');
@@ -5280,6 +5391,10 @@ function paintSources(){
     box.appendChild(p);
   }
   admin.sources.forEach(s => {
+    /* A PeerTube instance has no channels, so the channel-health figures
+       would all read zero and look like a fault. It gets its own row saying
+       the things that are actually true of it. */
+    if (s.kind === 'peertube'){ box.appendChild(peertubeRow(s)); return; }
     const h = s.health || {};
     /* The five figures, said in full. "Imported" counts everything the
        playlist ever brought in, including the channels it has since dropped,
@@ -5315,6 +5430,79 @@ function paintSources(){
     ]));
     if (open) box.appendChild(hiddenList(s));
   });
+}
+
+/**
+ * One PeerTube instance, as the admin screen shows it.
+ *
+ * The figures come from the provider's last import rather than from the
+ * source row, because the import is what reads every instance — and the
+ * refusals are the interesting half: an instance that offers four thousand
+ * videos and yields nine is the licence filter working, and without the
+ * count it looks broken.
+ */
+function peertubeRow(s){
+  const pt = s.peertube || {};
+  const prov = (admin.providers || []).find(p => p.key === 'peertube') || {};
+  const imp = prov.lastImport || {};
+  const sk = imp.skipped || {};
+
+  const bits = [[
+    s.enabled ? pill('ok', 'on') : pill('warn', 'off'),
+    pt.allowed ? pill('ok', 'allowed') : pill('bad', 'not on the allowlist'),
+    escapeHtml(pt.host || s.url),
+    (pt.licenceNames || []).join(', ')
+  ].filter(Boolean).join(' · ')];
+
+  if (!pt.allowed){
+    bits.push('Telly will not read this instance. Set TELLY_PEERTUBE_HOSTS to allow it.');
+  }
+  bits.push('Films at least ' + Math.round((pt.minDuration || 0) / 60) + ' minutes' +
+    (pt.requireHls ? ', HLS required' : '') +
+    ((pt.searches || []).length ? ' · searching ' + escapeHtml(pt.searches.join(', ')) : ''));
+
+  if (imp.lastUpdate){
+    bits.push([
+      fmt(imp.videosDiscovered || 0) + ' discovered',
+      fmt(imp.newItems || 0) + ' imported',
+      fmt(imp.updatedItems || 0) + ' updated',
+      fmt(sk.total || 0) + ' skipped',
+      (imp.errors || 0) ? fmt(imp.errors) + ' errors' : null
+    ].filter(Boolean).join(' · '));
+    /* Why they were skipped, which is the figure that proves the filter. */
+    const why = [
+      (sk.licence || 0) ? fmt(sk.licence) + ' licence' : null,
+      (sk.tooShort || 0) ? fmt(sk.tooShort) + ' too short' : null,
+      (sk.nsfw || 0) ? fmt(sk.nsfw) + ' NSFW' : null,
+      (sk.live || 0) ? fmt(sk.live) + ' live' : null,
+      (sk.noPlayableMedia || 0) ? fmt(sk.noPlayableMedia) + ' nothing to play' : null,
+      (sk.duplicate || 0) ? fmt(sk.duplicate) + ' already seen' : null,
+      (sk.instanceNotAllowed || 0) ? fmt(sk.instanceNotAllowed) + ' instance not allowed' : null,
+      (sk.other || 0) ? fmt(sk.other) + ' other' : null
+    ].filter(Boolean);
+    if (why.length) bits.push('Skipped: ' + why.join(' · '));
+    bits.push('Last sync ' + ago(imp.lastUpdate));
+  } else {
+    bits.push('Never synced.');
+  }
+  if (s.lastError) bits.push(pill('bad', 'problem') + ' ' + escapeHtml(s.lastError));
+
+  return lrow(s.name, bits.join('<br>'), [
+    { label: 'Sync', run: (b) => working(b, 'Importing…', () => sourceAction(s, 'sync')) },
+    { label: s.enabled ? 'Turn off' : 'Turn on', danger: s.enabled,
+      run: (b) => working(b, '…', () => togglePeertube(s)) }
+  ]);
+}
+
+async function togglePeertube(s){
+  try {
+    await srvAuthed('/admin/sources/' + s.id, {
+      method:'PATCH', headers:{ 'content-type':'application/json' },
+      body: JSON.stringify({ enabled: !s.enabled })
+    });
+    await loadAdmin();
+    toast(s.name + (s.enabled ? ' turned off' : ' turned on'));
+  } catch(e){ toast(String((e && e.message) || e)); }
 }
 
 /* What Live TV is leaving out, and why. Only answerable because the rows were

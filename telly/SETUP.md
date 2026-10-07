@@ -238,6 +238,36 @@ Search and the filters compose: a genre chosen while searching narrows the
 search rather than replacing it. Live TV has its own box over its own channel
 list and is not involved.
 
+### Adding a PeerTube instance
+
+**Settings → IPTV sources → Add a PeerTube instance.**
+
+PeerTube instances are independent servers, so Telly only asks ones on its own
+allowlist. Paste the instance address and press *Add instance*; a host that is
+not on the list is refused there and then, with the reason. Then press *Sync*
+on the row, and its openly licensed films appear in Movies beside everything
+else.
+
+Only videos licensed **CC0**, **CC BY** or **CC BY-SA** are imported. Anything
+else — all rights reserved, non-commercial, no-derivatives, or no stated
+licence at all — is counted and left alone, and the row says how many were
+refused on each ground. An instance offering four thousand videos and yielding
+nine is the filter working, not a fault.
+
+The defaults take feature-length work only: at least 45 minutes, not a live
+stream, not flagged adult, and not something whose own title calls it a
+trailer or a clip. Films are played from the instance that published them —
+nothing is copied to your server except the poster.
+
+Each film's own screen shows its licence, who made it, which instance it came
+from, the attribution the licence requires, and a link to the original. To
+allow a different instance, including your own:
+
+    set TELLY_PEERTUBE_HOSTS=my-instance.example,framatube.org    (Windows)
+    export TELLY_PEERTUBE_HOSTS=my-instance.example,framatube.org (macOS, Linux)
+
+That **replaces** the shipped list rather than adding to it.
+
 ### Posters
 
 A provider's own poster is preferred and always will be. Where it has none, or
