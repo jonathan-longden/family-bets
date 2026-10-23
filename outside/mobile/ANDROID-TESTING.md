@@ -234,6 +234,33 @@ desktop browser. This list is only the things a test in a browser cannot reach.
 - [ ] Sky Mood matches the actual sky
 - [ ] Best bit and worst bit of today make sense
 
+### Storm Watch
+
+The card reads the forecast this location already has — there is no radar and
+no live feed, which is why nothing in it says "live". Most of the time it
+should say **ALL CLEAR**, and that is the state to check hardest.
+
+- [ ] On a calm day it says **ALL CLEAR** and lists no causes
+- [ ] It never claims thunder, hail or a storm when none is forecast
+- [ ] The small print says it is a forecast, not live radar
+- [ ] When something is forecast, the causes name it — thunder, hail, gusts,
+      rain — and the time matches your clock setting
+- [ ] **STORM NOW** appears only while a thunderstorm is actually forecast for
+      the hour you are in
+- [ ] The hour-by-hour strip lines up with the hourly forecast above it
+- [ ] Switch between London, Manchester and Nottingham: each shows **its own**
+      storm state, never the one before it
+- [ ] Aeroplane mode — the cached storm state is still right for each place
+- [ ] Turn on Settings → Accessibility → Remove animations: the **STORM NOW**
+      badge stops pulsing and still says STORM NOW in words
+- [ ] With TalkBack on, the card announces its heading, its status and one
+      sentence for the strip, not twenty-four separate bars
+
+> **Hail will almost always stay silent, and that is correct.** Only models
+> with an explicit hail forecast ever report it. The app refuses to infer hail
+> from heavy rain or an unstable atmosphere, so an empty hail line means
+> "nobody forecast hail", not "the feature is broken".
+
 ### Quotes
 
 - [ ] They are funny

@@ -429,7 +429,7 @@ function render() {
   if (!place()) $('setupTitle').textContent = V.noPlace(state);
 
   var have = !!(place() && forecast);
-  ['hero', 'briefCard', 'factCard', 'stripCard', 'todayCard', 'tomorrowCard', 'daysCard'].forEach(function (id) {
+  ['hero', 'stormCard', 'briefCard', 'factCard', 'stripCard', 'todayCard', 'tomorrowCard', 'daysCard'].forEach(function (id) {
     $(id).hidden = !have;
   });
   $('shareBtn').hidden = !have;
@@ -458,6 +458,7 @@ function render() {
 
   renderHero(now);
   renderAlerts(now);
+  renderStorm(now);
   renderMoments(now);
   renderBrief(now);
   renderFacts(now);
@@ -498,6 +499,112 @@ function renderAlerts(now) {
     el.querySelector('.alert-title').textContent = a.title;
     el.querySelector('.alert-detail').textContent = a.detail;
     wrap.appendChild(el);
+  });
+}
+
+/* Storm Watch. Everything on it is read from the forecast this location
+   already has, which is what makes it right per location for free: there is
+   no second request to arrive late, and no second cache to get crossed. If
+   the forecast on screen belongs to this place — and the request machinery
+   guarantees it does — then so does the storm read, because one is computed
+   from the other at the moment of drawing. */
+var STORM_ICON = { thunder: '⛈️', hail: '🧊', wind: '💨', rain: '🌧️', unstable: '🌀' };
+
+function renderStorm(now) {
+  var storm = W.storm(forecast, now);
+  var card = $('stormCard');
+
+  card.className = 'card storm storm--' + storm.level;
+  $('stormStatus').textContent = V.stormStatus(storm);
+  $('stormLine').textContent = V.stormLine(storm, state, now);
+
+  /* When, in the user's own clock. Only shown when there is something to put
+     a time on — "all clear between 2 and 5" would be nonsense. */
+  var when = $('stormWhen');
+  if (storm.level === 'clear' || !storm.from) {
+    when.hidden = true;
+    when.textContent = '';
+  } else {
+    when.hidden = false;
+    when.textContent = storm.thunderNow
+      ? 'Happening now.'
+      : 'Mainly between ' + W.clock(storm.from, forecast.offset, state.ampm) +
+        ' and ' + W.clock(storm.to, forecast.offset, state.ampm) + '.';
+  }
+
+  /* Why. Each line is a fact the storm read produced, with its time put in
+     at the last moment so it matches the clock setting. */
+  var causes = $('stormCauses');
+  causes.innerHTML = '';
+  storm.causes.forEach(function (c) {
+    var li = document.createElement('li');
+    li.setAttribute('data-icon', STORM_ICON[c.kind] || '•');
+    li.textContent = c.at
+      ? c.text.replace('{time}', W.clock(c.at, forecast.offset, state.ampm))
+      : c.text;
+    causes.appendChild(li);
+  });
+
+  renderStormStrip(storm);
+
+  /* The small print, and it is not decoration. Somebody deciding whether to
+     walk the dog deserves to know this is a forecast rather than radar. */
+  $('stormFoot').textContent = storm.level === 'clear'
+    ? 'Based on the forecast for the next 12 hours. Not live radar.'
+    : 'From the forecast, not live radar. Check an official warning before travelling.';
+}
+
+/* The hour-by-hour strip: one bar per hour for the next day, height by risk.
+   A storm hour also gets a dot, so the reading never rests on height or
+   colour alone. */
+function renderStormStrip(storm) {
+  var strip = $('stormStrip');
+  strip.innerHTML = '';
+  /* Flat when every hour is at its floor, so an all-clear day does not leave
+     a tall empty box in the middle of the card. */
+  var quiet = !storm.timeline.some(function (h) { return h.score >= 20; });
+  strip.className = 'storm-strip' + (quiet ? ' storm-strip--flat' : '');
+
+  var worded = [];
+  storm.timeline.forEach(function (h) {
+    var bar = document.createElement('div');
+    var level = h.thunder ? 'now' : (h.score >= 65 ? 'warning' : (h.score >= 20 ? 'watch' : 'calm'));
+    bar.className = 'storm-bar storm-bar--' + level + (h.thunder ? ' storm-bar--thunder' : '');
+    /* A floor of 14% so a calm hour is still a bar rather than a gap. */
+    bar.style.height = Math.max(14, Math.min(100, h.score)) + '%';
+    bar.setAttribute('aria-hidden', 'true');
+    bar.title = W.clock(h.t, forecast.offset, state.ampm) +
+      (h.thunder ? ' — thunder' : (h.score >= 20 ? ' — unsettled' : ' — calm'));
+    strip.appendChild(bar);
+
+    if (h.thunder) worded.push(W.clock(h.t, forecast.offset, state.ampm));
+  });
+
+  /* One sentence for a screen reader instead of twenty-four announcements.
+     It says the same thing the bars do. */
+  var label;
+  if (!storm.timeline.length) label = 'No hourly detail available.';
+  else if (worded.length) {
+    label = 'Next 24 hours. Thunder forecast at ' +
+      (worded.length > 3 ? worded.slice(0, 3).join(', ') + ' and later' : worded.join(', ')) + '.';
+  } else if (storm.level === 'clear') {
+    label = 'Next 24 hours. No storm risk in any hour.';
+  } else {
+    label = 'Next 24 hours. Unsettled in places, no thunder forecast.';
+  }
+  strip.setAttribute('aria-label', label);
+
+  /* Three marks under the bars, so "the tall ones are at four" is readable
+     without hovering anything. Hidden from screen readers, which get the
+     sentence above instead. */
+  var axis = $('stormAxis');
+  axis.innerHTML = '';
+  var line = storm.timeline;
+  if (line.length < 3) return;
+  [0, Math.floor(line.length / 2), line.length - 1].forEach(function (i) {
+    var span = document.createElement('span');
+    span.textContent = i === 0 ? 'Now' : W.clock(line[i].t, forecast.offset, state.ampm);
+    axis.appendChild(span);
   });
 }
 

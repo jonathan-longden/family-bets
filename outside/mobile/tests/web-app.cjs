@@ -60,7 +60,7 @@ function makeForecast(start, opts) {
 
   const H = { time: [], temperature_2m: [], apparent_temperature: [], relative_humidity_2m: [],
     precipitation_probability: [], precipitation: [], weather_code: [], wind_speed_10m: [],
-    wind_gusts_10m: [], visibility: [], is_day: [] };
+    wind_gusts_10m: [], visibility: [], cape: [], freezing_level_height: [], is_day: [] };
 
   for (let i = 0; i < hourCount; i++) {
     const h = hourAt(i);
@@ -74,6 +74,10 @@ function makeForecast(start, opts) {
     H.wind_speed_10m.push(h.w === undefined ? 10 : h.w);
     H.wind_gusts_10m.push(h.g === undefined ? (h.w === undefined ? 16 : h.w + 6) : h.g);
     H.visibility.push(h.vis === undefined ? 24000 : h.vis);
+    /* `cape: null` is how a model that does not produce it answers, and the
+       storm read has to cope with that rather than reading it as calm. */
+    H.cape.push(h.cape === undefined ? 20 : h.cape);
+    H.freezing_level_height.push(h.freeze === undefined ? 2200 : h.freeze);
     H.is_day.push(h.n ? 0 : 1);
   }
 
@@ -969,6 +973,335 @@ async function main() {
     !/storm|thunder/i.test(storms.rainBrief), storms.rainBrief);
   ok('and the brief still never swears',
     !/\b(fuck|shit|bastard|arse|bloody)\w*/i.test(storms.laterBrief + storms.nowBrief), storms.laterBrief);
+
+  /* --------------------------------------------------- suite: storm watch */
+
+  /* The storm read, straight from W.storm(). The thing being guarded here is
+     not that the feature works but that it never lies: thunder, hail and NOW
+     each have exactly one source of truth, and no amount of wind, rain or
+     unstable air is allowed to stand in for any of them. */
+
+  console.log('\nstorm watch');
+
+  /* Each case is a whole forecast built here and parsed in the page, so the
+     storm read is exercised through the same path the app uses. `cur` is the
+     code in the current block, which is the only thing NOW may read. */
+  function stormCase(opts) {
+    const json = makeForecast(start, opts);
+    if (opts.cur !== undefined) json.current.weather_code = opts.cur;
+    return JSON.stringify(json);
+  }
+  const stormCases = {
+    clear: stormCase({ hourAt: () => ({ t: 16, c: 1, p: 5, mm: 0, w: 10, g: 15, cape: 20 }) }),
+    /* Severe gusts and torrential rain, with no thunder code anywhere. */
+    windy: stormCase({ hourAt: () => ({ t: 12, c: 3, p: 20, mm: 0, w: 45, g: 75, cape: 30 }) }),
+    rainy: stormCase({ hourAt: () => ({ t: 12, c: 65, p: 95, mm: 9, w: 15, g: 25, cape: 60 }) }),
+    /* The honesty case: masses of fuel, nothing falling, no storm code. */
+    unstableOnly: stormCase({ hourAt: () => ({ t: 26, c: 0, p: 0, mm: 0, w: 8, g: 12, cape: 3000 }) }),
+    unstableWet: stormCase({ hourAt: () => ({ t: 22, c: 80, p: 55, mm: 1, w: 14, g: 22, cape: 1200 }) }),
+    /* Thunder from the fourth hour on, but not right now. */
+    coming: stormCase({
+      hourAt: i => (i >= 4 && i <= 6)
+        ? { t: 18, c: 95, p: 90, mm: 6, w: 30, g: 60, cape: 1400 }
+        : { t: 18, c: 2, p: 10, mm: 0, w: 12, g: 20, cape: 400 },
+      cur: 1
+    }),
+    nowish: stormCase({ hourAt: () => ({ t: 17, c: 95, p: 95, mm: 7, w: 25, g: 55, cape: 1800 }), cur: 95 }),
+    /* Heavy thunderstorm — the code that used to read as ordinary cloud. */
+    heavy: stormCase({ hourAt: () => ({ t: 17, c: 97, p: 95, mm: 9, w: 30, g: 70, cape: 2200 }), cur: 97 }),
+    hail: stormCase({
+      hourAt: i => i <= 3
+        ? { t: 9, c: 96, p: 95, mm: 5, w: 30, g: 65, cape: 1500 }
+        : { t: 11, c: 3, p: 10, mm: 0, w: 12, g: 20, cape: 200 },
+      cur: 96
+    }),
+    /* A storm code that is not a hail code must never raise hail. */
+    noHail: stormCase({ hourAt: () => ({ t: 17, c: 95, p: 95, mm: 8, w: 30, g: 60, cape: 2000 }), cur: 95 }),
+    /* A model that does not produce CAPE at all. */
+    noCape: stormCase({ hourAt: () => ({ t: 16, c: 1, p: 5, mm: 0, w: 10, g: 15, cape: null }) })
+  };
+
+  const storm = await page.evaluate(({ start, cases }) => {
+    const W = window.Weather;
+    const out = {};
+    Object.keys(cases).forEach(k => {
+      out[k] = W.storm(W.parse(JSON.parse(cases[k]), {}), start + 60);
+    });
+    return out;
+  }, { start, cases: stormCases });
+
+  eq('a calm forecast is all clear', storm.clear.level, 'clear');
+  eq('and claims nothing at all', [storm.clear.thunder, storm.clear.hail, storm.clear.wind, storm.clear.rain],
+    [false, false, false, false]);
+  eq('with no time window to offer', storm.clear.from, null);
+  eq('and no causes to list', storm.clear.causes.length, 0);
+
+  eq('severe gusts raise a storm watch', storm.windy.level, 'warning');
+  ok('and say it is the wind', storm.windy.causes.some(c => c.kind === 'wind'), JSON.stringify(storm.windy.causes));
+  ok('without inventing thunder', !storm.windy.thunder);
+  eq('torrential rain raises one too', storm.rainy.level, 'warning');
+  ok('and names the rain', storm.rainy.causes.some(c => c.kind === 'rain'));
+  ok('still with no thunder claimed', !storm.rainy.thunder && !storm.rainy.hail);
+
+  /* The rule that matters most about CAPE. */
+  eq('a sky full of fuel and nothing else stays all clear', storm.unstableOnly.level, 'clear');
+  ok('it does not claim a storm', !storm.unstableOnly.thunder);
+  ok('and does not use the word', !JSON.stringify(storm.unstableOnly.causes).match(/storm|thunder/i),
+    JSON.stringify(storm.unstableOnly.causes));
+  eq('unstable air with showers under it is worth an eye', storm.unstableWet.level, 'watch');
+  ok('and says so without promising thunder',
+    !storm.unstableWet.thunder &&
+    !JSON.stringify(storm.unstableWet.causes).match(/thunder/i),
+    JSON.stringify(storm.unstableWet.causes));
+
+  eq('thunder later is a storm watch, not a storm now', storm.coming.level, 'warning');
+  ok('the thunder flag is set', storm.coming.thunder);
+  ok('but not the now flag', !storm.coming.thunderNow);
+  ok('and it gives the time it starts',
+    storm.coming.causes.some(c => c.kind === 'thunder' && /\{time\}/.test(c.text)),
+    JSON.stringify(storm.coming.causes));
+  ok('with a window to put round it', storm.coming.from !== null && storm.coming.to > storm.coming.from);
+
+  eq('thunder on the hour you are standing in is STORM NOW', storm.nowish.level, 'now');
+  ok('and says it is overhead', storm.nowish.thunderNow);
+  eq('a heavy thunderstorm counts the same', storm.heavy.level, 'now');
+
+  ok('hail is claimed when the code says hail', storm.hail.hail);
+  ok('and comes with a time', storm.hail.causes.some(c => c.kind === 'hail'));
+  ok('a thunderstorm without a hail code never claims hail', !storm.noHail.hail);
+  ok('however heavy the rain under it', storm.noHail.rain && !storm.noHail.hail);
+
+  eq('a model with no CAPE still reads as calm', storm.noCape.level, 'clear');
+  eq('and reports no instability rather than zero', storm.noCape.cape, null);
+
+  /* The request has to ask for the new fields, and the parse has to survive
+     a model that does not answer with them at all — which is the normal case
+     in parts of the world, not an edge. */
+  const stormFields = await page.evaluate(({ cases }) => {
+    const W = window.Weather;
+    const url = W.forecastUrl({ lat: 53.9, lon: -1.8 }, 15);
+    const stripped = JSON.parse(cases.clear);
+    delete stripped.hourly.cape;
+    delete stripped.hourly.freezing_level_height;
+    const f = W.parse(stripped, {});
+    return {
+      asksForCape: /[?&]hourly=[^&]*\bcape\b/.test(url),
+      asksForFreeze: /freezing_level_height/.test(url),
+      parsesWithout: f.hours.length > 0,
+      capeIsNull: f.hours[0].cape,
+      stormStillWorks: W.storm(f, f.hours[0].t + 60).level
+    };
+  }, { cases: stormCases });
+  ok('the forecast request asks for the instability figure', stormFields.asksForCape);
+  ok('and the freezing level with it', stormFields.asksForFreeze);
+  ok('a model that sends neither still parses', stormFields.parsesWithout);
+  eq('with the missing figure left missing', stormFields.capeIsNull, null);
+  eq('and the storm read still returns an answer', stormFields.stormStillWorks, 'clear');
+
+  eq('the timeline covers a day', storm.clear.timeline.length, 24);
+  ok('and marks the stormy hours in it',
+    storm.coming.timeline.filter(h => h.thunder).length === 3,
+    String(storm.coming.timeline.filter(h => h.thunder).length));
+
+  /* The mouth. Each level gets its own bank, and the all-clear bank is not
+     allowed to sound like a warning. */
+  const stormWords = await page.evaluate(() => {
+    const V = window.Voice;
+    const banks = V.banks.STORM;
+    const rude = /\b(FUCK|SHIT|BASTARD|ARSE|BLOODY|BOLLOCK|PISS)\w*/;
+    /* An all-clear line may use the word "storm" — "NOT A STORM IN SIGHT" is
+       the bank doing its job. What it may never do is assert one. So the
+       word is allowed only when something in the line negates it. */
+    const alarming = /STORM|THUNDER|HAIL|KICK OFF|BRACE|TROUBLE|BATTEN|DRAMA|TANTRUM/;
+    const negated = /\b(NO|NOT|NOTHING|NEVER|WITHOUT)\b/;
+    const asserts = line => alarming.test(line) && !negated.test(line);
+    return {
+      levels: Object.keys(banks),
+      clearNeverAlarms: banks.clear.every(p => !asserts(p[0]) && !asserts(p[1])),
+      /* And the loud banks must actually be loud, or the split is pointless. */
+      warningAlwaysWarns: banks.warning.every(p => !negated.test(p[0]) || alarming.test(p[0])),
+      cleanNeverSwears: Object.keys(banks).every(k => banks[k].every(p => !rude.test(p[1]))),
+      hasAMouth: Object.keys(banks).some(k => banks[k].some(p => rude.test(p[0]))),
+      everyBankHasDepth: Object.keys(banks).every(k => banks[k].length >= 12),
+      /* The situation picked is a pure function of the storm read. */
+      pickedClear: V.stormSituation({ level: 'clear' }),
+      pickedHail: V.stormSituation({ level: 'warning', hail: true }),
+      pickedWind: V.stormSituation({ level: 'warning', wind: true, thunder: false, rain: false }),
+      pickedThunder: V.stormSituation({ level: 'warning', thunder: true, wind: true, rain: true }),
+      status: ['clear', 'watch', 'warning', 'now'].map(l => V.stormStatus({ level: l }))
+    };
+  });
+  eq('there is a bank for every situation', stormWords.levels.sort(),
+    ['clear', 'hail', 'now', 'rain', 'warning', 'watch', 'wind']);
+  ok('and every one of them has real variety', stormWords.everyBankHasDepth);
+  ok('the all-clear bank never asserts a storm', stormWords.clearNeverAlarms);
+  ok('and the storm-watch bank never talks itself down', stormWords.warningAlwaysWarns);
+  ok('the clean side never swears', stormWords.cleanNeverSwears);
+  ok('while the sweary side does', stormWords.hasAMouth);
+  eq('hail takes the hail line', stormWords.pickedHail, 'hail');
+  eq('wind alone takes the wind line', stormWords.pickedWind, 'wind');
+  eq('thunder beats wind to it', stormWords.pickedThunder, 'warning');
+  eq('nothing happening takes the all clear', stormWords.pickedClear, 'clear');
+  eq('the badge says it in plain words', stormWords.status,
+    ['ALL CLEAR', 'KEEP AN EYE ON IT', 'STORM WATCH', 'STORM NOW']);
+
+  /* ------------------------------------------ suite: storm watch on screen */
+
+  console.log('\nstorm watch, on the screen');
+
+  /* This suite drives the shared stub through several whole forecasts. It is
+     put back at the end, because every suite after it reads the same one. */
+  const stubBeforeStorms = stub;
+
+  async function showStorm(json) {
+    stub = JSON.parse(json);
+    await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('weatherApp.v1') || '{}');
+      s.caches = {};
+      localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+    });
+    await page.reload();
+    await page.waitForSelector('#stormCard:not([hidden])', { timeout: 5000 });
+    await page.waitForTimeout(120);
+    return page.evaluate(() => {
+      const card = document.getElementById('stormCard');
+      const strip = document.getElementById('stormStrip');
+      return {
+        classes: card.className,
+        badge: document.getElementById('stormStatus').textContent,
+        line: document.getElementById('stormLine').textContent,
+        when: document.getElementById('stormWhen').hidden
+          ? null : document.getElementById('stormWhen').textContent,
+        causes: [...document.querySelectorAll('#stormCauses li')].map(li => li.textContent),
+        bars: strip.querySelectorAll('.storm-bar').length,
+        thunderBars: strip.querySelectorAll('.storm-bar--thunder').length,
+        stripLabel: strip.getAttribute('aria-label'),
+        stripRole: strip.getAttribute('role'),
+        barsHidden: [...strip.querySelectorAll('.storm-bar')].every(b => b.getAttribute('aria-hidden') === 'true'),
+        foot: document.getElementById('stormFoot').textContent,
+        axis: [...document.querySelectorAll('#stormAxis span')].map(s => s.textContent),
+        axisHidden: document.getElementById('stormAxis').getAttribute('aria-hidden'),
+        flat: /storm-strip--flat/.test(strip.className),
+        heading: document.getElementById('stormHeading').textContent,
+        labelled: card.getAttribute('aria-labelledby'),
+        badgeRole: document.getElementById('stormStatus').getAttribute('role'),
+        /* The whole card, for the claim sweeps below. */
+        all: card.textContent
+      };
+    });
+  }
+
+  const calmScreen = await showStorm(stormCases.clear);
+  eq('a calm day shows ALL CLEAR', calmScreen.badge, 'ALL CLEAR');
+  ok('on a card marked clear', /storm--clear/.test(calmScreen.classes), calmScreen.classes);
+  eq('with no time window', calmScreen.when, null);
+  eq('and nothing listed as a cause', calmScreen.causes, []);
+  ok('it still says where the reading came from', /not live radar/i.test(calmScreen.foot), calmScreen.foot);
+  ok('and never claims a storm anywhere on the card',
+    !/\b(storm|thunder|hail)\b/i.test(calmScreen.all.replace(/Storm Watch|ALL CLEAR|No storm risk|not live radar/gi, '')),
+    calmScreen.all);
+
+  const nowScreen = await showStorm(stormCases.nowish);
+  eq('thunder overhead shows STORM NOW', nowScreen.badge, 'STORM NOW');
+  ok('on a card marked now', /storm--now/.test(nowScreen.classes), nowScreen.classes);
+  eq('and says it is happening', nowScreen.when, 'Happening now.');
+  ok('with the thunder named as the cause',
+    nowScreen.causes.some(c => /thunder/i.test(c)), JSON.stringify(nowScreen.causes));
+  ok('and a line with something to say', nowScreen.line.length > 8, nowScreen.line);
+
+  const comingScreen = await showStorm(stormCases.coming);
+  eq('thunder later shows STORM WATCH', comingScreen.badge, 'STORM WATCH');
+  ok('with a real time window, not a shrug',
+    /Mainly between \d\d:\d\d and \d\d:\d\d\./.test(comingScreen.when), comingScreen.when);
+  ok('and the start time filled into the cause',
+    comingScreen.causes.some(c => /Thunder forecast from \d\d:\d\d\./.test(c)),
+    JSON.stringify(comingScreen.causes));
+  ok('no placeholder is left showing',
+    !comingScreen.all.includes('{time}'), comingScreen.all);
+
+  const hailScreen = await showStorm(stormCases.hail);
+  ok('hail gets named when the code says hail',
+    hailScreen.causes.some(c => /hail/i.test(c)), JSON.stringify(hailScreen.causes));
+  const windScreen = await showStorm(stormCases.windy);
+  ok('a wind-driven watch never mentions thunder or hail',
+    !/thunder|hail/i.test(windScreen.causes.join(' ')), JSON.stringify(windScreen.causes));
+
+  /* The word this feature is not allowed to use. */
+  ok('the card never calls itself live',
+    ![calmScreen, nowScreen, comingScreen].some(s => /\blive\b/i.test(s.all.replace(/not live radar/gi, ''))),
+    nowScreen.all);
+
+  /* The strip, and how a screen reader meets it. */
+  eq('the strip draws an hour at a time', nowScreen.bars, 24);
+  eq('and marks every thunder hour', comingScreen.thunderBars, 3);
+  eq('it is one labelled image, not twenty-four', nowScreen.stripRole, 'img');
+  ok('the bars themselves are not announced', nowScreen.barsHidden);
+  ok('the label says what the picture shows',
+    /Next 24 hours\./.test(comingScreen.stripLabel) && /Thunder forecast at \d\d:\d\d/.test(comingScreen.stripLabel),
+    comingScreen.stripLabel);
+  ok('and says so plainly when there is nothing to show',
+    /No storm risk/i.test(calmScreen.stripLabel), calmScreen.stripLabel);
+  /* The strip needs a time axis or "the tall ones are at four" is unreadable
+     without a mouse to hover with. */
+  eq('the strip is marked with times', comingScreen.axis.length, 3);
+  eq('starting from now', comingScreen.axis[0], 'Now');
+  ok('and ending a day later', /^\d\d:\d\d$/.test(comingScreen.axis[2]), comingScreen.axis[2]);
+  eq('the axis is not read out twice', comingScreen.axisHidden, 'true');
+  ok('a day with nothing in it draws a flat strip, not an empty box',
+    calmScreen.flat && !comingScreen.flat,
+    calmScreen.flat + ' / ' + comingScreen.flat);
+
+  eq('the card is named for a screen reader', nowScreen.labelled, 'stormHeading');
+  eq('and the badge announces itself when it changes', nowScreen.badgeRole, 'status');
+
+  /* The clock setting reaches the storm times too. */
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.ampm = true; s.caches = {};
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await page.waitForSelector('#stormCard:not([hidden])');
+  await page.waitForTimeout(120);
+  const ampmStorm = await page.evaluate(() => ({
+    when: document.getElementById('stormWhen').textContent,
+    causes: [...document.querySelectorAll('#stormCauses li')].map(li => li.textContent).join(' ')
+  }));
+  ok('storm times follow the am/pm setting',
+    /\d(am|pm)/i.test(ampmStorm.when + ampmStorm.causes), ampmStorm.when + ' / ' + ampmStorm.causes);
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.ampm = false; s.caches = {};
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+
+  /* Reduced motion: the badge pulses to catch an eye, and must not when the
+     phone has been asked to stop moving things. Only STORM NOW pulses at all,
+     so the comparison has to be made on that state. */
+  await showStorm(stormCases.nowish);
+  const motion = await page.evaluate(() =>
+    getComputedStyle(document.getElementById('stormStatus')).animationName);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.reload();
+  await page.waitForSelector('#stormCard:not([hidden])');
+  await page.waitForTimeout(120);
+  const stillMotion = await page.evaluate(() =>
+    getComputedStyle(document.getElementById('stormStatus')).animationName);
+  const reducedBadge = await page.textContent('#stormStatus');
+  eq('the storm badge pulses normally', motion, 'stormPulse');
+  eq('and holds still when motion is turned down', stillMotion, 'none');
+  ok('while still saying the same thing in words', reducedBadge.length > 3, reducedBadge);
+  await page.emulateMedia({ reducedMotion: null });
+
+  /* Put the sky back the way the rest of the suite expects to find it. */
+  stub = stubBeforeStorms;
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.caches = {}; s.ampm = false;
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
 
   /* ------------------------------------------------ suite: special moments */
 
@@ -1972,6 +2305,134 @@ async function main() {
   });
   await page.reload();
   await page.waitForSelector('#hero:not([hidden])', { timeout: 5000 });
+
+  /* ------------------------------------ suite: a storm belongs to one place */
+
+  /* Storm Watch is computed from the forecast the location already has,
+     which is what makes it right per location without a second cache to keep
+     straight. This suite proves the consequence: three places with three
+     different skies, and the card on screen always describes the one whose
+     name is in the header — including when the replies come back in the
+     wrong order, and including with no signal at all. */
+
+  console.log('\na storm belongs to one place');
+
+  const stormSkies = {
+    5390: { hourAt: () => ({ t: 17, c: 95, p: 95, mm: 7, w: 25, g: 55, cape: 1800 }), cur: 95 },
+    5348: { hourAt: () => ({ t: 16, c: 1, p: 5, mm: 0, w: 10, g: 15, cape: 20 }), cur: 1 },
+    5012: { hourAt: () => ({ t: 12, c: 3, p: 20, mm: 0, w: 45, g: 75, cape: 30 }), cur: 3 }
+  };
+  const stormHeld = new Map();
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const lat = Math.round(Number(new URL(route.request().url()).searchParams.get('latitude')) * 100);
+    const json = makeForecast(start, stormSkies[lat] || stormSkies[5348]);
+    json.current.weather_code = (stormSkies[lat] || stormSkies[5348]).cur;
+    const send = () => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(json) });
+    if (stormHeld.has('hold')) stormHeld.set(lat, send); else send();
+  });
+
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.waitForSelector('#setup:not([hidden])');
+  await addTown('Ilkley');        /* thunder overhead */
+  await addTown('Manchester');    /* nothing at all */
+  await addTown('Penzance');      /* gales, no thunder */
+
+  const stormAt = () => page.evaluate(() => ({
+    place: document.getElementById('placeName').textContent,
+    badge: document.getElementById('stormStatus').textContent,
+    classes: document.getElementById('stormCard').className,
+    causes: [...document.querySelectorAll('#stormCauses li')].map(li => li.textContent).join(' ')
+  }));
+
+  async function goTo(nth) {
+    await page.click('#placeBtn');
+    await page.waitForSelector('#placeSheet[open]');
+    await page.click('#placeList .place-row:nth-child(' + nth + ') .place-go');
+    await page.waitForTimeout(350);
+    return stormAt();
+  }
+
+  const atPenzance = await stormAt();
+  eq('the last place added is the one on screen', atPenzance.place, 'Penzance');
+  eq('and it shows its own gales', atPenzance.badge, 'STORM WATCH');
+  ok('named as wind, not thunder', !/thunder/i.test(atPenzance.causes), atPenzance.causes);
+
+  const atIlkley = await goTo(1);
+  eq('switching moves the header', atIlkley.place, 'Ilkley');
+  eq('and the storm card with it', atIlkley.badge, 'STORM NOW');
+  ok('with its own thunder named', /thunder/i.test(atIlkley.causes), atIlkley.causes);
+
+  const atManchester = await goTo(2);
+  eq('a calm place shows calm', atManchester.place, 'Manchester');
+  eq('not the storm from the place before it', atManchester.badge, 'ALL CLEAR');
+  eq('and lists nothing', atManchester.causes, '');
+
+  /* The race. Three requests in the air, answered in the wrong order, with
+     the place you are actually looking at answered last. */
+  stormHeld.set('hold', true);
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.caches = {};
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await page.waitForTimeout(250);
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#placeList .place-row:nth-child(1) .place-go');   /* Ilkley */
+  await page.waitForTimeout(150);
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#placeList .place-row:nth-child(2) .place-go');   /* Manchester, calm */
+  await page.waitForTimeout(200);
+
+  /* Release the places we left first, the one on screen last. */
+  stormHeld.delete('hold');
+  [5012, 5390, 5348].forEach(lat => { const send = stormHeld.get(lat); if (send) send(); });
+  await page.waitForTimeout(600);
+
+  const afterRace = await stormAt();
+  eq('after a scramble the header still says Manchester', afterRace.place, 'Manchester');
+  eq('and the storm card is still Manchester own', afterRace.badge, 'ALL CLEAR');
+  ok('no thunder from the place we left has leaked in',
+    !/thunder|hail/i.test(afterRace.causes) && !/storm--now|storm--warning/.test(afterRace.classes),
+    afterRace.badge + ' / ' + afterRace.classes + ' / ' + afterRace.causes);
+
+  /* Offline: each place keeps its own storm, because each keeps its own
+     forecast and the storm is read from it. */
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => route.abort());
+  await page.reload();
+  await page.waitForSelector('#stormCard:not([hidden])');
+  const offlineManchester = await stormAt();
+  const offlineIlkley = await goTo(1);
+  eq('with no signal the cached calm is still calm', offlineManchester.badge, 'ALL CLEAR');
+  eq('and switching offline brings the other place storm', offlineIlkley.badge, 'STORM NOW');
+  eq('under the right name', offlineIlkley.place, 'Ilkley');
+
+  /* Deleting a place takes its storm with it rather than leaving it on
+     screen under whatever is selected next. */
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  page.once('dialog', d => d.accept());
+  await page.click('#placeList .place-row:nth-child(1) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(350);
+  const afterDeleteStorm = await stormAt();
+  ok('deleting the stormy place leaves the next one own weather',
+    afterDeleteStorm.place !== 'Ilkley' && afterDeleteStorm.badge !== 'STORM NOW',
+    afterDeleteStorm.place + ' / ' + afterDeleteStorm.badge);
+
+  /* Put the sky back for the suites that follow. */
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(stub) });
+  });
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
 
   /* --------------------------------------------- suite: asking for location */
 

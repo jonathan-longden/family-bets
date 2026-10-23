@@ -1796,6 +1796,187 @@
      app would walk straight past all of these. */
   V.banks.TOMORROW = TOMORROW;
 
+  /* ------------------------------------------------------- the storm mouth */
+
+  /* Storm Watch has its own bank because its lines carry a claim the rest of
+     the library does not: they tell somebody whether to go out. So the split
+     is strict and the line is picked from W.storm()'s level, never from a
+     guess.
+
+       clear    nothing stormy in the window — must not imply otherwise
+       watch    unsettled; every line hedges, because the data does
+       warning  a storm is forecast, and is not here yet
+       now      a thunder code on the hour happening right now
+       hail     only ever reached from codes 96 and 99
+       wind     the gusts are the story
+       rain     the rainfall is the story
+
+     A line in `clear` that said "that looks like trouble" would be a bug, not
+     a joke, and the test suite treats it as one. */
+  var STORM = {
+    clear: [
+      ['NOT A STORM IN SIGHT.', 'NOT A STORM IN SIGHT.'],
+      ['THE SKY IS ON ITS BEST BEHAVIOUR.', 'THE SKY IS ON ITS BEST BEHAVIOUR.'],
+      ['NOTHING BREWING. NOTHING AT ALL.', 'NOTHING BREWING. NOTHING AT ALL.'],
+      ['NO DRAMA FORECAST.', 'NO DRAMA FORECAST.'],
+      ['THE ATMOSPHERE IS HAVING A QUIET ONE.', 'THE ATMOSPHERE IS HAVING A QUIET ONE.'],
+      ['NO THUNDER. NO NONSENSE.', 'NO THUNDER. NO NONSENSE.'],
+      ['NOT A FUCKING THING BREWING.', 'NOTHING WHATSOEVER ON THE CARDS.'],
+      ['NOT A RUMBLE TO BE HEARD.', 'NOT A RUMBLE TO BE HEARD.'],
+      ['EVERY CLOUD IS MINDING ITS MANNERS.', 'EVERY CLOUD IS MINDING ITS MANNERS.'],
+      ['NO STORMS. YOU CAN RELAX.', 'NO STORMS. YOU CAN RELAX.'],
+      ['PEACEFUL. ALMOST SUSPICIOUSLY SO.', 'PEACEFUL. ALMOST SUSPICIOUSLY SO.'],
+      ['THE SKY HAS NO BEEF WITH ANYONE.', 'THE SKY HAS NO BEEF WITH ANYONE.'],
+      ['NO STORMS. BLOODY LOVELY.', 'NO STORMS, AND LONG MAY IT LAST.'],
+      ['THE WEATHER IS BEING REASONABLE.', 'THE WEATHER IS BEING REASONABLE.'],
+      ['NO TANTRUMS SCHEDULED.', 'NO TANTRUMS SCHEDULED.'],
+      ['CALM. GENUINELY, PROPERLY CALM.', 'CALM. GENUINELY, PROPERLY CALM.'],
+      ['BORING UP THERE. LONG MAY IT LAST.', 'BORING UP THERE. LONG MAY IT LAST.'],
+      ['NOT ONE CLOUD WITH AN ATTITUDE.', 'NOT ONE CLOUD WITH AN ATTITUDE.']
+    ],
+    watch: [
+      ['SOMETHING IS BREWING UP THERE.', 'SOMETHING IS BREWING UP THERE.'],
+      ['THAT CLOUD HAS GOT A LOOK ABOUT IT.', 'THAT CLOUD HAS GOT A LOOK ABOUT IT.'],
+      ['THE AIR HAS GONE A BIT FUNNY.', 'THE AIR HAS GONE A BIT FUNNY.'],
+      ['KEEP ONE EYE ON THE WINDOW.', 'KEEP ONE EYE ON THE WINDOW.'],
+      ['IT COULD TURN. IT MIGHT NOT.', 'IT COULD TURN. IT MIGHT NOT.'],
+      ['THE SKY IS THINKING ABOUT SOMETHING.', 'THE SKY IS THINKING ABOUT SOMETHING.'],
+      ['UNSETTLED, IN EVERY SENSE.', 'UNSETTLED, IN EVERY SENSE.'],
+      ['THERE IS A MOOD IN THE AIR.', 'THERE IS A MOOD IN THE AIR.'],
+      ['NOT TROUBLE YET. COULD BE.', 'NOT TROUBLE YET. COULD BE.'],
+      ['THE ATMOSPHERE IS FIDGETING.', 'THE ATMOSPHERE IS FIDGETING.'],
+      ['THAT SKY IS UP TO NO BLOODY GOOD.', 'THAT SKY IS PLOTTING, I RECKON.'],
+      ['SOMETHING MIGHT KICK OFF LATER.', 'SOMETHING MIGHT KICK OFF LATER.'],
+      ['A BIT TWITCHY UP THERE.', 'A BIT TWITCHY UP THERE.'],
+      ['TAKE A COAT. JUST IN CASE.', 'TAKE A COAT. JUST IN CASE.'],
+      ['COULD GO EITHER WAY, THIS ONE.', 'COULD GO EITHER WAY, THIS ONE.'],
+      ['THE CLOUDS ARE UP TO SOMETHING.', 'THE CLOUDS ARE UP TO SOMETHING.'],
+      ['ON THE EDGE OF SOMETHING. MAYBE.', 'ON THE EDGE OF SOMETHING. MAYBE.'],
+      ['WORTH GLANCING OUT NOW AND THEN.', 'WORTH GLANCING OUT NOW AND THEN.']
+    ],
+    warning: [
+      ['BRACE YOURSELF. THE SKY IS WINDING UP.', 'BRACE YOURSELF. THE SKY IS WINDING UP.'],
+      ['A STORM IS ON THE BOOKS.', 'A STORM IS ON THE BOOKS.'],
+      ['THUNDER IS PENCILLED IN.', 'THUNDER IS PENCILLED IN.'],
+      ['GET THE WASHING IN. NOW.', 'GET THE WASHING IN. NOW.'],
+      ['THE SKY HAS PLANS, AND THEY ARE LOUD.', 'THE SKY HAS PLANS, AND THEY ARE LOUD.'],
+      ['THE ATMOSPHERE IS CLEARING ITS THROAT.', 'THE ATMOSPHERE IS CLEARING ITS THROAT.'],
+      ['A STORM IS COMING AND IT LOOKS FUCKING ANGRY.', 'A STORM IS COMING AND IT MEANS IT.'],
+      ['SECURE ANYTHING LOOSE OUT THERE.', 'SECURE ANYTHING LOOSE OUT THERE.'],
+      ['THE SKY IS ROLLING ITS SLEEVES UP.', 'THE SKY IS ROLLING ITS SLEEVES UP.'],
+      ['TROUBLE IS SCHEDULED.', 'TROUBLE IS SCHEDULED.'],
+      ['THERE IS THUNDER IN THE DIARY.', 'THERE IS THUNDER IN THE DIARY.'],
+      ['BRING THE BINS IN BEFORE IT STARTS.', 'BRING THE BINS IN BEFORE IT STARTS.'],
+      ['IT IS GOING TO GET DRAMATIC.', 'IT IS GOING TO GET DRAMATIC.'],
+      ['THE QUIET BIT IS NEARLY OVER.', 'THE QUIET BIT IS NEARLY OVER.'],
+      ['STORM ON THE WAY. SORRY.', 'STORM ON THE WAY. SORRY.'],
+      ['THE SKY IS ABOUT TO MAKE A SCENE.', 'THE SKY IS ABOUT TO MAKE A SCENE.'],
+      ['PUT A COAT BY THE DOOR.', 'PUT A COAT BY THE DOOR.'],
+      ['SOMETHING LOUD IS ON ITS WAY.', 'SOMETHING LOUD IS ON ITS WAY.']
+    ],
+    now: [
+      ['THE SKY IS HAVING A FUCKING TANTRUM.', 'THE SKY IS THROWING A PROPER WOBBLER.'],
+      ['THE ATMOSPHERE HAS LOST THE FUCKING PLOT.', 'THE ATMOSPHERE HAS MISLAID THE PLOT.'],
+      ['CALM DOWN, SKY. JESUS.', 'CALM DOWN, SKY. HONESTLY.'],
+      ['IT IS KICKING OFF OUT THERE.', 'IT IS KICKING OFF OUT THERE.'],
+      ['STAY IN. WATCH IT FROM THE WINDOW.', 'STAY IN. WATCH IT FROM THE WINDOW.'],
+      ['THAT IS THUNDER. NO MISTAKING IT.', 'THAT IS THUNDER. NO MISTAKING IT.'],
+      ['THIS IS THE LOUD BIT.', 'THIS IS THE LOUD BIT.'],
+      ['RIGHT. THAT IS A STORM, THAT IS.', 'RIGHT. THAT IS A STORM, THAT IS.'],
+      ['DO NOT GO OUT IN THIS.', 'DO NOT GO OUT IN THIS.'],
+      ['THE WINDOWS ARE EARNING THEIR KEEP.', 'THE WINDOWS ARE EARNING THEIR KEEP.'],
+      ['FULL DRAMA MODE ENGAGED.', 'FULL DRAMA MODE ENGAGED.'],
+      ['THE DOG WILL NOT LIKE THIS ONE.', 'THE DOG WILL NOT LIKE THIS ONE.'],
+      ['KETTLE ON. SIT THIS ONE OUT.', 'KETTLE ON. SIT THIS ONE OUT.'],
+      ['NATURE IS BEING VERY LOUD ABOUT IT.', 'NATURE IS BEING VERY LOUD ABOUT IT.'],
+      ['WELL, THAT ESCALATED.', 'WELL, THAT ESCALATED.'],
+      ['EVERY CAR ALARM ON THE STREET IS OFF.', 'EVERY CAR ALARM ON THE STREET IS OFF.'],
+      ['COUNT THE SECONDS. GO ON.', 'COUNT THE SECONDS. GO ON.'],
+      ['THE SKY IS SETTLING A SCORE.', 'THE SKY IS SETTLING A SCORE.']
+    ],
+    hail: [
+      ['HAIL. ACTUAL ICE FROM THE SKY.', 'HAIL. ACTUAL ICE FROM THE SKY.'],
+      ['THE SKY IS THROWING THINGS NOW.', 'THE SKY IS THROWING THINGS NOW.'],
+      ['ICE. FALLING. ON PURPOSE.', 'ICE. FALLING. ON PURPOSE.'],
+      ['MIND THE CAR. HAIL FORECAST.', 'MIND THE CAR. HAIL FORECAST.'],
+      ['RAIN WAS NOT ENOUGH, APPARENTLY.', 'RAIN WAS NOT ENOUGH, APPARENTLY.'],
+      ['HAIL COMING. THE GREENHOUSE IS DOOMED.', 'HAIL COMING. THE GREENHOUSE IS DOOMED.'],
+      ['FROZEN RAIN WITH AN ATTITUDE.', 'FROZEN RAIN WITH AN ATTITUDE.'],
+      ['IT IS GOING TO CHUCK ICE AT YOU.', 'IT IS GOING TO CHUCK ICE AT YOU.'],
+      ['THE SKY HAS FOUND SOMETHING TO THROW.', 'THE SKY HAS FOUND SOMETHING TO THROW.'],
+      ['BRING ANYTHING BREAKABLE INDOORS.', 'BRING ANYTHING BREAKABLE INDOORS.'],
+      ['HAIL FORECAST. MIND YOUR HEAD.', 'HAIL FORECAST. MIND YOUR HEAD.'],
+      ['THAT IS GOING TO BLOODY STING.', 'THAT IS GOING TO SMART, THAT IS.']
+    ],
+    wind: [
+      ['THE WIND IS DOING THE DAMAGE HERE.', 'THE WIND IS DOING THE DAMAGE HERE.'],
+      ['HOLD ONTO SOMETHING SOLID.', 'HOLD ONTO SOMETHING SOLID.'],
+      ['GUSTS LIKE THAT MOVE FURNITURE.', 'GUSTS LIKE THAT MOVE FURNITURE.'],
+      ['ANYTHING ON WHEELS WILL MOVE ITSELF.', 'ANYTHING ON WHEELS WILL MOVE ITSELF.'],
+      ['SQUALLY. VERY SQUALLY.', 'SQUALLY. VERY SQUALLY.'],
+      ['THE FENCE PANELS ARE IN DANGER.', 'THE FENCE PANELS ARE IN DANGER.'],
+      ['IT IS THE WIND YOU WANT TO WATCH.', 'IT IS THE WIND YOU WANT TO WATCH.'],
+      ['THE TRAMPOLINE IS A FLIGHT RISK.', 'THE TRAMPOLINE IS A FLIGHT RISK.'],
+      ['WIND WITH SOMETHING TO PROVE.', 'WIND WITH SOMETHING TO PROVE.'],
+      ['TIE DOWN ANYTHING THAT MATTERS.', 'TIE DOWN ANYTHING THAT MATTERS.'],
+      ['THE GUSTS ARE THE PROBLEM TODAY.', 'THE GUSTS ARE THE PROBLEM TODAY.'],
+      ['A WIND THAT TAKES LIBERTIES.', 'A WIND THAT TAKES LIBERTIES.']
+    ],
+    rain: [
+      ['RAIN BY THE BUCKET, NOT THE DROP.', 'RAIN BY THE BUCKET, NOT THE DROP.'],
+      ['DELUGE IS THE ONLY WORD FOR THIS.', 'DELUGE IS THE ONLY WORD FOR THIS.'],
+      ['SURFACE WATER INCOMING.', 'SURFACE WATER INCOMING.'],
+      ['THE SKY IS EMPTYING ITSELF.', 'THE SKY IS EMPTYING ITSELF.'],
+      ['PROPER TORRENTIAL STUFF.', 'PROPER TORRENTIAL STUFF.'],
+      ['PUDDLES WITH AMBITION.', 'PUDDLES WITH AMBITION.'],
+      ['A MONTH OF RAIN IN AN HOUR.', 'A MONTH OF RAIN IN AN HOUR.'],
+      ['ROADS WILL FLOOD IN THIS.', 'ROADS WILL FLOOD IN THIS.'],
+      ['THE GUTTERS ARE ABOUT TO LOSE IT.', 'THE GUTTERS ARE ABOUT TO LOSE IT.'],
+      ['HEAVY. RELENTLESSLY HEAVY.', 'HEAVY. RELENTLESSLY HEAVY.'],
+      ['WELLIES, NOT SHOES.', 'WELLIES, NOT SHOES.'],
+      ['THAT IS A FUCKING LOT OF WATER.', 'THAT IS AN AWFUL LOT OF WATER.']
+    ]
+  };
+  V.banks.STORM = STORM;
+
+  /* The storm line. The situation comes from W.storm() and nothing else, so
+     the mouth can only ever describe a state the numbers already decided.
+
+     Hail and the two single-cause readings are preferred over the plain level
+     because they are more specific and equally true: a watch driven entirely
+     by gusts is better served by a line about wind than one about a vague
+     mood in the air. */
+  V.stormSituation = function (storm) {
+    if (!storm) return 'clear';
+    if (storm.hail) return 'hail';
+    if (storm.level === 'now' || storm.level === 'clear') return storm.level;
+    /* Only when it is the whole story — a storm with thunder in it gets the
+       thunder line, not the wind one. */
+    if (!storm.thunder && storm.wind && !storm.rain) return 'wind';
+    if (!storm.thunder && storm.rain && !storm.wind) return 'rain';
+    return storm.level;
+  };
+
+  V.stormLine = function (storm, settings, now) {
+    var situation = V.stormSituation(storm);
+    var bank = STORM[situation] || STORM.clear;
+    var seed = Math.floor((now || 0) / 3600) + hash(situation);
+    return choose(bank, seed, settings && settings.sweary);
+  };
+
+  /* What the badge over the section says. Deliberately plain English: the
+     joke is underneath it, and somebody deciding whether to go out should not
+     have to parse a gag to find out. */
+  var STORM_STATUS = {
+    clear: 'ALL CLEAR',
+    watch: 'KEEP AN EYE ON IT',
+    warning: 'STORM WATCH',
+    now: 'STORM NOW'
+  };
+  V.stormStatus = function (storm) {
+    return STORM_STATUS[(storm && storm.level) || 'clear'];
+  };
+
   /* Where a day's sky sits on the bright-to-murky scale, so "more cloud" can
      be told from "brighter" and both from "wet". Only the dry families are
      ranked; anything falling out of the sky is handled before this. */

@@ -9,7 +9,7 @@
    because cache-first with nothing behind it is how a phone ends up running
    last month's app forever. */
 
-const CACHE_NAME = 'weather-v7';
+const CACHE_NAME = 'weather-v8';
 const NETWORK_WAIT_MS = 2500;
 const FILES_TO_CACHE = [
   './',

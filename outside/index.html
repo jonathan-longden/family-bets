@@ -13,7 +13,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Blooming Weather">
-<link rel="stylesheet" href="styles.css?v=7">
+<link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
 
@@ -79,6 +79,26 @@
 
   <!-- ------------------------------------------------------ what changed -->
   <section class="moments" id="moments" hidden aria-label="Worth knowing"></section>
+
+  <!-- ------------------------------------------------------- storm watch -->
+  <!-- Read from the forecast this location already has. No radar, no live
+       feed, nothing that would make the word "live" honest — so the word is
+       not used anywhere in here. STORM NOW means the hour happening right
+       now carries a thunder code, and nothing looser than that. -->
+  <section class="card storm" id="stormCard" hidden aria-labelledby="stormHeading">
+    <div class="card-head">
+      <h2 id="stormHeading">Storm Watch</h2>
+      <span class="storm-badge" id="stormStatus" role="status"></span>
+    </div>
+    <p class="storm-line" id="stormLine"></p>
+    <p class="storm-when" id="stormWhen" hidden></p>
+    <ul class="storm-causes" id="stormCauses"></ul>
+    <!-- The strip is a picture of numbers already read out above it, so it is
+         one labelled image rather than twenty-four announcements. -->
+    <div class="storm-strip" id="stormStrip" role="img" aria-label=""></div>
+    <div class="storm-axis" id="stormAxis" aria-hidden="true"></div>
+    <p class="storm-foot" id="stormFoot"></p>
+  </section>
 
   <!-- --------------------------------------------------- how's it looking -->
   <section class="card brief" id="briefCard" hidden aria-labelledby="briefHeading">
@@ -362,10 +382,10 @@
   </form>
 </dialog>
 
-<script src="brand.js?v=7"></script>
-<script src="weather.js?v=7"></script>
-<script src="voice.js?v=7"></script>
-<script src="native.js?v=7"></script>
-<script src="app.js?v=7"></script>
+<script src="brand.js?v=8"></script>
+<script src="weather.js?v=8"></script>
+<script src="voice.js?v=8"></script>
+<script src="native.js?v=8"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
