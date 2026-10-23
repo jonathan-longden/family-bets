@@ -9,8 +9,72 @@ This file holds the question, what their terms actually say, what was done
 about it, and the email that is still to be sent. When a reply comes back,
 record it at the bottom.
 
-**Status: on the free tier. No plan bought, nothing paid, nobody contacted
-yet.**
+**Status: settled. Open-Meteo were asked directly and confirmed this app may
+use the free API. Staying on the free tier, with conditions — see
+[The answer](#the-answer-23-october-2026) below.**
+
+---
+
+## The answer (23 October 2026)
+
+**Open-Meteo replied, and the answer is yes.**
+
+Their guidance, as relayed by the project owner — this is a summary of their
+reply rather than a verbatim quotation of it:
+
+> Commerciality depends on whether the app supports a business, a paid
+> product or service, advertising, affiliate revenue, client work, or
+> internal business operations.
+>
+> Personal hobby projects and non-commercial community projects may use the
+> free API, subject to the usage limits.
+
+Blooming Weather is none of those things, so it qualifies.
+
+Worth noticing that their reply frames the test slightly **wider** than the
+examples on their terms page do. The page asks about subscriptions and
+advertising. The reply adds affiliate revenue, client work and internal
+business operations. Nothing in the wider framing catches this app, but it is
+the version to measure against in future, because it is the one they gave
+when asked about this app specifically.
+
+### The decision
+
+**Stay on the free API. Do not buy a subscription at this stage.**
+
+### The conditions it depends on
+
+This permission is conditional, and the conditions are product decisions that
+could drift without anybody connecting the drift to a data licence. The app
+must stay:
+
+- Completely free
+- No advertising
+- No affiliate links
+- No subscriptions
+- No in-app purchases
+- No paid features
+- No analytics or tracking
+
+**Break any one of these and the free tier no longer applies.** Not as a
+matter of interpretation — their reply names most of them directly.
+
+These are not left as prose. The test suite checks them on every run, under
+*the conditions the licence rests on*: shipped files are swept for advertising,
+analytics, tracking, crash-reporting and billing SDKs; the page is checked for
+anything loaded from a third-party server; the native plugin list is pinned to
+the capabilities the app actually uses; and the app's live network traffic is
+watched to confirm `api.open-meteo.com` is the only host it ever calls. If
+somebody adds a crash reporter one wet Tuesday, the suite fails and tells them
+what else they have just changed.
+
+### What stays as it is
+
+- The attribution added in `e263b09` stays. It is a CC BY 4.0 condition and is
+  required regardless of tier.
+- The usage limits still apply, and the question of how they are counted for a
+  distributed mobile app is covered in [section 3](#3-rate-limits--the-open-question)
+  below. The app's own call rate is measured there.
 
 ---
 
@@ -36,6 +100,11 @@ Everything quoted below is verbatim from those files. Anything that could
 
 **Yes, on their own definition** — as long as the app stays free of
 subscriptions and advertising.
+
+> This section was the reading of their published terms, written before they
+> were asked. They have since confirmed it directly, in terms slightly wider
+> than this: see [The answer](#the-answer-23-october-2026). Where the two
+> differ, their reply wins.
 
 Their terms give worked examples. These qualify as **non-commercial**:
 
@@ -173,7 +242,11 @@ unverified** and check the pricing page directly before relying on them.
 
 ---
 
-## 5. The email to send
+## 5. The email that was sent
+
+**Sent and answered — see [The answer](#the-answer-23-october-2026) at the top.**
+Kept here as the record of what was actually asked, since the reply only makes
+sense alongside the question.
 
 Send it from **the address you intend to use as `support.email`** in
 `app.config.json`. Their reply then lands in the mailbox you will be
@@ -251,24 +324,30 @@ Best regards,
 
 ---
 
-## 6. When they reply
+## 6. The record
 
-Record it here, with the date, so the next person to ask this question —
-including you in a year — does not have to work it out again.
+| | |
+|---|---|
+| Asked | October 2026, by email to `info@open-meteo.com` |
+| Answered | 23 October 2026 |
+| Outcome | Free API confirmed for this app as a personal hobby project |
+| Decision | Stay on the free tier. No subscription bought |
+| Conditions | Free, no ads, no affiliate links, no subscriptions, no in-app purchases, no paid features, no analytics — checked by the test suite |
+| Attribution | Added in `e263b09`, stays regardless of tier |
 
-> _Sent:_
->
-> _Replied:_
->
-> _What they said:_
->
-> _What changed as a result:_
+### When this has to be revisited
+
+- Anything on the conditions list changes — the test suite will say so first
+- The app starts earning money in any form other than voluntary donations
+  (their terms permit a tip jar explicitly; their reply did not contradict
+  that, but it is worth re-asking if it ever becomes real money)
+- Usage approaches the free limits, if they turn out to be counted per
+  application rather than per device
 
 ---
 
 ## Still open
 
-- [ ] Send the email above
 - [ ] `support.email` in `app.config.json` is still empty, and both shops
       reject a listing without one
 - [ ] The live Open-Meteo round trip has never been made from a development

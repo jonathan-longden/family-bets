@@ -1579,6 +1579,92 @@ async function main() {
   });
   eq('nor anywhere in the words the app can say', sourceSweep, []);
 
+  /* ------------------------------ suite: the conditions the licence rests on */
+
+  /* Open-Meteo confirmed by email that this app may use the free API as a
+     personal hobby project. That permission is conditional: it holds while
+     the app has no advertising, no affiliate links, no subscriptions, no
+     in-app purchases, no paid features and no analytics or tracking.
+     See mobile/OPEN-METEO.md.
+
+     Those are product decisions, and product decisions drift. A note in a
+     markdown file does not stop somebody adding a crash reporter one wet
+     Tuesday, so the conditions are checked here instead: if any of them is
+     broken the suite fails, and whoever broke it finds out that the data
+     licence changed with it. */
+
+  console.log('\nthe conditions the licence rests on');
+
+  const licence = await page.evaluate(async () => {
+    /* Named SDKs and the words their setup code uses. Deliberately specific:
+       a sweep for "track" alone would trip over "soundtrack". */
+    const vendors = [
+      'google-analytics', 'googletagmanager', 'gtag(', 'analytics.js', 'firebase',
+      'admob', 'doubleclick', 'adsbygoogle', 'facebook.net', 'connect.facebook',
+      'segment.com', 'mixpanel', 'amplitude', 'sentry.io', 'bugsnag', 'crashlytics',
+      'appsflyer', 'adjust.com', 'onesignal', 'revenuecat', 'branch.io',
+      /* Domains rather than bare product names where the name is also an
+         ordinary English word: weather.js says "plausible" about hail. */
+      'hotjar', 'fullstory', 'posthog', 'plausible.io', 'matomo', 'piwik',
+      'in-app purchase', 'inapppurchase', 'billingclient', 'play-billing',
+      'affiliate', 'adservice', 'ad-network'
+    ];
+    const files = ['index.html', 'app.js', 'weather.js', 'voice.js', 'brand.js',
+      'native.js', 'sw.js', 'privacy.html', 'manifest.json', 'mobile/package.json'];
+    const hits = [];
+    for (const f of files) {
+      const res = await fetch(f);
+      if (!res.ok) { hits.push(f + ': could not be read'); continue; }
+      const text = (await res.text()).toLowerCase();
+      vendors.forEach(v => { if (text.indexOf(v) >= 0) hits.push(f + ': ' + v); });
+    }
+
+    /* Every script the page loads has to be one of ours. A third-party tag
+       is how analytics arrives in practice — not by anyone deciding to add
+       analytics. */
+    const offSite = [...document.querySelectorAll('script[src], iframe, img[src], link[rel="stylesheet"]')]
+      .map(el => el.getAttribute('src') || el.getAttribute('href') || '')
+      .filter(u => /^(https?:)?\/\//i.test(u));
+
+    /* The native shell's plugin list, which is the other way a tracker gets
+       in. Each of these is a capability the app actually uses. */
+    const pkg = JSON.parse(await (await fetch('mobile/package.json')).text());
+    const plugins = Object.keys(pkg.dependencies || {});
+
+    return { hits, offSite, plugins };
+  });
+
+  eq('no advertising, analytics or tracking SDK anywhere in the app', licence.hits, []);
+  eq('and nothing is loaded from anybody else servers', licence.offSite, []);
+  eq('the native plugins are only the capabilities the app uses', licence.plugins.sort(), [
+    '@capacitor/android', '@capacitor/app', '@capacitor/core', '@capacitor/filesystem',
+    '@capacitor/geolocation', '@capacitor/ios', '@capacitor/keyboard', '@capacitor/share',
+    '@capacitor/splash-screen', '@capacitor/status-bar'
+  ]);
+
+  /* The app may talk to Open-Meteo and nowhere else. This is the runtime
+     proof rather than the source-reading one: it watches what the page
+     actually requests. */
+  const talkedTo = new Set();
+  const watcher = r => {
+    const host = new URL(r.url()).host;
+    if (!/^127\.0\.0\.1|^localhost/.test(host)) talkedTo.add(host);
+  };
+  /* The cached forecast is fifteen minutes fresh, so without clearing it the
+     app correctly makes no request at all and the watcher proves nothing. */
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1') || '{}');
+    s.caches = {};
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  page.on('request', watcher);
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  await page.waitForTimeout(700);
+  page.off('request', watcher);
+  eq('the only servers the app calls are Open-Meteo',
+    [...talkedTo].sort(), ['api.open-meteo.com']);
+
   /* ------------------------------------------------------- suite: settings */
 
   console.log('\nsettings');
