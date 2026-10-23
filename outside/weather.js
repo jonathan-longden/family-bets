@@ -113,9 +113,23 @@
     85: ['Snow showers', 'snow showers', 'snow'],
     86: ['Snow showers', 'heavy snow showers', 'snow'],
     95: ['Thunderstorm', 'thunder', 'thunder'],
+    /* 97 is a heavy thunderstorm without hail. It was missing, and the
+       default below is `cloud` — so a heavy thunderstorm used to arrive
+       looking like "unsettled", with no ⛈️, no warning and no thunder line.
+       Models that derive storms from instability rather than forecasting hail
+       explicitly report 95 and 97 and never 96 or 99, which means this was the
+       code a good share of the world's thunderstorms came in under. */
+    97: ['Thunderstorm', 'heavy thunder', 'thunder'],
     96: ['Thunderstorm', 'thunder and hail', 'thunder'],
     99: ['Thunderstorm', 'thunder and hail', 'thunder']
   };
+
+  /* Hail is claimed from these two codes and nothing else. No amount of
+     instability, freezing level or heavy rain is allowed to imply it: those
+     say hail is possible, which is not the same sentence. Only models with an
+     explicit hail forecast ever emit them, so in much of the world this is
+     always false — which is the honest answer, not a missing feature. */
+  W.hasHail = function (code) { return code === 96 || code === 99; };
 
   W.sky = function (code) { return CODES[code] || ['Unsettled', 'unsettled', 'cloud']; };
   W.skyName = function (code) { return W.sky(code)[0]; };

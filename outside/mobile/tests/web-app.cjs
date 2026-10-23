@@ -211,6 +211,34 @@ async function main() {
   eq('an empty answer is refused', parsed.empty, 'refused');
   eq('an answer with no days is refused', parsed.noDays, 'refused');
 
+  /* Every thunderstorm code has to land in the thunder family. 97 did not:
+     it fell through to the "unsettled" default, so a heavy thunderstorm came
+     out looking like ordinary cloud — no icon, no warning, no thunder line.
+     Models that derive storms from instability rather than forecasting hail
+     report 95 and 97 and never 96 or 99, so this was not a rare code. */
+  const codes = await page.evaluate(() => {
+    const W = window.Weather;
+    const thunderCodes = [95, 96, 97, 99];
+    return {
+      families: thunderCodes.map(c => W.family(c)),
+      icons: thunderCodes.map(c => W.icon({ code: c, gust: 10, feels: 15, day: 1 })),
+      unsettled: thunderCodes.filter(c => W.skyName(c) === 'Unsettled'),
+      /* Hail is two codes and nothing else. */
+      hail: thunderCodes.filter(c => W.hasHail(c)),
+      hailFromRain: [61, 63, 65, 82].some(c => W.hasHail(c)),
+      /* The default still has to exist for a code nobody has seen. */
+      unknown: W.family(4242)
+    };
+  });
+  eq('every thunderstorm code is in the thunder family', codes.families,
+    ['thunder', 'thunder', 'thunder', 'thunder']);
+  eq('and every one of them gets the storm icon', codes.icons,
+    ['⛈️', '⛈️', '⛈️', '⛈️']);
+  eq('none of them falls through to "unsettled"', codes.unsettled, []);
+  eq('hail is claimed for exactly two codes', codes.hail, [96, 99]);
+  ok('and never for rain, however heavy', !codes.hailFromRain);
+  eq('a code nobody has seen still lands somewhere safe', codes.unknown, 'cloud');
+
   /* ----------------------------------------------------------- suite: icons */
 
   console.log('\nwhat the hour looks like');
@@ -653,7 +681,22 @@ async function main() {
     !Object.keys(tom).some(k => tom[k] && /SEE ABOVE/.test(tom[k].line)));
   ok('the clean twin stays clean',
     !/\b(fuck|shit|bastard|arse|bloody)\w*/i.test(tom.cleanTwin.line), tom.cleanTwin.line);
-  ok('while the sweary one has its mouth', /BASTARD/.test(tom.coolerGrim.line), tom.coolerGrim.line);
+  /* The old assertion here pinned one exact word on whichever line the day's
+     hash happened to pick, so it passed in September and failed in October
+     without a thing having changed. What actually matters is that the bank
+     has a mouth at all, and that the clean rendering of the same situation
+     never does — most pairs are deliberately identical, since only about one
+     line in fourteen swears. */
+  const mouth = await page.evaluate(() => {
+    const rude = /\b(FUCK|SHIT|BASTARD|ARSE|BLOODY|BOLLOCK|PISS)\w*/;
+    const bank = window.Voice.banks.TOMORROW.cooler;
+    return {
+      swearyHasOne: bank.some(p => rude.test(p[0])),
+      cleanHasNone: bank.every(p => !rude.test(p[1]))
+    };
+  });
+  ok('while the sweary side of the bank has its mouth', mouth.swearyHasOne);
+  ok('and the clean side never does', mouth.cleanHasNone);
 
   /* ---------------------------------------------------- suite: units, clocks */
 
