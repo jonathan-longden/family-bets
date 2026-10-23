@@ -340,14 +340,32 @@ button:active { transform: scale(.98); }
 /* -------------------------------------------------------------------- foot */
 
 .foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
   color: var(--dimmer);
   font-size: .78rem;
   padding: 6px 2px 0;
 }
+.foot-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+}
+
+/* The data credit. Readable rather than greyed into the background — it is a
+   licence condition, not small print — and on its own line so a long status
+   like "Updated 3 h ago · using the last forecast we managed to grab" can
+   never push it off the side of a 320px phone. */
+.foot-credit { margin: 7px 0 0; }
+.foot-credit a {
+  color: var(--dim);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* A comfortable target without turning a line of text into a button. */
+  display: inline-block;
+  padding: 3px 0;
+}
+.foot-credit a:hover, .foot-credit a:focus-visible { color: var(--wet); }
 
 /* ------------------------------------------------------------------ sheets */
 

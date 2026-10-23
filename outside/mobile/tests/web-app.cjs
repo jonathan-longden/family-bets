@@ -1321,6 +1321,82 @@ async function main() {
   await page.reload();
   await page.waitForSelector('#hero:not([hidden])');
 
+  /* ------------------------------------------------- suite: the attribution */
+
+  /* Open-Meteo's data is CC BY 4.0, and their licence asks for a link "next
+     to any location Open-Meteo data are displayed". The credit used to live
+     only inside the About sheet, which is a place somebody has to go looking
+     for. This suite exists so it cannot quietly go back there. */
+
+  console.log('\nsaying where the weather came from');
+
+  const credit = await page.evaluate(() => {
+    const link = document.querySelector('.foot-credit a');
+    if (!link) return { missing: true };
+    const box = link.getBoundingClientRect();
+    const weather = ['hero', 'stormCard', 'stripCard', 'daysCard', 'tomorrowCard'];
+    const onScreenWith = weather.filter(id => {
+      const el = document.getElementById(id);
+      return el && !el.hidden;
+    });
+    /* Is the credit actually in the same scrolling page as the weather, and
+       below it rather than orphaned somewhere above? */
+    const heroTop = document.getElementById('hero').getBoundingClientRect().top;
+    return {
+      missing: false,
+      text: link.textContent.trim(),
+      href: link.getAttribute('href'),
+      newTab: link.getAttribute('target'),
+      rel: link.getAttribute('rel'),
+      visible: box.width > 0 && box.height > 0 && getComputedStyle(link).display !== 'none',
+      tall: box.height,
+      belowTheWeather: box.top > heroTop,
+      shownWith: onScreenWith,
+      inAFooter: !!link.closest('footer'),
+      insideADialog: !!link.closest('dialog'),
+      /* The About sheet keeps its own mention; this is the one that matters. */
+      aboutStillCredits: /open-meteo/i.test(document.getElementById('aboutSheet').textContent)
+    };
+  });
+
+  ok('the weather screen says where the weather came from', !credit.missing);
+  eq('in the words the licence asks for', credit.text, 'Weather data by Open-Meteo.com');
+  eq('linked to Open-Meteo', credit.href, 'https://open-meteo.com/');
+  ok('and it is actually visible, not a hidden tag', credit.visible);
+  ok('it is not buried in a sheet somebody has to open', !credit.insideADialog);
+  ok('it sits in the page footer', credit.inAFooter);
+  ok('below the weather rather than above it', credit.belowTheWeather);
+  eq('on the same page as the hero, the storm, the hours and the days',
+    credit.shownWith, ['hero', 'stormCard', 'stripCard', 'daysCard', 'tomorrowCard']);
+  ok('it is a comfortable thing to tap', credit.tall >= 18, String(credit.tall));
+  eq('and opens away from the app rather than replacing it', credit.newTab, '_blank');
+  ok('without handing the new page a window handle', /noopener/.test(credit.rel || ''), credit.rel);
+  ok('About still credits them too', credit.aboutStillCredits);
+
+  /* It has to survive the narrowest phone, next to the longest status line
+     the footer can produce. */
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.evaluate(() => {
+    document.getElementById('footStatus').textContent =
+      'Updated 3 h ago · using the last forecast we managed to grab';
+  });
+  await page.waitForTimeout(80);
+  const narrowCredit = await page.evaluate(() => {
+    const link = document.querySelector('.foot-credit a');
+    const box = link.getBoundingClientRect();
+    return {
+      sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      onScreen: box.left >= 0 && box.right <= document.documentElement.clientWidth + 1,
+      stacked: box.top > document.getElementById('footStatus').getBoundingClientRect().top,
+      readable: parseFloat(getComputedStyle(link).fontSize) >= 11
+    };
+  });
+  eq('at 320px it still pushes nothing sideways', narrowCredit.sideways, 0);
+  ok('and stays inside the screen', narrowCredit.onScreen);
+  ok('on its own line under the status, not squeezed beside it', narrowCredit.stacked);
+  ok('at a size somebody can actually read', narrowCredit.readable);
+  await page.setViewportSize({ width: 430, height: 900 });
+
   /* ------------------------------------------------ suite: special moments */
 
   console.log('\nspecial moments');

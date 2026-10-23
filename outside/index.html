@@ -167,9 +167,21 @@
     <div class="row"><button class="primary" type="button" id="retryBtn">Try again</button></div>
   </section>
 
+  <!-- The credit sits on the main screen rather than inside About, because
+       Open-Meteo's licence asks for a link next to where their data is shown
+       and About is a sheet somebody has to go looking for. It is one line
+       under the status row so it is never squeezed by it on a narrow phone,
+       and it is the last thing on the page that carries the weather — which
+       is the same page as the hero, the hours, the fifteen days and the
+       storm card. -->
   <footer class="foot">
-    <span id="footStatus" role="status"></span>
-    <button class="link" type="button" id="aboutBtn">About</button>
+    <div class="foot-row">
+      <span id="footStatus" role="status"></span>
+      <button class="link" type="button" id="aboutBtn">About</button>
+    </div>
+    <p class="foot-credit">
+      <a href="https://open-meteo.com/" target="_blank" rel="noopener">Weather data by Open-Meteo.com</a>
+    </p>
   </footer>
 
 </div>
