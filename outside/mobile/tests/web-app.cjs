@@ -1186,7 +1186,17 @@ async function main() {
         labelled: card.getAttribute('aria-labelledby'),
         badgeRole: document.getElementById('stormStatus').getAttribute('role'),
         /* The whole card, for the claim sweeps below. */
-        all: card.textContent
+        all: card.textContent,
+        /* The card with its fixed furniture taken out — the heading, the
+           status badge and the small print are the same whatever the
+           weather, so sweeping them for claims only tests the chrome. What
+           is left is everything the forecast actually produced. */
+        said: [
+          document.getElementById('stormLine').textContent,
+          document.getElementById('stormWhen').hidden ? '' : document.getElementById('stormWhen').textContent,
+          [...document.querySelectorAll('#stormCauses li')].map(li => li.textContent).join(' '),
+          strip.getAttribute('aria-label') || ''
+        ].join(' ')
       };
     });
   }
@@ -1197,9 +1207,17 @@ async function main() {
   eq('with no time window', calmScreen.when, null);
   eq('and nothing listed as a cause', calmScreen.causes, []);
   ok('it still says where the reading came from', /not live radar/i.test(calmScreen.foot), calmScreen.foot);
+  /* Nothing the forecast produced may claim a storm. "No storm risk in any
+     hour" is the strip saying there isn't one, so a negated mention is
+     allowed and an asserted one is not. */
   ok('and never claims a storm anywhere on the card',
-    !/\b(storm|thunder|hail)\b/i.test(calmScreen.all.replace(/Storm Watch|ALL CLEAR|No storm risk|not live radar/gi, '')),
-    calmScreen.all);
+    !calmScreen.said.split(/(?<=[.!?])\s+/)
+      .some(s => /\b(storm|thunder|hail)\b/i.test(s) && !/\b(no|not|nothing|never|without)\b/i.test(s)),
+    calmScreen.said);
+  eq('the card is called Storm, not Storm Watch', calmScreen.heading, 'Storm');
+  ok('so the heading can never read as a second status badge',
+    !['ALL CLEAR', 'KEEP AN EYE ON IT', 'STORM WATCH', 'STORM NOW']
+      .includes(calmScreen.heading.toUpperCase()), calmScreen.heading);
 
   const nowScreen = await showStorm(stormCases.nowish);
   eq('thunder overhead shows STORM NOW', nowScreen.badge, 'STORM NOW');
