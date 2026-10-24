@@ -29,6 +29,15 @@
     'wind_speed_10m',
     'wind_gusts_10m',
     'visibility',
+    /* Convective Available Potential Energy: how much fuel the atmosphere has
+       for building a storm. It is the difference between "it could kick off"
+       and "it is kicking off", and the app is careful to only ever say the
+       first with it. Some models do not produce it, so it is read as a maybe
+       and everything downstream copes with null. */
+    'cape',
+    /* How high the freezing level sits. Only ever used as context — it can
+       make hail plausible, and plausible is not a thing worth announcing. */
+    'freezing_level_height',
     'is_day'
   ].join(',');
 
@@ -113,9 +122,23 @@
     85: ['Snow showers', 'snow showers', 'snow'],
     86: ['Snow showers', 'heavy snow showers', 'snow'],
     95: ['Thunderstorm', 'thunder', 'thunder'],
+    /* 97 is a heavy thunderstorm without hail. It was missing, and the
+       default below is `cloud` — so a heavy thunderstorm used to arrive
+       looking like "unsettled", with no ⛈️, no warning and no thunder line.
+       Models that derive storms from instability rather than forecasting hail
+       explicitly report 95 and 97 and never 96 or 99, which means this was the
+       code a good share of the world's thunderstorms came in under. */
+    97: ['Thunderstorm', 'heavy thunder', 'thunder'],
     96: ['Thunderstorm', 'thunder and hail', 'thunder'],
     99: ['Thunderstorm', 'thunder and hail', 'thunder']
   };
+
+  /* Hail is claimed from these two codes and nothing else. No amount of
+     instability, freezing level or heavy rain is allowed to imply it: those
+     say hail is possible, which is not the same sentence. Only models with an
+     explicit hail forecast ever emit them, so in much of the world this is
+     always false — which is the honest answer, not a missing feature. */
+  W.hasHail = function (code) { return code === 96 || code === 99; };
 
   W.sky = function (code) { return CODES[code] || ['Unsettled', 'unsettled', 'cloud']; };
   W.skyName = function (code) { return W.sky(code)[0]; };
@@ -252,6 +275,11 @@
         wind: num(h.wind_speed_10m, i),
         gust: h.wind_gusts_10m ? num(h.wind_gusts_10m, i) : num(h.wind_speed_10m, i),
         visibility: num(h.visibility, i),
+        /* Both are maybes: a model that does not produce them leaves null,
+           and null means "nobody said", which the storm read treats as
+           absence of evidence rather than evidence of calm. */
+        cape: maybe(h.cape, i),
+        freeze: maybe(h.freezing_level_height, i),
         day: num(h.is_day, i) ? 1 : 0
       });
     }
@@ -481,7 +509,15 @@
       var bright = W.isBright(h);
       var windy = h.gust >= 45;
 
-      if (wet && !wasWet) out.push({ t: h.t, kind: 'rainStarts', text: 'Rain arrives' });
+      /* A thunderstorm is wet, but calling it "rain arrives" is the one place
+         the timeline would undersell what is actually coming. */
+      if (wet && !wasWet) {
+        if (W.family(h.code) === 'thunder') {
+          out.push({ t: h.t, kind: 'stormStarts', text: 'Storm arrives' });
+        } else {
+          out.push({ t: h.t, kind: 'rainStarts', text: 'Rain arrives' });
+        }
+      }
       if (!wet && wasWet) out.push({ t: h.t, kind: 'rainStops', text: 'Rain clears' });
       if (bright && !wasBright && h.day) out.push({ t: h.t, kind: 'brightens', text: 'Sun breaks through' });
       if (!bright && wasBright && h.day) out.push({ t: h.t, kind: 'clouds', text: 'Cloud moves in' });
@@ -503,7 +539,8 @@
     /* Two things happening in the same hour is one line, not two — "rain
        arrives" and "cloud moves in" at seven o'clock is the same event
        described twice, and only the wetter half is worth the row. */
-    var rank = { rainStarts: 5, rainStops: 5, brightens: 4, sunset: 3, sunrise: 3, clouds: 2, windUp: 2 };
+    var rank = { stormStarts: 6, rainStarts: 5, rainStops: 5, brightens: 4, sunset: 3, sunrise: 3,
+      clouds: 2, windUp: 2 };
     var kept = [];
     out.forEach(function (m) {
       var clash = null;
@@ -527,35 +564,186 @@
     var todayIndex = W.todayIndex(forecast, now);
     var days = forecast.days.slice(todayIndex, todayIndex + 2);
 
-    function add(kind, title, detail) { out.push({ kind: kind, title: title, detail: detail }); }
+    /* Every warning carries how serious it is, and only the two most serious
+       are shown. Without the ranking they came out in whatever order the
+       checks below happen to sit in, which meant a day with strong winds and
+       some heat could push a thunderstorm off the screen entirely — the most
+       dangerous thing losing to the two least dangerous because of where it
+       was written in this function. Two slots is the right number; which two
+       is not a decision to leave to the source order. */
+    function add(rank, kind, title, detail) {
+      out.push({ rank: rank, kind: kind, title: title, detail: detail });
+    }
 
     var maxGust = soon.reduce(function (a, h) { return Math.max(a, h.gust); }, 0);
-    if (maxGust >= 90) add('wind', 'Severe gusts', 'Gusts near ' + Math.round(maxGust) + ' km/h. Bins, fences and trampolines beware.');
-    else if (maxGust >= 70) add('wind', 'Strong winds', 'Gusts up to ' + Math.round(maxGust) + ' km/h in the next day or so.');
+    if (maxGust >= 90) add(90, 'wind', 'Severe gusts', 'Gusts near ' + Math.round(maxGust) + ' km/h. Bins, fences and trampolines beware.');
+    else if (maxGust >= 70) add(50, 'wind', 'Strong winds', 'Gusts up to ' + Math.round(maxGust) + ' km/h in the next day or so.');
 
     var hottest = days.reduce(function (a, d) { return d.max !== null ? Math.max(a, d.max) : a; }, -99);
-    if (hottest >= 35) add('heat', 'Extreme heat', 'Up to ' + Math.round(hottest) + '°. Shade, water, and check on people who need it.');
-    else if (hottest >= 30) add('heat', 'Serious heat', 'Up to ' + Math.round(hottest) + '° over the next couple of days.');
+    if (hottest >= 35) add(86, 'heat', 'Extreme heat', 'Up to ' + Math.round(hottest) + '°. Shade, water, and check on people who need it.');
+    else if (hottest >= 30) add(45, 'heat', 'Serious heat', 'Up to ' + Math.round(hottest) + '° over the next couple of days.');
 
     var coldest = days.reduce(function (a, d) { return d.min !== null ? Math.min(a, d.min) : a; }, 99);
-    if (coldest <= -8) add('cold', 'Severe cold', 'Down to ' + Math.round(coldest) + '°. Pipes, cars and fingers at risk.');
-    else if (coldest <= -3) add('cold', 'Hard frost', 'Down to ' + Math.round(coldest) + '° overnight.');
+    if (coldest <= -8) add(84, 'cold', 'Severe cold', 'Down to ' + Math.round(coldest) + '°. Pipes, cars and fingers at risk.');
+    else if (coldest <= -3) add(40, 'cold', 'Hard frost', 'Down to ' + Math.round(coldest) + '° overnight.');
 
+    /* Thunder outranks everything except ice, because it arrives fast, it is
+       genuinely dangerous, and unlike heat or cold it is not something you can
+       feel coming through the window. */
     var thunder = soon.filter(function (h) { return W.family(h.code) === 'thunder'; });
-    if (thunder.length) add('thunder', 'Thunderstorms', 'Storms expected around ' + W.clock(thunder[0].t, forecast.offset, false) + '.');
+    if (thunder.length) {
+      add(92, 'thunder', 'Thunderstorms',
+        'Storms expected around ' + W.clock(thunder[0].t, forecast.offset, false) + '.');
+    }
 
+    /* Top of the list: a pavement of black ice hurts people who had no way of
+       knowing it was there. */
     var ice = soon.filter(function (h) { return W.family(h.code) === 'ice'; });
-    if (ice.length) add('ice', 'Ice', 'Freezing rain around ' + W.clock(ice[0].t, forecast.offset, false) + '. Roads and paths will be lethal.');
+    if (ice.length) add(95, 'ice', 'Ice', 'Freezing rain around ' + W.clock(ice[0].t, forecast.offset, false) + '. Roads and paths will be lethal.');
 
     var snowfall = days.reduce(function (a, d) {
       return (W.family(d.code) === 'snow' && d.mm !== null) ? Math.max(a, d.mm) : a;
     }, 0);
-    if (snowfall >= 10) add('snow', 'Heavy snow', 'Significant snow expected. Travel will be affected.');
+    if (snowfall >= 10) add(82, 'snow', 'Heavy snow', 'Significant snow expected. Travel will be affected.');
 
     var rainfall = days.reduce(function (a, d) { return d.mm !== null ? Math.max(a, d.mm) : a; }, 0);
-    if (rainfall >= 30) add('rain', 'Very heavy rain', Math.round(rainfall) + ' mm expected in a day. Surface water likely.');
+    if (rainfall >= 30) add(60, 'rain', 'Very heavy rain', Math.round(rainfall) + ' mm expected in a day. Surface water likely.');
 
+    /* Sorted by danger, and stable within a rank so equally serious warnings
+       keep the order they were found in. */
+    out.sort(function (a, b) { return b.rank - a.rank; });
     return out.slice(0, 2);
+  };
+
+  /* ------------------------------------------------------------- the storm */
+
+  /* Storm Watch. A reading of the forecast already on the phone — no second
+     request, no radar, no live anything. That is a deliberate limit rather
+     than a shortcut: nothing free can be licensed for a shop app, and an app
+     that says "live" over a twelve-hour-old model run is lying.
+
+     The rules it will not break, because the whole point of a weather app
+     with jokes in it is that the numbers underneath are straight:
+
+       Thunder is claimed only from a thunder weather code. Not from
+       instability, not from heavy rain, not from a gust.
+
+       Hail is claimed only from codes 96 and 99. Only models with an explicit
+       hail forecast emit those, so in much of the world this is always false.
+       That is the honest answer and not a gap to paper over.
+
+       NOW means the hour happening right now carries a thunder code. It never
+       means "probably about now".
+
+       CAPE is fuel, not fire. It can say the air is unstable. It is never
+       allowed to say there is a storm. */
+
+  var STORM_HOURS = 12;      /* how far ahead the level looks */
+  var STORM_TIMELINE = 24;   /* how far the hour-by-hour strip runs */
+
+  /* What one hour is worth, and what to call it. Highest wins. */
+  function stormRead(h) {
+    var thunder = W.family(h.code) === 'thunder';
+    var hail = W.hasHail(h.code);
+    var cape = typeof h.cape === 'number' ? h.cape : 0;
+    var out = { t: h.t, score: 0, thunder: thunder, hail: hail,
+      gust: h.gust, mm: h.mm, prob: h.prob, cape: h.cape };
+
+    if (thunder) out.score = 100;
+    else if (h.gust >= 90) out.score = 80;
+    else if (h.mm >= 8) out.score = 75;
+    else if (h.gust >= 70) out.score = 65;
+    else if (h.mm >= 4) out.score = 45;
+    else if (h.gust >= 55) out.score = 40;
+    /* Unstable air with something falling out of it. Both halves are
+       required: CAPE on a dry, clear day is a number, not a warning. */
+    else if (cape >= 800 && h.prob >= 40) out.score = 35;
+    else if (h.mm >= 2) out.score = 25;
+    else if (cape >= 500 && h.prob >= 30) out.score = 20;
+    else if (h.gust >= 45) out.score = 18;
+    return out;
+  }
+
+  function stormLevel(score, thunderNow) {
+    if (thunderNow) return 'now';
+    if (score >= 65) return 'warning';
+    if (score >= 20) return 'watch';
+    return 'clear';
+  }
+
+  W.storm = function (forecast, now) {
+    var ahead = W.hoursFrom(forecast, now, STORM_TIMELINE);
+    var timeline = ahead.map(stormRead);
+    var window = timeline.slice(0, STORM_HOURS);
+
+    /* Right now, from the hour we are actually standing in. The current block
+       is preferred where the API gave one, because it is an observation of
+       this minute rather than a model's idea of this hour. */
+    var liveCode = forecast.current ? forecast.current.code : (window[0] && window[0].thunder ? 95 : 0);
+    var thunderNow = W.family(liveCode) === 'thunder';
+
+    var worst = window.reduce(function (a, h) { return h.score > a ? h.score : a; }, 0);
+    var level = stormLevel(worst, thunderNow);
+
+    /* What is actually driving it, in the order a person would want to hear
+       it. Each one is read straight off the hours that caused it. */
+    var causes = [];
+    var thunderHours = window.filter(function (h) { return h.thunder; });
+    var hailHours = window.filter(function (h) { return h.hail; });
+    var maxGust = window.reduce(function (a, h) { return Math.max(a, h.gust); }, 0);
+    var maxMm = window.reduce(function (a, h) { return Math.max(a, h.mm); }, 0);
+    var maxCape = window.reduce(function (a, h) {
+      return typeof h.cape === 'number' ? Math.max(a, h.cape) : a;
+    }, 0);
+
+    /* `{time}` rather than a baked clock string: this file does not know
+       whether the user reads a 24-hour clock, and should not have to. The
+       screen substitutes it. */
+    function cause(kind, text, at) {
+      causes.push({ kind: kind, text: text, at: typeof at === 'number' ? at : null });
+    }
+
+    if (thunderNow) cause('thunder', 'Thunderstorm overhead right now.');
+    else if (thunderHours.length) {
+      cause('thunder', 'Thunder forecast from {time}.', thunderHours[0].t);
+    }
+    if (hailHours.length) {
+      cause('hail', 'Hail forecast around {time}.', hailHours[0].t);
+    }
+    if (maxGust >= 90) cause('wind', 'Gusts near ' + Math.round(maxGust) + ' km/h.');
+    else if (maxGust >= 55) cause('wind', 'Gusts up to ' + Math.round(maxGust) + ' km/h.');
+    if (maxMm >= 8) cause('rain', 'Up to ' + Math.round(maxMm) + ' mm of rain in an hour.');
+    else if (maxMm >= 4) cause('rain', 'Heavy rain, around ' + Math.round(maxMm) + ' mm an hour.');
+    /* Instability gets a line of its own only when nothing louder is already
+       explaining the level, and it never uses the word storm. */
+    if (!causes.length && maxCape >= 500) {
+      cause('unstable', 'The air is unstable enough to turn showery.');
+    }
+
+    /* The window: first and last hour that contributed anything, so the app
+       can say "between four and seven" instead of "sometime". */
+    var active = window.filter(function (h) { return h.score >= 20; });
+    var from = active.length ? active[0].t : null;
+    var to = active.length ? active[active.length - 1].t + 3600 : null;
+
+    return {
+      level: level,
+      score: worst,
+      causes: causes,
+      from: from,
+      to: to,
+      /* Flags, each one true only on the evidence named above. */
+      thunder: thunderNow || thunderHours.length > 0,
+      thunderNow: thunderNow,
+      hail: hailHours.length > 0,
+      rain: maxMm >= 4,
+      wind: maxGust >= 55,
+      unstable: maxCape >= 500,
+      /* Null rather than 0 when the model never offered a CAPE at all, so the
+         screen can stay quiet instead of claiming a calm it cannot see. */
+      cape: maxCape > 0 ? maxCape : null,
+      timeline: timeline
+    };
   };
 
   /* --------------------------------------------------------- what has been */

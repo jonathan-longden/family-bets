@@ -60,7 +60,7 @@ function makeForecast(start, opts) {
 
   const H = { time: [], temperature_2m: [], apparent_temperature: [], relative_humidity_2m: [],
     precipitation_probability: [], precipitation: [], weather_code: [], wind_speed_10m: [],
-    wind_gusts_10m: [], visibility: [], is_day: [] };
+    wind_gusts_10m: [], visibility: [], cape: [], freezing_level_height: [], is_day: [] };
 
   for (let i = 0; i < hourCount; i++) {
     const h = hourAt(i);
@@ -74,6 +74,10 @@ function makeForecast(start, opts) {
     H.wind_speed_10m.push(h.w === undefined ? 10 : h.w);
     H.wind_gusts_10m.push(h.g === undefined ? (h.w === undefined ? 16 : h.w + 6) : h.g);
     H.visibility.push(h.vis === undefined ? 24000 : h.vis);
+    /* `cape: null` is how a model that does not produce it answers, and the
+       storm read has to cope with that rather than reading it as calm. */
+    H.cape.push(h.cape === undefined ? 20 : h.cape);
+    H.freezing_level_height.push(h.freeze === undefined ? 2200 : h.freeze);
     H.is_day.push(h.n ? 0 : 1);
   }
 
@@ -211,6 +215,34 @@ async function main() {
   eq('an empty answer is refused', parsed.empty, 'refused');
   eq('an answer with no days is refused', parsed.noDays, 'refused');
 
+  /* Every thunderstorm code has to land in the thunder family. 97 did not:
+     it fell through to the "unsettled" default, so a heavy thunderstorm came
+     out looking like ordinary cloud — no icon, no warning, no thunder line.
+     Models that derive storms from instability rather than forecasting hail
+     report 95 and 97 and never 96 or 99, so this was not a rare code. */
+  const codes = await page.evaluate(() => {
+    const W = window.Weather;
+    const thunderCodes = [95, 96, 97, 99];
+    return {
+      families: thunderCodes.map(c => W.family(c)),
+      icons: thunderCodes.map(c => W.icon({ code: c, gust: 10, feels: 15, day: 1 })),
+      unsettled: thunderCodes.filter(c => W.skyName(c) === 'Unsettled'),
+      /* Hail is two codes and nothing else. */
+      hail: thunderCodes.filter(c => W.hasHail(c)),
+      hailFromRain: [61, 63, 65, 82].some(c => W.hasHail(c)),
+      /* The default still has to exist for a code nobody has seen. */
+      unknown: W.family(4242)
+    };
+  });
+  eq('every thunderstorm code is in the thunder family', codes.families,
+    ['thunder', 'thunder', 'thunder', 'thunder']);
+  eq('and every one of them gets the storm icon', codes.icons,
+    ['⛈️', '⛈️', '⛈️', '⛈️']);
+  eq('none of them falls through to "unsettled"', codes.unsettled, []);
+  eq('hail is claimed for exactly two codes', codes.hail, [96, 99]);
+  ok('and never for rain, however heavy', !codes.hailFromRain);
+  eq('a code nobody has seen still lands somewhere safe', codes.unknown, 'cloud');
+
   /* ----------------------------------------------------------- suite: icons */
 
   console.log('\nwhat the hour looks like');
@@ -330,7 +362,7 @@ async function main() {
     /* every line in the app, walked */
     const banks = V.banks;
     const flat = [];
-    [banks.LINES, banks.DAY_LINES, banks.MOMENTS].forEach(group => {
+    [banks.LINES, banks.DAY_LINES, banks.MOMENTS, banks.TOMORROW].forEach(group => {
       Object.keys(group).forEach(key => group[key].forEach(pair => flat.push([key, pair])));
     });
     banks.ERRORS.forEach(p => flat.push(['error', p]));
@@ -352,9 +384,22 @@ async function main() {
     return out;
   }, { start });
 
-  ok('a sunny morning gets a sunny morning line', /MORNING|SUNSHINE|GORGEOUS/.test(voice.morningSun.text), voice.morningSun.text);
+  /* These used to match on particular words, which only worked while each bank
+     held three lines. The banks are much larger now, so the assertions test
+     what actually matters — that the app picked the right situation and the
+     right time of day — and the "never contradicts" checks below carry the
+     rest. Matching exact wording would only test that nobody wrote new jokes. */
+  eq('a sunny morning knows it is morning', voice.morningSun.slot, 'morning');
   eq('and it knows why it said it', voice.morningSun.kind, 'glorious');
-  ok('rain gets a rain line', voice.rain.kind === 'rain', voice.rain.kind + ' / ' + voice.rain.text);
+  ok('the line is a real sentence', voice.morningSun.text.length > 12, voice.morningSun.text);
+
+  /* A wet day may be plain rain or a full washout; both are rain kinds and
+     both are better answers than the other banks. What it must never be is
+     anything dry. */
+  ok('rain gets a rain line',
+    ['rain', 'lightRain', 'heavyRain', 'longWetDay', 'showers', 'drizzle', 'downpour',
+      'unexpectedRain'].indexOf(voice.rain.kind) >= 0,
+    voice.rain.kind + ' / ' + voice.rain.text);
   ok('and never claims the sun is out', !/SUN|SUNSHINE|LOVELY|GORGEOUS/.test(voice.rain.text), voice.rain.text);
   ok('grey gets a grey line', voice.grey.kind === 'grey', voice.grey.text);
   ok('grey never claims the sun is out', !/SUN|BLUE SKY/.test(voice.grey.text), voice.grey.text);
@@ -376,6 +421,135 @@ async function main() {
   ok('swearing is seasoning, not the meal',
     voice.swearyShare > 0.05 && voice.swearyShare < 0.5,
     Math.round(voice.swearyShare * 100) + '% of lines swear');
+
+  /* ------------------------------------------------- suite: the library itself */
+
+  /* The library is the product now, so its shape is worth asserting directly:
+     enough lines that the app does not repeat itself, enough per situation to
+     rotate, and no two situations quietly sharing the same joke. */
+
+  console.log('\nthe size and shape of the library');
+  const library = await page.evaluate(() => {
+    const banks = window.Voice.banks;
+    const groups = { LINES: banks.LINES, MOMENTS: banks.MOMENTS, TOMORROW: banks.TOMORROW,
+      DAY_LINES: banks.DAY_LINES };
+    const out = { total: 0, situations: 0, thin: [], dupes: [], byGroup: {} };
+    const seenSweary = {};
+
+    Object.keys(groups).forEach(g => {
+      const group = groups[g];
+      let n = 0;
+      Object.keys(group).forEach(key => {
+        n += group[key].length;
+        group[key].forEach(pair => {
+          const first = pair[0];
+          /* The same sentence in two different situations means one of them is
+             being said about weather it was not written for. */
+          const where = g + '.' + key;
+          if (seenSweary[first] && seenSweary[first] !== where) {
+            out.dupes.push(first + '  (' + seenSweary[first] + ' + ' + where + ')');
+          }
+          seenSweary[first] = where;
+        });
+      });
+      out.byGroup[g] = n;
+      out.total += n;
+      out.situations += Object.keys(group).length;
+    });
+
+    /* The situations a normal week actually lands on, which are the ones that
+       have to carry real variety rather than a token two lines. */
+    ['glorious', 'rain', 'grey', 'cloud', 'cold', 'hot', 'showers', 'mild', 'changeable',
+      'thunder', 'snow', 'freezing', 'gale', 'windy', 'fog', 'drizzle', 'downpour',
+      'scorching', 'warm', 'pleasant', 'chilly', 'crisp', 'heavyRain', 'night'
+    ].forEach(k => {
+      const bank = banks.LINES[k];
+      if (!bank) out.thin.push(k + ': MISSING');
+      else if (bank.length < 12) out.thin.push(k + ': only ' + bank.length);
+    });
+
+    return out;
+  });
+
+  ok('the library is substantial', library.total >= 500, library.total + ' pairs');
+  ok('across a lot of situations', library.situations >= 90, library.situations + ' situations');
+  ok('every everyday situation has real variety', library.thin.length === 0, library.thin.join(' | '));
+  ok('and no line is reused across two situations', library.dupes.length === 0,
+    library.dupes.slice(0, 4).join(' | '));
+  console.log('    ' + JSON.stringify(library.byGroup) + ', ' + library.total + ' pairs total');
+
+  /* ---------------------------------------- suite: the line never contradicts */
+
+  /* The rule the whole voice hangs on. Every case below is weather plus a word
+     that would be a lie about it. */
+
+  console.log('\nthe line never contradicts the weather');
+  const honest = await page.evaluate(({ start }) => {
+    const V = window.Voice;
+    const S = { units: 'metric', ampm: false, sweary: true };
+    const midnight = Math.floor(start / 86400) * 86400;
+
+    function say(hour, over, dayOver) {
+      const hours = [];
+      for (let i = 0; i < 30; i++) {
+        hours.push(Object.assign({
+          t: midnight + (hour + i) * 3600, temp: 15, feels: 15, humidity: 60,
+          prob: 0, mm: 0, code: 3, wind: 10, gust: 15, visibility: 20000, day: 1
+        }, over));
+      }
+      const days = [];
+      for (let i = 0; i < 15; i++) {
+        days.push(Object.assign({
+          t: midnight + i * 86400, code: 3, max: 15, min: 8, feelsMax: 14,
+          sunrise: midnight + i * 86400 + 6 * 3600, sunset: midnight + i * 86400 + 20 * 3600,
+          prob: 20, mm: 0, wind: 15, gust: 25, uv: 3
+        }, dayOver || {}));
+      }
+      const f = { offset: 0, fetchedAt: start, place: {}, hours: hours, days: days };
+      f.current = Object.assign({}, hours[0]);
+      /* Every hour of the day, every day of a month — if a contradiction can
+         be reached by the selector at all, this finds it. */
+      const said = [];
+      for (let d = 0; d < 30; d++) {
+        for (let h = 0; h < 24; h++) {
+          const at = midnight + d * 86400 + h * 3600;
+          const shifted = Object.assign({}, f, {
+            hours: hours.map(x => Object.assign({}, x, { t: x.t + d * 86400 }))
+          });
+          said.push(V.headline(shifted, S, at).text);
+        }
+      }
+      return said;
+    }
+
+    /* Claims that the sun is out, rather than any mention of the word. "THE
+       SUN HAS CLOCKED OFF" mentions the sun in order to say it is missing,
+       which is exactly the honesty this test exists to protect. */
+    const SUNNY = /SUNSHINE|SUNNY|BLUE SKY|GLORIOUS|GORGEOUS|LOVELY DAY|SUN IS (OUT|SHOWING)|SUN HAS (COME|GOT)/;
+    const HOT = /BOILING|ROASTING|BAKING|SCORCH|HEATWAVE|TOO HOT/;
+    const COLD = /FREEZING|BALTIC|SUB-ZERO|BITTER/;
+    const DRY = /\bDRY\b|NO RAIN/;
+
+    return {
+      rain: say(13, { code: 63, mm: 3, prob: 95 }, { code: 63, prob: 95 })
+        .filter(t => SUNNY.test(t) || DRY.test(t)),
+      freezing: say(9, { code: 3, temp: 3, feels: -4 }, { max: 1, min: -6 })
+        .filter(t => HOT.test(t)),
+      scorching: say(14, { code: 0, temp: 34, feels: 35 }, { code: 0, max: 35, min: 22 })
+        .filter(t => COLD.test(t)),
+      snow: say(9, { code: 73, mm: 4, prob: 95 }, { code: 73, prob: 95 })
+        .filter(t => SUNNY.test(t) || HOT.test(t)),
+      grey: say(11, { code: 3 }, { code: 3 }).filter(t => SUNNY.test(t)),
+      night: say(23, { code: 0, day: 0 }, { code: 0 }).filter(t => SUNNY.test(t))
+    };
+  }, { start });
+
+  eq('no sunny or dry line during heavy rain', honest.rain, []);
+  eq('no hot line when it is minus four', honest.freezing, []);
+  eq('no cold line when it is thirty-five', honest.scorching, []);
+  eq('no sunny or hot line during snow', honest.snow, []);
+  eq('no sunny line under an overcast sky', honest.grey, []);
+  eq('and the sun is never out at eleven at night', honest.night, []);
 
   /* --------------------------------------------------------- suite: moments */
 
@@ -430,6 +604,103 @@ async function main() {
   ok('a hot spell coming', /heatwave/.test(moments.heat.join(' ')), moments.heat.join(' '));
   ok('a cold snap coming', /coldSnap/.test(moments.cold.join(' ')), moments.cold.join(' '));
   ok('never more than two at once', moments.rainEnding.length <= 2 && moments.better.length <= 2);
+
+  /* ------------------------------------------------------- suite: tomorrow */
+
+  /* Tomorrow's line has to follow from the difference between the two days and
+     nothing else. Each case below is a specific pair of forecasts with an
+     obvious right answer, so a line that drifts away from the data fails. */
+
+  console.log('\ntomorrow');
+  const tom = await page.evaluate(({ start }) => {
+    const V = window.Voice;
+    const S = { units: 'metric', ampm: false, sweary: true };
+    const CLEAN = { units: 'metric', ampm: false, sweary: false };
+    const midnight = Math.floor(start / 86400) * 86400;
+
+    /* Two days, today and tomorrow, and nothing else to distract it. */
+    function pair(today, day, settings) {
+      const base = i => ({
+        t: midnight + i * 86400, code: 3, max: 15, min: 8, feelsMax: 14,
+        sunrise: midnight + i * 86400 + 6 * 3600, sunset: midnight + i * 86400 + 20 * 3600,
+        prob: 20, mm: 0, wind: 15, gust: 25, uv: 3
+      });
+      const days = [Object.assign(base(0), today), Object.assign(base(1), day)];
+      const hours = [{ t: midnight + 9 * 3600, temp: 15, feels: 14, code: 3, prob: 20, mm: 0,
+        wind: 15, gust: 25, humidity: 70, vis: 20000, day: 1 }];
+      const f = { offset: 0, fetchedAt: start, place: {}, hours: hours, days: days };
+      f.current = Object.assign({}, hours[0]);
+      return V.tomorrow(f, settings || S, midnight + 9 * 3600);
+    }
+
+    return {
+      rough: pair({ code: 3 }, { code: 95 }),
+      wetter: pair({ code: 0, prob: 5 }, { code: 63, prob: 90 }),
+      dryer: pair({ code: 63, prob: 90 }, { code: 0, prob: 5 }),
+      muchWarmer: pair({ max: 12 }, { max: 21 }),
+      warmer: pair({ max: 15 }, { max: 19 }),
+      muchColder: pair({ max: 22 }, { max: 13 }),
+      coolerFine: pair({ max: 22, code: 0 }, { max: 17, code: 0, prob: 5 }),
+      coolerGrim: pair({ max: 22, code: 3 }, { max: 17, code: 45, prob: 20 }),
+      cloudier: pair({ code: 0 }, { code: 3 }),
+      brighter: pair({ code: 3 }, { code: 0 }),
+      windier: pair({ gust: 20 }, { gust: 60 }),
+      same: pair({}, {}),
+      /* Beyond a week the model stops offering a probability. An unknown must
+         never be read as "no rain tomorrow". */
+      unknownProb: pair({ code: 3, prob: 80 }, { code: 3, prob: null }),
+      cleanTwin: pair({ max: 22, code: 3 }, { max: 17, code: 45, prob: 20 }, CLEAN),
+      noTomorrow: (function () {
+        const f = { offset: 0, fetchedAt: start, place: {}, hours: [], days: [
+          { t: midnight, code: 3, max: 15, min: 8, prob: 20, gust: 25,
+            sunrise: midnight, sunset: midnight + 72000 }
+        ] };
+        f.hours = [{ t: midnight + 9 * 3600, temp: 15, feels: 14, code: 3, prob: 20, mm: 0,
+          wind: 15, gust: 25, humidity: 70, vis: 20000, day: 1 }];
+        f.current = Object.assign({}, f.hours[0]);
+        return V.tomorrow(f, S, midnight + 9 * 3600);
+      })()
+    };
+  }, { start });
+
+  eq('thunder tomorrow beats everything else', tom.rough.kind, 'rough');
+  eq('a dry day turning wet is the news', tom.wetter.kind, 'wetter');
+  eq('and a wet one drying up', tom.dryer.kind, 'dryer');
+  eq('nine degrees up is a big jump', tom.muchWarmer.kind, 'muchWarmer');
+  eq('four degrees up is just warmer', tom.warmer.kind, 'warmer');
+  eq('nine degrees down is a big drop', tom.muchColder.kind, 'muchColder');
+  eq('cooler but clear is not called bad', tom.coolerFine.kind, 'coolerButFine');
+  eq('cooler and murky is', tom.coolerGrim.kind, 'cooler');
+  eq('same warmth, more cloud', tom.cloudier.kind, 'cloudier');
+  eq('same warmth, less cloud', tom.brighter.kind, 'brighter');
+  eq('a big gust jump gets noticed', tom.windier.kind, 'windier');
+  eq('and two days the same say so', tom.same.kind, 'same');
+  eq('an unknown rain chance is never read as drying up', tom.unknownProb.kind, 'same');
+  eq('the last day of the forecast has no tomorrow', tom.noTomorrow, null);
+
+  ok('every kind produces a real line',
+    Object.keys(tom).filter(k => tom[k] && (!tom[k].line || tom[k].line.length < 10)).length === 0,
+    JSON.stringify(Object.keys(tom).map(k => tom[k] && tom[k].line)));
+  ok('and the weak filler line is gone for good',
+    !Object.keys(tom).some(k => tom[k] && /SEE ABOVE/.test(tom[k].line)));
+  ok('the clean twin stays clean',
+    !/\b(fuck|shit|bastard|arse|bloody)\w*/i.test(tom.cleanTwin.line), tom.cleanTwin.line);
+  /* The old assertion here pinned one exact word on whichever line the day's
+     hash happened to pick, so it passed in September and failed in October
+     without a thing having changed. What actually matters is that the bank
+     has a mouth at all, and that the clean rendering of the same situation
+     never does — most pairs are deliberately identical, since only about one
+     line in fourteen swears. */
+  const mouth = await page.evaluate(() => {
+    const rude = /\b(FUCK|SHIT|BASTARD|ARSE|BLOODY|BOLLOCK|PISS)\w*/;
+    const bank = window.Voice.banks.TOMORROW.cooler;
+    return {
+      swearyHasOne: bank.some(p => rude.test(p[0])),
+      cleanHasNone: bank.every(p => !rude.test(p[1]))
+    };
+  });
+  ok('while the sweary side of the bank has its mouth', mouth.swearyHasOne);
+  ok('and the clean side never does', mouth.cleanHasNone);
 
   /* ---------------------------------------------------- suite: units, clocks */
 
@@ -611,7 +882,22 @@ async function main() {
       freeze: build(() => ({}), i => (i === 0 ? { max: 1, min: -9 } : {})),
       storm: build(i => (i === 3 ? { code: 95, mm: 5, prob: 90 } : {}), () => ({})),
       deluge: build(() => ({}), i => (i === 0 ? { mm: 42, code: 65, prob: 100 } : {})),
-      head: V.alertHead({ kind: 'wind' }, S)
+      head: V.alertHead({ kind: 'wind' }, S),
+
+      /* Only two warnings are ever shown, so which two has to be decided by
+         how dangerous they are and not by the order the checks are written
+         in. Thunder used to be checked after wind, heat and cold, which meant
+         a day like this one dropped the storm and kept the heat. */
+      crowded: build(
+        i => (i === 3 ? { code: 95, mm: 5, prob: 90, gust: 95 } : { gust: 95 }),
+        i => (i === 0 ? { max: 31, min: 20 } : {})
+      ),
+      /* Ice outranks even thunder: black ice hurts people who had no way of
+         knowing it was there. */
+      iceAndStorm: build(
+        i => (i === 2 ? { code: 66, mm: 2, prob: 90 } : (i === 4 ? { code: 95, mm: 5, prob: 90 } : {})),
+        () => ({})
+      )
     };
   }, { start });
 
@@ -625,6 +911,491 @@ async function main() {
     !/\b(fuck|shit|bastard|arse|bloody)\w*/i.test(JSON.stringify([alerts.gale, alerts.heat, alerts.storm])),
     JSON.stringify(alerts.gale));
   ok('but the lead-in has a bit of personality', alerts.head.length > 4, alerts.head);
+
+  eq('never more than two warnings at once', alerts.crowded.length, 2);
+  eq('and the storm takes the top slot, not the heat',
+    alerts.crowded.map(a => a.kind), ['thunder', 'wind']);
+  ok('the heat is what gets dropped, being the least dangerous of the three',
+    !/heat/i.test(JSON.stringify(alerts.crowded)), JSON.stringify(alerts.crowded));
+  eq('ice outranks even thunder', alerts.iceAndStorm[0].kind, 'ice');
+
+  /* The other two places a thunderstorm used to be described as ordinary
+     rain: the timeline, and the plain-English brief. */
+  const storms = await page.evaluate(({ start }) => {
+    const W = window.Weather, V = window.Voice;
+    const S = { units: 'metric', ampm: false, sweary: true };
+    const midnight = Math.floor(start / 86400) * 86400;
+    const from = midnight + 9 * 3600;
+
+    function build(hourSpec) {
+      const hours = [], days = [];
+      for (let i = 0; i < 40; i++) {
+        hours.push(Object.assign({ t: from + i * 3600, temp: 20, feels: 20, humidity: 65,
+          prob: 10, mm: 0, code: 0, wind: 10, gust: 15, visibility: 20000, day: 1 }, hourSpec(i)));
+      }
+      for (let i = 0; i < 15; i++) {
+        days.push({ t: midnight + i * 86400, code: 3, max: 21, min: 12, feelsMax: 20,
+          sunrise: midnight + i * 86400 + 6 * 3600, sunset: midnight + i * 86400 + 20 * 3600,
+          prob: 20, mm: 0, wind: 15, gust: 25, uv: 3 });
+      }
+      const f = { offset: 0, fetchedAt: start, place: {}, hours: hours, days: days };
+      f.current = Object.assign({}, hours[0]);
+      return f;
+    }
+
+    /* Dry now, thunder from the fourth hour. */
+    const later = build(i => (i >= 4 && i <= 7 ? { code: 95, mm: 6, prob: 95 } : {}));
+    /* Already storming when the app opens: no arrival time to give. */
+    const nowish = build(i => (i <= 3 ? { code: 95, mm: 6, prob: 95 } : {}));
+    /* Ordinary rain must not start calling itself a storm. */
+    const justRain = build(i => (i >= 4 && i <= 7 ? { code: 63, mm: 2, prob: 85 } : {}));
+
+    return {
+      laterLine: W.transitions(later, from, 12).map(m => m.kind + '|' + m.text),
+      laterBrief: V.brief(later, S, from),
+      nowBrief: V.brief(nowish, S, from),
+      rainLine: W.transitions(justRain, from, 12).map(m => m.kind + '|' + m.text),
+      rainBrief: V.brief(justRain, S, from)
+    };
+  }, { start });
+
+  ok('the timeline says a storm is a storm, not rain',
+    /stormStarts\|Storm arrives/.test(storms.laterLine.join(' ')), storms.laterLine.join(' | '));
+  ok('and ordinary rain is still just rain',
+    /rainStarts\|Rain arrives/.test(storms.rainLine.join(' ')) &&
+    !/storm/i.test(storms.rainLine.join(' ')), storms.rainLine.join(' | '));
+
+  ok('the brief mentions the thunderstorms', /thunderstorm/i.test(storms.laterBrief), storms.laterBrief);
+  ok('and gives the time they start', /Storms from around \d\d:\d\d/.test(storms.laterBrief), storms.laterBrief);
+  ok('a day already storming still says so, with no arrival time to give',
+    /thunder/i.test(storms.nowBrief), storms.nowBrief);
+  ok('a wet day with no thunder in it never mentions storms',
+    !/storm|thunder/i.test(storms.rainBrief), storms.rainBrief);
+  ok('and the brief still never swears',
+    !/\b(fuck|shit|bastard|arse|bloody)\w*/i.test(storms.laterBrief + storms.nowBrief), storms.laterBrief);
+
+  /* --------------------------------------------------- suite: storm watch */
+
+  /* The storm read, straight from W.storm(). The thing being guarded here is
+     not that the feature works but that it never lies: thunder, hail and NOW
+     each have exactly one source of truth, and no amount of wind, rain or
+     unstable air is allowed to stand in for any of them. */
+
+  console.log('\nstorm watch');
+
+  /* Each case is a whole forecast built here and parsed in the page, so the
+     storm read is exercised through the same path the app uses. `cur` is the
+     code in the current block, which is the only thing NOW may read. */
+  function stormCase(opts) {
+    const json = makeForecast(start, opts);
+    if (opts.cur !== undefined) json.current.weather_code = opts.cur;
+    return JSON.stringify(json);
+  }
+  const stormCases = {
+    clear: stormCase({ hourAt: () => ({ t: 16, c: 1, p: 5, mm: 0, w: 10, g: 15, cape: 20 }) }),
+    /* Severe gusts and torrential rain, with no thunder code anywhere. */
+    windy: stormCase({ hourAt: () => ({ t: 12, c: 3, p: 20, mm: 0, w: 45, g: 75, cape: 30 }) }),
+    rainy: stormCase({ hourAt: () => ({ t: 12, c: 65, p: 95, mm: 9, w: 15, g: 25, cape: 60 }) }),
+    /* The honesty case: masses of fuel, nothing falling, no storm code. */
+    unstableOnly: stormCase({ hourAt: () => ({ t: 26, c: 0, p: 0, mm: 0, w: 8, g: 12, cape: 3000 }) }),
+    unstableWet: stormCase({ hourAt: () => ({ t: 22, c: 80, p: 55, mm: 1, w: 14, g: 22, cape: 1200 }) }),
+    /* Thunder from the fourth hour on, but not right now. */
+    coming: stormCase({
+      hourAt: i => (i >= 4 && i <= 6)
+        ? { t: 18, c: 95, p: 90, mm: 6, w: 30, g: 60, cape: 1400 }
+        : { t: 18, c: 2, p: 10, mm: 0, w: 12, g: 20, cape: 400 },
+      cur: 1
+    }),
+    nowish: stormCase({ hourAt: () => ({ t: 17, c: 95, p: 95, mm: 7, w: 25, g: 55, cape: 1800 }), cur: 95 }),
+    /* Heavy thunderstorm — the code that used to read as ordinary cloud. */
+    heavy: stormCase({ hourAt: () => ({ t: 17, c: 97, p: 95, mm: 9, w: 30, g: 70, cape: 2200 }), cur: 97 }),
+    hail: stormCase({
+      hourAt: i => i <= 3
+        ? { t: 9, c: 96, p: 95, mm: 5, w: 30, g: 65, cape: 1500 }
+        : { t: 11, c: 3, p: 10, mm: 0, w: 12, g: 20, cape: 200 },
+      cur: 96
+    }),
+    /* A storm code that is not a hail code must never raise hail. */
+    noHail: stormCase({ hourAt: () => ({ t: 17, c: 95, p: 95, mm: 8, w: 30, g: 60, cape: 2000 }), cur: 95 }),
+    /* A model that does not produce CAPE at all. */
+    noCape: stormCase({ hourAt: () => ({ t: 16, c: 1, p: 5, mm: 0, w: 10, g: 15, cape: null }) })
+  };
+
+  const storm = await page.evaluate(({ start, cases }) => {
+    const W = window.Weather;
+    const out = {};
+    Object.keys(cases).forEach(k => {
+      out[k] = W.storm(W.parse(JSON.parse(cases[k]), {}), start + 60);
+    });
+    return out;
+  }, { start, cases: stormCases });
+
+  eq('a calm forecast is all clear', storm.clear.level, 'clear');
+  eq('and claims nothing at all', [storm.clear.thunder, storm.clear.hail, storm.clear.wind, storm.clear.rain],
+    [false, false, false, false]);
+  eq('with no time window to offer', storm.clear.from, null);
+  eq('and no causes to list', storm.clear.causes.length, 0);
+
+  eq('severe gusts raise a storm watch', storm.windy.level, 'warning');
+  ok('and say it is the wind', storm.windy.causes.some(c => c.kind === 'wind'), JSON.stringify(storm.windy.causes));
+  ok('without inventing thunder', !storm.windy.thunder);
+  eq('torrential rain raises one too', storm.rainy.level, 'warning');
+  ok('and names the rain', storm.rainy.causes.some(c => c.kind === 'rain'));
+  ok('still with no thunder claimed', !storm.rainy.thunder && !storm.rainy.hail);
+
+  /* The rule that matters most about CAPE. */
+  eq('a sky full of fuel and nothing else stays all clear', storm.unstableOnly.level, 'clear');
+  ok('it does not claim a storm', !storm.unstableOnly.thunder);
+  ok('and does not use the word', !JSON.stringify(storm.unstableOnly.causes).match(/storm|thunder/i),
+    JSON.stringify(storm.unstableOnly.causes));
+  eq('unstable air with showers under it is worth an eye', storm.unstableWet.level, 'watch');
+  ok('and says so without promising thunder',
+    !storm.unstableWet.thunder &&
+    !JSON.stringify(storm.unstableWet.causes).match(/thunder/i),
+    JSON.stringify(storm.unstableWet.causes));
+
+  eq('thunder later is a storm watch, not a storm now', storm.coming.level, 'warning');
+  ok('the thunder flag is set', storm.coming.thunder);
+  ok('but not the now flag', !storm.coming.thunderNow);
+  ok('and it gives the time it starts',
+    storm.coming.causes.some(c => c.kind === 'thunder' && /\{time\}/.test(c.text)),
+    JSON.stringify(storm.coming.causes));
+  ok('with a window to put round it', storm.coming.from !== null && storm.coming.to > storm.coming.from);
+
+  eq('thunder on the hour you are standing in is STORM NOW', storm.nowish.level, 'now');
+  ok('and says it is overhead', storm.nowish.thunderNow);
+  eq('a heavy thunderstorm counts the same', storm.heavy.level, 'now');
+
+  ok('hail is claimed when the code says hail', storm.hail.hail);
+  ok('and comes with a time', storm.hail.causes.some(c => c.kind === 'hail'));
+  ok('a thunderstorm without a hail code never claims hail', !storm.noHail.hail);
+  ok('however heavy the rain under it', storm.noHail.rain && !storm.noHail.hail);
+
+  eq('a model with no CAPE still reads as calm', storm.noCape.level, 'clear');
+  eq('and reports no instability rather than zero', storm.noCape.cape, null);
+
+  /* The request has to ask for the new fields, and the parse has to survive
+     a model that does not answer with them at all — which is the normal case
+     in parts of the world, not an edge. */
+  const stormFields = await page.evaluate(({ cases }) => {
+    const W = window.Weather;
+    const url = W.forecastUrl({ lat: 53.9, lon: -1.8 }, 15);
+    const stripped = JSON.parse(cases.clear);
+    delete stripped.hourly.cape;
+    delete stripped.hourly.freezing_level_height;
+    const f = W.parse(stripped, {});
+    return {
+      asksForCape: /[?&]hourly=[^&]*\bcape\b/.test(url),
+      asksForFreeze: /freezing_level_height/.test(url),
+      parsesWithout: f.hours.length > 0,
+      capeIsNull: f.hours[0].cape,
+      stormStillWorks: W.storm(f, f.hours[0].t + 60).level
+    };
+  }, { cases: stormCases });
+  ok('the forecast request asks for the instability figure', stormFields.asksForCape);
+  ok('and the freezing level with it', stormFields.asksForFreeze);
+  ok('a model that sends neither still parses', stormFields.parsesWithout);
+  eq('with the missing figure left missing', stormFields.capeIsNull, null);
+  eq('and the storm read still returns an answer', stormFields.stormStillWorks, 'clear');
+
+  eq('the timeline covers a day', storm.clear.timeline.length, 24);
+  ok('and marks the stormy hours in it',
+    storm.coming.timeline.filter(h => h.thunder).length === 3,
+    String(storm.coming.timeline.filter(h => h.thunder).length));
+
+  /* The mouth. Each level gets its own bank, and the all-clear bank is not
+     allowed to sound like a warning. */
+  const stormWords = await page.evaluate(() => {
+    const V = window.Voice;
+    const banks = V.banks.STORM;
+    const rude = /\b(FUCK|SHIT|BASTARD|ARSE|BLOODY|BOLLOCK|PISS)\w*/;
+    /* An all-clear line may use the word "storm" — "NOT A STORM IN SIGHT" is
+       the bank doing its job. What it may never do is assert one. So the
+       word is allowed only when something in the line negates it. */
+    const alarming = /STORM|THUNDER|HAIL|KICK OFF|BRACE|TROUBLE|BATTEN|DRAMA|TANTRUM/;
+    const negated = /\b(NO|NOT|NOTHING|NEVER|WITHOUT)\b/;
+    const asserts = line => alarming.test(line) && !negated.test(line);
+    return {
+      levels: Object.keys(banks),
+      clearNeverAlarms: banks.clear.every(p => !asserts(p[0]) && !asserts(p[1])),
+      /* And the loud banks must actually be loud, or the split is pointless. */
+      warningAlwaysWarns: banks.warning.every(p => !negated.test(p[0]) || alarming.test(p[0])),
+      cleanNeverSwears: Object.keys(banks).every(k => banks[k].every(p => !rude.test(p[1]))),
+      hasAMouth: Object.keys(banks).some(k => banks[k].some(p => rude.test(p[0]))),
+      everyBankHasDepth: Object.keys(banks).every(k => banks[k].length >= 12),
+      /* The situation picked is a pure function of the storm read. */
+      pickedClear: V.stormSituation({ level: 'clear' }),
+      pickedHail: V.stormSituation({ level: 'warning', hail: true }),
+      pickedWind: V.stormSituation({ level: 'warning', wind: true, thunder: false, rain: false }),
+      pickedThunder: V.stormSituation({ level: 'warning', thunder: true, wind: true, rain: true }),
+      status: ['clear', 'watch', 'warning', 'now'].map(l => V.stormStatus({ level: l }))
+    };
+  });
+  eq('there is a bank for every situation', stormWords.levels.sort(),
+    ['clear', 'hail', 'now', 'rain', 'warning', 'watch', 'wind']);
+  ok('and every one of them has real variety', stormWords.everyBankHasDepth);
+  ok('the all-clear bank never asserts a storm', stormWords.clearNeverAlarms);
+  ok('and the storm-watch bank never talks itself down', stormWords.warningAlwaysWarns);
+  ok('the clean side never swears', stormWords.cleanNeverSwears);
+  ok('while the sweary side does', stormWords.hasAMouth);
+  eq('hail takes the hail line', stormWords.pickedHail, 'hail');
+  eq('wind alone takes the wind line', stormWords.pickedWind, 'wind');
+  eq('thunder beats wind to it', stormWords.pickedThunder, 'warning');
+  eq('nothing happening takes the all clear', stormWords.pickedClear, 'clear');
+  eq('the badge says it in plain words', stormWords.status,
+    ['ALL CLEAR', 'KEEP AN EYE ON IT', 'STORM WATCH', 'STORM NOW']);
+
+  /* ------------------------------------------ suite: storm watch on screen */
+
+  console.log('\nstorm watch, on the screen');
+
+  /* This suite drives the shared stub through several whole forecasts. It is
+     put back at the end, because every suite after it reads the same one. */
+  const stubBeforeStorms = stub;
+
+  async function showStorm(json) {
+    stub = JSON.parse(json);
+    await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('weatherApp.v1') || '{}');
+      s.caches = {};
+      localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+    });
+    await page.reload();
+    await page.waitForSelector('#stormCard:not([hidden])', { timeout: 5000 });
+    await page.waitForTimeout(120);
+    return page.evaluate(() => {
+      const card = document.getElementById('stormCard');
+      const strip = document.getElementById('stormStrip');
+      return {
+        classes: card.className,
+        badge: document.getElementById('stormStatus').textContent,
+        line: document.getElementById('stormLine').textContent,
+        when: document.getElementById('stormWhen').hidden
+          ? null : document.getElementById('stormWhen').textContent,
+        causes: [...document.querySelectorAll('#stormCauses li')].map(li => li.textContent),
+        bars: strip.querySelectorAll('.storm-bar').length,
+        thunderBars: strip.querySelectorAll('.storm-bar--thunder').length,
+        stripLabel: strip.getAttribute('aria-label'),
+        stripRole: strip.getAttribute('role'),
+        barsHidden: [...strip.querySelectorAll('.storm-bar')].every(b => b.getAttribute('aria-hidden') === 'true'),
+        foot: document.getElementById('stormFoot').textContent,
+        axis: [...document.querySelectorAll('#stormAxis span')].map(s => s.textContent),
+        axisHidden: document.getElementById('stormAxis').getAttribute('aria-hidden'),
+        flat: /storm-strip--flat/.test(strip.className),
+        heading: document.getElementById('stormHeading').textContent,
+        labelled: card.getAttribute('aria-labelledby'),
+        badgeRole: document.getElementById('stormStatus').getAttribute('role'),
+        /* The whole card, for the claim sweeps below. */
+        all: card.textContent,
+        /* The card with its fixed furniture taken out — the heading, the
+           status badge and the small print are the same whatever the
+           weather, so sweeping them for claims only tests the chrome. What
+           is left is everything the forecast actually produced. */
+        said: [
+          document.getElementById('stormLine').textContent,
+          document.getElementById('stormWhen').hidden ? '' : document.getElementById('stormWhen').textContent,
+          [...document.querySelectorAll('#stormCauses li')].map(li => li.textContent).join(' '),
+          strip.getAttribute('aria-label') || ''
+        ].join(' ')
+      };
+    });
+  }
+
+  const calmScreen = await showStorm(stormCases.clear);
+  eq('a calm day shows ALL CLEAR', calmScreen.badge, 'ALL CLEAR');
+  ok('on a card marked clear', /storm--clear/.test(calmScreen.classes), calmScreen.classes);
+  eq('with no time window', calmScreen.when, null);
+  eq('and nothing listed as a cause', calmScreen.causes, []);
+  ok('it still says where the reading came from', /not live radar/i.test(calmScreen.foot), calmScreen.foot);
+  /* Nothing the forecast produced may claim a storm. "No storm risk in any
+     hour" is the strip saying there isn't one, so a negated mention is
+     allowed and an asserted one is not. */
+  ok('and never claims a storm anywhere on the card',
+    !calmScreen.said.split(/(?<=[.!?])\s+/)
+      .some(s => /\b(storm|thunder|hail)\b/i.test(s) && !/\b(no|not|nothing|never|without)\b/i.test(s)),
+    calmScreen.said);
+  eq('the card is called Storm, not Storm Watch', calmScreen.heading, 'Storm');
+  ok('so the heading can never read as a second status badge',
+    !['ALL CLEAR', 'KEEP AN EYE ON IT', 'STORM WATCH', 'STORM NOW']
+      .includes(calmScreen.heading.toUpperCase()), calmScreen.heading);
+
+  const nowScreen = await showStorm(stormCases.nowish);
+  eq('thunder overhead shows STORM NOW', nowScreen.badge, 'STORM NOW');
+  ok('on a card marked now', /storm--now/.test(nowScreen.classes), nowScreen.classes);
+  eq('and says it is happening', nowScreen.when, 'Happening now.');
+  ok('with the thunder named as the cause',
+    nowScreen.causes.some(c => /thunder/i.test(c)), JSON.stringify(nowScreen.causes));
+  ok('and a line with something to say', nowScreen.line.length > 8, nowScreen.line);
+
+  const comingScreen = await showStorm(stormCases.coming);
+  eq('thunder later shows STORM WATCH', comingScreen.badge, 'STORM WATCH');
+  ok('with a real time window, not a shrug',
+    /Mainly between \d\d:\d\d and \d\d:\d\d\./.test(comingScreen.when), comingScreen.when);
+  ok('and the start time filled into the cause',
+    comingScreen.causes.some(c => /Thunder forecast from \d\d:\d\d\./.test(c)),
+    JSON.stringify(comingScreen.causes));
+  ok('no placeholder is left showing',
+    !comingScreen.all.includes('{time}'), comingScreen.all);
+
+  const hailScreen = await showStorm(stormCases.hail);
+  ok('hail gets named when the code says hail',
+    hailScreen.causes.some(c => /hail/i.test(c)), JSON.stringify(hailScreen.causes));
+  const windScreen = await showStorm(stormCases.windy);
+  ok('a wind-driven watch never mentions thunder or hail',
+    !/thunder|hail/i.test(windScreen.causes.join(' ')), JSON.stringify(windScreen.causes));
+
+  /* The word this feature is not allowed to use. */
+  ok('the card never calls itself live',
+    ![calmScreen, nowScreen, comingScreen].some(s => /\blive\b/i.test(s.all.replace(/not live radar/gi, ''))),
+    nowScreen.all);
+
+  /* The strip, and how a screen reader meets it. */
+  eq('the strip draws an hour at a time', nowScreen.bars, 24);
+  eq('and marks every thunder hour', comingScreen.thunderBars, 3);
+  eq('it is one labelled image, not twenty-four', nowScreen.stripRole, 'img');
+  ok('the bars themselves are not announced', nowScreen.barsHidden);
+  ok('the label says what the picture shows',
+    /Next 24 hours\./.test(comingScreen.stripLabel) && /Thunder forecast at \d\d:\d\d/.test(comingScreen.stripLabel),
+    comingScreen.stripLabel);
+  ok('and says so plainly when there is nothing to show',
+    /No storm risk/i.test(calmScreen.stripLabel), calmScreen.stripLabel);
+  /* The strip needs a time axis or "the tall ones are at four" is unreadable
+     without a mouse to hover with. */
+  eq('the strip is marked with times', comingScreen.axis.length, 3);
+  eq('starting from now', comingScreen.axis[0], 'Now');
+  ok('and ending a day later', /^\d\d:\d\d$/.test(comingScreen.axis[2]), comingScreen.axis[2]);
+  eq('the axis is not read out twice', comingScreen.axisHidden, 'true');
+  ok('a day with nothing in it draws a flat strip, not an empty box',
+    calmScreen.flat && !comingScreen.flat,
+    calmScreen.flat + ' / ' + comingScreen.flat);
+
+  eq('the card is named for a screen reader', nowScreen.labelled, 'stormHeading');
+  eq('and the badge announces itself when it changes', nowScreen.badgeRole, 'status');
+
+  /* The clock setting reaches the storm times too. */
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.ampm = true; s.caches = {};
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await page.waitForSelector('#stormCard:not([hidden])');
+  await page.waitForTimeout(120);
+  const ampmStorm = await page.evaluate(() => ({
+    when: document.getElementById('stormWhen').textContent,
+    causes: [...document.querySelectorAll('#stormCauses li')].map(li => li.textContent).join(' ')
+  }));
+  ok('storm times follow the am/pm setting',
+    /\d(am|pm)/i.test(ampmStorm.when + ampmStorm.causes), ampmStorm.when + ' / ' + ampmStorm.causes);
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.ampm = false; s.caches = {};
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+
+  /* Reduced motion: the badge pulses to catch an eye, and must not when the
+     phone has been asked to stop moving things. Only STORM NOW pulses at all,
+     so the comparison has to be made on that state. */
+  await showStorm(stormCases.nowish);
+  const motion = await page.evaluate(() =>
+    getComputedStyle(document.getElementById('stormStatus')).animationName);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.reload();
+  await page.waitForSelector('#stormCard:not([hidden])');
+  await page.waitForTimeout(120);
+  const stillMotion = await page.evaluate(() =>
+    getComputedStyle(document.getElementById('stormStatus')).animationName);
+  const reducedBadge = await page.textContent('#stormStatus');
+  eq('the storm badge pulses normally', motion, 'stormPulse');
+  eq('and holds still when motion is turned down', stillMotion, 'none');
+  ok('while still saying the same thing in words', reducedBadge.length > 3, reducedBadge);
+  await page.emulateMedia({ reducedMotion: null });
+
+  /* Put the sky back the way the rest of the suite expects to find it. */
+  stub = stubBeforeStorms;
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.caches = {}; s.ampm = false;
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+
+  /* ------------------------------------------------- suite: the attribution */
+
+  /* Open-Meteo's data is CC BY 4.0, and their licence asks for a link "next
+     to any location Open-Meteo data are displayed". The credit used to live
+     only inside the About sheet, which is a place somebody has to go looking
+     for. This suite exists so it cannot quietly go back there. */
+
+  console.log('\nsaying where the weather came from');
+
+  const credit = await page.evaluate(() => {
+    const link = document.querySelector('.foot-credit a');
+    if (!link) return { missing: true };
+    const box = link.getBoundingClientRect();
+    const weather = ['hero', 'stormCard', 'stripCard', 'daysCard', 'tomorrowCard'];
+    const onScreenWith = weather.filter(id => {
+      const el = document.getElementById(id);
+      return el && !el.hidden;
+    });
+    /* Is the credit actually in the same scrolling page as the weather, and
+       below it rather than orphaned somewhere above? */
+    const heroTop = document.getElementById('hero').getBoundingClientRect().top;
+    return {
+      missing: false,
+      text: link.textContent.trim(),
+      href: link.getAttribute('href'),
+      newTab: link.getAttribute('target'),
+      rel: link.getAttribute('rel'),
+      visible: box.width > 0 && box.height > 0 && getComputedStyle(link).display !== 'none',
+      tall: box.height,
+      belowTheWeather: box.top > heroTop,
+      shownWith: onScreenWith,
+      inAFooter: !!link.closest('footer'),
+      insideADialog: !!link.closest('dialog'),
+      /* The About sheet keeps its own mention; this is the one that matters. */
+      aboutStillCredits: /open-meteo/i.test(document.getElementById('aboutSheet').textContent)
+    };
+  });
+
+  ok('the weather screen says where the weather came from', !credit.missing);
+  eq('in the words the licence asks for', credit.text, 'Weather data by Open-Meteo.com');
+  eq('linked to Open-Meteo', credit.href, 'https://open-meteo.com/');
+  ok('and it is actually visible, not a hidden tag', credit.visible);
+  ok('it is not buried in a sheet somebody has to open', !credit.insideADialog);
+  ok('it sits in the page footer', credit.inAFooter);
+  ok('below the weather rather than above it', credit.belowTheWeather);
+  eq('on the same page as the hero, the storm, the hours and the days',
+    credit.shownWith, ['hero', 'stormCard', 'stripCard', 'daysCard', 'tomorrowCard']);
+  ok('it is a comfortable thing to tap', credit.tall >= 18, String(credit.tall));
+  eq('and opens away from the app rather than replacing it', credit.newTab, '_blank');
+  ok('without handing the new page a window handle', /noopener/.test(credit.rel || ''), credit.rel);
+  ok('About still credits them too', credit.aboutStillCredits);
+
+  /* It has to survive the narrowest phone, next to the longest status line
+     the footer can produce. */
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.evaluate(() => {
+    document.getElementById('footStatus').textContent =
+      'Updated 3 h ago · using the last forecast we managed to grab';
+  });
+  await page.waitForTimeout(80);
+  const narrowCredit = await page.evaluate(() => {
+    const link = document.querySelector('.foot-credit a');
+    const box = link.getBoundingClientRect();
+    return {
+      sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      onScreen: box.left >= 0 && box.right <= document.documentElement.clientWidth + 1,
+      stacked: box.top > document.getElementById('footStatus').getBoundingClientRect().top,
+      readable: parseFloat(getComputedStyle(link).fontSize) >= 11
+    };
+  });
+  eq('at 320px it still pushes nothing sideways', narrowCredit.sideways, 0);
+  ok('and stays inside the screen', narrowCredit.onScreen);
+  ok('on its own line under the status, not squeezed beside it', narrowCredit.stacked);
+  ok('at a size somebody can actually read', narrowCredit.readable);
+  await page.setViewportSize({ width: 430, height: 900 });
 
   /* ------------------------------------------------ suite: special moments */
 
@@ -808,6 +1579,92 @@ async function main() {
   });
   eq('nor anywhere in the words the app can say', sourceSweep, []);
 
+  /* ------------------------------ suite: the conditions the licence rests on */
+
+  /* Open-Meteo confirmed by email that this app may use the free API as a
+     personal hobby project. That permission is conditional: it holds while
+     the app has no advertising, no affiliate links, no subscriptions, no
+     in-app purchases, no paid features and no analytics or tracking.
+     See mobile/OPEN-METEO.md.
+
+     Those are product decisions, and product decisions drift. A note in a
+     markdown file does not stop somebody adding a crash reporter one wet
+     Tuesday, so the conditions are checked here instead: if any of them is
+     broken the suite fails, and whoever broke it finds out that the data
+     licence changed with it. */
+
+  console.log('\nthe conditions the licence rests on');
+
+  const licence = await page.evaluate(async () => {
+    /* Named SDKs and the words their setup code uses. Deliberately specific:
+       a sweep for "track" alone would trip over "soundtrack". */
+    const vendors = [
+      'google-analytics', 'googletagmanager', 'gtag(', 'analytics.js', 'firebase',
+      'admob', 'doubleclick', 'adsbygoogle', 'facebook.net', 'connect.facebook',
+      'segment.com', 'mixpanel', 'amplitude', 'sentry.io', 'bugsnag', 'crashlytics',
+      'appsflyer', 'adjust.com', 'onesignal', 'revenuecat', 'branch.io',
+      /* Domains rather than bare product names where the name is also an
+         ordinary English word: weather.js says "plausible" about hail. */
+      'hotjar', 'fullstory', 'posthog', 'plausible.io', 'matomo', 'piwik',
+      'in-app purchase', 'inapppurchase', 'billingclient', 'play-billing',
+      'affiliate', 'adservice', 'ad-network'
+    ];
+    const files = ['index.html', 'app.js', 'weather.js', 'voice.js', 'brand.js',
+      'native.js', 'sw.js', 'privacy.html', 'manifest.json', 'mobile/package.json'];
+    const hits = [];
+    for (const f of files) {
+      const res = await fetch(f);
+      if (!res.ok) { hits.push(f + ': could not be read'); continue; }
+      const text = (await res.text()).toLowerCase();
+      vendors.forEach(v => { if (text.indexOf(v) >= 0) hits.push(f + ': ' + v); });
+    }
+
+    /* Every script the page loads has to be one of ours. A third-party tag
+       is how analytics arrives in practice — not by anyone deciding to add
+       analytics. */
+    const offSite = [...document.querySelectorAll('script[src], iframe, img[src], link[rel="stylesheet"]')]
+      .map(el => el.getAttribute('src') || el.getAttribute('href') || '')
+      .filter(u => /^(https?:)?\/\//i.test(u));
+
+    /* The native shell's plugin list, which is the other way a tracker gets
+       in. Each of these is a capability the app actually uses. */
+    const pkg = JSON.parse(await (await fetch('mobile/package.json')).text());
+    const plugins = Object.keys(pkg.dependencies || {});
+
+    return { hits, offSite, plugins };
+  });
+
+  eq('no advertising, analytics or tracking SDK anywhere in the app', licence.hits, []);
+  eq('and nothing is loaded from anybody else servers', licence.offSite, []);
+  eq('the native plugins are only the capabilities the app uses', licence.plugins.sort(), [
+    '@capacitor/android', '@capacitor/app', '@capacitor/core', '@capacitor/filesystem',
+    '@capacitor/geolocation', '@capacitor/ios', '@capacitor/keyboard', '@capacitor/share',
+    '@capacitor/splash-screen', '@capacitor/status-bar'
+  ]);
+
+  /* The app may talk to Open-Meteo and nowhere else. This is the runtime
+     proof rather than the source-reading one: it watches what the page
+     actually requests. */
+  const talkedTo = new Set();
+  const watcher = r => {
+    const host = new URL(r.url()).host;
+    if (!/^127\.0\.0\.1|^localhost/.test(host)) talkedTo.add(host);
+  };
+  /* The cached forecast is fifteen minutes fresh, so without clearing it the
+     app correctly makes no request at all and the watcher proves nothing. */
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1') || '{}');
+    s.caches = {};
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  page.on('request', watcher);
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  await page.waitForTimeout(700);
+  page.off('request', watcher);
+  eq('the only servers the app calls are Open-Meteo',
+    [...talkedTo].sort(), ['api.open-meteo.com']);
+
   /* ------------------------------------------------------- suite: settings */
 
   console.log('\nsettings');
@@ -854,7 +1711,7 @@ async function main() {
   console.log('\nwhen it goes wrong');
   await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
-    s.cache = null;
+    s.caches = {};
     localStorage.setItem('weatherApp.v1', JSON.stringify(s));
   });
   await context.unroute('https://api.open-meteo.com/**');
@@ -881,7 +1738,7 @@ async function main() {
   await page.waitForSelector('#hero:not([hidden])', { timeout: 5000 });
   await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
-    s.cache.fetchedAt -= 3600;
+    s.caches[s.selected].forecast.fetchedAt -= 3600;
     localStorage.setItem('weatherApp.v1', JSON.stringify(s));
   });
   await context.unroute('https://api.open-meteo.com/**');
@@ -915,12 +1772,847 @@ async function main() {
   await page.waitForSelector('.result');
   await page.click('.result');
   await page.waitForSelector('#hero:not([hidden])', { timeout: 5000 });
-  const searched = await page.evaluate(() => ({
-    place: document.getElementById('placeName').textContent,
-    saved: JSON.parse(localStorage.getItem('weatherApp.v1')).place.name
-  }));
+  const searched = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return {
+      place: document.getElementById('placeName').textContent,
+      saved: s.places[0].name,
+      selected: s.selected === s.places[0].id,
+      count: s.places.length
+    };
+  });
   eq('the chosen place is used', searched.place, 'Ilkley');
   eq('and remembered', searched.saved, 'Ilkley');
+  ok('and it is the one selected', searched.selected);
+  eq('the first search saves exactly one place', searched.count, 1);
+
+  /* ------------------------------------------------ suite: saved locations */
+
+  /* Everything here is driven through the actual UI rather than by poking at
+     state, because "does the list work" and "does the object change" are
+     different questions and only one of them matters to a user. */
+
+  console.log('\nmore than one place');
+
+  /* Each place gets a forecast of its own, so a wrong temperature on a row is
+     a real bug rather than a stub artefact. */
+  const byPlace = { Ilkley: 19, Manchester: 11, Penzance: 24 };
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const url = new URL(route.request().url());
+    const lat = Math.round(Number(url.searchParams.get('latitude')) * 100);
+    /* The geocoding stub below hands out a different latitude per town. */
+    const temp = lat === 5390 ? byPlace.Ilkley : (lat === 5348 ? byPlace.Manchester : byPlace.Penzance);
+    const one = makeForecast(start, { hourAt: () => ({ t: temp, f: temp, c: 0, p: 0 }),
+      dayAt: () => ({ max: temp + 1, min: temp - 6, c: 0, p: 10 }), current: { t: temp, f: temp, c: 0 } });
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(one) });
+  });
+  await context.unroute('https://geocoding-api.open-meteo.com/**');
+  await context.route('https://geocoding-api.open-meteo.com/**', route => {
+    const q = new URL(route.request().url()).searchParams.get('name');
+    const towns = {
+      Ilkley: { name: 'Ilkley', latitude: 53.9, longitude: -1.8, admin1: 'England', country: 'UK' },
+      Manchester: { name: 'Manchester', latitude: 53.48, longitude: -2.24, admin1: 'England', country: 'UK' },
+      Penzance: { name: 'Penzance', latitude: 50.12, longitude: -5.54, admin1: 'England', country: 'UK' }
+    };
+    route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ results: towns[q] ? [towns[q]] : [] }) });
+  });
+
+  async function addTown(name, label) {
+    await page.click('#placeBtn');
+    await page.waitForTimeout(80);
+    /* With places already saved the header opens the list, so go via Add. */
+    if (await page.isVisible('#addPlaceBtn')) await page.click('#addPlaceBtn');
+    await page.waitForSelector('#searchSheet[open]');
+    await page.fill('#placeQuery', name);
+    if (label) await page.fill('#placeLabel', label);
+    await page.press('#placeQuery', 'Enter');
+    await page.waitForSelector('.result');
+    await page.click('.result');
+    await page.waitForTimeout(250);
+  }
+
+  const rows = () => page.$$eval('#placeList .place-row',
+    els => els.map(e => ({
+      name: e.querySelector('.place-id b').textContent,
+      under: e.querySelector('.place-where').textContent,
+      read: e.querySelector('.place-read').textContent,
+      current: e.classList.contains('is-current')
+    })));
+
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.waitForSelector('#setup:not([hidden])');
+
+  await addTown('Ilkley');
+  await addTown('Manchester');
+  await addTown('Penzance', "Nan's");
+
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.waitForTimeout(150);
+  let list = await rows();
+
+  eq('three places are saved', list.length, 3);
+  eq('in the order they were added', list.map(r => r.name), ['Ilkley', 'Manchester', "Nan's"]);
+  ok('a custom name keeps the real one underneath', /Penzance/.test(list[2].under), list[2].under);
+  ok('the one you are on is marked', list[2].current && !list[0].current,
+    JSON.stringify(list.map(r => r.current)));
+  ok('every row shows its own temperature',
+    /19/.test(list[0].read) && /11/.test(list[1].read) && /24/.test(list[2].read),
+    list.map(r => r.name + '=' + r.read).join(', '));
+
+  /* Switching is the thing people do daily, so it has to be one tap and it
+     has to bring the whole screen with it. */
+  await page.click('#placeList .place-row:nth-child(2) .place-go');
+  await page.waitForTimeout(300);
+  const switched = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent,
+    shout: document.getElementById('shout').textContent,
+    days: document.querySelectorAll('.daylist .day').length,
+    hours: document.querySelectorAll('.hr').length,
+    tomorrow: document.getElementById('tomHigh').textContent,
+    sheetShut: !document.getElementById('placeSheet').open
+  }));
+  eq('switching changes the header', switched.header, 'Manchester');
+  eq('and the temperature', switched.temp, '11');
+  ok('and the headline is for the new place', switched.shout.length > 5, switched.shout);
+  eq('the fifteen days come with it', switched.days, 15);
+  eq('so do the hours', switched.hours, 24);
+  ok('and tomorrow', switched.tomorrow !== '—', switched.tomorrow);
+  ok('the sheet gets out of the way', switched.sheetShut);
+
+  /* Everything must survive a restart — this is the whole point of saving. */
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  const afterReload = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return {
+      header: document.getElementById('placeName').textContent,
+      count: s.places.length,
+      names: s.places.map(p => p.label || p.name),
+      cached: Object.keys(s.caches).length
+    };
+  });
+  eq('the places survive a restart', afterReload.count, 3);
+  eq('with their names', afterReload.names, ['Ilkley', 'Manchester', "Nan's"]);
+  eq('and the app opens where you left off', afterReload.header, 'Manchester');
+  eq('each place has its own cached forecast', afterReload.cached, 3);
+
+  /* Rename, reorder, default, delete — all behind Edit. */
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+
+  await page.click('#placeList .place-row:nth-child(1) .place-tool[aria-label^="Rename"]');
+  await page.waitForSelector('#renameSheet[open]');
+  await page.fill('#renameInput', 'Home');
+  await page.click('#renameForm button[type="submit"]');
+  await page.waitForTimeout(150);
+  list = await rows();
+  eq('renaming shows the new name', list[0].name, 'Home');
+  ok('and keeps the real place underneath', /Ilkley/.test(list[0].under), list[0].under);
+
+  await page.click('#placeList .place-row:nth-child(3) .place-tool[aria-label^="Move"][aria-label$="up"]');
+  await page.waitForTimeout(150);
+  list = await rows();
+  eq('reordering moves it up', list.map(r => r.name), ['Home', "Nan's", 'Manchester']);
+
+  await page.click('#placeList .place-row:nth-child(1) .place-tool[aria-label^="Always open"]');
+  await page.waitForTimeout(150);
+  const pinned = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { startup: s.startup, hint: document.getElementById('startupHint').textContent };
+  });
+  ok('a default can be pinned', !!pinned.startup);
+  ok('and the sheet says which', /Home/.test(pinned.hint), pinned.hint);
+
+  /* A pinned default beats "where I was last" on the next launch. */
+  await page.click('#placeList .place-row:nth-child(3) .place-go');
+  await page.waitForTimeout(250);
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  eq('and it opens there next time, not where you were',
+    await page.textContent('#placeName'), 'Home');
+
+  /* Deleting takes the place and its forecast, and never leaves the app
+     pointing at something that is gone. */
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  page.once('dialog', d => d.accept());
+  await page.click('#placeList .place-row:nth-child(2) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(200);
+  const afterDelete = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { names: s.places.map(p => p.label || p.name), cached: Object.keys(s.caches).length,
+      selectedExists: s.places.some(p => p.id === s.selected) };
+  });
+  eq('deleting removes the row', afterDelete.names, ['Home', 'Manchester']);
+  eq('and its cached forecast with it', afterDelete.cached, 2);
+  ok('and never leaves a dangling selection', afterDelete.selectedExists);
+
+  /* Saving the same place twice is a mistake the app should absorb quietly
+     rather than a second identical row for the user to tidy up. */
+  await page.click('#placeSheet [data-close]');
+  await addTown('Manchester');
+  const deduped = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { count: s.places.length, header: document.getElementById('placeName').textContent };
+  });
+  eq('adding somewhere twice does not duplicate it', deduped.count, 2);
+  eq('it just goes there', deduped.header, 'Manchester');
+
+  /* Offline: switching still works, because each place has its own copy. */
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => route.abort());
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.waitForTimeout(150);
+  const offlineRows = await rows();
+  ok('the saved places still show their weather with no signal',
+    /19/.test(offlineRows[0].read) && /11/.test(offlineRows[1].read),
+    offlineRows.map(r => r.name + '=' + r.read).join(', '));
+  await page.click('#placeList .place-row:nth-child(2) .place-go');
+  await page.waitForTimeout(300);
+  const offline = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent,
+    foot: document.getElementById('footStatus').textContent,
+    heroShown: !document.getElementById('hero').hidden
+  }));
+  eq('switching offline still works', offline.header, 'Manchester');
+  eq('and shows that place cached forecast', offline.temp, '11');
+  ok('the weather is drawn, not hidden', offline.heroShown);
+  ok('and it says how old it is rather than pretending',
+    /updated|ago|just now/i.test(offline.foot), offline.foot);
+
+  /* ------------------------------------------- suite: switching mid-request */
+
+  /* The critical one. Somebody taps through three places faster than the
+     network answers, and the replies come back in the wrong order. A forecast
+     for one place must never, ever appear under another — it is the kind of
+     bug nobody reports because it just looks like the weather was wrong.
+
+     Every response here is held until the test releases it, so the ordering
+     is deliberate rather than a matter of luck. */
+
+  console.log('\nswitching while the network is still thinking');
+
+  const held = new Map();
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', async route => {
+    const lat = Math.round(Number(new URL(route.request().url()).searchParams.get('latitude')) * 100);
+    const temp = lat === 5390 ? 19 : (lat === 5348 ? 11 : 24);
+    /* Park the request. The test decides when — and in what order — it lands. */
+    await new Promise(release => held.set(lat, () => {
+      const one = makeForecast(start, { hourAt: () => ({ t: temp, f: temp, c: 0, p: 0 }),
+        dayAt: () => ({ max: temp + 1, min: temp - 6, c: 0, p: 10 }), current: { t: temp, f: temp, c: 0 } });
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(one) })
+        .then(release, release);
+    }));
+  });
+
+  /* Three places, no caches, so each one must go to the network. */
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.evaluate(() => {
+    localStorage.setItem('weatherApp.v1', JSON.stringify({
+      v: 2, sweary: true, asked: true, units: 'metric',
+      places: [
+        { id: 'pA', name: 'Ilkley', label: '', where: '', lat: 53.9, lon: -1.8 },
+        { id: 'pB', name: 'Manchester', label: '', where: '', lat: 53.48, lon: -2.24 },
+        { id: 'pC', name: 'Penzance', label: '', where: '', lat: 50.12, lon: -5.54 }
+      ],
+      selected: 'pA', startup: null, caches: {}
+    }));
+  });
+  await page.reload();
+  await page.waitForSelector('#placeName');
+  await page.waitForTimeout(400);
+
+  /* Ilkley is in the air. Switch to Manchester, then Penzance, without
+     letting anything answer. */
+  await page.evaluate(() => {
+    const rows = () => document.querySelectorAll('#placeList .place-row .place-go');
+    document.getElementById('placeBtn').click();
+    return new Promise(r => setTimeout(r, 60)).then(() => rows()[1].click());
+  });
+  await page.waitForTimeout(250);
+  await page.evaluate(() => {
+    document.getElementById('placeBtn').click();
+    return new Promise(r => setTimeout(r, 60)).then(() =>
+      document.querySelectorAll('#placeList .place-row .place-go')[2].click());
+  });
+  await page.waitForTimeout(250);
+
+  const onPenzance = await page.textContent('#placeName');
+  eq('the screen follows the taps, not the network', onPenzance, 'Penzance');
+  ok('all three requests went out — no location was starved', held.size === 3,
+    'in flight: ' + held.size);
+
+  /* Now answer in the most awkward order possible: the two places the user
+     has left, last one first, and the place they are actually on at the end. */
+  held.get(5390)();                       /* Ilkley, long abandoned */
+  await page.waitForTimeout(200);
+  const afterIlkley = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent,
+    hero: !document.getElementById('hero').hidden
+  }));
+  eq('a late reply for a place you left does not steal the header',
+    afterIlkley.header, 'Penzance');
+  ok('nor does it put its temperature on the screen', afterIlkley.temp !== '19',
+    'showing ' + afterIlkley.temp);
+
+  held.get(5348)();                       /* Manchester, also abandoned */
+  await page.waitForTimeout(200);
+  const afterManchester = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent
+  }));
+  eq('and neither does the second one', afterManchester.header, 'Penzance');
+  ok('still not showing somebody else weather', afterManchester.temp !== '11',
+    'showing ' + afterManchester.temp);
+
+  held.get(5012)();                       /* Penzance, the one on screen */
+  await page.waitForTimeout(400);
+  const settled = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return {
+      header: document.getElementById('placeName').textContent,
+      temp: document.getElementById('nowTemp').textContent,
+      cachedA: s.caches.pA && Math.round(s.caches.pA.forecast.current.temp),
+      cachedB: s.caches.pB && Math.round(s.caches.pB.forecast.current.temp),
+      cachedC: s.caches.pC && Math.round(s.caches.pC.forecast.current.temp)
+    };
+  });
+  eq('the place on screen shows its own weather', settled.temp, '24');
+  eq('and it is still the place you chose', settled.header, 'Penzance');
+
+  /* The abandoned replies were not thrown away — they went to their own
+     place, which is what makes switching back instant. */
+  eq('the late reply was filed under its own place', settled.cachedA, 19);
+  eq('and so was the other one', settled.cachedB, 11);
+  eq('and the current one under its own', settled.cachedC, 24);
+
+  /* Switching back is now instant and correct, from cache. */
+  await page.evaluate(() => {
+    document.getElementById('placeBtn').click();
+    return new Promise(r => setTimeout(r, 60)).then(() =>
+      document.querySelectorAll('#placeList .place-row .place-go')[1].click());
+  });
+  await page.waitForTimeout(300);
+  const backToManchester = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent
+  }));
+  eq('switching back shows the right place', backToManchester.header, 'Manchester');
+  eq('with the right weather', backToManchester.temp, '11');
+
+  /* A failure for one place must not put an error over another that is fine. */
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const lat = Math.round(Number(new URL(route.request().url()).searchParams.get('latitude')) * 100);
+    if (lat === 5390) return route.abort();
+    const one = makeForecast(start, { hourAt: () => ({ t: 11, f: 11, c: 0, p: 0 }),
+      dayAt: () => ({ max: 12, min: 5, c: 0, p: 10 }), current: { t: 11, f: 11, c: 0 } });
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(one) });
+  });
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.caches.pA.forecast.fetchedAt -= 7200;   /* Ilkley is stale and will fail */
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.evaluate(() => {
+    document.getElementById('placeBtn').click();
+    return new Promise(r => setTimeout(r, 60)).then(() =>
+      document.querySelectorAll('#placeList .place-row .place-go')[0].click());
+  });
+  await page.waitForTimeout(500);
+  const oneFailed = await page.evaluate(() => ({
+    header: document.getElementById('placeName').textContent,
+    temp: document.getElementById('nowTemp').textContent,
+    hero: !document.getElementById('hero').hidden,
+    trouble: !document.getElementById('trouble').hidden
+  }));
+  eq('a place whose refresh fails still shows its saved forecast', oneFailed.temp, '19');
+  ok('and is not replaced by an error card', oneFailed.hero && !oneFailed.trouble,
+    JSON.stringify(oneFailed));
+
+  await page.evaluate(() => {
+    document.getElementById('placeBtn').click();
+    return new Promise(r => setTimeout(r, 60)).then(() =>
+      document.querySelectorAll('#placeList .place-row .place-go')[1].click());
+  });
+  await page.waitForTimeout(400);
+  const otherStillFine = await page.evaluate(() => ({
+    temp: document.getElementById('nowTemp').textContent,
+    trouble: !document.getElementById('trouble').hidden
+  }));
+  eq('and the one that works is unaffected by the one that does not',
+    otherStillFine.temp, '11');
+  ok('with no error carried across to it', !otherStillFine.trouble);
+
+  /* ------------------------------------------ suite: locations at the edges */
+
+  /* The awkward counts and the awkward deletions. None of these are things
+     people do often; all of them are things that leave the app pointing at
+     nothing if they are got wrong. */
+
+  console.log('\nlocations, at the edges');
+
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const url = new URL(route.request().url());
+    const lat = Math.round(Number(url.searchParams.get('latitude')) * 100);
+    const temp = lat === 5390 ? 19 : (lat === 5348 ? 11 : 24);
+    route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify(makeForecast(start, { hourAt: () => ({ t: temp, f: temp, c: 0, p: 0 }),
+        dayAt: () => ({ max: temp + 1, min: temp - 6, c: 0, p: 10 }), current: { t: temp, f: temp, c: 0 } })) });
+  });
+
+  /* Nowhere saved at all: the app has to ask rather than show an empty sky. */
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.waitForSelector('#setup:not([hidden])');
+  const none = await page.evaluate(() => ({
+    setup: !document.getElementById('setup').hidden,
+    hero: !document.getElementById('hero').hidden
+  }));
+  ok('with nowhere saved the app asks for somewhere', none.setup);
+  ok('and does not draw a forecast it has not got', !none.hero);
+
+  /* One place, and you delete it. The app must go back to asking, not sit on
+     a screen with no location behind it. */
+  await addTown('Ilkley');
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  page.once('dialog', d => d.accept());
+  await page.click('#placeList .place-row:nth-child(1) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(250);
+  const emptied = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { places: s.places.length, selected: s.selected, caches: Object.keys(s.caches).length,
+      setup: !document.getElementById('setup').hidden,
+      empty: !document.getElementById('placeEmpty').hidden };
+  });
+  eq('deleting the only place empties the list', emptied.places, 0);
+  eq('nothing is left selected', emptied.selected, null);
+  eq('and no forecast is kept for it', emptied.caches, 0);
+  ok('the app goes back to asking where you are', emptied.setup);
+  ok('and the list says so rather than showing nothing', emptied.empty);
+
+  /* Deleting the place you are looking at right now. */
+  await page.click('#placeSheet [data-close]');
+  await page.reload();
+  await page.waitForSelector('#setup:not([hidden])');
+  await addTown('Ilkley');
+  await addTown('Manchester');
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  page.once('dialog', d => d.accept());
+  /* Manchester was added last, so it is the one on screen. */
+  await page.click('#placeList .place-row:nth-child(2) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(400);
+  const deletedCurrent = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { header: document.getElementById('placeName').textContent,
+      temp: document.getElementById('nowTemp').textContent,
+      selected: s.selected === s.places[0].id, hero: !document.getElementById('hero').hidden };
+  });
+  eq('deleting the place you are on moves you to another', deletedCurrent.header, 'Ilkley');
+  eq('showing that place own weather, not the deleted one', deletedCurrent.temp, '19');
+  ok('and the selection follows', deletedCurrent.selected);
+  ok('the screen keeps working throughout', deletedCurrent.hero);
+
+  /* Deleting the pinned default. The pin has to go with it — a startup
+     pointing at a place that no longer exists is a launch into nothing. */
+  await page.click('#placeSheet [data-close]');
+  await page.waitForTimeout(100);
+  await addTown('Penzance');
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  await page.click('#placeList .place-row:nth-child(2) .place-tool[aria-label^="Always open"]');
+  await page.waitForTimeout(150);
+  ok('a default is pinned to start with',
+    await page.evaluate(() => !!JSON.parse(localStorage.getItem('weatherApp.v1')).startup));
+  page.once('dialog', d => d.accept());
+  await page.click('#placeList .place-row:nth-child(2) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(250);
+  const deletedDefault = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { startup: s.startup, dangling: s.startup && !s.places.some(p => p.id === s.startup),
+      hint: document.getElementById('startupHint').textContent };
+  });
+  eq('deleting the default unpins it', deletedDefault.startup, null);
+  ok('rather than leaving the app opening on nothing', !deletedDefault.dangling);
+  ok('and the hint goes back to where you were last',
+    /last/i.test(deletedDefault.hint), deletedDefault.hint);
+
+  /* The same coordinates under a different name. One place, renamed — not a
+     second row showing identical weather. */
+  await page.click('#placeSheet [data-close]');
+  await page.waitForTimeout(100);
+  await addTown('Ilkley', 'Home');
+  const sameSpot = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { count: s.places.length, names: s.places.map(p => p.label || p.name),
+      header: document.getElementById('placeName').textContent };
+  });
+  eq('the same coordinates twice stay one place', sameSpot.count, 1);
+  eq('and take the name you gave them', sameSpot.names, ['Home']);
+  eq('and that is where you end up', sameSpot.header, 'Home');
+
+  /* Edit mode on the narrowest phone in circulation. Five tools used to share
+     the name's line here, which left about seven characters of it: "Newca…"
+     and "Llanfai…" are not a list anyone can choose from. */
+  await page.setViewportSize({ width: 320, height: 720 });
+  await addTown('Manchester');
+  await addTown('Penzance', 'Somewhere with a very long name indeed');
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.waitForTimeout(150);
+  /* How much room the name has when the list is just a list. Edit mode must
+     not take any of it away. */
+  const roomNormally = await page.evaluate(
+    () => document.querySelector('#placeList .place-id b').clientWidth);
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(200);
+  const narrow = await page.evaluate(() => {
+    const names = [...document.querySelectorAll('#placeList .place-id b')];
+    const tools = [...document.querySelectorAll('#placeList .place-tool')];
+    const sheet = document.querySelector('#placeSheet .sheet-in');
+    const clipped = n => n.scrollWidth > n.clientWidth + 1;
+    return {
+      /* Real town names, which have to fit. */
+      clipped: names.filter(n => n.textContent.length <= 20 && clipped(n)).map(n => n.textContent),
+      room: names[0].clientWidth,
+      /* Something nobody can fit is ellipsised, but the row still says where
+         it really is on the line underneath. */
+      longOne: (() => {
+        const row = names.find(n => n.textContent.length > 20);
+        return row && row.closest('.place-row').querySelector('.place-where').textContent;
+      })(),
+      small: tools.filter(t => { const b = t.getBoundingClientRect(); return b.width < 40 || b.height < 40; }).length,
+      tools: tools.length,
+      sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      scrolls: sheet.scrollHeight > 0
+    };
+  });
+  eq('at 320px Edit still shows real place names in full', narrow.clipped, []);
+  ok('the name gets the whole row rather than what the tools leave it',
+    narrow.room >= roomNormally, narrow.room + 'px in Edit vs ' + roomNormally + 'px out of it');
+  ok('a name too long for any phone still says where it really is',
+    /Penzance/.test(narrow.longOne || ''), String(narrow.longOne));
+  ok('the tools are all still there', narrow.tools >= 15, String(narrow.tools));
+  eq('and every one of them is a real target', narrow.small, 0);
+  eq('nothing pushes the page sideways', narrow.sideways, 0);
+  ok('the sheet scrolls rather than hiding the buttons', narrow.scrolls);
+  await page.click('#placeSheet [data-close]');
+  await page.setViewportSize({ width: 430, height: 900 });
+
+  /* ------------------------------------------------ suite: one at a time */
+
+  /* Saving five places must not mean five requests every time the app opens.
+     The list is drawn from what is already on the phone, and only the place
+     you are actually looking at is ever askedFor about. */
+
+  console.log('\nonly the place you are looking at');
+
+  let askedFor = [];
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const url = new URL(route.request().url());
+    const lat = Math.round(Number(url.searchParams.get('latitude')) * 100);
+    askedFor.push(lat);
+    const temp = lat === 5390 ? 19 : (lat === 5348 ? 11 : 24);
+    route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify(makeForecast(start, { hourAt: () => ({ t: temp, f: temp, c: 0, p: 0 }),
+        dayAt: () => ({ max: temp + 1, min: temp - 6, c: 0, p: 10 }), current: { t: temp, f: temp, c: 0 } })) });
+  });
+
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.waitForSelector('#setup:not([hidden])');
+  await addTown('Ilkley');
+  await addTown('Manchester');
+  await addTown('Penzance');
+  await page.click('#placeSheet [data-close]').catch(() => {});
+
+  /* Every place now has a fresh forecast. Reload with all three saved. */
+  askedFor = [];
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  await page.waitForTimeout(500);
+  eq('opening the app with three places saved asks about none of them',
+    askedFor.length, 0);
+
+  /* Opening the list is a read of what is already there. */
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.waitForTimeout(400);
+  const listRows = await page.$$eval('#placeList .place-row', els => els.length);
+  eq('the list still shows all three', listRows, 3);
+  eq('and drew them without asking the network anything', askedFor.length, 0);
+
+  /* Now age one place out. Only that one should be askedFor about. */
+  await page.click('#placeSheet [data-close]');
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    Object.keys(s.caches).forEach(id => {
+      s.caches[id].forecast.fetchedAt -= 4 * 3600;
+    });
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  askedFor = [];
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])');
+  await page.waitForTimeout(600);
+  eq('with every copy stale it still asks about exactly one place',
+    askedFor.length, 1);
+  eq('and that one is the place on the screen', askedFor[0], 5012);
+
+  /* Switching asks about the place you switched to, and nothing else. */
+  askedFor = [];
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#placeList .place-row:nth-child(1) .place-go');
+  await page.waitForTimeout(600);
+  eq('switching asks about one place', askedFor.length, 1);
+  eq('the one you switched to', askedFor[0], 5390);
+
+  /* A reply that lands after you have deleted the place it was for. The
+     forecast must not be filed under a place the user has removed. */
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.waitForSelector('#setup:not([hidden])');
+  await addTown('Ilkley');
+  await addTown('Manchester');
+
+  const lateHeld = new Map();
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const url = new URL(route.request().url());
+    const lat = Math.round(Number(url.searchParams.get('latitude')) * 100);
+    const temp = lat === 5390 ? 19 : 11;
+    lateHeld.set(lat, () => route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify(makeForecast(start, { hourAt: () => ({ t: temp, f: temp, c: 0, p: 0 }),
+        dayAt: () => ({ max: temp + 1, min: temp - 6, c: 0, p: 10 }), current: { t: temp, f: temp, c: 0 } })) }));
+  });
+
+  /* Select Ilkley, throw away every cached copy, and reload: the app asks for
+     Ilkley's forecast on startup and the route above holds the answer. Then
+     Ilkley is deleted while that request is still in the air. */
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.selected = s.places[0].id;
+    s.caches = {};
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.goto(base + 'index.html');
+  await page.waitForTimeout(400);
+
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  page.once('dialog', d => d.accept());
+  await page.click('#placeList .place-row:nth-child(1) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(200);
+  for (const release of lateHeld.values()) release();
+  await page.waitForTimeout(500);
+
+  const afterLate = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return { places: s.places.map(p => p.name), ghosts: Object.keys(s.caches)
+      .filter(id => !s.places.some(p => p.id === id)) };
+  });
+  eq('the deleted place stays deleted', afterLate.places, ['Manchester']);
+  eq('and its late forecast is not quietly filed away', afterLate.ghosts, []);
+
+  /* An existing user's saved town has to survive the upgrade to multiple
+     places. This is the exact shape the previous version left behind. */
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(stub) });
+  });
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.evaluate(() => localStorage.setItem('weatherApp.v1', JSON.stringify({
+    v: 1,
+    place: { name: 'Ilkley', where: 'England', lat: 53.9, lon: -1.8 },
+    units: 'imperial', ampm: true, sweary: false, animate: false, badge: false, asked: true,
+    cache: null, previous: null
+  })));
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])', { timeout: 5000 });
+  const migrated = await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    return {
+      header: document.getElementById('placeName').textContent,
+      count: s.places.length,
+      selected: !!s.places.find(p => p.id === s.selected),
+      units: s.units, ampm: s.ampm, sweary: s.sweary, asked: s.asked,
+      gone: s.place === undefined
+    };
+  });
+  eq('an old single-place install keeps its town', migrated.header, 'Ilkley');
+  eq('as the first saved location', migrated.count, 1);
+  ok('and it is selected', migrated.selected);
+  ok('every other setting comes across too',
+    migrated.units === 'imperial' && migrated.ampm === true && migrated.sweary === false &&
+    migrated.asked === true, JSON.stringify(migrated));
+  ok('and the old single-place field is not left lying about', migrated.gone);
+
+  /* Put the settings back for the suites that follow. */
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.units = 'metric'; s.ampm = false; s.sweary = true; s.animate = true; s.badge = true;
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await page.waitForSelector('#hero:not([hidden])', { timeout: 5000 });
+
+  /* ------------------------------------ suite: a storm belongs to one place */
+
+  /* Storm Watch is computed from the forecast the location already has,
+     which is what makes it right per location without a second cache to keep
+     straight. This suite proves the consequence: three places with three
+     different skies, and the card on screen always describes the one whose
+     name is in the header — including when the replies come back in the
+     wrong order, and including with no signal at all. */
+
+  console.log('\na storm belongs to one place');
+
+  const stormSkies = {
+    5390: { hourAt: () => ({ t: 17, c: 95, p: 95, mm: 7, w: 25, g: 55, cape: 1800 }), cur: 95 },
+    5348: { hourAt: () => ({ t: 16, c: 1, p: 5, mm: 0, w: 10, g: 15, cape: 20 }), cur: 1 },
+    5012: { hourAt: () => ({ t: 12, c: 3, p: 20, mm: 0, w: 45, g: 75, cape: 30 }), cur: 3 }
+  };
+  const stormHeld = new Map();
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    const lat = Math.round(Number(new URL(route.request().url()).searchParams.get('latitude')) * 100);
+    const json = makeForecast(start, stormSkies[lat] || stormSkies[5348]);
+    json.current.weather_code = (stormSkies[lat] || stormSkies[5348]).cur;
+    const send = () => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(json) });
+    if (stormHeld.has('hold')) stormHeld.set(lat, send); else send();
+  });
+
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
+  await page.waitForSelector('#setup:not([hidden])');
+  await addTown('Ilkley');        /* thunder overhead */
+  await addTown('Manchester');    /* nothing at all */
+  await addTown('Penzance');      /* gales, no thunder */
+
+  const stormAt = () => page.evaluate(() => ({
+    place: document.getElementById('placeName').textContent,
+    badge: document.getElementById('stormStatus').textContent,
+    classes: document.getElementById('stormCard').className,
+    causes: [...document.querySelectorAll('#stormCauses li')].map(li => li.textContent).join(' ')
+  }));
+
+  async function goTo(nth) {
+    await page.click('#placeBtn');
+    await page.waitForSelector('#placeSheet[open]');
+    await page.click('#placeList .place-row:nth-child(' + nth + ') .place-go');
+    await page.waitForTimeout(350);
+    return stormAt();
+  }
+
+  const atPenzance = await stormAt();
+  eq('the last place added is the one on screen', atPenzance.place, 'Penzance');
+  eq('and it shows its own gales', atPenzance.badge, 'STORM WATCH');
+  ok('named as wind, not thunder', !/thunder/i.test(atPenzance.causes), atPenzance.causes);
+
+  const atIlkley = await goTo(1);
+  eq('switching moves the header', atIlkley.place, 'Ilkley');
+  eq('and the storm card with it', atIlkley.badge, 'STORM NOW');
+  ok('with its own thunder named', /thunder/i.test(atIlkley.causes), atIlkley.causes);
+
+  const atManchester = await goTo(2);
+  eq('a calm place shows calm', atManchester.place, 'Manchester');
+  eq('not the storm from the place before it', atManchester.badge, 'ALL CLEAR');
+  eq('and lists nothing', atManchester.causes, '');
+
+  /* The race. Three requests in the air, answered in the wrong order, with
+     the place you are actually looking at answered last. */
+  stormHeld.set('hold', true);
+  await page.evaluate(() => {
+    const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
+    s.caches = {};
+    localStorage.setItem('weatherApp.v1', JSON.stringify(s));
+  });
+  await page.reload();
+  await page.waitForTimeout(250);
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#placeList .place-row:nth-child(1) .place-go');   /* Ilkley */
+  await page.waitForTimeout(150);
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#placeList .place-row:nth-child(2) .place-go');   /* Manchester, calm */
+  await page.waitForTimeout(200);
+
+  /* Release the places we left first, the one on screen last. */
+  stormHeld.delete('hold');
+  [5012, 5390, 5348].forEach(lat => { const send = stormHeld.get(lat); if (send) send(); });
+  await page.waitForTimeout(600);
+
+  const afterRace = await stormAt();
+  eq('after a scramble the header still says Manchester', afterRace.place, 'Manchester');
+  eq('and the storm card is still Manchester own', afterRace.badge, 'ALL CLEAR');
+  ok('no thunder from the place we left has leaked in',
+    !/thunder|hail/i.test(afterRace.causes) && !/storm--now|storm--warning/.test(afterRace.classes),
+    afterRace.badge + ' / ' + afterRace.classes + ' / ' + afterRace.causes);
+
+  /* Offline: each place keeps its own storm, because each keeps its own
+     forecast and the storm is read from it. */
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => route.abort());
+  await page.reload();
+  await page.waitForSelector('#stormCard:not([hidden])');
+  const offlineManchester = await stormAt();
+  const offlineIlkley = await goTo(1);
+  eq('with no signal the cached calm is still calm', offlineManchester.badge, 'ALL CLEAR');
+  eq('and switching offline brings the other place storm', offlineIlkley.badge, 'STORM NOW');
+  eq('under the right name', offlineIlkley.place, 'Ilkley');
+
+  /* Deleting a place takes its storm with it rather than leaving it on
+     screen under whatever is selected next. */
+  await page.click('#placeBtn');
+  await page.waitForSelector('#placeSheet[open]');
+  await page.click('#managePlacesBtn');
+  await page.waitForTimeout(100);
+  page.once('dialog', d => d.accept());
+  await page.click('#placeList .place-row:nth-child(1) .place-tool[aria-label^="Remove"]');
+  await page.waitForTimeout(350);
+  const afterDeleteStorm = await stormAt();
+  ok('deleting the stormy place leaves the next one own weather',
+    afterDeleteStorm.place !== 'Ilkley' && afterDeleteStorm.badge !== 'STORM NOW',
+    afterDeleteStorm.place + ' / ' + afterDeleteStorm.badge);
+
+  /* Put the sky back for the suites that follow. */
+  await context.unroute('https://api.open-meteo.com/**');
+  await context.route('https://api.open-meteo.com/**', route => {
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(stub) });
+  });
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(base + 'index.html');
 
   /* --------------------------------------------- suite: asking for location */
 
@@ -1120,7 +2812,7 @@ async function main() {
   await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
     s.badge = true;
-    s.cache.fetchedAt -= 4 * 3600;          /* four hours old */
+    s.caches[s.selected].forecast.fetchedAt -= 4 * 3600;   /* four hours old */
     localStorage.setItem('weatherApp.v1', JSON.stringify(s));
   });
   await context.unroute('https://api.open-meteo.com/**');
@@ -1165,7 +2857,7 @@ async function main() {
   });
   await page.evaluate(() => {
     const s = JSON.parse(localStorage.getItem('weatherApp.v1'));
-    delete s.cache;
+    s.caches = {};
     localStorage.setItem('weatherApp.v1', JSON.stringify(s));
   });
   await page.reload();
