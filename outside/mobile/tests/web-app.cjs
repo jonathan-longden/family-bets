@@ -1098,6 +1098,50 @@ async function main() {
   eq('with the missing figure left missing', stormFields.capeIsNull, null);
   eq('and the storm read still returns an answer', stormFields.stormStillWorks, 'clear');
 
+  /* The invariant the live run broke: if the card raises a level at all, it
+     must say why. London scored a watch on 2.8 mm of rain and listed no
+     cause, because the score ladder had a rung at 2 mm and the cause ladder
+     started at 4. Rather than patch that one band and hope, this sweeps the
+     whole space either side of every threshold in both ladders. */
+  const everyBand = await page.evaluate(({ start, template }) => {
+    const W = window.Weather;
+    const base = JSON.parse(template);
+    const bands = [];
+    /* Either side of every rung in stormRead, plus the quiet floor. */
+    const mms = [0, 1.9, 2, 2.8, 3.9, 4, 7.9, 8, 20];
+    const gusts = [10, 44, 45, 54, 55, 69, 70, 89, 90];
+    const capes = [null, 0, 110, 499, 500, 799, 800, 3000];
+    const probs = [0, 29, 30, 39, 40, 95];
+    const pick = (arr, i) => arr[i % arr.length];
+    for (let i = 0; i < 80; i++) {
+      const mm = pick(mms, i), gust = pick(gusts, i * 3), cape = pick(capes, i * 5), prob = pick(probs, i * 7);
+      const json = JSON.parse(JSON.stringify(base));
+      for (let h = 0; h < json.hourly.time.length; h++) {
+        json.hourly.precipitation[h] = mm;
+        json.hourly.wind_gusts_10m[h] = gust;
+        json.hourly.cape[h] = cape;
+        json.hourly.precipitation_probability[h] = prob;
+        json.hourly.weather_code[h] = 3;
+      }
+      json.current.weather_code = 3;
+      const s = W.storm(W.parse(json, {}), start + 60);
+      bands.push({ mm, gust, cape, prob, level: s.level, causes: s.causes.length, capeOut: s.cape });
+    }
+    return bands;
+  }, { start, template: stormCases.clear });
+
+  const silent = everyBand.filter(b => b.level !== 'clear' && b.causes === 0);
+  eq('a level is never raised without a reason to show for it',
+    silent.map(b => `${b.mm}mm/${b.gust}gust/cape${b.cape} → ${b.level}`), []);
+  ok('and the quiet end still says nothing at all',
+    everyBand.some(b => b.level === 'clear' && b.causes === 0));
+  /* The other thing live data exposed: a real measured zero is not the same
+     as the model declining to say. */
+  const zeroCape = everyBand.find(b => b.cape === 0);
+  const noCape = everyBand.find(b => b.cape === null);
+  eq('a measured zero instability is reported as zero', zeroCape && zeroCape.capeOut, 0);
+  eq('and a model that offered none is reported as nothing', noCape && noCape.capeOut, null);
+
   eq('the timeline covers a day', storm.clear.timeline.length, 24);
   ok('and marks the stormy hours in it',
     storm.coming.timeline.filter(h => h.thunder).length === 3,

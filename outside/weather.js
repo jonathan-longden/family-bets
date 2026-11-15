@@ -695,6 +695,11 @@
     var maxCape = window.reduce(function (a, h) {
       return typeof h.cape === 'number' ? Math.max(a, h.cape) : a;
     }, 0);
+    /* Whether the model said anything about instability at all, which is a
+       different question from whether it said zero. A calm winter day really
+       does report 0 J/kg hour after hour, and reporting that back as "no
+       figure available" would be the app inventing an absence. */
+    var sawCape = window.some(function (h) { return typeof h.cape === 'number'; });
 
     /* `{time}` rather than a baked clock string: this file does not know
        whether the user reads a 24-hour clock, and should not have to. The
@@ -714,6 +719,11 @@
     else if (maxGust >= 55) cause('wind', 'Gusts up to ' + Math.round(maxGust) + ' km/h.');
     if (maxMm >= 8) cause('rain', 'Up to ' + Math.round(maxMm) + ' mm of rain in an hour.');
     else if (maxMm >= 4) cause('rain', 'Heavy rain, around ' + Math.round(maxMm) + ' mm an hour.');
+    /* The rung that raises a watch at 2 mm needs a line of its own, or the
+       card says "keep an eye on it", puts a time on it, tells you to check an
+       official warning, and then lists no reason whatsoever. London did
+       exactly that on 2.8 mm the first time this code met real data. */
+    else if (maxMm >= 2) cause('rain', 'Steady rain, around ' + (Math.round(maxMm * 10) / 10) + ' mm an hour.');
     /* Instability gets a line of its own only when nothing louder is already
        explaining the level, and it never uses the word storm. */
     if (!causes.length && maxCape >= 500) {
@@ -739,9 +749,14 @@
       rain: maxMm >= 4,
       wind: maxGust >= 55,
       unstable: maxCape >= 500,
-      /* Null rather than 0 when the model never offered a CAPE at all, so the
-         screen can stay quiet instead of claiming a calm it cannot see. */
-      cape: maxCape > 0 ? maxCape : null,
+      /* Null only when the model offered no CAPE at all, so the screen can
+         stay quiet instead of claiming a calm it cannot see. A real, measured
+         zero comes back as 0: that is the model saying the air is stable,
+         which is information, not silence. This used to read
+         `maxCape > 0 ? maxCape : null` and so reported a fully populated run
+         of genuine zeroes as "nobody said" — live UK data in November is
+         almost entirely zeroes, which is how it was caught. */
+      cape: sawCape ? maxCape : null,
       timeline: timeline
     };
   };
