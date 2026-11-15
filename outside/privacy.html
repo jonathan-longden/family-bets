@@ -35,102 +35,165 @@
   .box p:first-child { margin-top: 0; }
   .box p:last-child { margin-bottom: 0; }
   footer { margin-top: 44px; color: #7d8cb4; font-size: 0.9rem; }
+  /* The policy opens in place rather than in a new tab — a WebView has no
+     tabs to open, and a link that silently does nothing is worse than no link
+     at all. So there has to be an obvious way back from the top of the page,
+     not only from the end of it. */
+  .back {
+    display: inline-block;
+    margin-bottom: 20px;
+    padding: 9px 15px;
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 12px;
+    color: #f2f6ff;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.92rem;
+  }
 </style>
 </head>
 <body>
 <main>
 
+  <a class="back" href="./">← Back to the weather</a>
+
   <h1>Privacy</h1>
   <p class="sub">Blooming Weather — the polite name on a weather app with a mouth on it.</p>
-  <p class="when">Last updated 29 August 2026</p>
+  <p class="when">Last updated 13 November 2026</p>
 
   <div class="box">
-    <p><strong>The short version.</strong> There is no account, no analytics, no advertising and no
-      server of ours. Your location and your settings stay on your phone. The only thing that ever
-      leaves it is a pair of coordinates, sent to the weather service to ask what the weather is
-      there.</p>
+    <p><strong>The short version.</strong> Blooming Weather stores your saved places, settings and
+      cached forecasts on your device. When you use online features, information is sent to the
+      services that provide weather, map tiles, warnings, advertising or purchase verification.
+      The app has no sign-in account or separate analytics SDK, although AdMob may process
+      analytics-related information as described below. On Android, Premium is a £4.79 one-time
+      lifetime purchase through Google Play and removes adverts after our verification Worker
+      confirms the purchase.</p>
   </div>
 
-  <h2>What the app collects about you</h2>
-  <p>Nothing. We operate no servers, hold no database and have no way to identify you. Everything
-    the app knows is on your own device and goes away when you delete the app.</p>
-
-  <h2>Location</h2>
+  <h2>Location and saved places</h2>
   <ul>
-    <li>The app asks for location permission only when you tap <strong>Use where I am</strong>, and
-      it explains why before the phone's own prompt appears.</li>
-    <li>Coordinates are <strong>rounded to four decimal places</strong> — roughly eleven metres —
-      before they are stored or sent anywhere. The forecast is the same either way, so the extra
-      precision would be nothing but a more exact record of where you live.</li>
-    <li>The rounded coordinates are saved on your device so the app knows where to look next time,
-      and are sent to the weather service with each forecast request.</li>
-    <li><strong>Refusing is fine.</strong> The app works fully without location permission — search
-      for a town instead. Nothing is nagged, hidden or withheld.</li>
-    <li>No location history is kept. The app stores one place, the current one, and overwrites it
-      when you change it.</li>
+    <li>If you choose <strong>Use my location</strong>, the app asks the operating system or browser
+      for a location fix. On Android it requests the coarse-location permission. On iOS it requests
+      location while the app is in use and asks iOS for reduced accuracy by default; iOS settings
+      may affect the accuracy provided. In a browser it requests geolocation with
+      <code>enableHighAccuracy: false</code>, which asks for a lower-accuracy fix but does not
+      guarantee that only coarse location is provided. The app rounds a live location result to
+      four decimal places before saving or using it for a forecast.</li>
+    <li>You can instead search for a town. The search text is sent to Open-Meteo's geocoding API.
+      Choosing a result saves that place and coordinates rounded to four decimal places on your
+      device. Places loaded through the app's import feature can retain greater coordinate
+      precision, and the app can use those coordinates as imported.</li>
+    <li>Your saved place names, optional labels, coordinates, selected/startup place, preferences
+      and cached weather data are saved in the app's browser storage on the device. The cache
+      includes the latest forecast and a short previous-forecast summary used to describe changes.
+      The app does not send this entire saved-place list to its weather providers.</li>
+    <li>Location permission is optional. You can search for a place instead. The app requests a
+      location when you use that feature; it does not continuously track your movement.</li>
   </ul>
 
-  <h2>The weather service</h2>
-  <p>Forecasts come from <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>,
-    an independent weather API. The app talks to it directly from your device — nothing passes
-    through us.</p>
+  <h2>Weather and place search</h2>
+  <p>The app requests forecasts directly from
+    <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> at
+    <code>api.open-meteo.com</code>, and town search from <code>geocoding-api.open-meteo.com</code>.</p>
   <ul>
-    <li><strong>Forecasts:</strong> the request contains the rounded coordinates and the range of
-      days and hours being asked for.</li>
-    <li><strong>Town search:</strong> when you search for a place, the text you typed is sent to
-      Open-Meteo's geocoding service to be matched.</li>
-    <li>As with any internet request, Open-Meteo's servers receive your device's IP address. What
-      they do with it is governed by
-      <a href="https://open-meteo.com/en/terms" target="_blank" rel="noopener">their own terms and
-      privacy statement</a>, not by this policy. Open-Meteo requires no key, no account and no email
-      address, and the app sends none.</li>
+    <li>Forecast requests include the selected place's latitude and longitude, forecast periods
+      and the weather fields requested by the app. Coordinates from live location and place search
+      are rounded to four decimal places by the app; imported place coordinates may have greater
+      precision.</li>
+    <li>Place searches include the text you entered. Open-Meteo and the other internet services
+      contacted by the app can receive normal connection data such as your IP address and request
+      details.</li>
   </ul>
 
-  <h2>What is stored on your device</h2>
-  <ul>
-    <li>The place you chose — its name and rounded coordinates.</li>
-    <li>Your settings: units, clock format, swearing, animation, icon badge.</li>
-    <li>The most recent forecast, so the app opens with no signal, plus a short summary of the
-      previous one so it can tell you what has changed.</li>
-  </ul>
-  <p>On the web this lives in the browser's local storage. In the iOS and Android apps it lives in
-    the app's own private storage, which no other app can read.</p>
+  <h2>Storm Tracker, warnings and map</h2>
+  <p>The Storm Tracker map uses the OpenFreeMap style at
+    <code>tiles.openfreemap.org</code>. Loading the map causes the device to request map style and
+    tile resources; the map is centred on the selected place when one is available. OpenFreeMap's
+    service can therefore receive connection data, including your IP address and map tile requests
+    that indicate the displayed area.</p>
+  <p>Official UK warning data is requested from our Cloudflare Worker at
+    <code>blooming-weather-warnings.longdenjonathan89.workers.dev/api/warnings</code>. The app makes
+    a GET request for the warnings feed without adding your selected coordinates to that request.
+    The feed displays Met Office warning information supplied through that service. The app code
+    does not contact the Met Office directly; how the Worker obtains and handles that feed is
+    governed by the service operator's arrangements.</p>
 
-  <h2>Analytics, tracking and advertising</h2>
-  <p>There are none. No analytics SDK, no crash reporting service, no advertising identifier, no
-    tracking pixels, no third-party cookies, no social media buttons that phone home. Nothing about
-    how you use the app is measured or transmitted.</p>
+  <h2>Advertising and consent</h2>
+  <p>On native devices, the app refreshes Google's User Messaging Platform (UMP) consent information
+    at startup. If Premium is already verified at startup, the app still refreshes consent information
+    so the Settings privacy-options status can be shown, but it does not initialise AdMob, show the
+    advertising consent form or request adverts. For users without verified Premium, if UMP reports
+    that consent is required and a form is available, the app presents the advertising consent form
+    and requests adverts only when UMP reports that ads can be requested. If Premium is purchased
+    during an existing session, AdMob may already have been initialised. After the Worker verifies
+    the purchase, the app hides the banner and suppresses further advertising display; it does not
+    unload an AdMob SDK that was already initialised. The web version does not use the native UMP or
+    AdMob flow. A consent form is not necessarily required or shown in every region or session.</p>
+  <p>The app includes the Google Mobile Ads SDK through the Capacitor AdMob plugin. Its resolved
+    Android Mobile Ads SDK dependency is version 25.4.0. Google's current
+    <a href="https://developers.google.com/admob/android/privacy/play-data-disclosure" target="_blank" rel="noopener">Android data disclosure for the Mobile Ads SDK</a>
+    describes the latest SDK as automatically collecting and sharing IP addresses, user product
+    interactions, diagnostic information, and device or account identifiers for advertising,
+    analytics, and fraud prevention. That is Google's SDK-level disclosure; the exact handling in
+    this app may vary with the bundled SDK version, configuration, region, consent and ad use. The
+    app code itself establishes the UMP consent checks above, but does not enumerate every datum
+    handled inside Google's SDKs. Google's current iOS guidance says its Mobile Ads SDK can collect
+    coarse location when the app has location permission, and that automatic coarse-location
+    collection is enabled by default starting with SDK 13.12.0. This app bundles iOS SDK 13.11.0
+    and does not set the later <code>coarseLocationCollectionEnabled</code> control; Google's
+    current documentation does not establish the exact coarse-location behavior of that bundled
+    version. The app's own ad request code does not add the selected place coordinates. See Google's
+    <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">Privacy Policy</a>
+    for Google's broader privacy practices. Verified Premium users do not receive adverts from
+    the app.</p>
+  <p>In the native app, Settings includes a <strong>Privacy options</strong> control when UMP
+    reports that one is required, and hides it when UMP reports that it is not required. The
+    control opens Google's UMP privacy-options form. The web version does not use the native UMP
+    controls.</p>
 
-  <h2>Notifications</h2>
-  <p>The app sends none and asks for no notification permission.</p>
+  <h2>Premium purchases and verification</h2>
+  <p>On Android, Premium is a one-time lifetime purchase offered at <strong>£4.79</strong> through Google Play
+    Billing. The app uses the product ID <code>blooming_weather_premium</code>. After Google Play
+    returns a completed purchase, the app sends a JSON POST to our Cloudflare Worker at
+    <code>https://blooming-weather-purchases.longdenjonathan89.workers.dev/verify</code>. The JSON
+    includes <code>productId</code> and the Google Play <code>purchaseToken</code>, plus available
+    transaction details (<code>platform</code>, <code>transactionId</code>, <code>orderId</code>,
+    <code>receipt</code> and <code>jwsRepresentation</code>). Empty/unavailable details are sent as
+    <code>null</code>. The Worker is responsible for checking the purchase with Google Play.</p>
+  <p>The app unlocks Premium only after the Worker returns a successful response that positively
+    marks the purchase as verified, valid or premium. Purchase tokens and the associated request
+    are therefore processed by the Worker and Google Play for verification; those services also
+    receive normal connection information such as IP address. On app startup and when you select
+    Restore Purchases, the app checks purchases available to the Google Play account on the device
+    and sends eligible Android purchases for verification, so a purchase can be restored on another
+    Android device using the purchasing Google Play account. This Google Play purchase verification
+    and restoration flow applies to Android. Google Play may also receive purchase and acknowledgement
+    requests from the app. The app does not unlock Premium from a local preference alone.</p>
 
-  <h2>Sharing</h2>
-  <p>The share button draws a picture of the weather and hands it to your phone's own share sheet.
-    Where it goes from there is your choice and your messaging app's business — the card contains
-    the place name, the weather and the app's name, and nothing about you or your device.</p>
+  <h2>Other device storage and sharing</h2>
+  <p>The app keeps its settings and cached information in local browser storage used by the app,
+    and uses temporary device cache storage when preparing a share image. The share card contains
+    the selected place name, weather and app name. When you choose Share, the app hands the card
+    and/or text to your device's share sheet; the destination you choose then handles it under its
+    own privacy terms. The app does not include a separate analytics SDK. Google's Mobile Ads SDK
+    may process interaction and diagnostic information, including for analytics; the purposes and
+    data described vary by platform and SDK version, as set out in Google's disclosures above.</p>
 
-  <h2>Children</h2>
-  <p>The app collects no personal data from anyone, of any age. It does contain strong language when
-    the swearing setting is on; it can be turned off in Settings, and the app then uses its clean
-    lines throughout.</p>
+  <h2>Deleting local data</h2>
+  <p><strong>Settings → Erase everything</strong> clears the app's saved places, settings and cached
+    forecasts from this device. Deleting the app or clearing its site data also removes local app
+    data. These actions do not themselves delete information already processed by Google, Open-Meteo,
+    OpenFreeMap, Google Play, or the Cloudflare services. Their retention and deletion practices are
+    governed by their own policies and service arrangements.</p>
 
-  <h2>Deleting your data</h2>
-  <ul>
-    <li><strong>In the app:</strong> Settings → <strong>Erase everything</strong> removes the saved
-      place, the settings and the cached forecast immediately.</li>
-    <li><strong>Everything:</strong> delete the app, or clear the site data in your browser. Because
-      nothing is held anywhere else, that is the end of it — there is no account to close and no
-      request to make of us.</li>
-  </ul>
-
-  <h2>Changes</h2>
-  <p>If this policy changes, the date at the top changes with it and the new version appears here
-    and in the app.</p>
-
-  <h2>Contact</h2>
-  <p>Questions about this policy can be raised at
+  <h2>Children, changes and contact</h2>
+  <p>The app has no account system. It contains strong language when the swearing setting is on;
+    this can be turned off in Settings. If this policy changes, the date above will be updated.</p>
+  <p>Questions about this policy can be raised by email at
+    <a href="mailto:weatherblooming@gmail.com">weatherblooming@gmail.com</a>, or through
     <a href="https://github.com/jonathan-longden/family-bets" target="_blank" rel="noopener">the
-    project's repository</a>, or by email at the support address given on the app's store listing.</p>
+    project's repository</a>.</p>
 
   <footer>
     <a href="./">Back to the weather</a>

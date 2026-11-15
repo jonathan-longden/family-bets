@@ -136,7 +136,23 @@ edit(join(web, 'index.html'), [
   [/(<meta name="description" content=")[^"]*(">)/,
     `$1${xml(NAME + ' — ' + cfg.tagline)}$2`, 'the page description'],
   [/(<meta name="theme-color" content=")[^"]*(">)/,
-    `$1${cfg.colors.theme}$2`, 'the theme colour']
+    `$1${cfg.colors.theme}$2`, 'the theme colour'],
+  /* Cache busting. Every script and stylesheet carries the build number, so
+     a browser holding yesterday's voice.js is made to go and get today's.
+     This used to be edited by hand, which meant the build number lived in
+     two places and the second one was always the one somebody forgot. */
+  [/\?v=\d+/, `?v=${cfg.build}`, 'the asset version', true]
+]);
+
+/* ------------------------------------------------------------- the worker */
+
+/* Renaming the cache is what retires the old one: the worker deletes every
+   cache that is not the current name when it activates. Leave this behind
+   and a returning visitor is served the previous version of the app for as
+   long as their browser feels like it. */
+edit(join(web, 'sw.js'), [
+  [/const CACHE_NAME = 'weather-v\d+';/,
+    `const CACHE_NAME = 'weather-v${cfg.build}';`, 'the service worker cache name']
 ]);
 
 /* --------------------------------------------------------- capacitor.config */

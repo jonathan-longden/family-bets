@@ -257,6 +257,7 @@ started, and none of it can be.
 | Google | Play Console listing, data safety, content rating, submit | — |
 | Both | A support email address that you read | — |
 
-`support.email` in `app.config.json` is deliberately empty. Both stores require
-a working contact and will reject a listing without one, and it is not a thing
-to be filled in with a guess.
+`support.email` in `app.config.json` is set to `weatherblooming@gmail.com`.
+Both stores publish it on the listing and Google Play also uses it for policy
+notices, so it has to be a mailbox somebody actually reads — missing one of
+those notices can get an app suspended.

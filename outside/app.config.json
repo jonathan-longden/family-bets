@@ -14,7 +14,7 @@
   ],
   "id": "io.github.jonathanlongden.weather",
   "version": "1.0.0",
-  "build": 6,
+  "build": 8,
   "name": "Blooming Weather",
   "tagline": "A proper weather app that tells you exactly what the sky is doing, then takes the mickey out of it.",
   "store": {
@@ -55,7 +55,7 @@
   },
   "support": {
     "_": "Both shops require a working support contact and will reject a listing without one. Nobody can fill these in but you — put in an address you actually read.",
-    "email": "",
+    "email": "weatherblooming@gmail.com",
     "url": "https://github.com/jonathan-longden/family-bets"
   },
   "colors": {
