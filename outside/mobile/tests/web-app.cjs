@@ -1625,17 +1625,20 @@ async function main() {
 
   /* ------------------------------ suite: the conditions the licence rests on */
 
-  /* Open-Meteo confirmed by email that this app may use the free API as a
-     personal hobby project. That permission is conditional: it holds while
-     the app has no advertising, no affiliate links, no subscriptions, no
-     in-app purchases, no paid features and no analytics or tracking.
-     See mobile/OPEN-METEO.md.
+  /* The app is going to Google Play with advertising and a paid Premium
+     tier, which makes it a commercial product. Open-Meteo's free tier does
+     not cover commercial products — their own worked example of commercial
+     use is "apps that have subscriptions or display advertisements".
 
-     Those are product decisions, and product decisions drift. A note in a
-     markdown file does not stop somebody adding a crash reporter one wet
-     Tuesday, so the conditions are checked here instead: if any of them is
-     broken the suite fails, and whoever broke it finds out that the data
-     licence changed with it. */
+     So the invariant this suite guards is no longer "never add ads". It is
+     the pairing: ADVERTISING OR PURCHASE CODE MUST NOT SHIP AGAINST THE FREE
+     WEATHER ENDPOINT. Either can be true on its own. Together they are a
+     licence breach, and the kind that nobody notices until the provider
+     does.
+
+     Whichever happens first — the ads land, or the provider moves to the
+     paid endpoint — this suite says what else now has to change.
+     See WEATHER-PROVIDER-DECISION.md and OPEN-METEO.md. */
 
   console.log('\nthe conditions the licence rests on');
 
@@ -1653,8 +1656,13 @@ async function main() {
       'in-app purchase', 'inapppurchase', 'billingclient', 'play-billing',
       'affiliate', 'adservice', 'ad-network'
     ];
+    /* Code and manifests only. privacy.html is deliberately NOT swept: a
+       policy that describes a planned feature is documentation, not the
+       feature shipping, and failing the build over prose taught nothing. The
+       policy's accuracy is checked further down instead, against what the
+       code actually does. */
     const files = ['index.html', 'app.js', 'weather.js', 'voice.js', 'brand.js',
-      'native.js', 'sw.js', 'privacy.html', 'manifest.json', 'mobile/package.json'];
+      'native.js', 'sw.js', 'manifest.json', 'mobile/package.json'];
     const hits = [];
     for (const f of files) {
       const res = await fetch(f);
@@ -1708,6 +1716,68 @@ async function main() {
   page.off('request', watcher);
   eq('the only servers the app calls are Open-Meteo',
     [...talkedTo].sort(), ['api.open-meteo.com']);
+
+  /* The pairing. Advertising or purchase code shipping against the free
+     weather endpoint is the breach, and neither half on its own tells you
+     anything. This is the check that has to survive the launch. */
+  const pairing = await page.evaluate(async () => {
+    const monetised = /admob|billingclient|play-billing|google.?mobile.?ads|purchases?\.verify/i;
+    const code = ['index.html', 'app.js', 'native.js', 'mobile/package.json'];
+    let monetisedIn = [];
+    for (const f of code) {
+      const r = await fetch(f);
+      if (r.ok && monetised.test(await r.text())) monetisedIn.push(f);
+    }
+    /* Which endpoint the app is actually built to call. The free host is the
+       one the commercial licence does not cover. */
+    const url = window.Weather.forecastUrl({ lat: 51.5, lon: -0.1 }, 15);
+    const host = new URL(url).host;
+    return {
+      monetisedIn,
+      host,
+      onFreeTier: host === 'api.open-meteo.com',
+      hasKey: /[?&]apikey=/.test(url)
+    };
+  });
+
+  ok('advertising and purchase code are not shipping against the free weather tier',
+    !(pairing.monetisedIn.length && pairing.onFreeTier),
+    pairing.monetisedIn.length
+      ? 'monetisation in ' + pairing.monetisedIn.join(', ') + ' while calling ' + pairing.host +
+        ' — this is an Open-Meteo licence breach, see WEATHER-PROVIDER-DECISION.md'
+      : 'no monetisation code present');
+  ok('and the paid endpoint is never called without a key',
+    !(pairing.host === 'customer-api.open-meteo.com' && !pairing.hasKey), pairing.host);
+
+  /* The privacy policy is a public promise about data handling, and it has
+     already drifted once — it described AdMob, Play Billing and map tiles
+     that no branch contained. It does not fail the build for being ahead of
+     the code, but the gap has to be visible rather than discovered by a
+     reviewer. */
+  const policyDrift = await page.evaluate(async () => {
+    const policy = (await (await fetch('privacy.html')).text()).toLowerCase();
+    const codeText = (
+      await (await fetch('app.js')).text() + await (await fetch('native.js')).text() +
+      await (await fetch('index.html')).text() + await (await fetch('mobile/package.json')).text()
+    ).toLowerCase();
+    const claims = {
+      'advertising (AdMob)': 'admob',
+      'in-app purchases': 'billing',
+      'map tiles': 'tiles.openfreemap.org',
+      'a warnings service': 'warnings'
+    };
+    const ahead = [];
+    Object.keys(claims).forEach(label => {
+      if (policy.indexOf(claims[label]) >= 0 && codeText.indexOf(claims[label]) < 0) ahead.push(label);
+    });
+    return ahead;
+  });
+  /* Reported, not enforced: the launch plan says these are coming. */
+  console.log('    policy describes, code does not yet implement: ' +
+    (policyDrift.length ? policyDrift.join(', ') : 'nothing — they agree'));
+  ok('the gap between policy and code is known and recorded',
+    policyDrift.length === 0 || fs.existsSync(path.join(ROOT, 'mobile', 'BLOCKER-privacy-policy.md')),
+    JSON.stringify(policyDrift));
 
   /* ------------------------------------------------------- suite: settings */
 
