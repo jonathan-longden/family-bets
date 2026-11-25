@@ -340,14 +340,32 @@ button:active { transform: scale(.98); }
 /* -------------------------------------------------------------------- foot */
 
 .foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
   color: var(--dimmer);
   font-size: .78rem;
   padding: 6px 2px 0;
 }
+.foot-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+}
+
+/* The data credit. Readable rather than greyed into the background — it is a
+   licence condition, not small print — and on its own line so a long status
+   like "Updated 3 h ago · using the last forecast we managed to grab" can
+   never push it off the side of a 320px phone. */
+.foot-credit { margin: 7px 0 0; }
+.foot-credit a {
+  color: var(--dim);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  /* A comfortable target without turning a line of text into a button. */
+  display: inline-block;
+  padding: 3px 0;
+}
+.foot-credit a:hover, .foot-credit a:focus-visible { color: var(--wet); }
 
 /* ------------------------------------------------------------------ sheets */
 
@@ -373,6 +391,100 @@ dialog.sheet::backdrop { background: rgba(3, 8, 20, .66); backdrop-filter: blur(
   gap: 13px;
   color: var(--ink);
 }
+/* -------------------------------------------------------- your locations */
+
+/* A list you switch with, not an admin screen. Each row is one big target
+   carrying that place's own weather; the tidying controls only exist while
+   Edit is on. */
+.places { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+
+.place-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, .05);
+  overflow: hidden;
+}
+.place-row.is-current {
+  border-color: rgba(255, 203, 61, .45);
+  background: linear-gradient(100deg, rgba(255, 203, 61, .14), rgba(255, 203, 61, .04));
+}
+
+.place-go {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: none;
+  border: 0;
+  padding: 12px 14px;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.place-id { display: flex; flex-direction: column; min-width: 0; }
+.place-id b { font-size: 1.02rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.place-where {
+  color: var(--dimmer);
+  font-size: .76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.place-read { display: flex; align-items: center; gap: 8px; flex: none; }
+.place-read b { font-size: 1.15rem; font-weight: 800; }
+.place-icon { font-size: 1.2rem; line-height: 1; }
+.place-age { color: var(--dimmer); font-size: .72rem; font-weight: 700; }
+
+/* The current one gets a pin, so the list says where you are without colour
+   having to carry the meaning on its own. */
+.place-row.is-current .place-id b::before {
+  content: "◉ ";
+  color: var(--sun);
+  font-size: .7em;
+  vertical-align: middle;
+}
+
+/* Edit mode. The five tools used to sit on the name's line, which on a 320px
+   phone left about seven characters of it — "Newca…" and "Llanfai…" are not
+   a list you can pick from. So while Edit is on the row wraps: the name keeps
+   the full width it has the rest of the time, and the tools drop onto a line
+   of their own underneath, where there is room for them to be proper targets
+   rather than 30px slivers. */
+.places--managing .place-read { display: none; }
+.places--managing .place-row { flex-wrap: wrap; }
+.places--managing .place-go { flex: 1 0 100%; padding-bottom: 8px; }
+.places--managing .place-tools {
+  flex: 1 0 100%;
+  justify-content: space-between;
+  gap: 4px;
+  padding: 0 8px 8px;
+  border-top: 1px solid rgba(255, 255, 255, .07);
+  padding-top: 6px;
+}
+.places--managing .place-tool { flex: 1; width: auto; max-width: 64px; height: 42px; }
+
+.place-tools { display: flex; align-items: center; gap: 2px; padding-right: 6px; }
+.place-tool {
+  background: none;
+  border: 0;
+  color: var(--dim);
+  width: 30px;
+  height: 34px;
+  border-radius: 9px;
+  font-size: .9rem;
+  cursor: pointer;
+}
+.place-tool:hover { background: rgba(255, 255, 255, .08); }
+.place-tool[disabled] { opacity: .25; cursor: default; }
+.place-tool--on { color: var(--sun); }
+.place-tool--danger { color: #ff8f8f; }
+
 /* The location explainer. Bigger type than the other sheets and no jokes in
    it: this is the one screen where the app is asking for something rather than
    giving something, and it should read like a straight answer. */
@@ -437,6 +549,10 @@ select { appearance: none; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
+  /* The storm badge pulses to catch an eye. Somebody who has asked their
+     phone to stop moving things has already told us not to do that, and the
+     badge still says STORM NOW in words either way. */
+  .storm--now .storm-badge { animation: none !important; }
 }
 
 
@@ -475,6 +591,122 @@ select { appearance: none; }
 }
 .alert-title { font-weight: 800; font-size: 1.02rem; margin-top: 6px; }
 .alert-detail { margin: 4px 0 0; font-size: .88rem; color: var(--ink); opacity: .88; line-height: 1.45; }
+
+/* ------------------------------------------------------------- storm watch */
+
+/* The card takes its colour from the level, so the four states are told
+   apart at a glance and not only by reading. Colour is never the only
+   signal: the badge says the state in words as well. */
+.storm { border-color: var(--line); }
+.storm--watch { border-color: rgba(255, 203, 61, .38); }
+.storm--warning { border-color: rgba(255, 160, 90, .55); }
+.storm--now { border-color: rgba(255, 110, 110, .7); }
+
+/* On a narrow phone the heading and the badge do not both fit on one line,
+   and a wrapped "STORM / WATCH" reads as two broken words. The badge drops
+   to its own line instead and the heading stays whole. */
+.storm .card-head { flex-wrap: wrap; row-gap: 8px; }
+.storm .card-head h2 { white-space: nowrap; }
+
+.storm-badge {
+  margin-left: auto;
+  font-size: .68rem;
+  letter-spacing: .13em;
+  font-weight: 800;
+  text-transform: uppercase;
+  padding: 5px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid currentColor;
+}
+.storm--clear .storm-badge { color: #8fe0b0; }
+.storm--watch .storm-badge { color: var(--sun); }
+.storm--warning .storm-badge { color: #ffb07a; }
+.storm--now .storm-badge { color: #ff8f8f; background: rgba(255, 110, 110, .13); }
+
+/* The one animation in here, and only on the state that genuinely wants
+   attention. Switched off under reduced motion below. */
+.storm--now .storm-badge { animation: stormPulse 2.4s ease-in-out infinite; }
+@keyframes stormPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+
+.storm-line {
+  margin: 12px 0 0;
+  font-size: 1.12rem;
+  font-weight: 800;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+.storm-when { margin: 7px 0 0; font-size: .88rem; color: var(--dim); }
+
+.storm-causes { list-style: none; margin: 11px 0 0; padding: 0; display: grid; gap: 6px; }
+.storm-causes li {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  font-size: .9rem;
+  color: var(--ink);
+  opacity: .9;
+  line-height: 1.45;
+}
+.storm-causes li::before {
+  content: attr(data-icon);
+  font-size: .95rem;
+  flex: none;
+}
+
+/* Twenty-four hours as twenty-four bars. Height is the risk, and a storm
+   hour is marked with a dot as well so it does not rely on height alone. */
+.storm-strip {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 46px;
+  margin-top: 14px;
+}
+/* With nothing happening every bar is at its floor, and a 46px box holding
+   6px of bar reads as a hole in the card rather than a chart. */
+.storm-strip--flat { height: 14px; }
+
+.storm-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: .66rem;
+  color: var(--dimmer);
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.storm-bar {
+  flex: 1;
+  min-width: 0;
+  border-radius: 3px 3px 2px 2px;
+  background: rgba(255, 255, 255, .13);
+  position: relative;
+}
+.storm-bar--watch { background: rgba(255, 203, 61, .55); }
+.storm-bar--warning { background: rgba(255, 160, 90, .8); }
+.storm-bar--now { background: #ff8f8f; }
+.storm-bar--thunder::after {
+  content: "";
+  position: absolute;
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ff8f8f;
+}
+
+.storm-foot {
+  margin: 9px 0 0;
+  font-size: .74rem;
+  color: var(--dimmer);
+  line-height: 1.5;
+}
 
 /* --------------------------------------------------- how is it looking, then */
 

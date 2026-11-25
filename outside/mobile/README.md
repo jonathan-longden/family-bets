@@ -164,7 +164,9 @@ Android's back button.
 - **No notifications.** The app asks for no notification permission and sends
   nothing. There is nothing here worth interrupting somebody for.
 - **No analytics, no crash reporting, no advertising ID, no third-party SDK.**
-  The only network calls the app makes are to Open-Meteo.
+  The only network calls the app makes are to Open-Meteo. This is not only a
+  taste: Open-Meteo's permission to use their free API depends on it, so the
+  test suite checks it on every run. See [OPEN-METEO.md](OPEN-METEO.md).
 - **No account, no server.** There is nothing to sign into and nothing of ours
   for data to sit on.
 - **No temperature on the icon yet.** Both platforms put the app icon's badge
